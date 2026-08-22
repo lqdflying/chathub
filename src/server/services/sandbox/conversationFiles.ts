@@ -20,72 +20,18 @@ export const SANDBOX_GATHER_MAX_PAGES = 50;
 
 const basename = (filename: string) => filename.replaceAll('\\', '/').split('/').pop() || filename;
 
-const loadConversationMessages = async ({
-  db,
-  groupId,
-  sessionId,
-  topicId,
-  userId,
-}: {
-  db: LobeChatDatabase;
-  groupId?: string | null;
-  sessionId?: string | null;
-  topicId?: string | null;
-  userId: string;
-}): Promise<UIChatMessage[]> => {
-  const messageModel = new MessageModel(db, userId);
-  const messages: UIChatMessage[] = [];
-
-  for (let current = 0; current < SANDBOX_GATHER_MAX_PAGES; current += 1) {
-    const page = (await messageModel.query({
-      current,
-      groupId: groupId || undefined,
-      pageSize: SANDBOX_GATHER_PAGE_SIZE,
-      sessionId: toPersistedConversationSessionId(sessionId),
-      topicId: topicId || undefined,
-    })) as UIChatMessage[];
-    messages.push(...page);
-    if (page.length < SANDBOX_GATHER_PAGE_SIZE) break;
-  }
-
-  return messages;
-};
-
-export const gatherConversationSandboxFiles = async ({
-  db,
-  groupId,
-  sessionId,
-  threadId,
-  topicId,
-  userId,
-}: {
-  db: LobeChatDatabase;
-  groupId?: string | null;
-  sessionId?: string | null;
-  threadId?: string | null;
-  topicId?: string | null;
-  userId: string;
-}): Promise<SandboxFile[]> => {
-  const fileModel = new FileModel(db, userId);
-  const fileService = new FileService(db, userId);
-  const maxFileBytes = codeInterpreterEnv.CODE_INTERPRETER_MAX_FILE_BYTES;
-  const maxFileCount = codeInterpreterEnv.CODE_INTERPRETER_MAX_FILE_COUNT;
-
-  const messages = await loadConversationMessages({
-    db,
-    groupId,
-    sessionId,
-    topicId,
-    userId,
-  });
-  const scoped = await loadConversationThreadMessages(db, userId, messages, threadId);
-
+const collectPendingFiles = (scoped: UIChatMessage[], maxFileCount: number) => {
   const pending: Array<{ filename: string; id: string }> = [];
-  const seen = new Set<string>();
+  const seenIds = new Set<string>();
+  const seenNames = new Set<string>();
   const push = (id?: string, filename?: string) => {
-    if (!id || seen.has(id) || pending.length >= maxFileCount) return;
-    seen.add(id);
-    pending.push({ filename: basename(filename || id), id });
+    const name = basename(filename || id || '');
+    if (!id || !name || seenIds.has(id) || seenNames.has(name) || pending.length >= maxFileCount) {
+      return;
+    }
+    seenIds.add(id);
+    seenNames.add(name);
+    pending.push({ filename: name, id });
   };
 
   for (let index = scoped.length - 1; index >= 0; index -= 1) {
@@ -105,16 +51,62 @@ export const gatherConversationSandboxFiles = async ({
     }
   }
 
+  return pending;
+};
+
+export const gatherConversationSandboxFiles = async ({
+  db,
+  groupId,
+  sessionId,
+  threadId,
+  topicId,
+  userId,
+}: {
+  db: LobeChatDatabase;
+  groupId?: string | null;
+  sessionId?: string | null;
+  threadId?: string | null;
+  topicId?: string | null;
+  userId: string;
+}): Promise<SandboxFile[]> => {
+  const messageModel = new MessageModel(db, userId);
+  const fileModel = new FileModel(db, userId);
+  const fileService = new FileService(db, userId);
+  const maxFileBytes = codeInterpreterEnv.CODE_INTERPRETER_MAX_FILE_BYTES;
+  const maxFileCount = codeInterpreterEnv.CODE_INTERPRETER_MAX_FILE_COUNT;
+  const newestFirst: UIChatMessage[] = [];
+  let pending: Array<{ filename: string; id: string }> = [];
+
+  for (let current = 0; current < SANDBOX_GATHER_MAX_PAGES; current += 1) {
+    const page = (await messageModel.query({
+      current,
+      groupId: groupId || undefined,
+      order: 'desc',
+      pageSize: SANDBOX_GATHER_PAGE_SIZE,
+      sessionId: toPersistedConversationSessionId(sessionId),
+      topicId: topicId || undefined,
+    })) as UIChatMessage[];
+    newestFirst.push(...page);
+    const chronological = [...newestFirst].reverse();
+    const scoped = await loadConversationThreadMessages(db, userId, chronological, threadId);
+    pending = collectPendingFiles(scoped, maxFileCount);
+    if (pending.length >= maxFileCount || page.length < SANDBOX_GATHER_PAGE_SIZE) break;
+  }
+
   const files: SandboxFile[] = [];
+  const usedNames = new Set<string>();
   for (const item of pending) {
     try {
       const record = await fileModel.findById(item.id);
       if (!record?.url) continue;
       const bytes = await fileService.getFileByteArray(record.url);
       if (!bytes || bytes.byteLength === 0 || bytes.byteLength > maxFileBytes) continue;
+      const filename = basename(record.name || item.filename);
+      if (usedNames.has(filename)) continue;
+      usedNames.add(filename);
       files.push({
         content: new Uint8Array(bytes),
-        filename: basename(record.name || item.filename),
+        filename,
       });
     } catch {
       continue;

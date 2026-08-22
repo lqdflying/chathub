@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   CI_FILES_SENTINEL_PREFIX,
+  CI_WORKDIR_PREFIX,
   parseSandboxEnvelope,
   wrapSandboxPython,
 } from '../envelope';
@@ -16,7 +17,10 @@ describe('Dify sandbox envelope', () => {
     });
 
     expect(wrapped).toContain('MPLBACKEND');
-    expect(wrapped).toContain('/mnt/data');
+    expect(wrapped).toContain(`/tmp`);
+    expect(wrapped).toContain(CI_WORKDIR_PREFIX);
+    expect(wrapped).toContain('mode=0o700');
+    expect(wrapped).not.toContain('/mnt/data');
     expect(wrapped).not.toContain('print("secret-source")');
     expect(wrapped).not.toContain('../etc/passwd');
     expect(wrapped).toContain(Buffer.from('print("secret-source")', 'utf8').toString('base64'));
@@ -31,7 +35,7 @@ describe('Dify sandbox envelope', () => {
   it('parses stdout before the sentinel and decodes output files', () => {
     const token = 'deadbeef';
     const payload = {
-      files: [{ b64: Buffer.from('plot-bytes').toString('base64'), name: '/mnt/data/plot_1.png' }],
+      files: [{ b64: Buffer.from('plot-bytes').toString('base64'), name: '/tmp/chathub-ci-x/plot_1.png' }],
       success: true,
     };
     const stdout = `hello world\n${CI_FILES_SENTINEL_PREFIX}${token}>>>\n${JSON.stringify(payload)}`;

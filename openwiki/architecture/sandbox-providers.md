@@ -65,12 +65,23 @@ and leftover tRPC keep calling `runCodeInterpreter`.
 
 `conversationFiles.ts` is ChatHub-side, not provider-specific:
 
-1. Page `MessageModel.query` (`pageSize` 1000) until a short page or 50 pages.
+1. Page `MessageModel.query` **newest-first** (`order: 'desc'`, `pageSize`
+   1000) until the file cap is filled, a short page, or 50 pages.
 2. Scope with `loadConversationThreadMessages` (unset `threadId` = main topic
    only; a portal thread is that thread plus its main prefix, not sibling
    threads).
-3. Walk **newest → oldest** until `CODE_INTERPRETER_MAX_FILE_COUNT`.
+3. Walk **newest → oldest**. Duplicate basenames keep the newest file.
 4. Persist outputs with the server file service.
+
+## Dify working directory
+
+DifySandbox `0.2.15` chroots to `/var/sandbox/sandbox-python` and runs each
+request as a pooled UID (10,000–10,999). The Dify provider therefore creates
+`/tmp/chathub-ci-<token>` with mode `0700`, never a shared `/mnt/data` or the
+process cwd. Guest `/tmp` is the chroot’s `tmp` directory. Matplotlib
+`plt.show()` closes the figure after saving so the final flush cannot overwrite
+it with an empty chart. In-place edits of input files are returned; unchanged
+inputs are not. Non-zero `SystemExit` is a failed run.
 
 ## Future backends
 

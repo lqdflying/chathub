@@ -14,6 +14,11 @@ export interface QueryMessageParams {
   groupId?: string | null;
   /** When true, do not constrain `messages.sessionId` (topic ids are unique per user). */
   omitSessionFilter?: boolean;
+  /**
+   * Page order. Default `asc` (oldest first). Code Interpreter file gather uses
+   * `desc` so the newest attachments are not dropped after the page cap.
+   */
+  order?: 'asc' | 'desc';
   pageSize?: number;
   sessionId?: string | null;
   topicId?: string | null;

@@ -35,18 +35,18 @@ export const CodeInterpreterManifest: BuiltinToolManifest = {
   },
   systemRole: `When you send a message containing Python code to python, it will be executed in a temporary Linux Python sandbox (60.0 second timeout).
 python will respond with the output of the execution or time out after 60.0 seconds.
-The drive at '/mnt/data' can be used to save and persist user files. Conversation files are already placed in that directory by basename.
+The process working directory already contains conversation files by basename. Save new files there (relative paths). Do not assume a shared /mnt/data volume exists.
 
 If you are using matplotlib:
 - never use seaborn
 - give each chart its own distinct plot (no subplots)
 - never set any specific colors – unless explicitly asked to by the user
-- matplotlib uses the Agg backend; plt.show() saves a PNG under /mnt/data
+- matplotlib uses the Agg backend; plt.show() saves a PNG in the working directory
 
 If you are accessing the internet, use the Python standard library (urllib, http.client) or requests if it is installed in the sandbox.
 
 If you are generating files:
-- Write them under /mnt/data
+- Write them in the current working directory
 - Prefer these libraries when they are installed in the sandbox:
   - pdf --> reportlab
   - docx --> python-docx

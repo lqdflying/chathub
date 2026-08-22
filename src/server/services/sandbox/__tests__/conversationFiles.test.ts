@@ -109,13 +109,13 @@ describe('sandbox conversation files', () => {
 
   it('keeps main-topic files and excludes portal-thread files', async () => {
     messageMocks.query.mockResolvedValue([
-      { fileList: [{ id: 'main-file', name: 'main.txt' }], id: 'main-1', role: 'user' },
       {
         fileList: [{ id: 'portal-file', name: 'portal.txt' }],
         id: 'thread-a-1',
         role: 'user',
         threadId: 'thread-a',
       },
+      { fileList: [{ id: 'main-file', name: 'main.txt' }], id: 'main-1', role: 'user' },
     ]);
 
     const files = await gatherConversationSandboxFiles({
@@ -134,20 +134,20 @@ describe('sandbox conversation files', () => {
       sourceMessageId: 'main-2',
     });
     messageMocks.query.mockResolvedValue([
-      { fileList: [{ id: 'main-file', name: 'main.txt' }], id: 'main-1', role: 'user' },
-      { id: 'main-2', role: 'user' },
-      {
-        fileList: [{ id: 'portal-file', name: 'portal.txt' }],
-        id: 'thread-a-1',
-        role: 'user',
-        threadId: 'thread-a',
-      },
       {
         fileList: [{ id: 'other-file', name: 'other.txt' }],
         id: 'thread-b-1',
         role: 'user',
         threadId: 'thread-b',
       },
+      {
+        fileList: [{ id: 'portal-file', name: 'portal.txt' }],
+        id: 'thread-a-1',
+        role: 'user',
+        threadId: 'thread-a',
+      },
+      { id: 'main-2', role: 'user' },
+      { fileList: [{ id: 'main-file', name: 'main.txt' }], id: 'main-1', role: 'user' },
     ]);
 
     const files = await gatherConversationSandboxFiles({
@@ -161,25 +161,25 @@ describe('sandbox conversation files', () => {
     expect(files.map((file) => file.filename).sort()).toEqual(['main-file.txt', 'portal-file.txt']);
   });
 
-  it('pages past the first 200 oldest messages to gather a newer file', async () => {
-    messageMocks.query.mockImplementation(async ({ current, pageSize }) => {
+  it('queries newest-first and gathers a file on the newest page', async () => {
+    messageMocks.query.mockImplementation(async ({ current, order, pageSize }) => {
+      expect(order).toBe('desc');
       if (current === 0) {
-        return Array.from({ length: pageSize }, (_, index) => ({
-          id: `old-${index}`,
-          role: 'user',
-        }));
-      }
-      if (current === 1) {
         return [
           {
             fileList: [{ id: 'needed', name: 'needed.txt' }],
             id: 'new-201',
             role: 'user',
           },
+          ...Array.from({ length: pageSize - 1 }, (_, index) => ({
+            id: `older-${index}`,
+            role: 'user',
+          })),
         ];
       }
-      return [];
+      throw new Error(`unexpected extra page ${current}`);
     });
+    process.env.CODE_INTERPRETER_MAX_FILE_COUNT = '1';
 
     const files = await gatherConversationSandboxFiles({
       db: {} as any,
@@ -190,22 +190,24 @@ describe('sandbox conversation files', () => {
 
     expect(messageMocks.query.mock.calls[0][0]).toMatchObject({
       current: 0,
+      order: 'desc',
       pageSize: SANDBOX_GATHER_PAGE_SIZE,
     });
+    expect(messageMocks.query).toHaveBeenCalledTimes(1);
     expect(files.map((file) => file.filename)).toEqual(['needed.txt']);
   });
 
   it('gathers a file on message 201 instead of only the oldest 200', async () => {
     messageMocks.query.mockResolvedValue([
-      ...Array.from({ length: 200 }, (_, index) => ({
-        id: `old-${index}`,
-        role: 'user' as const,
-      })),
       {
         fileList: [{ id: 'late', name: 'late.txt' }],
         id: 'm-201',
         role: 'user',
       },
+      ...Array.from({ length: 200 }, (_, index) => ({
+        id: `old-${index}`,
+        role: 'user' as const,
+      })),
     ]);
 
     const files = await gatherConversationSandboxFiles({
@@ -221,9 +223,9 @@ describe('sandbox conversation files', () => {
   it('prefers newer attachments when over the file-count cap', async () => {
     process.env.CODE_INTERPRETER_MAX_FILE_COUNT = '2';
     messageMocks.query.mockResolvedValue([
-      { fileList: [{ id: 'old', name: 'old.txt' }], id: 'm1', role: 'user' },
-      { fileList: [{ id: 'mid', name: 'mid.txt' }], id: 'm2', role: 'user' },
       { fileList: [{ id: 'new', name: 'new.txt' }], id: 'm3', role: 'user' },
+      { fileList: [{ id: 'mid', name: 'mid.txt' }], id: 'm2', role: 'user' },
+      { fileList: [{ id: 'old', name: 'old.txt' }], id: 'm1', role: 'user' },
     ]);
 
     const files = await gatherConversationSandboxFiles({
@@ -234,6 +236,29 @@ describe('sandbox conversation files', () => {
     });
 
     expect(files.map((file) => file.filename)).toEqual(['new.txt', 'mid.txt']);
+  });
+
+  it('keeps the newest file when two ids share a basename', async () => {
+    messageMocks.query.mockResolvedValue([
+      { fileList: [{ id: 'newer', name: 'report.csv' }], id: 'm-new', role: 'user' },
+      { fileList: [{ id: 'older', name: 'report.csv' }], id: 'm-old', role: 'user' },
+    ]);
+    fileModelMocks.findById.mockImplementation(async (id: string) => ({
+      name: 'report.csv',
+      url: `files/${id}`,
+    }));
+
+    const files = await gatherConversationSandboxFiles({
+      db: {} as any,
+      sessionId: 'session-1',
+      topicId: 'topic-1',
+      userId: 'user-1',
+    });
+
+    expect(files).toHaveLength(1);
+    expect(files[0].filename).toBe('report.csv');
+    expect(Buffer.from(files[0].content).toString()).toBe('newer');
+    expect(fileModelMocks.findById).not.toHaveBeenCalledWith('older');
   });
 
   it('persists sandbox outputs through the server file service', async () => {

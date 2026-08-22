@@ -87,12 +87,16 @@ export class MessageModel {
       topicId,
       groupId,
       omitSessionFilter,
+      order = 'asc',
     }: QueryMessageParams = {},
     options: {
       postProcessUrl?: (path: string | null, file: { fileType: string }) => Promise<string>;
     } = {},
   ) => {
     const offset = current * pageSize;
+    const createdAtOrder = order === 'desc' ? desc(messages.createdAt) : asc(messages.createdAt);
+    const messageOrderOrder =
+      order === 'desc' ? desc(messages.messageOrder) : asc(messages.messageOrder);
 
     // 1. get basic messages
     const result = await this.db
@@ -157,7 +161,7 @@ export class MessageModel {
       .leftJoin(messagePlugins, eq(messagePlugins.id, messages.id))
       .leftJoin(messageTranslates, eq(messageTranslates.id, messages.id))
       .leftJoin(messageTTS, eq(messageTTS.id, messages.id))
-      .orderBy(asc(messages.createdAt), asc(messages.messageOrder))
+      .orderBy(createdAtOrder, messageOrderOrder)
       .limit(pageSize)
       .offset(offset);
 
