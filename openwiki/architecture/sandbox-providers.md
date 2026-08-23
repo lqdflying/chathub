@@ -95,9 +95,13 @@ That flag is required for ChatHub isolation. ChatHub generates `preload`
 (hex-token mkdir + chown only); it never puts model or user code there. Keep
 port `8194` unpublished.
 
-The guest wrapper only probe-writes that directory, patches `open`/`getcwd` so
-relative paths stay inside it, and must not call `os.makedirs`, `os.chdir`, or
-`os.remove`. It also sets `TMPDIR`, `HOME`, `MPLCONFIGDIR`,
+The guest wrapper only probe-writes that directory, patches `open` /
+`io.open` / `getcwd` so relative paths stay inside it (stdlib `zipfile`
+uses `io.open`, which is only an alias for builtin `open` at interpreter
+start
+([io.open](https://docs.python.org/3.14/library/io.html#io.open),
+[zipfile](https://github.com/python/cpython/blob/3.14/Lib/zipfile/__init__.py))),
+and must not call `os.makedirs`, `os.chdir`, or `os.remove`. It also sets `TMPDIR`, `HOME`, `MPLCONFIGDIR`,
 `XDG_CONFIG_HOME`, and `XDG_CACHE_HOME` to that directory, plus
 `MPLBACKEND=Agg` (forced, not `setdefault`), `MPL_IGNORE_SYSTEM_FONTS=1`,
 `OMP_NUM_THREADS` / `OPENBLAS_NUM_THREADS` / `MKL_NUM_THREADS` = `1`
@@ -136,9 +140,13 @@ copied into the chroot, an eager import kills `print("hello")` with
 `error: operation not permitted` and empty stdout
 ([FAQ](https://github.com/langgenius/dify-sandbox/blob/0.2.15/FAQ.md),
 [dify#30625](https://github.com/langgenius/dify/issues/30625)). Patch
-`plt.show()` only after the user imports pyplot. Matplotlib `plt.show()`
-closes the figure after saving so the final flush cannot overwrite it with an
-empty chart. In-place edits of input files are returned; unchanged inputs are
+`plt.show()` only after pyplot has finished loading (`savefig` / `close` /
+`get_fignums` exist). An earlier `matplotlib.*` import during `pyplot.py`
+exec would otherwise bind `show` on a partial module, then `def show`
+overwrites it
+([pyplot.py](https://github.com/matplotlib/matplotlib/blob/v3.11.1/lib/matplotlib/pyplot.py)).
+`plt.show()` saves every open figure then closes it so a later plot is a
+new PNG and the final flush cannot overwrite it with an empty chart. In-place edits of input files are returned; unchanged inputs are
 not. Non-zero `SystemExit` is a failed run.
 
 ## Local jail reproduction

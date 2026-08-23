@@ -26,6 +26,9 @@ describe('Dify sandbox envelope', () => {
     expect(wrapped).toContain('FONTCONFIG_FILE');
     expect(wrapped).toContain('.fonts.conf');
     expect(wrapped).toContain('XDG_CACHE_HOME');
+    expect(wrapped).toContain('io.open = _open');
+    expect(wrapped).toContain('show._chathub');
+    expect(wrapped).toContain('switch_backend');
     expect(wrapped).toContain('subprocess.Popen = _SandboxPopen');
     expect(wrapped).toContain('posix_spawn');
     expect(wrapped).toContain('_posixsubprocess');

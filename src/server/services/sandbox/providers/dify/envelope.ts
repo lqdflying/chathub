@@ -87,7 +87,7 @@ export const wrapSandboxPython = ({
   const userB64 = Buffer.from(code, 'utf8').toString('base64');
 
   return [
-    'import os, sys, json, base64, traceback, hashlib, builtins, subprocess, threading, pathlib',
+    'import os, sys, json, base64, traceback, hashlib, builtins, io, subprocess, threading, pathlib',
     // Force Agg. setdefault loses if the sidecar already set Tk/Qt; pyplot then
     // probes GUI backends (https://matplotlib.org/stable/users/explain/figure/backends.html).
     'os.environ["MPLBACKEND"] = "Agg"',
@@ -198,6 +198,13 @@ export const wrapSandboxPython = ({
     '            pass',
     '    return _real_open(file, *args, **kwargs)',
     'builtins.open = _open',
+    // zipfile.ZipFile uses io.open at call time, not builtins.open. io.open is
+    // only an alias at interpreter start
+    // (https://docs.python.org/3.14/library/io.html#io.open;
+    // https://github.com/python/cpython/blob/3.14/Lib/zipfile/__init__.py).
+    // Guest cwd is the unwritable chroot; without this, openpyxl/docx/pptx/odf
+    // raise PermissionError on relative zip paths.
+    'io.open = _open',
     '_real_os_open = os.open',
     'def _os_open(path, flags, mode=0o777, *args, **kwargs):',
     '    return _real_os_open(_resolve(path), flags, mode, *args, **kwargs)',
@@ -233,14 +240,29 @@ export const wrapSandboxPython = ({
     // @see https://github.com/langgenius/dify/issues/30625
     'def _patch_pyplot():',
     '    plt = sys.modules.get("matplotlib.pyplot")',
-    '    if plt is None or getattr(plt, "_chathub_show", False):',
+    // Skip while pyplot.py is still executing: matplotlib.* imports during that
+    // load would patch a partial module, then `def show` overwrites it and a
+    // sticky flag would prevent a later re-bind
+    // (https://github.com/matplotlib/matplotlib/blob/v3.11.1/lib/matplotlib/pyplot.py).
+    '    if plt is None or not hasattr(plt, "savefig") or not hasattr(plt, "close") or not hasattr(plt, "get_fignums"):',
     '        return plt',
     '    def show(*args, **kwargs):',
-    '        plt.savefig(os.path.join(DATA_DIR, "plot_%s.png" % _PLOT_N["n"]), format="png")',
-    '        plt.close()',
-    '        _PLOT_N["n"] += 1',
-    '    plt.show = show',
-    '    plt._chathub_show = True',
+    '        for num in list(plt.get_fignums()):',
+    '            fig = plt.figure(num)',
+    '            fig.savefig(os.path.join(DATA_DIR, "plot_%s.png" % _PLOT_N["n"]), format="png")',
+    '            _PLOT_N["n"] += 1',
+    '            plt.close(fig)',
+    '    show._chathub = True',
+    '    if not getattr(getattr(plt, "show", None), "_chathub", False):',
+    '        plt.show = show',
+    '    _sb = getattr(plt, "switch_backend", None)',
+    '    if _sb is not None and not getattr(_sb, "_chathub", False):',
+    '        def switch_backend(newbackend, *a, **k):',
+    '            r = _sb(newbackend, *a, **k)',
+    '            plt.show = show',
+    '            return r',
+    '        switch_backend._chathub = True',
+    '        plt.switch_backend = switch_backend',
     '    return plt',
     '_real_import = builtins.__import__',
     'def _import(name, globals=None, locals=None, fromlist=(), level=0):',

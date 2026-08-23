@@ -241,6 +241,69 @@ describe('Dify sandbox envelope runtime', () => {
     expect(result.parsed.files.map((item) => item.filename)).toEqual(['plot_1.png']);
   });
 
+  it('routes zipfile.io.open writes into the session dir', () => {
+    const result = runWrapper({
+      code: [
+        'import zipfile',
+        'with zipfile.ZipFile("probe.zip", "w") as z:',
+        '    z.writestr("a.txt", "hello-zip")',
+        'print("zip-ok")',
+      ].join('\n'),
+      token: 'c0',
+    });
+    expect(result.parsed.success).toBe(true);
+    expect(result.parsed.stdout).toContain('zip-ok');
+    expect(result.parsed.files.map((item) => item.filename)).toEqual(['probe.zip']);
+    expect(result.parsed.files[0].content.byteLength).toBeGreaterThan(0);
+    expect(existsSync(join(process.cwd(), 'probe.zip'))).toBe(false);
+  });
+
+  it('rebinds plt.show after pyplot finishes loading past an early matplotlib.* import', () => {
+    const fakeRoot = mkdtempSync(join(tmpdir(), 'chathub-fake-mpl-early-'));
+    mkdirSync(join(fakeRoot, 'matplotlib', 'backends'), { recursive: true });
+    writeFileSync(join(fakeRoot, 'matplotlib', '__init__.py'), 'def use(*args, **kwargs):\n    pass\n');
+    writeFileSync(join(fakeRoot, 'matplotlib', 'backends', '__init__.py'), '');
+    writeFileSync(
+      join(fakeRoot, 'matplotlib', 'pyplot.py'),
+      [
+        'import matplotlib.backends  # triggers the import hook while this module is partial',
+        '_nums = [1]',
+        'class _Fig:',
+        '    def savefig(self, path, format=None):',
+        '        open(path, "wb").write(b"chart-pixels")',
+        'def savefig(path, format=None):',
+        '    _Fig().savefig(path, format)',
+        'def close(*args, **kwargs):',
+        '    global _nums',
+        '    _nums = []',
+        'def get_fignums():',
+        '    return list(_nums)',
+        'def figure(num=None):',
+        '    return _Fig()',
+        'def switch_backend(newbackend):',
+        '    pass',
+        'def show(*args, **kwargs):',
+        '    raise AssertionError("original show must not run")',
+        '',
+      ].join('\n'),
+    );
+
+    try {
+      const result = runWrapper({
+        code: 'import matplotlib.pyplot as plt\nplt.show()\nprint("show-ok", getattr(plt.show, "_chathub", False))',
+        env: { PYTHONPATH: fakeRoot },
+        token: '33',
+      });
+      expect(result.parsed.success).toBe(true);
+      expect(result.parsed.stdout).toContain('show-ok True');
+      expect(result.parsed.files).toHaveLength(1);
+      expect(result.parsed.files[0].filename).toBe('plot_1.png');
+      expect(Buffer.from(result.parsed.files[0].content).toString()).toBe('chart-pixels');
+    } finally {
+      rmSync(fakeRoot, { force: true, recursive: true });
+    }
+  });
+
   it('does not overwrite plt.show() output with a blank flush', () => {
     const fakeRoot = mkdtempSync(join(tmpdir(), 'chathub-fake-mpl-'));
     mkdirSync(join(fakeRoot, 'matplotlib'));
