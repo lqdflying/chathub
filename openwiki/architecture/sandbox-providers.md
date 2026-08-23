@@ -37,7 +37,9 @@ flowchart LR
 
 Result: `success`, `stdout`, `stderr`, `files`, `outcome`
 (`ok` / `error` / `timeout` / `unavailable` / `not_configured`), optional
-`httpStatus` / `exitCode` / `durationMs`.
+`httpStatus` / `exitCode` / `durationMs`. For Dify, `success` is wrapper
+sentinel present **and** `success: true` in that JSON. Process stderr
+(`data.error`) is still returned; library warnings must not fail the tool.
 
 Do **not** put VM handles, `/dev/kvm`, or Dify envelope tokens on this
 interface. Those belong inside a provider.

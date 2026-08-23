@@ -320,7 +320,8 @@ The ChatHub image is distroless and has no CPython. User-facing setup:
   the per-run `0700` workdir as root before seccomp; `code` is the guest
   wrapper (no mkdir/chdir/unlink). The sidecar must set `ENABLE_PRELOAD=true`
   or Dify 0.2.10+ strips `preload`. HTTP 200 + envelope `code === 0` is
-  transport OK; `data.error` is an execution failure. Isolation is seccomp +
+  transport OK; `data.error` is process stderr (shown, but warnings do not
+  fail the tool). Wrapper sentinel `success` is the failure flag. Isolation is seccomp +
   chroot. There is no file-upload API; the Dify provider wraps files into the
   Python string.
 - **ChatHub adapter** — `src/server/services/codeInterpreter/` gathers

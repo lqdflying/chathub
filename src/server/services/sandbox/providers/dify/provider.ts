@@ -258,7 +258,9 @@ export class DifySandboxProvider implements SandboxProvider {
     });
     const stderr = truncateChars(payload.data?.error?.trim() ?? '', this.maxStdoutChars);
     const stdout = truncateChars(envelope.stdout, this.maxStdoutChars);
-    const success = envelope.wrapperPresent && envelope.success && !stderr;
+    // Dify data.error is process stderr (warnings included), not a failure flag.
+    // Real failures are wrapperPresent + sentinel success (Exception / non-zero sys.exit).
+    const success = envelope.wrapperPresent && envelope.success;
     const outcome: SandboxOutcome = success ? 'ok' : 'error';
 
     logGenerationDebugSafe('sandbox_run_settled', {

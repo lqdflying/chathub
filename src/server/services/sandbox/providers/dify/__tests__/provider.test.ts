@@ -131,4 +131,46 @@ describe('DifySandboxProvider', () => {
     expect(result.outcome).toBe('error');
     expect(result.stdout).toBe('partial');
   });
+
+  it('keeps success when the wrapper sentinel is true and stderr is a warning', async () => {
+    fetchMock.mockImplementation(async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body)) as { code: string };
+      const token = /_TOKEN = "([0-9a-f]+)"/.exec(body.code)?.[1] ?? 'deadbeef';
+      return jsonResponse({
+        code: 0,
+        data: {
+          error: 'RequestsDependencyWarning: urllib3 does not match a supported version',
+          stdout: `ok\n${CI_FILES_SENTINEL_PREFIX}${token}>>>\n${JSON.stringify({ files: [], success: true })}`,
+        },
+        message: 'success',
+      });
+    });
+
+    const result = await run(new DifySandboxProvider());
+    expect(result.success).toBe(true);
+    expect(result.outcome).toBe('ok');
+    expect(result.stdout).toBe('ok');
+    expect(result.stderr).toContain('RequestsDependencyWarning');
+  });
+
+  it('keeps failure when the wrapper sentinel is false even if stderr is set', async () => {
+    fetchMock.mockImplementation(async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body)) as { code: string };
+      const token = /_TOKEN = "([0-9a-f]+)"/.exec(body.code)?.[1] ?? 'deadbeef';
+      return jsonResponse({
+        code: 0,
+        data: {
+          error: 'Traceback (most recent call last):\nValueError: boom',
+          stdout: `partial\n${CI_FILES_SENTINEL_PREFIX}${token}>>>\n${JSON.stringify({ files: [], success: false })}`,
+        },
+        message: 'success',
+      });
+    });
+
+    const result = await run(new DifySandboxProvider());
+    expect(result.success).toBe(false);
+    expect(result.outcome).toBe('error');
+    expect(result.stdout).toBe('partial');
+    expect(result.stderr).toContain('ValueError');
+  });
 });
