@@ -1,7 +1,12 @@
 {
   "codeInterpreter": {
+    "copied": "Copied",
+    "copy": "Copy URL",
+    "copyFailed": "Copy failed",
+    "download": "Download",
     "error": "Execution Error",
     "executing": "Executing...",
+    "fileUrl": "File URL",
     "files": "Files:",
     "noOutput": "Executed successfully with no output.",
     "output": "Output:",

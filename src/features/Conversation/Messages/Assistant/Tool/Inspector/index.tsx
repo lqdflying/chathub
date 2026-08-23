@@ -17,6 +17,10 @@ export const useStyles = createStyles(({ css, token, cx }) => ({
     css`
       opacity: 0;
       transition: opacity 300ms ease-in-out;
+
+      @media (hover: none) {
+        opacity: 1;
+      }
     `,
   ),
   apiName: css`

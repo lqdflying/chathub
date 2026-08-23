@@ -1,7 +1,12 @@
 {
   "codeInterpreter": {
+    "copied": "已复制",
+    "copy": "复制链接",
+    "copyFailed": "复制失败",
+    "download": "下载",
     "error": "执行错误",
     "executing": "执行中...",
+    "fileUrl": "文件链接",
     "files": "文件：",
     "noOutput": "执行完成，没有输出。",
     "output": "输出：",

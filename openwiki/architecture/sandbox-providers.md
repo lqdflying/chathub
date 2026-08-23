@@ -73,7 +73,13 @@ and leftover tRPC keep calling `runCodeInterpreter`.
    only; a portal thread is that thread plus its main prefix, not sibling
    threads).
 3. Walk **newest → oldest**. Duplicate basenames keep the newest file.
-4. Persist outputs with the server file service.
+4. Persist outputs with the server file service, then `FileService.getUIFileUrl`
+   so each `CodeInterpreterFileItem` has a `/webapi/files/...` URL. A failed
+   file is logged (`sandbox_persist_skipped`) and skipped; the run continues.
+   Older messages without `url` still resolve via `file.findById`.
+5. The builtin tool card defaults to plugin UI (not JSON). File cards use
+   `downloadFile` (fetch blob + object URL) because browsers ignore
+   `<a download>` on cross-origin S3 URLs.
 
 ## Dify working directory
 

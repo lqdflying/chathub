@@ -7,6 +7,7 @@ import mime from 'mime';
 import { FileModel } from '@/database/models/file';
 import { MessageModel } from '@/database/models/message';
 import { codeInterpreterEnv } from '@/envs/codeInterpreter';
+import { hashGenerationDebugValue, logGenerationDebugSafe } from '@/libs/logger/generationDebug';
 import { toPersistedConversationSessionId } from '@/server/services/conversationGeneration/inboxSession';
 import { loadConversationThreadMessages } from '@/server/services/conversationGeneration/threadScope';
 import { FileService } from '@/server/services/file';
@@ -156,8 +157,22 @@ export const persistSandboxOutputFiles = async ({
         },
         !existing.isExist,
       );
-      persisted.push({ fileId: id, filename: file.filename });
-    } catch {
+      const uiUrl = await fileService.getUIFileUrl(url);
+      persisted.push({
+        fileId: id,
+        filename: file.filename,
+        ...(uiUrl ? { url: uiUrl } : {}),
+      });
+    } catch (error) {
+      const errorClass = error instanceof Error ? error.name : 'Error';
+      // eslint-disable-next-line no-console
+      console.warn('[code-interpreter] persistSandboxOutputFiles skipped a file', { errorClass });
+      logGenerationDebugSafe('sandbox_persist_skipped', {
+        errorClass,
+        filenameHash: hashGenerationDebugValue(file.filename),
+        outcome: 'skipped',
+        reason: 'persist_failed',
+      });
       continue;
     }
   }

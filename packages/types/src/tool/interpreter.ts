@@ -19,6 +19,8 @@ export interface CodeInterpreterFileItem {
   fileId?: string;
   filename: string;
   previewUrl?: string;
+  /** UI proxy URL (`/webapi/files/...`). Older messages may omit this. */
+  url?: string;
 }
 
 export interface CodeInterpreterResponse extends PythonResult {

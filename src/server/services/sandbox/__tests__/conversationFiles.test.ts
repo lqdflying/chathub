@@ -10,6 +10,7 @@ const fileModelMocks = vi.hoisted(() => ({
 }));
 const fileServiceMocks = vi.hoisted(() => ({
   getFileByteArray: vi.fn(),
+  getUIFileUrl: vi.fn(),
   uploadMedia: vi.fn(),
 }));
 
@@ -33,6 +34,7 @@ vi.mock('@/database/models/file', () => ({
 vi.mock('@/server/services/file', () => ({
   FileService: class {
     getFileByteArray = fileServiceMocks.getFileByteArray;
+    getUIFileUrl = fileServiceMocks.getUIFileUrl;
     uploadMedia = fileServiceMocks.uploadMedia;
   },
 }));
@@ -76,6 +78,9 @@ describe('sandbox conversation files', () => {
       bytesFor(String(url).replace('files/', '')),
     );
     fileServiceMocks.uploadMedia.mockResolvedValue({ key: 'files/scope/1/out.bin' });
+    fileServiceMocks.getUIFileUrl.mockImplementation(
+      async (key: string) => `https://app.example/webapi/files/${key}`,
+    );
   });
 
   it('skips a stale prior interpreter file and keeps a later one', async () => {
@@ -279,6 +284,39 @@ describe('sandbox conversation files', () => {
       }),
       true,
     );
-    expect(result).toEqual([{ fileId: 'file-out', filename: 'plot_1.png' }]);
+    expect(fileServiceMocks.getUIFileUrl).toHaveBeenCalledWith('files/scope/1/out.bin');
+    expect(result).toEqual([
+      {
+        fileId: 'file-out',
+        filename: 'plot_1.png',
+        url: 'https://app.example/webapi/files/files/scope/1/out.bin',
+      },
+    ]);
+  });
+
+  it('skips a failed persist without aborting the rest of the run', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    fileServiceMocks.uploadMedia
+      .mockRejectedValueOnce(new Error('upload failed'))
+      .mockResolvedValueOnce({ key: 'files/scope/1/out.bin' });
+
+    const result = await persistSandboxOutputFiles({
+      db: {} as any,
+      files: [
+        { content: new Uint8Array([1]), filename: 'a.png' },
+        { content: new Uint8Array([2]), filename: 'b.png' },
+      ],
+      userId: 'user-1',
+    });
+
+    expect(result).toEqual([
+      {
+        fileId: 'file-out',
+        filename: 'b.png',
+        url: 'https://app.example/webapi/files/files/scope/1/out.bin',
+      },
+    ]);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
   });
 });
