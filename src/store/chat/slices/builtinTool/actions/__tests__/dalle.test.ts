@@ -70,6 +70,7 @@ const seedToolMessage = (
 // real `internal_updateMessageContent` Stop fence.
 const installStoreStubs = (options?: {
   persistGate?: Promise<void>;
+  persistReject?: boolean;
   persistRejectOnce?: { done?: boolean };
   persistServerGate?: Promise<void>;
   pluginStateGate?: Promise<void>;
@@ -96,6 +97,9 @@ const installStoreStubs = (options?: {
         extra?.conversationContext?.clearGeneration ??
         useChatStore.getState().conversationClearGeneration;
       if (options?.persistGate) await options.persistGate;
+      if (options?.persistReject) {
+        throw new Error('persistence write failed');
+      }
       if (options?.persistRejectOnce && !options.persistRejectOnce.done) {
         options.persistRejectOnce.done = true;
         throw new Error('persistence write failed');
@@ -183,11 +187,30 @@ const guardedError = (httpStatus: number) =>
     reason: 'response_parse_failed',
   });
 
+const IMAGE_TOOL_PLUGIN = {
+  apiName: 'text2image',
+  arguments: '{}',
+  identifier: 'lobe-image-designer',
+  type: 'builtin' as const,
+};
+
+const clearStoppedChatImageTaskStorage = () => {
+  try {
+    const keys = Object.keys(globalThis.localStorage ?? {}).filter((key) =>
+      key.startsWith('chathub:chat-image:stopped:'),
+    );
+    for (const key of keys) globalThis.localStorage.removeItem(key);
+  } catch {
+    // jsdom / privacy mode
+  }
+};
+
 describe('chatToolSlice - dalle', () => {
   afterEach(() => {
     mockImageState.isInit = true;
     vi.useRealTimers();
     vi.restoreAllMocks();
+    clearStoppedChatImageTaskStorage();
     useChatStore.setState({
       activeId: ORIGIN_SESSION,
       conversationClearGeneration: 0,
@@ -504,6 +527,73 @@ describe('chatToolSlice - dalle', () => {
       expect(stubs2.pluginStateSpy).toHaveBeenCalledWith('message-id', {
         error: [{ errorType: 'ChatImageTaskCancelled' }],
       });
+    });
+
+    it('a rejected Stop marker write still does not remount-submit after reload', async () => {
+      const validId = initialIdFor(0);
+      const preStopContent = JSON.stringify([{ prompt: 'p1', taskFence: 0, taskId: validId }]);
+      seedToolMessage(preStopContent, 'message-id', { plugin: IMAGE_TOOL_PLUGIN });
+      const stopDurable = vi.fn(async () => {});
+      useChatStore.setState({ stopDurableConversationGeneration: stopDurable });
+      const stubs = installStoreStubs({ persistReject: true });
+      const createTaskMock = vi.spyOn(imageGenerationService, 'createChatImageTask');
+
+      await store().stopGenerateMessage();
+      stubs.restore();
+      expect(stopDurable).toHaveBeenCalled();
+
+      seedToolMessage(preStopContent, 'message-id', { plugin: IMAGE_TOOL_PLUGIN });
+      useChatStore.setState({
+        conversationClearGeneration: 0,
+        conversationScopedClearGenerations: {},
+      });
+      vi.spyOn(imageGenerationService, 'getChatImageResult').mockResolvedValue({
+        status: 'task_missing',
+      });
+      const stubs2 = installStoreStubs();
+      await store().reconcileDallETasks('message-id');
+      stubs2.restore();
+
+      expect(createTaskMock).not.toHaveBeenCalled();
+      expect(stubs2.pluginStateSpy).toHaveBeenCalledWith('message-id', {
+        error: [{ errorType: 'ChatImageTaskCancelled' }],
+      });
+    });
+
+    it('Stop aborts in-flight work before the cancellation write settles', async () => {
+      const validId = initialIdFor(0);
+      seedToolMessage(
+        JSON.stringify([{ prompt: 'p1', taskFence: 0, taskId: validId }]),
+        'message-id',
+        { plugin: IMAGE_TOOL_PLUGIN },
+      );
+      let releasePersist!: () => void;
+      const persistGate = new Promise<void>((resolve) => {
+        releasePersist = resolve;
+      });
+      const abortController = new AbortController();
+      const stopDurable = vi.fn(async () => {});
+      useChatStore.setState({
+        mainSendMessageOperations: {
+          [originKey()]: { abortController, isLoading: true },
+        },
+        stopDurableConversationGeneration: stopDurable,
+      });
+      const stubs = installStoreStubs({ persistGate });
+
+      const stopPromise = store().stopGenerateMessage();
+      await vi.waitFor(() => expect(abortController.signal.aborted).toBe(true));
+      expect(stopDurable).toHaveBeenCalled();
+      let settled = false;
+      void stopPromise.then(() => {
+        settled = true;
+      });
+      await Promise.resolve();
+      expect(settled).toBe(false);
+
+      releasePersist();
+      await stopPromise;
+      stubs.restore();
     });
 
     it('a prior lane Stop does not block a later generate (global epoch stays 0)', async () => {
@@ -1329,6 +1419,36 @@ describe('chatToolSlice - dalle', () => {
       expect(createTaskMock).toHaveBeenCalledWith(
         expect.objectContaining({ spanId: 'gd_0123456789abcdef', taskId: validId }),
       );
+    });
+
+    it('a later generation after a prior Stop still recovers on reload', async () => {
+      const validId = initialIdFor(0);
+      seedToolMessage(JSON.stringify([{ prompt: 'p1', taskFence: 1, taskId: validId }]));
+      useChatStore.setState({
+        conversationClearGeneration: 0,
+        conversationScopedClearGenerations: {},
+        deferredBrowserGenerationLanes: {},
+      });
+      const stubs = installStoreStubs();
+      const created = new Set<string>();
+      const createTaskMock = vi
+        .spyOn(imageGenerationService, 'createChatImageTask')
+        .mockImplementation(async ({ taskId }) => {
+          created.add(taskId!);
+          return { taskId: taskId! };
+        });
+      vi.spyOn(imageGenerationService, 'getChatImageResult').mockImplementation(async (taskId) =>
+        created.has(taskId)
+          ? { file: { id: 'file-recover' }, status: 'success' }
+          : { status: 'task_missing' },
+      );
+
+      await store().reconcileDallETasks('message-id');
+      stubs.restore();
+
+      expect(createTaskMock).toHaveBeenCalledWith(expect.objectContaining({ taskId: validId }));
+      expect(stubs.pluginStateSpy).not.toHaveBeenCalled();
+      expect(originContent()).toContain('"imageId":"file-recover"');
     });
 
     it('Stop-marked tiles stay cancelled after a reload zeros the in-memory fence', async () => {

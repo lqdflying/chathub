@@ -31,6 +31,7 @@ import { buildHistorySummaryForRequest } from '@/helpers/memoryArchivePrompt';
 import { isModelNativeSearchDisabledProvider } from '@/helpers/modelNativeSearch';
 import {
   createGenerationDebugSpanId,
+  logDeferredGenerationLane,
   logGenerationDebugClientSafe,
 } from '@/libs/logger/generationDebugClient';
 import { aiChatService } from '@/services/aiChat';
@@ -795,7 +796,10 @@ export const generateAIChatV2: StateCreator<
       );
       try {
         await get().triggerTokenThresholdMemoryCompaction(compactionController);
-        if (compactionController.signal.aborted || (!isCurrentConversation() && !data.deferReason)) {
+        if (
+          compactionController.signal.aborted ||
+          (!isCurrentConversation() && !data.deferReason)
+        ) {
           if (!compactionController.signal.aborted) {
             logGenerationDebugClientSafe('browser_path_started', {
               hasTopicId: Boolean(data.topicId),
@@ -963,12 +967,6 @@ export const generateAIChatV2: StateCreator<
       n('cancelSendMessageInServer/bumpLaneScopedClearGeneration'),
     );
 
-    try {
-      await get().cancelPreparedChatImageTasks(activeId, targetTopicId, targetThreadId);
-    } catch {
-      // best-effort durable Stop mark; the in-memory fence already bumped
-    }
-
     await get().cancelActiveDurableOpsInScope({
       kind: ConversationGenerationChatFamilyKinds,
       sessionId: activeId,
@@ -982,6 +980,20 @@ export const generateAIChatV2: StateCreator<
       const editorTempState = get().mainSendMessageOperations[operationKey]?.inputEditorTempState;
 
       if (editorTempState) get().mainInputEditor?.setJSONState(editorTempState);
+    }
+
+    try {
+      await get().cancelPreparedChatImageTasks(activeId, targetTopicId, targetThreadId);
+    } catch (error) {
+      void logDeferredGenerationLane('chat_image_run_settled', {
+        errorClass: error instanceof Error ? error.name : 'Error',
+        kind: 'stop_mark',
+        outcome: 'persist_failed',
+        sessionId: activeId,
+        threadId: targetThreadId,
+        topicId: targetTopicId,
+        toolName: 'lobe-image-designer',
+      });
     }
   },
   clearSendMessageError: () => {
@@ -1105,254 +1117,302 @@ export const generateAIChatV2: StateCreator<
       conversationContext,
     );
     try {
-    // go into RAG flow if there is ragQuery flag
-    if (ragQuery) {
-      let diagnosticId: string | undefined;
-      let failurePhase: KnowledgeBaseClientPreparationFailurePhase = 'retrieval';
-      try {
-        // 1. get the relative chunks from semantic search
-        const {
-          chunks,
-          diagnosticId: retrievalDiagnosticId,
-          queryId,
-          retrieval,
-          rewriteQuery,
-          scope,
-        } = await get().internal_retrieveChunks(
-          userMessageId,
-          ragQuery,
-          // should skip the last content
-          messages.map((m) => m.content).slice(0, messages.length - 1),
-        );
-        if (!isPersistenceCurrent()) return;
-
-        diagnosticId = retrievalDiagnosticId;
-
-        ragQueryId = queryId;
-
-        const lastMsg = messages.pop() as UIChatMessage;
-
-        // 2. build the retrieve context messages
-        failurePhase = 'prompt_assembly';
-        const knowledgeBaseQAContext = knowledgeBaseQAPrompts({
-          chunks,
-          userQuery: lastMsg.content,
-          rewriteQuery,
-          knowledge: agentSelectors.currentEnabledKnowledge(agentStoreState),
-        });
-
-        // 3. add the retrieve context messages to the messages history
-        messages.push({
-          ...lastMsg,
-          content: (lastMsg.content + '\n\n' + knowledgeBaseQAContext).trim(),
-        });
-
-        failurePhase = 'token_accounting';
-        const { countMode, promptTokens } =
-          await countKnowledgeBasePromptTokens(knowledgeBaseQAContext);
-        knowledgeBasePromptTokens = promptTokens;
-        if (!isPersistenceCurrent()) return;
-        failurePhase = 'message_metadata';
-        const summary = createKnowledgeBaseSummary({
-          countMode,
-          diagnosticId,
-          promptTokens: knowledgeBasePromptTokens,
-          queryRewritten: !!rewriteQuery && rewriteQuery !== ragQuery,
-          retrieval,
-          scope,
-        });
-        contextExportRequest = attachKnowledgeBaseExportSummary(contextExportRequest, summary);
-        runtimeParams = contextExportRequest ? { ...params, contextExportRequest } : params;
-
-        if (diagnosticId) {
-          void ragService
-            .reportKnowledgeClientEvent({
-              chunkCount: chunks.length,
-              countMode,
-              diagnosticId,
-              event: 'prompt_injection_reported',
-              promptTokens: knowledgeBasePromptTokens,
-              queryRewritten: summary.queryRewritten,
-            })
-            .catch(() => {});
-        }
-
-        fileChunks = chunks.map((c) => ({ id: c.id, similarity: c.similarity }));
-
-        if (fileChunks.length > 0) {
-          await internal_updateMessageRAG(assistantId, { ragQueryId, fileChunks });
-        }
-      } catch (error) {
-        diagnosticId = diagnosticId || getKnowledgeDiagnosticIdFromError(error);
-        if (!diagnosticId) {
-          try {
-            const report = await ragService.reportKnowledgeClientEvent({
-              event: 'client_preparation_failed',
-              failurePhase,
-            });
-            diagnosticId = report.diagnosticId;
-          } catch {
-            // Diagnostics are best effort and must not mask the RAG failure.
-          }
-        } else {
-          void ragService
-            .reportKnowledgeClientEvent({
-              diagnosticId,
-              event: 'client_preparation_failed',
-              failurePhase,
-            })
-            .catch(() => {});
-        }
-
-        if (contextExportRequest) {
-          get().appendContextExportSnapshot({
-            ...contextExportRequest,
-            error: diagnosticId
-              ? `Knowledge Base preparation failed (Diagnostic ID: ${diagnosticId})`
-              : 'Knowledge Base preparation failed',
-            redactions: CONTEXT_EXPORT_REDACTIONS,
-            status: 'error',
-          });
-        }
-
-        const preparationError = addKnowledgeDiagnosticIdToError(error, diagnosticId);
-        if (isCurrentConversation()) {
-          const messageError = createKnowledgeBasePreparationMessageError(diagnosticId);
-          get().internal_dispatchMessage(
-            { id: assistantId, type: 'updateMessage', value: { error: messageError } },
-            dispatchContext,
+      // go into RAG flow if there is ragQuery flag
+      if (ragQuery) {
+        let diagnosticId: string | undefined;
+        let failurePhase: KnowledgeBaseClientPreparationFailurePhase = 'retrieval';
+        try {
+          // 1. get the relative chunks from semantic search
+          const {
+            chunks,
+            diagnosticId: retrievalDiagnosticId,
+            queryId,
+            retrieval,
+            rewriteQuery,
+            scope,
+          } = await get().internal_retrieveChunks(
+            userMessageId,
+            ragQuery,
+            // should skip the last content
+            messages.map((m) => m.content).slice(0, messages.length - 1),
           );
+          if (!isPersistenceCurrent()) return;
 
-          try {
-            await messageService.updateMessageError(assistantId, messageError);
-            if (isCurrentConversation()) await refreshMessages(conversationContext);
-          } catch (persistenceError) {
-            console.error('Failed to persist Knowledge Base preparation error', persistenceError);
+          diagnosticId = retrievalDiagnosticId;
+
+          ragQueryId = queryId;
+
+          const lastMsg = messages.pop() as UIChatMessage;
+
+          // 2. build the retrieve context messages
+          failurePhase = 'prompt_assembly';
+          const knowledgeBaseQAContext = knowledgeBaseQAPrompts({
+            chunks,
+            userQuery: lastMsg.content,
+            rewriteQuery,
+            knowledge: agentSelectors.currentEnabledKnowledge(agentStoreState),
+          });
+
+          // 3. add the retrieve context messages to the messages history
+          messages.push({
+            ...lastMsg,
+            content: (lastMsg.content + '\n\n' + knowledgeBaseQAContext).trim(),
+          });
+
+          failurePhase = 'token_accounting';
+          const { countMode, promptTokens } =
+            await countKnowledgeBasePromptTokens(knowledgeBaseQAContext);
+          knowledgeBasePromptTokens = promptTokens;
+          if (!isPersistenceCurrent()) return;
+          failurePhase = 'message_metadata';
+          const summary = createKnowledgeBaseSummary({
+            countMode,
+            diagnosticId,
+            promptTokens: knowledgeBasePromptTokens,
+            queryRewritten: !!rewriteQuery && rewriteQuery !== ragQuery,
+            retrieval,
+            scope,
+          });
+          contextExportRequest = attachKnowledgeBaseExportSummary(contextExportRequest, summary);
+          runtimeParams = contextExportRequest ? { ...params, contextExportRequest } : params;
+
+          if (diagnosticId) {
+            void ragService
+              .reportKnowledgeClientEvent({
+                chunkCount: chunks.length,
+                countMode,
+                diagnosticId,
+                event: 'prompt_injection_reported',
+                promptTokens: knowledgeBasePromptTokens,
+                queryRewritten: summary.queryRewritten,
+              })
+              .catch(() => {});
           }
+
+          fileChunks = chunks.map((c) => ({ id: c.id, similarity: c.similarity }));
+
+          if (fileChunks.length > 0) {
+            await internal_updateMessageRAG(assistantId, { ragQueryId, fileChunks });
+          }
+        } catch (error) {
+          diagnosticId = diagnosticId || getKnowledgeDiagnosticIdFromError(error);
+          if (!diagnosticId) {
+            try {
+              const report = await ragService.reportKnowledgeClientEvent({
+                event: 'client_preparation_failed',
+                failurePhase,
+              });
+              diagnosticId = report.diagnosticId;
+            } catch {
+              // Diagnostics are best effort and must not mask the RAG failure.
+            }
+          } else {
+            void ragService
+              .reportKnowledgeClientEvent({
+                diagnosticId,
+                event: 'client_preparation_failed',
+                failurePhase,
+              })
+              .catch(() => {});
+          }
+
+          if (contextExportRequest) {
+            get().appendContextExportSnapshot({
+              ...contextExportRequest,
+              error: diagnosticId
+                ? `Knowledge Base preparation failed (Diagnostic ID: ${diagnosticId})`
+                : 'Knowledge Base preparation failed',
+              redactions: CONTEXT_EXPORT_REDACTIONS,
+              status: 'error',
+            });
+          }
+
+          const preparationError = addKnowledgeDiagnosticIdToError(error, diagnosticId);
+          if (isCurrentConversation()) {
+            const messageError = createKnowledgeBasePreparationMessageError(diagnosticId);
+            get().internal_dispatchMessage(
+              { id: assistantId, type: 'updateMessage', value: { error: messageError } },
+              dispatchContext,
+            );
+
+            try {
+              await messageService.updateMessageError(assistantId, messageError);
+              if (isCurrentConversation()) await refreshMessages(conversationContext);
+            } catch (persistenceError) {
+              console.error('Failed to persist Knowledge Base preparation error', persistenceError);
+            }
+          }
+
+          throw preparationError;
+        }
+      }
+
+      // 3. place a search with the search working model if this model is not support tool use
+      const aiInfraStoreState = getAiInfraStoreState();
+      const isModelSupportToolUse = aiModelSelectors.isModelSupportToolUse(
+        model,
+        provider!,
+      )(aiInfraStoreState);
+      const isProviderHasBuiltinSearch = aiProviderSelectors.isProviderHasBuiltinSearch(provider!)(
+        aiInfraStoreState,
+      );
+      const isModelHasBuiltinSearch = aiModelSelectors.isModelHasBuiltinSearch(
+        model,
+        provider!,
+      )(aiInfraStoreState);
+      const isModelBuiltinSearchInternal = aiModelSelectors.isModelBuiltinSearchInternal(
+        model,
+        provider!,
+      )(aiInfraStoreState);
+      const useModelBuiltinSearch = agentChatConfigSelectors.useModelBuiltinSearch(agentStoreState);
+      const modelNativeSearchDisabled = isModelNativeSearchDisabledProvider(provider);
+      const useModelSearch = modelNativeSearchDisabled
+        ? false
+        : ((isProviderHasBuiltinSearch || isModelHasBuiltinSearch) && useModelBuiltinSearch) ||
+          isModelBuiltinSearchInternal;
+      const isAgentEnableSearch = agentChatConfigSelectors.isAgentEnableSearch(agentStoreState);
+
+      if (isAgentEnableSearch && !useModelSearch && !isModelSupportToolUse) {
+        const { model, provider } = agentChatConfigSelectors.searchFCModel(agentStoreState);
+
+        let isToolsCalling = false;
+        let isError = false;
+
+        const abortController = get().internal_toggleChatLoading(
+          true,
+          assistantId,
+          n('generateMessage(start)', { messageId: assistantId, messages }),
+          conversationContext.threadId ?? null,
+          conversationContext,
+        );
+
+        get().internal_toggleSearchWorkflow(true, assistantId);
+        if (knowledgeBasePromptTokens > 0) {
+          get().internal_setKnowledgeBaseContextTokens(
+            conversationContext,
+            knowledgeBasePromptTokens,
+          );
+        }
+        try {
+          await chatService.fetchPresetTaskResult({
+            params: { messages, model, provider, plugins: [WebBrowsingManifest.identifier] },
+            onFinish: async (_, { toolCalls, usage }) => {
+              if (!isPersistenceCurrent()) return;
+              if (toolCalls && toolCalls.length > 0) {
+                get().internal_toggleToolCallingStreaming(assistantId, undefined);
+                // update tools calling
+                await get().internal_updateMessageContent(assistantId, '', {
+                  toolCalls,
+                  metadata: usage,
+                  model,
+                  provider,
+                  conversationContext,
+                });
+              }
+            },
+            trace: {
+              traceId: params.traceId,
+              sessionId: conversationContext.sessionId,
+              topicId: conversationContext.topicId ?? undefined,
+              traceName: TraceNameMap.SearchIntentRecognition,
+            },
+            abortController,
+            onMessageHandle: async (chunk) => {
+              if (!isPersistenceCurrent()) return;
+              if (chunk.type === 'tool_calls') {
+                get().internal_toggleSearchWorkflow(false, assistantId);
+                get().internal_toggleToolCallingStreaming(assistantId, chunk.isAnimationActives);
+                get().internal_dispatchMessage(
+                  {
+                    id: assistantId,
+                    type: 'updateMessage',
+                    value: { tools: get().internal_transformToolCalls(chunk.tool_calls) },
+                  },
+                  dispatchContext,
+                );
+                isToolsCalling = true;
+              }
+
+              if (chunk.type === 'text') {
+                abortController!.abort('not fc');
+              }
+            },
+            onErrorHandle: async (error) => {
+              if (!isPersistenceCurrent()) return;
+              isError = true;
+              await messageService.updateMessageError(assistantId, error);
+              if (isCurrentConversation()) await refreshMessages(conversationContext);
+            },
+          });
+        } finally {
+          if (knowledgeBasePromptTokens > 0) {
+            get().internal_setKnowledgeBaseContextTokens(conversationContext, 0);
+          }
+          get().internal_toggleChatLoading(
+            false,
+            assistantId,
+            n('generateMessage(start)', { messageId: assistantId, messages }),
+            conversationContext.threadId ?? null,
+            conversationContext,
+          );
+          get().internal_toggleSearchWorkflow(false, assistantId);
         }
 
-        throw preparationError;
+        if (!isPersistenceCurrent()) return;
+
+        // if there is error, then stop
+        if (isError) return;
+
+        // if it's the function call message, trigger the function method
+        if (isToolsCalling) {
+          get().internal_toggleMessageInToolsCalling(true, assistantId);
+          await refreshMessages(conversationContext);
+          if (!shouldRunToolLoop(assistantId)) return;
+          await triggerToolCalls(assistantId, {
+            contextExportCaptureId: params.contextExportCaptureId,
+            expectedConversationVersion,
+            threadId: params?.threadId,
+            inPortalThread: params?.inPortalThread,
+          });
+
+          // then story the workflow
+          return;
+        }
       }
-    }
 
-    // 3. place a search with the search working model if this model is not support tool use
-    const aiInfraStoreState = getAiInfraStoreState();
-    const isModelSupportToolUse = aiModelSelectors.isModelSupportToolUse(
-      model,
-      provider!,
-    )(aiInfraStoreState);
-    const isProviderHasBuiltinSearch = aiProviderSelectors.isProviderHasBuiltinSearch(provider!)(
-      aiInfraStoreState,
-    );
-    const isModelHasBuiltinSearch = aiModelSelectors.isModelHasBuiltinSearch(
-      model,
-      provider!,
-    )(aiInfraStoreState);
-    const isModelBuiltinSearchInternal = aiModelSelectors.isModelBuiltinSearchInternal(
-      model,
-      provider!,
-    )(aiInfraStoreState);
-    const useModelBuiltinSearch = agentChatConfigSelectors.useModelBuiltinSearch(agentStoreState);
-    const modelNativeSearchDisabled = isModelNativeSearchDisabledProvider(provider);
-    const useModelSearch = modelNativeSearchDisabled
-      ? false
-      : ((isProviderHasBuiltinSearch || isModelHasBuiltinSearch) && useModelBuiltinSearch) ||
-        isModelBuiltinSearchInternal;
-    const isAgentEnableSearch = agentChatConfigSelectors.isAgentEnableSearch(agentStoreState);
-
-    if (isAgentEnableSearch && !useModelSearch && !isModelSupportToolUse) {
-      const { model, provider } = agentChatConfigSelectors.searchFCModel(agentStoreState);
-
-      let isToolsCalling = false;
-      let isError = false;
-
-      const abortController = get().internal_toggleChatLoading(
-        true,
-        assistantId,
-        n('generateMessage(start)', { messageId: assistantId, messages }),
-        conversationContext.threadId ?? null,
-        conversationContext,
-      );
-
-      get().internal_toggleSearchWorkflow(true, assistantId);
+      // 4. fetch the AI response
       if (knowledgeBasePromptTokens > 0) {
         get().internal_setKnowledgeBaseContextTokens(
           conversationContext,
           knowledgeBasePromptTokens,
         );
       }
+      let fetchResult: Awaited<ReturnType<typeof internal_fetchAIChatMessage>>;
       try {
-        await chatService.fetchPresetTaskResult({
-          params: { messages, model, provider, plugins: [WebBrowsingManifest.identifier] },
-          onFinish: async (_, { toolCalls, usage }) => {
-            if (!isPersistenceCurrent()) return;
-            if (toolCalls && toolCalls.length > 0) {
-              get().internal_toggleToolCallingStreaming(assistantId, undefined);
-              // update tools calling
-              await get().internal_updateMessageContent(assistantId, '', {
-                toolCalls,
-                metadata: usage,
-                model,
-                provider,
-                conversationContext,
-              });
-            }
-          },
-          trace: {
-            traceId: params.traceId,
-            sessionId: conversationContext.sessionId,
-            topicId: conversationContext.topicId ?? undefined,
-            traceName: TraceNameMap.SearchIntentRecognition,
-          },
-          abortController,
-          onMessageHandle: async (chunk) => {
-            if (!isPersistenceCurrent()) return;
-            if (chunk.type === 'tool_calls') {
-              get().internal_toggleSearchWorkflow(false, assistantId);
-              get().internal_toggleToolCallingStreaming(assistantId, chunk.isAnimationActives);
-              get().internal_dispatchMessage(
-                {
-                  id: assistantId,
-                  type: 'updateMessage',
-                  value: { tools: get().internal_transformToolCalls(chunk.tool_calls) },
-                },
-                dispatchContext,
-              );
-              isToolsCalling = true;
-            }
-
-            if (chunk.type === 'text') {
-              abortController!.abort('not fc');
-            }
-          },
-          onErrorHandle: async (error) => {
-            if (!isPersistenceCurrent()) return;
-            isError = true;
-            await messageService.updateMessageError(assistantId, error);
-            if (isCurrentConversation()) await refreshMessages(conversationContext);
-          },
+        fetchResult = await internal_fetchAIChatMessage({
+          conversationContext,
+          messages,
+          messageId: assistantId,
+          // Keep params intact because it carries activatedSkillIds through the server-mode runtime.
+          params: runtimeParams,
+          model,
+          provider: provider!,
         });
       } finally {
         if (knowledgeBasePromptTokens > 0) {
           get().internal_setKnowledgeBaseContextTokens(conversationContext, 0);
         }
-        get().internal_toggleChatLoading(
-          false,
-          assistantId,
-          n('generateMessage(start)', { messageId: assistantId, messages }),
-          conversationContext.threadId ?? null,
-          conversationContext,
-        );
-        get().internal_toggleSearchWorkflow(false, assistantId);
       }
+      const { isFunctionCall, persistenceAmbiguous, persistenceFailure } = fetchResult;
+      if (!shouldRunToolLoop(assistantId)) return;
 
-      if (!isPersistenceCurrent()) return;
+      // 5. if it's the function call message, trigger the function method
+      if (isFunctionCall) {
+        if (persistenceAmbiguous) {
+          await notifyToolCallPersistenceFailure(persistenceFailure);
+          return;
+        }
 
-      // if there is error, then stop
-      if (isError) return;
-
-      // if it's the function call message, trigger the function method
-      if (isToolsCalling) {
         get().internal_toggleMessageInToolsCalling(true, assistantId);
         await refreshMessages(conversationContext);
         if (!shouldRunToolLoop(assistantId)) return;
@@ -1362,56 +1422,11 @@ export const generateAIChatV2: StateCreator<
           threadId: params?.threadId,
           inPortalThread: params?.inPortalThread,
         });
-
-        // then story the workflow
-        return;
-      }
-    }
-
-    // 4. fetch the AI response
-    if (knowledgeBasePromptTokens > 0) {
-      get().internal_setKnowledgeBaseContextTokens(conversationContext, knowledgeBasePromptTokens);
-    }
-    let fetchResult: Awaited<ReturnType<typeof internal_fetchAIChatMessage>>;
-    try {
-      fetchResult = await internal_fetchAIChatMessage({
-        conversationContext,
-        messages,
-        messageId: assistantId,
-        // Keep params intact because it carries activatedSkillIds through the server-mode runtime.
-        params: runtimeParams,
-        model,
-        provider: provider!,
-      });
-    } finally {
-      if (knowledgeBasePromptTokens > 0) {
-        get().internal_setKnowledgeBaseContextTokens(conversationContext, 0);
-      }
-    }
-    const { isFunctionCall, persistenceAmbiguous, persistenceFailure } = fetchResult;
-    if (!shouldRunToolLoop(assistantId)) return;
-
-    // 5. if it's the function call message, trigger the function method
-    if (isFunctionCall) {
-      if (persistenceAmbiguous) {
-        await notifyToolCallPersistenceFailure(persistenceFailure);
-        return;
       }
 
-      get().internal_toggleMessageInToolsCalling(true, assistantId);
-      await refreshMessages(conversationContext);
-      if (!shouldRunToolLoop(assistantId)) return;
-      await triggerToolCalls(assistantId, {
-        contextExportCaptureId: params.contextExportCaptureId,
-        expectedConversationVersion,
-        threadId: params?.threadId,
-        inPortalThread: params?.inPortalThread,
-      });
-    }
-
-    if (!params.threadId && !params.inPortalThread) {
-      void Promise.resolve(get().triggerMessageCountMemoryCompaction()).catch(console.error);
-    }
+      if (!params.threadId && !params.inPortalThread) {
+        void Promise.resolve(get().triggerMessageCountMemoryCompaction()).catch(console.error);
+      }
     } finally {
       internal_toggleChatLoading(
         false,

@@ -872,14 +872,19 @@ configurable model rather than a hard-coded one.
   needs no remount and no manual Retry; current correlation — the message
   must still exist and still carry that exact unresolved id at that index
   when the create is sent (deleting a message mid-probe aborts silently);
-  Stop authorization — auto-create is allowed only when the persisted
-  `taskFence` still matches the live lane fence and the tile is not marked
-  `taskCancelled`. Leave-topic does not bump that fence. Stop after the
-  optimistic id write does: remount sees a stale fence, and Stop also persists
-  `taskCancelled` with the post-Stop fence so a reload (which zeros in-memory
-  fences) still fails closed. A missing fence on a legacy tile fails closed
-  the same way. Explicit Retry re-stamps the fence, clears `taskCancelled`,
-  and may submit. Existing server tasks (pending or success) are adopted
+  Stop authorization — auto-create is refused when the tile is marked
+  `taskCancelled`, when a same-browser remembered stop id is present (set
+  synchronously on Stop before message persist, so a rejected save cannot
+  re-bill after reload), or when a legacy tile has no `taskFence`. Same-session
+  Stop also refuses a prepared fence that no longer matches the live (non-zero)
+  lane fence. Reload resets that live fence to 0, so that comparison is skipped
+  then — otherwise a later authorized generation stamped `taskFence > 0` would
+  be misreported as stopped. Leave-topic does not bump the fence. Stop aborts
+  in-flight work before awaiting the cancellation persist, retries the write
+  once, and logs `chat_image_run_settled` with `kind=stop_mark` /
+  `outcome=persist_failed` instead of swallowing. Explicit Retry re-stamps the
+  fence, clears `taskCancelled` and the remembered stop id, and may submit.
+  Existing server tasks (pending or success) are adopted
   before this gate and are never discarded; and
   server-side verification — the create contract REQUIRES the correlation
   (message id + index) and the task id, and the mutation verifies and inserts
