@@ -25,6 +25,8 @@ describe('Dify sandbox envelope', () => {
     expect(wrapped).not.toContain('os.remove(');
     expect(wrapped).not.toContain('shutil');
     expect(wrapped).toContain('os.chdir =');
+    expect(wrapped).not.toContain('import matplotlib');
+    expect(wrapped).not.toContain('_patch_mpl()');
     expect(wrapped).not.toContain('/mnt/data');
     expect(wrapped).toContain('ENABLE_PRELOAD=true');
     expect(wrapped).not.toContain('print("secret-source")');

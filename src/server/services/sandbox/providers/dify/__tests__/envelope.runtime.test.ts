@@ -1,6 +1,6 @@
 /** @vitest-environment node */
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -110,6 +110,31 @@ describe('Dify sandbox envelope runtime', () => {
     const failed = runWrapper({ code: 'import sys\nsys.exit(2)' });
     expect(failed.parsed.success).toBe(false);
     expect(failed.stderr).toContain('SystemExit: 2');
+  });
+
+  it('does not import matplotlib for a print-only run', () => {
+    const fakeRoot = mkdtempSync(join(tmpdir(), 'chathub-fake-mpl-print-'));
+    const marker = join(fakeRoot, 'imported');
+    mkdirSync(join(fakeRoot, 'matplotlib'));
+    writeFileSync(
+      join(fakeRoot, 'matplotlib', '__init__.py'),
+      `open(${JSON.stringify(marker)}, "w").write("imported")\n`,
+    );
+    writeFileSync(join(fakeRoot, 'matplotlib', 'pyplot.py'), 'show = lambda *a, **k: None\n');
+
+    try {
+      const result = runWrapper({
+        code: 'print("hello")',
+        env: { PYTHONPATH: fakeRoot },
+        token: 'cc',
+      });
+      expect(result.parsed.success).toBe(true);
+      expect(result.parsed.stdout).toContain('hello');
+      expect(result.status).toBe(0);
+      expect(existsSync(marker)).toBe(false);
+    } finally {
+      rmSync(fakeRoot, { force: true, recursive: true });
+    }
   });
 
   it('does not overwrite plt.show() output with a blank flush', () => {

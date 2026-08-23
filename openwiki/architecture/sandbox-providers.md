@@ -101,9 +101,16 @@ relative paths stay inside it, and must not call `os.makedirs`, `os.chdir`, or
 Leftover per-run dirs are not deleted (unlink is blocked); they are unique per
 token and go away when the sidecar is recreated.
 
-Matplotlib `plt.show()` closes the figure after saving so the final flush
-cannot overwrite it with an empty chart. In-place edits of input files are
-returned; unchanged inputs are not. Non-zero `SystemExit` is a failed run.
+Do **not** import matplotlib (or pandas) in the wrapper prologue. Dify
+seccomp `ActKillProcess` is not a Python `Exception`; once those wheels are
+copied into the chroot, an eager import kills `print("hello")` with
+`error: operation not permitted` and empty stdout
+([FAQ](https://github.com/langgenius/dify-sandbox/blob/0.2.15/FAQ.md),
+[dify#30625](https://github.com/langgenius/dify/issues/30625)). Patch
+`plt.show()` only after the user imports pyplot. Matplotlib `plt.show()`
+closes the figure after saving so the final flush cannot overwrite it with an
+empty chart. In-place edits of input files are returned; unchanged inputs are
+not. Non-zero `SystemExit` is a failed run.
 
 ## Future backends
 
