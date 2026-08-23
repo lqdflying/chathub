@@ -181,6 +181,28 @@ describe('Dify sandbox envelope runtime', () => {
     expect(forkMs).toBeLessThan(2000);
   });
 
+  it('no-ops threading.Timer.start and unlink so matplotlib font cache cannot hang or SIGSYS', () => {
+    const result = runWrapper({
+      code: [
+        'import os, pathlib, threading, time',
+        't = time.time()',
+        'th = threading.Timer(30, lambda: None)',
+        'th.start()',
+        "print('timer_ms', int((time.time() - t) * 1000))",
+        'os.unlink("missing-file")',
+        'os.remove("missing-file")',
+        'pathlib.Path("missing-file").unlink()',
+        "print('unlinked')",
+      ].join('\n'),
+      token: '11',
+    });
+    expect(result.parsed.success).toBe(true);
+    expect(result.parsed.stdout).toMatch(/timer_ms \d+/);
+    expect(result.parsed.stdout).toContain('unlinked');
+    const msec = Number(/timer_ms (\d+)/.exec(result.parsed.stdout)?.[1]);
+    expect(msec).toBeLessThan(2000);
+  });
+
   it('does not import matplotlib for a print-only run', () => {
     const fakeRoot = mkdtempSync(join(tmpdir(), 'chathub-fake-mpl-print-'));
     const marker = join(fakeRoot, 'imported');
@@ -204,6 +226,19 @@ describe('Dify sandbox envelope runtime', () => {
     } finally {
       rmSync(fakeRoot, { force: true, recursive: true });
     }
+  });
+
+  it('does not return matplotlib font-cache files as chat outputs', () => {
+    const result = runWrapper({
+      code: [
+        'open("fontlist-v3.11.0.json", "w").write("cache")',
+        'open("fontlist-v3.11.0.json.matplotlib-lock", "w").write("")',
+        'open("plot_1.png", "wb").write(b"chart-pixels")',
+      ].join('\n'),
+      token: '22',
+    });
+    expect(result.parsed.success).toBe(true);
+    expect(result.parsed.files.map((item) => item.filename)).toEqual(['plot_1.png']);
   });
 
   it('does not overwrite plt.show() output with a blank flush', () => {

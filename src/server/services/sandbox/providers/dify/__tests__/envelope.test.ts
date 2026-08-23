@@ -30,11 +30,16 @@ describe('Dify sandbox envelope', () => {
     expect(wrapped).toContain('posix_spawn');
     expect(wrapped).toContain('_posixsubprocess');
     expect(wrapped).toContain('sandbox-exec');
+    expect(wrapped).toContain('threading.Timer = _NoopTimer');
+    expect(wrapped).toContain('os.unlink =');
+    expect(wrapped).toContain('pathlib.Path.unlink =');
+    expect(wrapped).toContain('fontlist-v');
     expect(wrapped).toContain(`/tmp`);
     expect(wrapped).toContain(CI_WORKDIR_PREFIX);
     expect(wrapped).not.toContain('os.makedirs(');
     expect(wrapped).not.toContain('os.chdir(');
     expect(wrapped).not.toContain('os.remove(');
+    expect(wrapped).toContain('os.remove =');
     expect(wrapped).not.toContain('shutil');
     expect(wrapped).toContain('os.chdir =');
     expect(wrapped).not.toContain('import matplotlib');

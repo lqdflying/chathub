@@ -87,7 +87,7 @@ export const wrapSandboxPython = ({
   const userB64 = Buffer.from(code, 'utf8').toString('base64');
 
   return [
-    'import os, sys, json, base64, traceback, hashlib, builtins, subprocess',
+    'import os, sys, json, base64, traceback, hashlib, builtins, subprocess, threading, pathlib',
     // Force Agg. setdefault loses if the sidecar already set Tk/Qt; pyplot then
     // probes GUI backends (https://matplotlib.org/stable/users/explain/figure/backends.html).
     'os.environ["MPLBACKEND"] = "Agg"',
@@ -168,6 +168,25 @@ export const wrapSandboxPython = ({
     '        _ps = None',
     'if _ps is not None and hasattr(_ps, "fork_exec"):',
     '    _ps.fork_exec = _no_spawn',
+    // matplotlib 3.11 FontManager.__init__ starts threading.Timer(5, warning).
+    // Without clone3, Thread.start() blocks until ChatHub's 60s abort. With
+    // clone3, FontManager finishes and cbook._lock_path calls Path.unlink on
+    // the cache lock; Dify 0.2.15 ActKillProcess on unlink
+    // (https://github.com/matplotlib/matplotlib/blob/v3.11.1/lib/matplotlib/font_manager.py
+    // https://github.com/matplotlib/matplotlib/blob/v3.11.1/lib/matplotlib/cbook.py).
+    'class _NoopTimer:',
+    '    def __init__(self, *a, **k):',
+    '        pass',
+    '    def start(self, *a, **k):',
+    '        pass',
+    '    def cancel(self, *a, **k):',
+    '        pass',
+    '    def join(self, *a, **k):',
+    '        pass',
+    'threading.Timer = _NoopTimer',
+    'os.unlink = lambda *a, **k: None',
+    'os.remove = lambda *a, **k: None',
+    'pathlib.Path.unlink = lambda *a, **k: None',
     'os.getcwd = lambda: DATA_DIR',
     'os.chdir = lambda *a, **k: None',
     '_real_open = builtins.open',
@@ -260,6 +279,8 @@ export const wrapSandboxPython = ({
     '_files = []',
     'for entry in os.listdir(DATA_DIR):',
     '    if entry in (".", "..") or entry.startswith("."):',
+    '        continue',
+    '    if entry.endswith(".matplotlib-lock") or entry.startswith("fontlist-v"):',
     '        continue',
     '    path = os.path.join(DATA_DIR, entry)',
     '    if not os.path.isfile(path):',

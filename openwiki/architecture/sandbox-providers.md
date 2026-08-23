@@ -108,6 +108,16 @@ and `FONTCONFIG_FILE` / `FONTCONFIG_PATH` to an empty
 It replaces `subprocess.Popen` with a stub that raises `FileNotFoundError`
 immediately, returns 127 from `os.system`, and stubs `os.fork` /
 `os.posix_spawn` / `_posixsubprocess.fork_exec` the same way.
+`threading.Timer` is a no-op: matplotlib 3.11 `FontManager.__init__` starts a
+5s warning timer, and without `clone3` that `Thread.start()` blocks until the
+60s abort
+([font_manager.py](https://github.com/matplotlib/matplotlib/blob/v3.11.1/lib/matplotlib/font_manager.py)).
+`os.unlink` / `os.remove` / `pathlib.Path.unlink` are no-ops because Dify
+0.2.15 **kills** on `unlink`; matplotlib’s font-cache lock
+(`cbook._lock_path`) would otherwise SIGSYS right after the font scan
+([cbook.py](https://github.com/matplotlib/matplotlib/blob/v3.11.1/lib/matplotlib/cbook.py)).
+Font-cache files (`fontlist-v*`, `*.matplotlib-lock`) are not returned as
+chat outputs.
 Matplotlib otherwise spawns `fc-list` on `import pyplot`
 ([font_manager.py](https://github.com/matplotlib/matplotlib/blob/v3.11.1/lib/matplotlib/font_manager.py),
 [matplotlib#28488](https://github.com/matplotlib/matplotlib/issues/28488)).
