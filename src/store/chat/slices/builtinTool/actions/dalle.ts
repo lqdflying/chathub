@@ -1,3 +1,4 @@
+import { UIChatMessage } from '@lobechat/types';
 import { produce } from 'immer';
 import { sha256 } from 'js-sha256';
 import { omit } from 'lodash-es';
@@ -13,7 +14,9 @@ import { imageGenerationService } from '@/services/textToImage';
 import { aiProviderSelectors, getAiInfraStoreState } from '@/store/aiInfra';
 import { chatSelectors } from '@/store/chat/selectors';
 import { ChatStore } from '@/store/chat/store';
-import { messageMapKey } from '@/store/chat/utils/messageMapKey';
+import type { ConversationContext } from '@/store/chat/types';
+import { resolveConversationClearGeneration } from '@/store/chat/utils/conversationClearGeneration';
+import { findMessageInMessagesMap } from '@/store/chat/utils/messageMapKey';
 import { getImageStoreState } from '@/store/image';
 import {
   getModelAndDefaults,
@@ -249,6 +252,27 @@ const waitForChatImageTask = async (
   throw new Error('Image generation timed out while waiting for the task result.');
 };
 
+const resolveOriginatingImageToolMessage = (
+  state: ChatStore,
+  messageId: string,
+):
+  | { conversationContext: ConversationContext; mapKey: string; message: UIChatMessage }
+  | undefined => {
+  const hit = findMessageInMessagesMap(state.messagesMap, messageId);
+  if (!hit?.sessionId) return;
+
+  return {
+    conversationContext: {
+      clearGeneration: resolveConversationClearGeneration(state, hit.sessionId, hit.topicId),
+      generation: state.conversationNavigationGeneration,
+      sessionId: hit.sessionId,
+      topicId: hit.topicId,
+    },
+    mapKey: hit.mapKey,
+    message: hit.message,
+  };
+};
+
 export interface ChatDallEAction {
   generateImageFromPrompts: (items: DallEImageItem[], id: string) => Promise<void>;
   /**
@@ -262,9 +286,16 @@ export interface ChatDallEAction {
    */
   reconcileDallETasks: (id: string) => Promise<void>;
   retryDallEImages: (id: string) => Promise<void>;
-  text2image: (id: string, data: DallEImageItem[]) => Promise<void>;
+  text2image: (
+    id: string,
+    data: DallEImageItem[],
+  ) => Promise<{ data: unknown; outcome: 'completed'; shouldContinue: true }>;
   toggleDallEImageLoading: (key: string, value: boolean) => void;
-  updateImageItem: (id: string, updater: (data: DallEImageItem[]) => void) => Promise<void>;
+  updateImageItem: (
+    id: string,
+    updater: (data: DallEImageItem[]) => void,
+    conversationContext?: ConversationContext,
+  ) => Promise<void>;
   useFetchDalleImageItem: (id: string) => SWRResponse;
 }
 
@@ -277,9 +308,15 @@ export const dalleSlice: StateCreator<
   generateImageFromPrompts: async (items, messageId) => {
     const invocationGeneration = get().conversationClearGeneration;
     const invocationIsCurrent = () => get().conversationClearGeneration === invocationGeneration;
-    // the originating conversation's map key, captured while it is active —
-    // write verification below reads THIS key, never the currently-active one
-    const originKey = messageMapKey(get().activeId, get().activeTopicId);
+    // Pin the originating conversation from the tool message itself — not the
+    // currently visible topic. Leave-topic is not Stop; `getMessageById` only
+    // reads the active map and would silently no-op after a switch.
+    const origin = resolveOriginatingImageToolMessage(get(), messageId);
+    if (!origin) return;
+    const originKey = origin.mapKey;
+    const conversationContext = origin.conversationContext;
+    const persistItems = (updater: (data: DallEImageItem[]) => void) =>
+      get().updateImageItem(messageId, updater, conversationContext);
     const userScope = authSelectors.currentUserScope(useUserStore.getState()) ?? 'anonymous';
 
     // EXCLUSIVE OWNERSHIP FIRST (synchronously, before ANY await): claim every
@@ -297,9 +334,6 @@ export const dalleSlice: StateCreator<
     if (ownedIndices.length === 0) return;
 
     try {
-      const message = chatSelectors.getMessageById(messageId)(get());
-      if (!message) return;
-
       const resolved = resolveImageModel();
       if (!resolved) {
         // no usable image model is configured — surface a per-item error
@@ -315,14 +349,14 @@ export const dalleSlice: StateCreator<
       // written only where the draft still matches the expectation (never
       // overwriting an id another writer persisted meanwhile), and
       // verification re-parses the originating message's persisted content at
-      // the EXACT indices — the layers under `updateImageItem` can silently
-      // no-op on navigation/stale ownership, so awaiting alone proves nothing.
+      // the EXACT indices. Stop/clear can still skip the write; leave-topic
+      // must not. Awaiting the persist call alone does not prove the ids landed.
       const persistTaskIdsChecked = async (
         writes: Map<number, { expected?: string; next: string; nextAttempt: number }>,
       ): Promise<{ parsed?: DallEImageItem[]; written: Set<number> }> => {
         const written = new Set<number>();
         if (writes.size === 0) return { written };
-        await get().updateImageItem(messageId, (draft) => {
+        await persistItems((draft) => {
           for (const [index, { expected, next, nextAttempt }] of writes) {
             const target = draft[index];
             if (!target || target.imageId) continue;
@@ -461,7 +495,7 @@ export const dalleSlice: StateCreator<
                 });
                 if (!adopted.ok || !invocationIsCurrent()) return undefined;
                 if (adopted.file) {
-                  await get().updateImageItem(messageId, (draft) => {
+                  await persistItems((draft) => {
                     if (draft[index]) {
                       draft[index].imageId = adopted.file!.id;
                       draft[index].previewUrl = undefined;
@@ -516,7 +550,7 @@ export const dalleSlice: StateCreator<
             if (!ok || !invocationIsCurrent()) return undefined;
             if (!file) throw new Error('The image provider returned an empty result.');
 
-            await get().updateImageItem(messageId, (draft) => {
+            await persistItems((draft) => {
               if (draft[index]) {
                 draft[index].imageId = file.id;
                 draft[index].previewUrl = undefined;
@@ -527,7 +561,7 @@ export const dalleSlice: StateCreator<
             if (!invocationIsCurrent()) return undefined;
             // clear the (possibly expiring) previewUrl so the UI never shows
             // a soon-to-be-broken image, and record the failure for this index
-            await get().updateImageItem(messageId, (draft) => {
+            await persistItems((draft) => {
               if (draft[index]) draft[index].previewUrl = undefined;
             });
             return { error, index };
@@ -698,6 +732,7 @@ export const dalleSlice: StateCreator<
   },
   text2image: async (id, data) => {
     await get().generateImageFromPrompts(data, id);
+    return { data, outcome: 'completed', shouldContinue: true };
   },
 
   toggleDallEImageLoading: (key, value) => {
@@ -708,19 +743,21 @@ export const dalleSlice: StateCreator<
     );
   },
 
-  updateImageItem: async (id, updater) => {
+  updateImageItem: async (id, updater, conversationContext) => {
     // serialize whole-message item writes per message: concurrent items each
     // read content and write the WHOLE array back, so unserialized writes
     // (e.g. item 2's taskId vs item 1's imageId) would clobber each other
     const previous = imageItemUpdateQueues.get(id) ?? Promise.resolve();
     const task = previous.then(async () => {
-      const message = chatSelectors.getMessageById(id)(get());
-      if (!message) return;
+      const origin = resolveOriginatingImageToolMessage(get(), id);
+      if (!origin) return;
 
-      const data: DallEImageItem[] = JSON.parse(message.content);
+      const data: DallEImageItem[] = JSON.parse(origin.message.content);
 
       const nextContent = produce(data, updater);
-      await get().internal_updateMessageContent(id, JSON.stringify(nextContent));
+      await get().internal_updateMessageContent(id, JSON.stringify(nextContent), {
+        conversationContext: conversationContext ?? origin.conversationContext,
+      });
     });
     const settled = task.catch(() => {});
     imageItemUpdateQueues.set(id, settled);

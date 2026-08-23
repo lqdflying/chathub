@@ -840,9 +840,11 @@ configurable model rather than a hard-coded one.
   replacements pin the exact terminally-failed id as their compare value.
   After the awaited write, the ids are checked at their EXACT indices in the
   originating message's persisted content, read from the origin
-  conversation's map key — an origin-map verification after a successful
-  write (the layers can silently no-op on stale ownership/navigation, so
-  awaiting alone proves nothing). Unproven ids → ZERO tasks created,
+  conversation's map key (resolved from the tool message in `messagesMap`,
+  never from `activeId` / `activeTopicId`). Leave-topic is not Stop: item
+  writes pass that originating `conversationContext` so persist still lands
+  after a switch. Stop/clear still fail the write. Awaiting the persist call
+  alone does not prove the ids landed. Unproven ids → ZERO tasks created,
   per-item error. The result endpoint distinguishes two missing states:
   `task_missing` (no task row — the write-first id was persisted but its
   create never ran, or another tab's create is racing) is NOT terminal and is
@@ -881,8 +883,9 @@ configurable model rather than a hard-coded one.
   adopts an existing task first and creates a replacement ONLY after the
   server reports an authoritative terminal `error` state with ownership
   re-checked after that await — lookup, transport and local-timeout failures
-  surface without creating. (Recovery is view-triggered: a background
-  conversation reconciles when it is next opened.)
+  surface without creating. Leave-topic keeps the in-tab generate/poll loop
+  writing into the originating map; mount-time `reconcileDallETasks` is still
+  the backup if that tab died before `imageId` landed.
 - **Server-side image handling.** The async procedure runs
   `agentRuntime.createImage` (same runtime init as the workspace; ComfyUI auth
   headers are forwarded to the protected result download exactly like the

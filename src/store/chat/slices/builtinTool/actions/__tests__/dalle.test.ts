@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ToolsRPCResponseError } from '@/libs/trpc/client/toolsResponse';
 import { imageGenerationService } from '@/services/textToImage';
 import { useChatStore } from '@/store/chat';
-import { messageMapKey } from '@/store/chat/utils/messageMapKey';
+import { findMessageInMessagesMap, messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { useUserStore } from '@/store/user';
 import { authSelectors } from '@/store/user/selectors';
 import { DallEImageItem } from '@/types/tool/dalle';
@@ -52,10 +52,10 @@ const seedToolMessage = (content: string, messageId = 'message-id') => {
 };
 
 // Inject store-method stand-ins via setState so `get()` inside actions
-// provably uses them (spying a rendered snapshot does not). The persistence
-// stand-in models the REAL behavior: it writes ONLY when the message is
-// addressable through the currently-active conversation, and silently
-// no-writes otherwise (the real chain's stale/ownership early-returns).
+// provably uses them (spying a rendered snapshot does not). Persist writes
+// into whichever messagesMap entry holds the message (leave-topic is not
+// Stop). After a clear-generation bump the write is skipped, matching the
+// real `internal_updateMessageContent` Stop fence.
 const installStoreStubs = (options?: {
   persistGate?: Promise<void>;
   persistRejectOnce?: { done?: boolean };
@@ -67,29 +67,41 @@ const installStoreStubs = (options?: {
     toggleDallEImageLoading: useChatStore.getState().toggleDallEImageLoading,
     updatePluginState: useChatStore.getState().updatePluginState,
   };
-  const persistImpl = vi.fn(async (id: string, content: string) => {
-    if (options?.persistGate) await options.persistGate;
-    if (options?.persistRejectOnce && !options.persistRejectOnce.done) {
-      options.persistRejectOnce.done = true;
-      throw new Error('persistence write failed');
-    }
-    const state = useChatStore.getState();
-    const activeKey = messageMapKey(state.activeId, state.activeTopicId);
-    const list = state.messagesMap[activeKey];
-    // real stale/no-write result: resolves without writing anything
-    if (!list?.some((m) => m.id === id)) return { persistenceAmbiguous: false };
-    useChatStore.setState({
-      messagesMap: {
-        ...state.messagesMap,
-        [activeKey]: list.map((m) => (m.id === id ? { ...m, content } : m)),
-      },
-    });
-    // the REAL ordering: the optimistic map update above has already happened
-    // when the server write is still pending — hold here to model navigation
-    // during that in-flight server request
-    if (options?.persistServerGate) await options.persistServerGate;
-    return { persistenceAmbiguous: false };
-  });
+  const persistImpl = vi.fn(
+    async (
+      id: string,
+      content: string,
+      extra?: { conversationContext?: { clearGeneration?: number } },
+    ) => {
+      const requestedClear =
+        extra?.conversationContext?.clearGeneration ??
+        useChatStore.getState().conversationClearGeneration;
+      if (options?.persistGate) await options.persistGate;
+      if (options?.persistRejectOnce && !options.persistRejectOnce.done) {
+        options.persistRejectOnce.done = true;
+        throw new Error('persistence write failed');
+      }
+      const state = useChatStore.getState();
+      if (state.conversationClearGeneration !== requestedClear) {
+        return { persistenceAmbiguous: false };
+      }
+      const hit = findMessageInMessagesMap(state.messagesMap, id);
+      if (!hit) return { persistenceAmbiguous: false };
+      useChatStore.setState({
+        messagesMap: {
+          ...state.messagesMap,
+          [hit.mapKey]: (state.messagesMap[hit.mapKey] ?? []).map((m) =>
+            m.id === id ? { ...m, content } : m,
+          ),
+        },
+      });
+      // the REAL ordering: the optimistic map update above has already happened
+      // when the server write is still pending — hold here to model navigation
+      // during that in-flight server request
+      if (options?.persistServerGate) await options.persistServerGate;
+      return { persistenceAmbiguous: false };
+    },
+  );
   const toggleSpy = vi.fn();
   const pluginStateSpy = vi.fn(async () => {
     if (options?.pluginStateGate) await options.pluginStateGate;
@@ -300,6 +312,57 @@ describe('chatToolSlice - dalle', () => {
       await store().reconcileDallETasks('message-id');
       stubs2.restore();
       expect(createTaskMock).not.toHaveBeenCalled();
+    });
+
+    it('leaving the originating topic still persists and creates (leave is not Stop)', async () => {
+      seedToolMessage(JSON.stringify([{ prompt: 'p1' }]));
+      const stubs = installStoreStubs();
+      const createTaskMock = vi
+        .spyOn(imageGenerationService, 'createChatImageTask')
+        .mockImplementation(async ({ taskId }) => ({ taskId: taskId! }));
+      vi.spyOn(imageGenerationService, 'getChatImageResult').mockImplementation(async (taskId) => ({
+        file: { id: `file-${taskId}` },
+        status: 'success',
+      }));
+
+      const run = store().generateImageFromPrompts(
+        [{ prompt: 'p1' }] as DallEImageItem[],
+        'message-id',
+      );
+      await vi.waitFor(() => expect(createTaskMock).toHaveBeenCalled());
+      useChatStore.setState({
+        activeId: 'other-session',
+        activeTopicId: 'other-topic',
+      });
+      await run;
+      stubs.restore();
+
+      const sentTaskId = (createTaskMock.mock.calls[0][0] as { taskId?: string }).taskId!;
+      expect(originContent()).toContain(`"taskId":"${sentTaskId}"`);
+      expect(originContent()).toContain(`"imageId":"file-${sentTaskId}"`);
+    });
+
+    it('resolves the originating map after the user already left the topic', async () => {
+      seedToolMessage(JSON.stringify([{ prompt: 'p1' }]));
+      useChatStore.setState({
+        activeId: 'other-session',
+        activeTopicId: 'other-topic',
+      });
+      const stubs = installStoreStubs();
+      const createTaskMock = vi
+        .spyOn(imageGenerationService, 'createChatImageTask')
+        .mockImplementation(async ({ taskId }) => ({ taskId: taskId! }));
+      vi.spyOn(imageGenerationService, 'getChatImageResult').mockImplementation(async (taskId) => ({
+        file: { id: `file-${taskId}` },
+        status: 'success',
+      }));
+
+      await store().generateImageFromPrompts([{ prompt: 'p1' }] as DallEImageItem[], 'message-id');
+      stubs.restore();
+
+      expect(createTaskMock).toHaveBeenCalledTimes(1);
+      const sentTaskId = (createTaskMock.mock.calls[0][0] as { taskId?: string }).taskId!;
+      expect(originContent()).toContain(`"imageId":"file-${sentTaskId}"`);
     });
 
     it('two overlapping retries with identical snapshots produce ONE create and ONE persisted id (R12-1)', async () => {
@@ -1265,6 +1328,8 @@ describe('chatToolSlice - dalle', () => {
           activeId: ORIGIN_SESSION,
           activeTopicId: undefined,
           conversationClearGeneration: 0,
+          conversationNavigationGeneration: 0,
+          conversationScopedClearGenerations: {},
           dalleImageLoading: {},
           internal_updateMessageContent: async (_id: string, content: string) => {
             // unversioned whole-content last-write-wins, like the real model
@@ -1326,7 +1391,51 @@ describe('chatToolSlice - dalle', () => {
       expect(stubs.persistImpl).toHaveBeenCalledWith(
         'message-id',
         JSON.stringify([{ imageId: 'new-id', previewUrl: 'new-url', prompt: 'test prompt' }]),
+        expect.objectContaining({
+          conversationContext: expect.objectContaining({ sessionId: ORIGIN_SESSION }),
+        }),
       );
+    });
+
+    it('writes into the originating map after the visible topic changed', async () => {
+      seedToolMessage(
+        JSON.stringify([{ imageId: 'old-id', previewUrl: 'old-url', prompt: 'test prompt' }]),
+      );
+      useChatStore.setState({
+        activeId: 'other-session',
+        activeTopicId: 'other-topic',
+      });
+      const stubs = installStoreStubs();
+
+      await store().updateImageItem('message-id', (draft: any) => {
+        draft[0].imageId = 'new-id';
+      });
+      stubs.restore();
+
+      expect(originContent()).toContain('"imageId":"new-id"');
+    });
+  });
+
+  describe('text2image', () => {
+    it('returns a completed invocation so invokeBuiltinTool does not treat success as skipped', async () => {
+      seedToolMessage(JSON.stringify([{ prompt: 'p1' }]));
+      const stubs = installStoreStubs();
+      vi.spyOn(imageGenerationService, 'createChatImageTask').mockImplementation(
+        async ({ taskId }) => ({ taskId: taskId! }),
+      );
+      vi.spyOn(imageGenerationService, 'getChatImageResult').mockImplementation(async (taskId) => ({
+        file: { id: `file-${taskId}` },
+        status: 'success',
+      }));
+
+      const result = await store().text2image('message-id', [{ prompt: 'p1' }] as DallEImageItem[]);
+      stubs.restore();
+
+      expect(result).toEqual({
+        data: [{ prompt: 'p1' }],
+        outcome: 'completed',
+        shouldContinue: true,
+      });
     });
   });
 });

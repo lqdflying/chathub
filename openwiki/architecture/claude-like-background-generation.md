@@ -277,6 +277,15 @@ Copy-paste APL: **`.cursor/rules/debug-log-checks.mdc`**.
    user taps the header to leave; that is WebKit ellipsis preview, not a
    generation cancel. Header text uses pointer-events + `::after` to disable
    it. Unrelated to Graphile.
+9. **Chat Image tool must not use `getMessageById` / `activeTopicId` for
+   persist.** `chatSelectors.getMessageById` reads only the visible map.
+   After leave, that returns `undefined` and `updateImageItem` silently
+   no-ops — one tile can finish while others stay Prompt-only. Resolve the
+   tool row with `findMessageInMessagesMap`, pin `conversationContext` from
+   that map key, and return `{ outcome: 'completed' }` from `text2image` so
+   `invokeBuiltinTool` does not log a successful void return as `skipped`.
+   Safari `Load failed` during **model think** (empty stream, tools never
+   started) is a separate WebKit abort; do not treat it as this persist bug.
 
 ## How to extend this without breaking it
 
@@ -315,6 +324,7 @@ When adding a tool, retrieval step, or send-path gate:
 | SSE | `src/hooks/useConversationGenerationSync.ts` |
 | Empty bubble UI | `src/features/Conversation/Messages/Default.tsx` |
 | Topic spinner | `src/store/chat/slices/topic/selectors.ts` |
+| Chat Image tool persist | `src/store/chat/slices/builtinTool/actions/dalle.ts` |
 
 High-signal tests are listed at the end of
 [Durable conversation generation](durable-conversation-generation.md).
