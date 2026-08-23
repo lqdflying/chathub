@@ -18,6 +18,9 @@ describe('Dify sandbox envelope', () => {
     });
 
     expect(wrapped).toContain('MPLBACKEND');
+    expect(wrapped).toContain('MPLCONFIGDIR');
+    expect(wrapped).toContain('MPL_IGNORE_SYSTEM_FONTS');
+    expect(wrapped).toContain('XDG_CACHE_HOME');
     expect(wrapped).toContain(`/tmp`);
     expect(wrapped).toContain(CI_WORKDIR_PREFIX);
     expect(wrapped).not.toContain('os.makedirs(');

@@ -112,6 +112,22 @@ describe('Dify sandbox envelope runtime', () => {
     expect(failed.stderr).toContain('SystemExit: 2');
   });
 
+  it('pins matplotlib config to the session dir and skips system fontconfig', () => {
+    const result = runWrapper({
+      code: [
+        'import os',
+        'print(os.environ.get("MPLCONFIGDIR"))',
+        'print(os.environ.get("MPL_IGNORE_SYSTEM_FONTS"))',
+        'print(os.environ.get("HOME") == os.environ.get("TMPDIR"))',
+      ].join('\n'),
+      token: 'ee',
+    });
+    expect(result.parsed.success).toBe(true);
+    expect(result.parsed.stdout).toContain('/tmp/chathub-ci-ee');
+    expect(result.parsed.stdout).toContain('\n1\n');
+    expect(result.parsed.stdout).toContain('True');
+  });
+
   it('does not import matplotlib for a print-only run', () => {
     const fakeRoot = mkdtempSync(join(tmpdir(), 'chathub-fake-mpl-print-'));
     const marker = join(fakeRoot, 'imported');

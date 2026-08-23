@@ -124,6 +124,18 @@ export const wrapSandboxPython = ({
     '    _emit(False, [])',
     '    raise SystemExit(0)',
     'os.environ["TMPDIR"] = DATA_DIR',
+    // Matplotlib: MPLCONFIGDIR first, else $HOME/.config, else tempfile+mkdir
+    // (https://matplotlib.org/stable/api/matplotlib_configuration_api.html).
+    // Guest mkdir is ActErrno; HOME is unset in the jail. Pin config/cache to
+    // the existing session dir. MPL_IGNORE_SYSTEM_FONTS skips fc-list
+    // (https://github.com/matplotlib/matplotlib/blob/v3.11.1/lib/matplotlib/font_manager.py).
+    // Dify allows clone3+pipe2 but not execve, so pyplot otherwise hangs until
+    // ChatHub's 60s AbortSignal (matplotlib#28488).
+    'os.environ["HOME"] = DATA_DIR',
+    'os.environ["MPLCONFIGDIR"] = DATA_DIR',
+    'os.environ["XDG_CONFIG_HOME"] = DATA_DIR',
+    'os.environ["XDG_CACHE_HOME"] = DATA_DIR',
+    'os.environ["MPL_IGNORE_SYSTEM_FONTS"] = "1"',
     'os.getcwd = lambda: DATA_DIR',
     'os.chdir = lambda *a, **k: None',
     '_real_open = builtins.open',
