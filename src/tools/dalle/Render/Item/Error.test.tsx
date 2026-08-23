@@ -56,27 +56,43 @@ describe('dalle item Error card', () => {
     expect(retryDallEImages).toHaveBeenCalledWith('m1');
   });
 
+  it('renders the localized stop notice for ChatImageTaskCancelled with a Retry action', () => {
+    errorState.current = { errorType: 'ChatImageTaskCancelled' };
+    render(<ErrorCard index={0} messageId="m1" />);
+
+    expect(screen.getByTestId('alert-title').textContent).toBe('tool:dalle.taskCancelled');
+    fireEvent.click(screen.getByRole('button'));
+    expect(retryDallEImages).toHaveBeenCalledWith('m1');
+  });
+
   it('keeps the no-model error on its own localized key', () => {
     errorState.current = { errorType: 'NoImageModelConfigured' };
     render(<ErrorCard index={0} messageId="m2" />);
     expect(screen.getByTestId('alert-title').textContent).toBe('tool:dalle.noImageModel');
   });
 
-  it('ships the restore notice in every hand-maintained locale resource', () => {
+  it('ships the restore and stop notices in every hand-maintained locale resource', () => {
     // default TS namespace + both required JSON locales must carry the key
     // (the repo forbids running the i18n generator from a session)
-    const values = [
+    const unverified = [
       defaultTool.dalle.taskUnverified,
       (zhTool as { dalle: Record<string, string> }).dalle.taskUnverified,
       (enTool as { dalle: Record<string, string> }).dalle.taskUnverified,
     ];
-    for (const value of values) {
+    const cancelled = [
+      defaultTool.dalle.taskCancelled,
+      (zhTool as { dalle: Record<string, string> }).dalle.taskCancelled,
+      (enTool as { dalle: Record<string, string> }).dalle.taskCancelled,
+    ];
+    for (const value of [...unverified, ...cancelled]) {
       expect(typeof value).toBe('string');
       expect(value.length).toBeGreaterThan(0);
     }
     // zh-CN and en-US are separately maintained translations, not copies
-    expect(values[1]).not.toBe(values[2]);
+    expect(unverified[1]).not.toBe(unverified[2]);
+    expect(cancelled[1]).not.toBe(cancelled[2]);
     // the English copy names the Retry action the card renders
-    expect(values[2]).toContain('Retry');
+    expect(unverified[2]).toContain('Retry');
+    expect(cancelled[2]).toContain('Retry');
   });
 });

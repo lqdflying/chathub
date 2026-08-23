@@ -20,6 +20,21 @@ export interface DallEImageItem {
    */
   taskAttempt?: number;
   /**
+   * Durable Stop mark. Written after a lane Stop with the post-Stop fence so
+   * that persist is not itself cancelled. Reload zeros in-memory fences; this
+   * flag is what keeps remount reconciliation from billing an unsubmitted id.
+   * Explicit Retry clears it when re-stamping authorization.
+   */
+  taskCancelled?: boolean;
+  /**
+   * Lane-scoped Stop fence captured when this `taskId` was prepared (or when
+   * an explicit Retry re-authorized it). Mount-time recovery may auto-submit a
+   * missing task row only while this still matches the live fence. Leave-topic
+   * does not bump the fence; Stop does. Absent on legacy tiles — those missing
+   * rows fail closed and wait for Retry.
+   */
+  taskFence?: number;
+  /**
    * The async generation task backing this item. Deterministically derived
    * and persisted BEFORE the create request is sent (write-first), so a
    * reload/navigation at any point can resume or adopt the task instead of
@@ -27,4 +42,10 @@ export interface DallEImageItem {
    * succeeded server-side).
    */
   taskId?: string;
+  /**
+   * Send-path generation-debug span (`gd_…`) copied from the deferred lane so
+   * reload/mount reconciliation can still join `chat_image_task_created` after
+   * the volatile lane is gone. Never a prompt, task UUID, or message id.
+   */
+  spanId?: string;
 }

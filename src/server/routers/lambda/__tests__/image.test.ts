@@ -1031,7 +1031,9 @@ describe('imageRouter', () => {
           outcome: 'inserted',
         }),
       );
-      const fields = logSpy.mock.calls.find(([event]) => event === 'chat_image_task_created')?.[1] as {
+      const fields = logSpy.mock.calls.find(
+        ([event]) => event === 'chat_image_task_created',
+      )?.[1] as {
         messageHash?: string;
         taskHash?: string;
       };
@@ -1056,7 +1058,9 @@ describe('imageRouter', () => {
         taskId: CHAT_TASK_ID,
       });
 
-      const fields = logSpy.mock.calls.find(([event]) => event === 'chat_image_task_created')?.[1] as {
+      const fields = logSpy.mock.calls.find(
+        ([event]) => event === 'chat_image_task_created',
+      )?.[1] as {
         spanId?: string;
       };
       expect(fields.spanId).toBe(spanId);
@@ -1079,7 +1083,9 @@ describe('imageRouter', () => {
         taskId: CHAT_TASK_ID,
       });
 
-      const fields = logSpy.mock.calls.find(([event]) => event === 'chat_image_task_created')?.[1] as {
+      const fields = logSpy.mock.calls.find(
+        ([event]) => event === 'chat_image_task_created',
+      )?.[1] as {
         spanId?: string;
       };
       expect(fields.spanId).toBeUndefined();

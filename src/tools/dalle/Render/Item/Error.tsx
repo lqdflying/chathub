@@ -37,9 +37,11 @@ const Error = memo<ErrorProps>(({ messageId, index }) => {
       ? tt('dalle.noImageModel')
       : errorType === 'ChatImageTaskUnverified'
         ? tt('dalle.taskUnverified')
-        : errorType
-          ? t(`response.${errorType}` as any, { defaultValue: errorType })
-          : (message ?? t('response.PluginServerError' as any));
+        : errorType === 'ChatImageTaskCancelled'
+          ? tt('dalle.taskCancelled')
+          : errorType
+            ? t(`response.${errorType}` as any, { defaultValue: errorType })
+            : (message ?? t('response.PluginServerError' as any));
 
   const detail = body ?? message ?? error;
 

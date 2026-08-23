@@ -373,6 +373,12 @@ export const generateAIChat: StateCreator<
       n('stopGenerateMessage/bumpLaneScopedClearGeneration'),
     );
 
+    try {
+      await get().cancelPreparedChatImageTasks(activeId, activeTopicId, threadId);
+    } catch {
+      // best-effort durable Stop mark; the in-memory fence already bumped
+    }
+
     if (!isThreadScopedStop) {
       const operationKey = messageMapKey(activeId, activeTopicId);
       const sendOperation = mainSendMessageOperations[operationKey];

@@ -855,7 +855,7 @@ configurable model rather than a hard-coded one.
   authoritative terminal failure — re-submitting the success id can never be
   re-claimed, so only an explicit Retry advancing to the deterministic
   replacement id can move past it. Because that automatic resubmission is
-  BILLABLE, it runs only behind four gates: provenance — a persisted id may
+  BILLABLE, it runs only behind these gates: provenance — a persisted id may
   auto-generate only if it derives exactly from (user scope, message id,
   index, persisted attempt): one derivation, no chain walk and no chain cap,
   so the validator never rejects an id this action legitimately created and
@@ -871,7 +871,16 @@ configurable model rather than a hard-coded one.
   when hydration settles — even after the bounded wait expired — so recovery
   needs no remount and no manual Retry; current correlation — the message
   must still exist and still carry that exact unresolved id at that index
-  when the create is sent (deleting a message mid-probe aborts silently); and
+  when the create is sent (deleting a message mid-probe aborts silently);
+  Stop authorization — auto-create is allowed only when the persisted
+  `taskFence` still matches the live lane fence and the tile is not marked
+  `taskCancelled`. Leave-topic does not bump that fence. Stop after the
+  optimistic id write does: remount sees a stale fence, and Stop also persists
+  `taskCancelled` with the post-Stop fence so a reload (which zeros in-memory
+  fences) still fails closed. A missing fence on a legacy tile fails closed
+  the same way. Explicit Retry re-stamps the fence, clears `taskCancelled`,
+  and may submit. Existing server tasks (pending or success) are adopted
+  before this gate and are never discarded; and
   server-side verification — the create contract REQUIRES the correlation
   (message id + index) and the task id, and the mutation verifies and inserts
   in ONE transaction with the message row read FOR SHARE, linearized against
@@ -885,7 +894,10 @@ configurable model rather than a hard-coded one.
   re-checked after that await — lookup, transport and local-timeout failures
   surface without creating. Leave-topic keeps the in-tab generate/poll loop
   writing into the originating map; mount-time `reconcileDallETasks` is still
-  the backup if that tab died before `imageId` landed.
+  the backup if that tab died before `imageId` landed. The send `spanId`
+  (`gd_…`) is copied onto the unresolved item at persist so a remount create
+  can still join `chat_image_task_created` after `deferredBrowserGenerationLanes`
+  is gone.
 - **Diagnostics.** Chat Image tile create/persist/attach is
   `CHATHUB_GENERATION_DEBUG` (`chat_image_run_started` /
   `chat_image_item_settled` / `chat_image_run_settled` on the send `spanId`,

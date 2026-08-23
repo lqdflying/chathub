@@ -330,6 +330,41 @@ const isImageToolFenceCurrent = (state: ChatStore, conversationContext: Conversa
     conversationContext.threadId,
   );
 
+const GENERATION_DEBUG_SPAN_ID_PATTERN = /^gd_[\da-f]{16,64}$/i;
+
+const resolvePersistedChatImageSpanId = (value?: string) =>
+  typeof value === 'string' && GENERATION_DEBUG_SPAN_ID_PATTERN.test(value) ? value : undefined;
+
+const stampChatImageTaskAuthorization = (
+  target: DallEImageItem,
+  clearGeneration: number,
+  spanId?: string,
+) => {
+  target.taskFence = clearGeneration;
+  delete target.taskCancelled;
+  const nextSpan =
+    resolvePersistedChatImageSpanId(spanId) ?? resolvePersistedChatImageSpanId(target.spanId);
+  if (nextSpan) target.spanId = nextSpan;
+};
+
+const isChatImageAutoCreateAuthorized = (
+  item: DallEImageItem,
+  state: ChatStore,
+  conversationContext: ConversationContext,
+) =>
+  !item.taskCancelled &&
+  typeof item.taskFence === 'number' &&
+  isConversationClearFenceCurrent(
+    state,
+    item.taskFence,
+    conversationContext.sessionId,
+    conversationContext.topicId,
+    conversationContext.threadId,
+  );
+
+const isChatImageToolMessage = (message: UIChatMessage) =>
+  message.plugin?.identifier === 'lobe-image-designer' || message.plugin?.apiName === 'text2image';
+
 const resolveChatImageDebugLane = (
   state: ChatStore,
   assistantMessageId: string,
@@ -374,6 +409,17 @@ const logChatImageGeneration = (
 };
 
 export interface ChatDallEAction {
+  /**
+   * Durable Stop mark for prepared chat-image tiles in this lane. Uses the
+   * post-Stop fence so the persist is not itself cancelled. Reload zeros
+   * in-memory fences; `taskCancelled` is what keeps remount recovery from
+   * billing an unsubmitted id. Existing server tasks are still adopted.
+   */
+  cancelPreparedChatImageTasks: (
+    sessionId: string,
+    topicId?: string | null,
+    threadId?: string | null,
+  ) => Promise<void>;
   generateImageFromPrompts: (items: DallEImageItem[], id: string) => Promise<ChatImageRunOutcome>;
   /**
    * Recover items whose async task outlived this tab: adopt finished results,
@@ -381,8 +427,9 @@ export interface ChatDallEAction {
    * persisted id whose task row is missing (`task_missing`), it completes the
    * already-persisted attempt by idempotently resubmitting the SAME id — a
    * billable side effect, guarded by provenance, current-correlation re-read,
-   * owner-config readiness, and the server-side correlation check. Unproven
-   * ids never generate automatically; they surface for explicit Retry.
+   * owner-config readiness, Stop authorization (`taskFence` + `taskCancelled`),
+   * and the server-side correlation check. Unproven or Stopped ids never
+   * generate automatically; they surface for explicit Retry.
    */
   reconcileDallETasks: (id: string) => Promise<void>;
   retryDallEImages: (id: string) => Promise<void>;
@@ -409,6 +456,51 @@ export const dalleSlice: StateCreator<
   [],
   ChatDallEAction
 > = (set, get) => ({
+  cancelPreparedChatImageTasks: async (sessionId, topicId, threadId) => {
+    const mapKey = messageMapKey(sessionId, topicId);
+    const messages = get().messagesMap[mapKey] ?? [];
+    const clearGeneration = resolveConversationClearGeneration(
+      get(),
+      sessionId,
+      topicId,
+      threadId,
+    );
+    const conversationContext: ConversationContext = {
+      clearGeneration,
+      generation: get().conversationNavigationGeneration,
+      sessionId,
+      threadId,
+      topicId,
+    };
+
+    for (const message of messages) {
+      if ((message.threadId ?? null) !== (threadId ?? null)) continue;
+      if (!isChatImageToolMessage(message)) continue;
+
+      let items: DallEImageItem[];
+      try {
+        items = JSON.parse(message.content);
+      } catch {
+        continue;
+      }
+      if (
+        !Array.isArray(items) ||
+        !items.some((item) => item?.taskId && !item.imageId && !item.taskCancelled)
+      ) {
+        continue;
+      }
+
+      await get().updateImageItem(
+        message.id,
+        (draft) => {
+          for (const item of draft) {
+            if (item?.taskId && !item.imageId) item.taskCancelled = true;
+          }
+        },
+        conversationContext,
+      );
+    }
+  },
   generateImageFromPrompts: async (items, messageId) => {
     // Pin the originating conversation from the tool message itself — not the
     // currently visible topic. Leave-topic is not Stop; `getMessageById` only
@@ -442,19 +534,24 @@ export const dalleSlice: StateCreator<
       threadId: conversationContext.threadId,
       topicId: conversationContext.topicId,
     };
-    const countOriginImages = () => {
+    const parseOriginItems = (): DallEImageItem[] => {
       const persisted = get().messagesMap[originKey]?.find((m) => m.id === messageId);
       try {
         const parsed = persisted ? (JSON.parse(persisted.content) as DallEImageItem[]) : [];
-        if (!Array.isArray(parsed)) return { attachedCount: 0, taskCount: 0 };
-        return {
-          attachedCount: parsed.filter((item) => Boolean(item?.imageId)).length,
-          taskCount: parsed.filter((item) => Boolean(item?.taskId)).length,
-        };
+        return Array.isArray(parsed) ? parsed : [];
       } catch {
-        return { attachedCount: 0, taskCount: 0 };
+        return [];
       }
     };
+    const countOriginImages = () => {
+      const parsed = parseOriginItems();
+      return {
+        attachedCount: parsed.filter((item) => Boolean(item?.imageId)).length,
+        taskCount: parsed.filter((item) => Boolean(item?.taskId)).length,
+      };
+    };
+    const resolveItemSpanId = (index: number) =>
+      resolvePersistedChatImageSpanId(parseOriginItems()[index]?.spanId);
     const userScope = authSelectors.currentUserScope(useUserStore.getState()) ?? 'anonymous';
 
     // EXCLUSIVE OWNERSHIP FIRST (synchronously, before ANY await): claim every
@@ -523,6 +620,11 @@ export const dalleSlice: StateCreator<
             }
             target.taskId = next;
             target.taskAttempt = nextAttempt;
+            stampChatImageTaskAuthorization(
+              target,
+              conversationContext.clearGeneration,
+              debugSpanId,
+            );
             written.add(index);
           }
         });
@@ -604,6 +706,21 @@ export const dalleSlice: StateCreator<
           });
         }
         return runOutcome;
+      }
+
+      const preexistingOwned = ownedIndices.filter((index) => Boolean(items[index].taskId));
+      if (preexistingOwned.length > 0 && invocationIsCurrent()) {
+        await persistItems((draft) => {
+          for (const index of preexistingOwned) {
+            const target = draft[index];
+            if (!target || target.imageId) continue;
+            stampChatImageTaskAuthorization(
+              target,
+              conversationContext.clearGeneration,
+              debugSpanId,
+            );
+          }
+        });
       }
 
       let persistUnprovenCount = 0;
@@ -733,12 +850,14 @@ export const dalleSlice: StateCreator<
             }
 
             if (mustCreate) {
+              const spanId =
+                resolvePersistedChatImageSpanId(debugSpanId) ?? resolveItemSpanId(index);
               await imageGenerationService.createChatImageTask({
                 correlation: { index, messageId },
                 model,
                 params: { ...baseParams, prompt: item.prompt },
                 provider,
-                ...(debugSpanId ? { spanId: debugSpanId } : {}),
+                ...(spanId ? { spanId } : {}),
                 taskId,
               });
               created = true;
@@ -935,12 +1054,26 @@ export const dalleSlice: StateCreator<
             if (!currentItem || currentItem.taskId !== item.taskId || currentItem.imageId) {
               return;
             }
+            // 4) Stop authorization: auto-create is billable. The prepared
+            //    taskFence must still match the live lane fence so a Stop
+            //    after the optimistic write cannot remount-submit. Leave-topic
+            //    does not bump that fence. A missing fence (legacy tile) or a
+            //    durable `taskCancelled` mark fails closed — explicit Retry
+            //    re-stamps and may submit. Existing server tasks are adopted
+            //    above this gate and are never discarded.
+            if (!isChatImageAutoCreateAuthorized(currentItem, get(), conversationContext)) {
+              hasError = true;
+              errorArray[index] = { errorType: 'ChatImageTaskCancelled' };
+              return;
+            }
+            const spanId =
+              resolvePersistedChatImageSpanId(currentItem.spanId) ?? debugSpanId;
             await imageGenerationService.createChatImageTask({
               correlation: { index, messageId },
               model: resolved.model,
               params: { ...resolved.params, prompt: item.prompt },
               provider: resolved.provider,
-              ...(debugSpanId ? { spanId: debugSpanId } : {}),
+              ...(spanId ? { spanId } : {}),
               taskId: item.taskId,
             });
             if (!invocationIsCurrent()) return;

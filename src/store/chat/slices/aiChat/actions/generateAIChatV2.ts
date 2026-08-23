@@ -963,6 +963,12 @@ export const generateAIChatV2: StateCreator<
       n('cancelSendMessageInServer/bumpLaneScopedClearGeneration'),
     );
 
+    try {
+      await get().cancelPreparedChatImageTasks(activeId, targetTopicId, targetThreadId);
+    } catch {
+      // best-effort durable Stop mark; the in-memory fence already bumped
+    }
+
     await get().cancelActiveDurableOpsInScope({
       kind: ConversationGenerationChatFamilyKinds,
       sessionId: activeId,
