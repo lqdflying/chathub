@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { getServerDB } from '@/database/core/db-adaptor';
 import { AsyncTaskModel } from '@/database/models/asyncTask';
 import { FileModel } from '@/database/models/file';
+import * as generationDebug from '@/libs/logger/generationDebug';
 import { createCallerFactory } from '@/libs/trpc/lambda';
 import { createAsyncCaller } from '@/server/routers/async/caller';
 import {
@@ -1008,6 +1009,61 @@ describe('imageRouter', () => {
         provider: 'openaicompatible',
         taskId: CHAT_TASK_ID,
       });
+    });
+
+    it('emits chat_image_task_created after a correlated insert', async () => {
+      const { db } = makeTxDb(correlatedRows);
+      installCommonMocks(db);
+      const logSpy = vi.spyOn(generationDebug, 'logGenerationDebugSafe');
+
+      await makeCaller().createChatImage({
+        correlation: CHAT_CORRELATION,
+        model: 'gpt-image-2',
+        params: { prompt: 'p' },
+        provider: 'openaicompatible',
+        taskId: CHAT_TASK_ID,
+      });
+
+      expect(logSpy).toHaveBeenCalledWith(
+        'chat_image_task_created',
+        expect.objectContaining({
+          index: 0,
+          outcome: 'inserted',
+        }),
+      );
+      const fields = logSpy.mock.calls.find(([event]) => event === 'chat_image_task_created')?.[1] as {
+        messageHash?: string;
+        taskHash?: string;
+      };
+      expect(fields.messageHash).toMatch(/^[\da-f]{16}$/);
+      expect(fields.taskHash).toMatch(/^[\da-f]{16}$/);
+      expect(JSON.stringify(fields)).not.toContain(CHAT_CORRELATION.messageId);
+      expect(JSON.stringify(fields)).not.toContain(CHAT_TASK_ID);
+    });
+
+    it('emits chat_image_task_rejected when the message is uncorrelated', async () => {
+      const { db } = makeTxDb(() => []);
+      installCommonMocks(db);
+      const logSpy = vi.spyOn(generationDebug, 'logGenerationDebugSafe');
+
+      await expect(
+        makeCaller().createChatImage({
+          correlation: CHAT_CORRELATION,
+          model: 'gpt-image-2',
+          params: { prompt: 'p' },
+          provider: 'openaicompatible',
+          taskId: CHAT_TASK_ID,
+        }),
+      ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
+
+      expect(logSpy).toHaveBeenCalledWith(
+        'chat_image_task_rejected',
+        expect.objectContaining({
+          index: 0,
+          outcome: 'uncorrelated',
+        }),
+      );
+      expect(logSpy).not.toHaveBeenCalledWith('chat_image_task_created', expect.anything());
     });
 
     it('marks the task failed when the async dispatch rejects', async () => {

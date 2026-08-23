@@ -18,6 +18,9 @@
 export type GenerationDebugClientEvent =
   | 'browser_path_started'
   | 'builtin_tool_settled'
+  | 'chat_image_item_settled'
+  | 'chat_image_run_settled'
+  | 'chat_image_run_started'
   | 'deferred_lane_aborted'
   | 'deferred_lane_left'
   | 'deferred_lane_marked'
@@ -221,6 +224,9 @@ export const logGenerationDebugClientSafe = (
 
 export type DeferredGenerationLaneDebugEvent =
   | 'builtin_tool_settled'
+  | 'chat_image_item_settled'
+  | 'chat_image_run_settled'
+  | 'chat_image_run_started'
   | 'deferred_lane_aborted'
   | 'deferred_lane_left'
   | 'deferred_lane_marked'

@@ -25,6 +25,9 @@ const GENERATION_DEBUG_MAX_RECORD_BYTES = 16 * 1024;
 export const GENERATION_DEBUG_CLIENT_EVENTS = [
   'browser_path_started',
   'builtin_tool_settled',
+  'chat_image_item_settled',
+  'chat_image_run_settled',
+  'chat_image_run_started',
   'deferred_lane_aborted',
   'deferred_lane_left',
   'deferred_lane_marked',
@@ -64,6 +67,8 @@ export type GenerationDebugEvent =
   | (typeof GENERATION_DEBUG_CLIENT_EVENTS)[number]
   // Server-side events.
   | 'browser_tool_stubbed'
+  | 'chat_image_task_created'
+  | 'chat_image_task_rejected'
   | 'enqueue_persisted'
   | 'enqueue_received'
   | 'enqueue_rejected'

@@ -13,9 +13,9 @@ All dedicated switches emit prefixed JSON. Query their distinct `debug_namespace
 | ----------------------------------- | ------- | ---------------------------------------------- |
 | `CHATHUB_TOOLS_DEBUG=1`             | safe    | structured tool metadata events                |
 | `CHATHUB_TOOLS_DEBUG=verbose`       | verbose | safe events + structured payload fingerprints  |
-| `CHATHUB_IMAGE_DEBUG=1`             | safe    | structured image generation lifecycle events   |
+| `CHATHUB_IMAGE_DEBUG=1`             | safe    | Image **workspace** (`/image`) lifecycle events. Chat Image tool tiles use generation-debug. |
 | `CHATHUB_IMAGE_DEBUG=verbose`       | verbose | safe events + keyed prompt/config fingerprints |
-| `CHATHUB_GENERATION_DEBUG=1`        | safe    | durable conversation-generation send-path events (client + server) |
+| `CHATHUB_GENERATION_DEBUG=1`        | safe    | durable conversation-generation send-path events (client + server), including chat Image tool tile create/persist/attach |
 | `DEBUG_OPENAI_CACHE=1`              | safe    | native OpenAI cache events                     |
 | `DEBUG_AZURE_CACHE=1`               | safe    | Azure OpenAI cache events                      |
 | `DEBUG_AZUREAI_CACHE=1`             | safe    | Azure AI cache support/usage events            |
@@ -185,7 +185,10 @@ Leave/return for one hashed topic (browser-fallback background turn):
                           'send_rpc_settled', 'browser_path_started',
                           'fetch_stream_interrupted', 'fetch_stream_error',
                           'exec_runtime_settled', 'browser_tool_stubbed',
-                          'sandbox_run_started', 'sandbox_run_settled')
+                          'sandbox_run_started', 'sandbox_run_settled',
+                          'chat_image_run_started', 'chat_image_item_settled',
+                          'chat_image_run_settled', 'chat_image_task_created',
+                          'chat_image_task_rejected')
 | extend payload=parse_json(extract("(\\{.*\\})$", 1, ['message']))
 | extend spanId=tostring(payload.spanId), topicHash=tostring(payload.topicHash),
   outcome=tostring(payload.outcome), reason=tostring(payload.reason),
@@ -194,10 +197,14 @@ Leave/return for one hashed topic (browser-fallback background turn):
   chunkCount=tolong(payload.chunkCount),
   visible=tobool(payload.visible),
   preservedPluginCount=tolong(payload.preservedPluginCount),
-  abortedPluginCount=tolong(payload.abortedPluginCount)
+  abortedPluginCount=tolong(payload.abortedPluginCount),
+  attachedCount=tolong(payload.attachedCount),
+  taskCount=tolong(payload.taskCount),
+  created=tobool(payload.created),
+  imageConfigReady=tobool(payload.imageConfigReady)
 | project _time, debug_event, spanId, topicHash, outcome, reason, eventType,
   producerAlive, stillCurrent, chunkCount, visible, preservedPluginCount,
-  abortedPluginCount
+  abortedPluginCount, attachedCount, taskCount, created, imageConfigReady
 | sort by _time asc
 ```
 
@@ -352,6 +359,22 @@ Generation-debug semantics:
   `deferred_placeholder_finalized` means persist already wrote content and
   sync cleared the deferred marker. It must not fire for leftover
   `LOADING_FLAT` rows.
+- Chat Image tool tiles (`lobe-image-designer`) share this
+  `chathub-generation-debug` stream, not `CHATHUB_IMAGE_DEBUG`. Join
+  `chat_image_run_started` / `chat_image_item_settled` /
+  `chat_image_run_settled` to the send `spanId`. Readable `outcome` values:
+  run `ok` / `partial` / `failed` / `no_origin` / `already_done` /
+  `no_model` / `persist_unproven` / `not_current`; item `attached` /
+  `failed` / `not_current` / `persist_unproven` / `skipped`. `visible=false`
+  after leave is expected. Server `chat_image_task_created(outcome=inserted)`
+  is the billable insert; `idempotent` is a same-id retry; `chat_image_task_rejected(outcome=uncorrelated)`
+  means the message no longer carried that unresolved task. Diagnose:
+  `fetch_stream_interrupted(errorKind=webkit_load_failed)` with **no**
+  `chat_image_run_started` on that `spanId` is Safari abort during think
+  (tools never started — [iOS fetch "Load failed"](https://stackoverflow.com/questions/71280168));
+  `persist_unproven` or missing `attached` after `visible=false` is the
+  origin-map persist bug; `created=true` plus `task_created` then no
+  `attached` is poll/attach, not persist.
 
 Tool-call failures:
 
@@ -448,7 +471,7 @@ docker exec lobe-chat sh -c 'cat /proc/1/environ | tr "\0" "\n" | grep -E "DEBUG
 ## Healthy signals
 
 - Tools: an MCP call should end with `call_tool_complete` and `tools_rpc_complete` HTTP 200 for the same `diagnosticId`, ordered by per-span `eventSequence`. Cold connections may also show `client_initialized`; warm calls commonly show `client_cache_lookup` with `outcome=hit` and no initialization event. Safe technical tool/procedure labels may be readable, but arguments, results, bodies, arbitrary errors, credentials, query strings, environment values, and user/connection identifiers must never be raw.
-- Image: one image submission should show `submission_accepted`, `batch_persisted`, `dispatch_started`, paired `async_route_started`/`async_route_settled`, provider events, transform/upload events, and terminal `task_status_settled`. Safe records may show provider hashes, dimensions, status/media metadata, counts, and keyed hashes, but provider labels, prompts, image URLs/data, response bodies, user/database IDs, credentials, headers/cookies, arbitrary error messages, stacks, and environment values must never be raw.
+- Image workspace (`CHATHUB_IMAGE_DEBUG`): one `/image` submission should show `submission_accepted`, `batch_persisted`, `dispatch_started`, paired `async_route_started`/`async_route_settled`, provider events, transform/upload events, and terminal `task_status_settled`. Safe records may show provider hashes, dimensions, status/media metadata, counts, and keyed hashes, but provider labels, prompts, image URLs/data, response bodies, user/database IDs, credentials, headers/cookies, arbitrary error messages, stacks, and environment values must never be raw. Chat Image tool tiles are generation-debug (`chat_image_*`), not this stream.
 - Tool lifecycle: every local batch should have `tool_batch_started`, one `tool_completion_reported` per expected call, and `tool_batch_settled`. `resultCount + failureCount` should equal `toolCallCount`. Provider-native tools are `delegated`/`handed_off`; ChatHub built-ins are `builtin`.
 - Cache: every enabled request should have one `request` followed by one `usage`, `usage_missing`, or `terminal_error` for the same `requestHash`. `cachedTokens=0` is an explicit zero only when the provider reported it. Missing cache counters or `cacheStatus=not_reported` are unavailable telemetry, not misses.
-- Generation: every durable send/regenerate should show one `enqueue_persisted` with `jobAdded=true`, then `job_received`, one `execute_started` and one `execute_settled` for the same `operationHash`, and a client `event_applied_terminal` for the same `operationHash` when the browser was open. Client `send_*`/`regenerate_*`/`sync_summary` events with the same `spanId` bracket the server events. A search-only send with Code Interpreter enabled must not show `enqueue_rejected` / `lobe-code-interpreter`. A CI invoke must show `sandbox_run_settled` (not `browser_tool_stubbed`). A leftover Safari chat stream that dies must show `fetch_stream_interrupted(errorKind=webkit_load_failed)` and must not persist `UnknownChatFetchError`. Continue fetches emit `exec_runtime_settled(kind=continue)`. Worker DALL·E stubs emit `browser_tool_stubbed`. A send that requested durable work but stayed in the browser must show `send_rpc_settled(hasOperationId=false)` paired with server `enqueue_rejected` on that `spanId`, with a readable `deferReason`. Title empty-transcript retries emit `execute_retrying` rather than `execute_settled`. One `worker_started` should appear per container boot. Identifiers appear only as sha256-16 hashes; message content, session/topic ids, and error messages must never be raw.
+- Generation: every durable send/regenerate should show one `enqueue_persisted` with `jobAdded=true`, then `job_received`, one `execute_started` and one `execute_settled` for the same `operationHash`, and a client `event_applied_terminal` for the same `operationHash` when the browser was open. Client `send_*`/`regenerate_*`/`sync_summary` events with the same `spanId` bracket the server events. A search-only send with Code Interpreter enabled must not show `enqueue_rejected` / `lobe-code-interpreter`. A CI invoke must show `sandbox_run_settled` (not `browser_tool_stubbed`). A leftover Safari chat stream that dies must show `fetch_stream_interrupted(errorKind=webkit_load_failed)` and must not persist `UnknownChatFetchError`. Continue fetches emit `exec_runtime_settled(kind=continue)`. Worker DALL·E stubs emit `browser_tool_stubbed`. A browser-fallback chat Image turn that actually starts tiles must show `chat_image_run_started` then per-index `chat_image_item_settled(outcome=attached)` and `chat_image_run_settled(outcome=ok)` on that `spanId` (`visible=false` after leave is OK), plus server `chat_image_task_created` when a billable insert happens. Absence of `chat_image_run_started` after `webkit_load_failed` means tools never started. A send that requested durable work but stayed in the browser must show `send_rpc_settled(hasOperationId=false)` paired with server `enqueue_rejected` on that `spanId`, with a readable `deferReason`. Title empty-transcript retries emit `execute_retrying` rather than `execute_settled`. One `worker_started` should appear per container boot. Identifiers appear only as sha256-16 hashes; message content, session/topic ids, and error messages must never be raw.

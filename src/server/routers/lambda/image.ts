@@ -16,6 +16,7 @@ import {
   messages,
 } from '@/database/schemas';
 import { appEnv } from '@/envs/app';
+import { hashGenerationDebugValue, logGenerationDebugSafe } from '@/libs/logger/generationDebug';
 import {
   createImageDiagnosticId,
   describeImageDebugError,
@@ -303,7 +304,7 @@ export const imageRouter = router({
       // (its own transaction): if the deletion commits first the read sees
       // nothing and we refuse; while we hold the lock the deletion waits, so
       // a task can never be inserted for a message that no longer exists.
-      const taskId = await ctx.serverDB.transaction(async (tx) => {
+      const { outcome: createOutcome, taskId } = await ctx.serverDB.transaction(async (tx) => {
         const [ownedMessage] = await tx
           .select({ content: messages.content })
           .from(messages)
@@ -325,6 +326,12 @@ export const imageRouter = router({
           }
         }
         if (!correlated) {
+          logGenerationDebugSafe('chat_image_task_rejected', {
+            index: input.correlation.index,
+            messageHash: hashGenerationDebugValue(input.correlation.messageId),
+            outcome: 'uncorrelated',
+            taskHash: hashGenerationDebugValue(input.taskId),
+          });
           throw new TRPCError({
             code: 'PRECONDITION_FAILED',
             message:
@@ -342,7 +349,16 @@ export const imageRouter = router({
           })
           .onConflictDoNothing()
           .returning();
-        return inserted[0]?.id ?? input.taskId;
+        return {
+          outcome: inserted[0]?.id ? 'inserted' : 'idempotent',
+          taskId: inserted[0]?.id ?? input.taskId,
+        };
+      });
+      logGenerationDebugSafe('chat_image_task_created', {
+        index: input.correlation.index,
+        messageHash: hashGenerationDebugValue(input.correlation.messageId),
+        outcome: createOutcome,
+        taskHash: hashGenerationDebugValue(taskId),
       });
 
       try {

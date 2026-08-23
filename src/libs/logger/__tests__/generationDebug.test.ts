@@ -80,6 +80,9 @@ describe('CHATHUB_GENERATION_DEBUG emitter', () => {
       expect(GENERATION_DEBUG_CLIENT_EVENTS).toEqual(
         expect.arrayContaining([
           'builtin_tool_settled',
+          'chat_image_item_settled',
+          'chat_image_run_settled',
+          'chat_image_run_started',
           'deferred_lane_aborted',
           'deferred_lane_left',
           'deferred_lane_resumed',
@@ -161,6 +164,27 @@ describe('CHATHUB_GENERATION_DEBUG emitter', () => {
         shouldContinue: false,
         toolName: 'lobe-image-designer',
       });
+    });
+
+    it('emits chat_image_task_created with hashed ids and a readable outcome', () => {
+      logGenerationDebugSafe('chat_image_task_created', {
+        index: 0,
+        messageHash: hashGenerationDebugValue('message-private'),
+        outcome: 'inserted',
+        taskHash: hashGenerationDebugValue('task-private'),
+      });
+
+      const [prefix, serializedRecord] = consoleLogSpy.mock.calls[0];
+      expect(prefix).toBe(`[${GENERATION_DEBUG_NAMESPACE}:chat_image_task_created]`);
+      const record = JSON.parse(serializedRecord as string);
+      expect(record).toMatchObject({
+        index: 0,
+        outcome: 'inserted',
+      });
+      expect(record.messageHash).toMatch(/^[\da-f]{16}$/);
+      expect(record.taskHash).toMatch(/^[\da-f]{16}$/);
+      expect(serializedRecord).not.toContain('message-private');
+      expect(serializedRecord).not.toContain('task-private');
     });
 
     it('emits sandbox_run_settled with counts and no code or stdout', () => {

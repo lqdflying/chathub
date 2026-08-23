@@ -7,6 +7,7 @@ import pMap from 'p-map';
 import { SWRResponse } from 'swr';
 import { StateCreator } from 'zustand/vanilla';
 
+import { logDeferredGenerationLane } from '@/libs/logger/generationDebugClient';
 import { useClientDataSWR } from '@/libs/swr';
 import { findRPCResponseError } from '@/libs/trpc/client/toolsResponse';
 import { fileService } from '@/services/file';
@@ -16,7 +17,11 @@ import { chatSelectors } from '@/store/chat/selectors';
 import { ChatStore } from '@/store/chat/store';
 import type { ConversationContext } from '@/store/chat/types';
 import { resolveConversationClearGeneration } from '@/store/chat/utils/conversationClearGeneration';
-import { findMessageInMessagesMap } from '@/store/chat/utils/messageMapKey';
+import {
+  findDeferredBrowserGenerationLaneByAssistantId,
+  findDeferredBrowserGenerationLaneForConversation,
+} from '@/store/chat/utils/deferredBrowserGeneration';
+import { findMessageInMessagesMap, messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { getImageStoreState } from '@/store/image';
 import {
   getModelAndDefaults,
@@ -273,6 +278,40 @@ const resolveOriginatingImageToolMessage = (
   };
 };
 
+const logChatImageGeneration = (
+  state: ChatStore,
+  event: 'chat_image_item_settled' | 'chat_image_run_settled' | 'chat_image_run_started',
+  input: {
+    assistantMessageId: string;
+    sessionId?: string | null;
+    topicId?: string | null;
+  } & Record<string, unknown>,
+) => {
+  const { assistantMessageId, sessionId, topicId, ...fields } = input;
+  const match =
+    findDeferredBrowserGenerationLaneByAssistantId(
+      state.deferredBrowserGenerationLanes,
+      assistantMessageId,
+    ) ??
+    findDeferredBrowserGenerationLaneForConversation(
+      state.deferredBrowserGenerationLanes,
+      sessionId,
+      topicId,
+    );
+  const originKey = sessionId ? messageMapKey(sessionId, topicId) : undefined;
+  void logDeferredGenerationLane(event, {
+    assistantMessageId,
+    sessionId,
+    spanId: match?.lane.spanId,
+    topicId,
+    toolName: 'lobe-image-designer',
+    visible: Boolean(
+      originKey && originKey === messageMapKey(state.activeId, state.activeTopicId),
+    ),
+    ...fields,
+  }).catch(() => undefined);
+};
+
 export interface ChatDallEAction {
   generateImageFromPrompts: (items: DallEImageItem[], id: string) => Promise<void>;
   /**
@@ -312,11 +351,38 @@ export const dalleSlice: StateCreator<
     // currently visible topic. Leave-topic is not Stop; `getMessageById` only
     // reads the active map and would silently no-op after a switch.
     const origin = resolveOriginatingImageToolMessage(get(), messageId);
-    if (!origin) return;
+    if (!origin) {
+      logChatImageGeneration(get(), 'chat_image_run_settled', {
+        assistantMessageId: messageId,
+        itemCount: items.length,
+        kind: 'generate',
+        outcome: 'no_origin',
+      });
+      return;
+    }
     const originKey = origin.mapKey;
     const conversationContext = origin.conversationContext;
     const persistItems = (updater: (data: DallEImageItem[]) => void) =>
       get().updateImageItem(messageId, updater, conversationContext);
+    const assistantMessageId = origin.message.parentId || messageId;
+    const debugBase = {
+      assistantMessageId,
+      sessionId: conversationContext.sessionId,
+      topicId: conversationContext.topicId,
+    };
+    const countOriginImages = () => {
+      const persisted = get().messagesMap[originKey]?.find((m) => m.id === messageId);
+      try {
+        const parsed = persisted ? (JSON.parse(persisted.content) as DallEImageItem[]) : [];
+        if (!Array.isArray(parsed)) return { attachedCount: 0, taskCount: 0 };
+        return {
+          attachedCount: parsed.filter((item) => Boolean(item?.imageId)).length,
+          taskCount: parsed.filter((item) => Boolean(item?.taskId)).length,
+        };
+      } catch {
+        return { attachedCount: 0, taskCount: 0 };
+      }
+    };
     const userScope = authSelectors.currentUserScope(useUserStore.getState()) ?? 'anonymous';
 
     // EXCLUSIVE OWNERSHIP FIRST (synchronously, before ANY await): claim every
@@ -331,11 +397,32 @@ export const dalleSlice: StateCreator<
       if (item.imageId) continue;
       if (claimTaskKey(`${messageId}_${index}`, runToken)) ownedIndices.push(index);
     }
-    if (ownedIndices.length === 0) return;
+    if (ownedIndices.length === 0) {
+      logChatImageGeneration(get(), 'chat_image_run_settled', {
+        ...debugBase,
+        ...countOriginImages(),
+        itemCount: items.length,
+        kind: 'generate',
+        outcome: 'already_done',
+        ownedCount: 0,
+      });
+      return;
+    }
+
+    logChatImageGeneration(get(), 'chat_image_run_started', {
+      ...debugBase,
+      imageConfigReady: getImageStoreState().isInit,
+      itemCount: items.length,
+      kind: 'generate',
+      ownedCount: ownedIndices.length,
+    });
+    let runOutcome: 'failed' | 'no_model' | 'not_current' | 'ok' | 'partial' | 'persist_unproven' =
+      'ok';
 
     try {
       const resolved = resolveImageModel();
       if (!resolved) {
+        runOutcome = 'no_model';
         // no usable image model is configured — surface a per-item error
         // instead of silently generating nothing
         await get().updatePluginState(messageId, {
@@ -433,6 +520,7 @@ export const dalleSlice: StateCreator<
         }
       }
       if (persistenceFailed) {
+        runOutcome = invocationIsCurrent() ? 'persist_unproven' : 'not_current';
         if (invocationIsCurrent()) {
           await get().updatePluginState(messageId, {
             error: items.map(() =>
@@ -447,14 +535,32 @@ export const dalleSlice: StateCreator<
         return;
       }
 
+      let persistUnprovenCount = 0;
       const results = await pMap(
         ownedIndices,
         async (index) => {
           const item = items[index];
-          if (!invocationIsCurrent()) return undefined;
+          if (!invocationIsCurrent()) {
+            logChatImageGeneration(get(), 'chat_image_item_settled', {
+              ...debugBase,
+              created: false,
+              index,
+              kind: 'generate',
+              outcome: 'not_current',
+            });
+            return undefined;
+          }
 
           const loadingKey = `${messageId}_${index}`;
           get().toggleDallEImageLoading(loadingKey, true);
+          let created = false;
+          let itemErrorClass: string | undefined;
+          let itemOutcome:
+            | 'attached'
+            | 'failed'
+            | 'not_current'
+            | 'persist_unproven'
+            | 'skipped' = 'skipped';
 
           try {
             // async-task pattern (same as the Image workspace): create the
@@ -481,8 +587,14 @@ export const dalleSlice: StateCreator<
               const replaced = await persistTaskIdsChecked(
                 new Map([[index, { expected: taskId, next: derivedId, nextAttempt: 0 }]]),
               );
-              if (!replaced.written.has(index)) return undefined;
-              if (!invocationIsCurrent()) return undefined;
+              if (!replaced.written.has(index)) {
+                itemOutcome = 'persist_unproven';
+                return undefined;
+              }
+              if (!invocationIsCurrent()) {
+                itemOutcome = 'not_current';
+                return undefined;
+              }
               taskId = derivedId;
               attempt = 0;
               mustCreate = true;
@@ -493,7 +605,10 @@ export const dalleSlice: StateCreator<
                   adoptProbe: true,
                   immediate: true,
                 });
-                if (!adopted.ok || !invocationIsCurrent()) return undefined;
+                if (!adopted.ok || !invocationIsCurrent()) {
+                  itemOutcome = 'not_current';
+                  return undefined;
+                }
                 if (adopted.file) {
                   await persistItems((draft) => {
                     if (draft[index]) {
@@ -501,6 +616,8 @@ export const dalleSlice: StateCreator<
                       draft[index].previewUrl = undefined;
                     }
                   });
+                  created = false;
+                  itemOutcome = 'attached';
                   return undefined;
                 }
                 // not_found: the persisted id's task row does not exist (a
@@ -517,7 +634,10 @@ export const dalleSlice: StateCreator<
                 if (!isTerminalTaskStateError(error)) throw error;
                 // the status request awaited across arbitrary time — re-check
                 // ownership before doing anything billable
-                if (!invocationIsCurrent()) return undefined;
+                if (!invocationIsCurrent()) {
+                  itemOutcome = 'not_current';
+                  return undefined;
+                }
                 // the replacement is the NEXT ATTEMPT of the same tuple (both
                 // tabs derive it from the persisted attempt counter) and must
                 // pass the same checked write BEFORE its task is created; the
@@ -527,8 +647,14 @@ export const dalleSlice: StateCreator<
                 const replaced = await persistTaskIdsChecked(
                   new Map([[index, { expected: taskId, next: replacementId, nextAttempt }]]),
                 );
-                if (!replaced.written.has(index)) return undefined;
-                if (!invocationIsCurrent()) return undefined;
+                if (!replaced.written.has(index)) {
+                  itemOutcome = 'persist_unproven';
+                  return undefined;
+                }
+                if (!invocationIsCurrent()) {
+                  itemOutcome = 'not_current';
+                  return undefined;
+                }
                 taskId = replacementId;
                 attempt = nextAttempt;
                 mustCreate = true;
@@ -543,11 +669,18 @@ export const dalleSlice: StateCreator<
                 provider,
                 taskId,
               });
-              if (!invocationIsCurrent()) return undefined;
+              created = true;
+              if (!invocationIsCurrent()) {
+                itemOutcome = 'not_current';
+                return undefined;
+              }
             }
 
             const { ok, file } = await waitForChatImageTask(taskId, invocationIsCurrent);
-            if (!ok || !invocationIsCurrent()) return undefined;
+            if (!ok || !invocationIsCurrent()) {
+              itemOutcome = 'not_current';
+              return undefined;
+            }
             if (!file) throw new Error('The image provider returned an empty result.');
 
             await persistItems((draft) => {
@@ -556,16 +689,38 @@ export const dalleSlice: StateCreator<
                 draft[index].previewUrl = undefined;
               }
             });
+            itemOutcome = 'attached';
             return undefined;
           } catch (error) {
-            if (!invocationIsCurrent()) return undefined;
+            if (!invocationIsCurrent()) {
+              itemOutcome = 'not_current';
+              return undefined;
+            }
+            itemOutcome = 'failed';
+            itemErrorClass = error instanceof Error ? error.name : 'Error';
             // clear the (possibly expiring) previewUrl so the UI never shows
             // a soon-to-be-broken image, and record the failure for this index
             await persistItems((draft) => {
               if (draft[index]) draft[index].previewUrl = undefined;
             });
-            return { error, index };
+            return {
+              error,
+              errorClass: error instanceof Error ? error.name : 'Error',
+              index,
+            };
           } finally {
+            if (itemOutcome === 'skipped' && !invocationIsCurrent()) {
+              itemOutcome = 'not_current';
+            }
+            if (itemOutcome === 'persist_unproven') persistUnprovenCount += 1;
+            logChatImageGeneration(get(), 'chat_image_item_settled', {
+              ...debugBase,
+              created,
+              errorClass: itemErrorClass,
+              index,
+              kind: 'generate',
+              outcome: itemOutcome,
+            });
             releaseTaskKey(loadingKey, runToken);
             get().toggleDallEImageLoading(loadingKey, false);
           }
@@ -573,7 +728,10 @@ export const dalleSlice: StateCreator<
         { concurrency: 3 },
       );
 
-      if (!invocationIsCurrent()) return;
+      if (!invocationIsCurrent()) {
+        runOutcome = 'not_current';
+        return;
+      }
 
       // set plugin error ONCE, after all items settle, to avoid the concurrent
       // read-modify-write race the previous shared-array approach had
@@ -581,11 +739,27 @@ export const dalleSlice: StateCreator<
         (r): r is { error: unknown; index: number } => r !== undefined,
       );
       if (failures.length > 0) {
+        runOutcome = failures.length === ownedIndices.length ? 'failed' : 'partial';
         const errorArray: unknown[] = [];
         for (const f of failures) errorArray[f.index] = serializePluginError(f.error);
         await get().updatePluginState(messageId, { error: errorArray });
+      } else if (persistUnprovenCount > 0) {
+        runOutcome =
+          persistUnprovenCount === ownedIndices.length ? 'persist_unproven' : 'partial';
       }
+    } catch (error) {
+      if (runOutcome === 'ok') runOutcome = 'failed';
+      throw error;
     } finally {
+      logChatImageGeneration(get(), 'chat_image_run_settled', {
+        ...debugBase,
+        ...countOriginImages(),
+        imageConfigReady: getImageStoreState().isInit,
+        itemCount: items.length,
+        kind: 'generate',
+        outcome: runOutcome,
+        ownedCount: ownedIndices.length,
+      });
       // function-level cleanup: release every key STILL owned by this run
       // (token-checked, so an index a later invocation legitimately reclaimed
       // after its per-item release is never stolen). Without this, a stale

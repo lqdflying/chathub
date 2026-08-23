@@ -2,6 +2,7 @@ import { UIChatMessage } from '@lobechat/types';
 import { sha256 } from 'js-sha256';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import * as generationDebugClient from '@/libs/logger/generationDebugClient';
 import { ToolsRPCResponseError } from '@/libs/trpc/client/toolsResponse';
 import { imageGenerationService } from '@/services/textToImage';
 import { useChatStore } from '@/store/chat';
@@ -124,6 +125,9 @@ const originContent = (messageId = 'message-id') =>
   useChatStore.getState().messagesMap[originKey()]?.find((m) => m.id === messageId)?.content ?? '';
 
 const store = () => useChatStore.getState();
+
+const spyChatImageDebug = () =>
+  vi.spyOn(generationDebugClient, 'logDeferredGenerationLane').mockResolvedValue();
 
 // test-side replica of the action's deterministic derivation
 const deriveTestTaskId = (seed: string): string => {
@@ -273,6 +277,94 @@ describe('chatToolSlice - dalle', () => {
       expect(errorArg.error[1]).toEqual({ message: 'upstream 503', name: 'ServerError' });
       expect(stubs.toggleSpy).toHaveBeenCalledTimes(4);
     });
+
+    it('emits generation-debug lifecycle events for a successful run', async () => {
+      seedToolMessage(JSON.stringify([{ prompt: 'p1' }]));
+      const stubs = installStoreStubs();
+      const logSpy = spyChatImageDebug();
+      vi.spyOn(imageGenerationService, 'createChatImageTask').mockImplementation(
+        async ({ taskId }) => ({ taskId: taskId! }),
+      );
+      vi.spyOn(imageGenerationService, 'getChatImageResult').mockImplementation(async (taskId) => ({
+        file: { id: `file-${taskId}` },
+        status: 'success',
+      }));
+
+      await store().generateImageFromPrompts([{ prompt: 'p1' }] as DallEImageItem[], 'message-id');
+      stubs.restore();
+
+      const events = logSpy.mock.calls.map(([event]) => event);
+      expect(events[0]).toBe('chat_image_run_started');
+      expect(events.at(-1)).toBe('chat_image_run_settled');
+      expect(logSpy).toHaveBeenCalledWith(
+        'chat_image_run_started',
+        expect.objectContaining({
+          imageConfigReady: true,
+          itemCount: 1,
+          kind: 'generate',
+          ownedCount: 1,
+          toolName: 'lobe-image-designer',
+          visible: true,
+        }),
+      );
+      expect(logSpy).toHaveBeenCalledWith(
+        'chat_image_item_settled',
+        expect.objectContaining({
+          created: true,
+          index: 0,
+          outcome: 'attached',
+          toolName: 'lobe-image-designer',
+        }),
+      );
+      expect(logSpy).toHaveBeenCalledWith(
+        'chat_image_run_settled',
+        expect.objectContaining({
+          attachedCount: 1,
+          kind: 'generate',
+          outcome: 'ok',
+          taskCount: 1,
+          toolName: 'lobe-image-designer',
+          visible: true,
+        }),
+      );
+    });
+
+    it('emits no_model without creating a task when image config is not ready', async () => {
+      mockImageState.isInit = false;
+      seedToolMessage(JSON.stringify([{ prompt: 'p' }]));
+      const stubs = installStoreStubs();
+      const logSpy = spyChatImageDebug();
+      const createTaskMock = vi.spyOn(imageGenerationService, 'createChatImageTask');
+
+      await store().generateImageFromPrompts([{ prompt: 'p' }] as DallEImageItem[], 'message-id');
+      stubs.restore();
+
+      expect(createTaskMock).not.toHaveBeenCalled();
+      expect(logSpy).toHaveBeenCalledWith(
+        'chat_image_run_started',
+        expect.objectContaining({ imageConfigReady: false, kind: 'generate' }),
+      );
+      expect(logSpy).toHaveBeenCalledWith(
+        'chat_image_run_settled',
+        expect.objectContaining({ outcome: 'no_model', toolName: 'lobe-image-designer' }),
+      );
+      expect(logSpy).not.toHaveBeenCalledWith('chat_image_item_settled', expect.anything());
+    });
+
+    it('emits no_origin when the tool message is missing from messagesMap', async () => {
+      const logSpy = spyChatImageDebug();
+
+      await store().generateImageFromPrompts([{ prompt: 'p' }] as DallEImageItem[], 'missing-id');
+
+      expect(logSpy).toHaveBeenCalledWith(
+        'chat_image_run_settled',
+        expect.objectContaining({
+          outcome: 'no_origin',
+          toolName: 'lobe-image-designer',
+        }),
+      );
+      expect(logSpy).not.toHaveBeenCalledWith('chat_image_run_started', expect.anything());
+    });
   });
 
   describe('task durability (R9-3 / R10-1 / R11-1)', () => {
@@ -284,6 +376,7 @@ describe('chatToolSlice - dalle', () => {
         releasePersist = resolve;
       });
       const stubs = installStoreStubs({ persistGate });
+      const logSpy = spyChatImageDebug();
       const createTaskMock = vi.spyOn(imageGenerationService, 'createChatImageTask');
       vi.spyOn(imageGenerationService, 'getChatImageResult');
 
@@ -305,6 +398,10 @@ describe('chatToolSlice - dalle', () => {
       // billable task may be created
       expect(createTaskMock).not.toHaveBeenCalled();
       expect(originContent()).not.toContain('taskId');
+      expect(logSpy).toHaveBeenCalledWith(
+        'chat_image_run_settled',
+        expect.objectContaining({ outcome: 'not_current', toolName: 'lobe-image-designer' }),
+      );
 
       // reopening + reconciling finds nothing to adopt and creates nothing
       useChatStore.setState({ activeId: ORIGIN_SESSION });
@@ -317,6 +414,7 @@ describe('chatToolSlice - dalle', () => {
     it('leaving the originating topic still persists and creates (leave is not Stop)', async () => {
       seedToolMessage(JSON.stringify([{ prompt: 'p1' }]));
       const stubs = installStoreStubs();
+      const logSpy = spyChatImageDebug();
       const createTaskMock = vi
         .spyOn(imageGenerationService, 'createChatImageTask')
         .mockImplementation(async ({ taskId }) => ({ taskId: taskId! }));
@@ -340,6 +438,24 @@ describe('chatToolSlice - dalle', () => {
       const sentTaskId = (createTaskMock.mock.calls[0][0] as { taskId?: string }).taskId!;
       expect(originContent()).toContain(`"taskId":"${sentTaskId}"`);
       expect(originContent()).toContain(`"imageId":"file-${sentTaskId}"`);
+      expect(logSpy).toHaveBeenCalledWith(
+        'chat_image_item_settled',
+        expect.objectContaining({
+          created: true,
+          outcome: 'attached',
+          toolName: 'lobe-image-designer',
+          visible: false,
+        }),
+      );
+      expect(logSpy).toHaveBeenCalledWith(
+        'chat_image_run_settled',
+        expect.objectContaining({
+          attachedCount: 1,
+          outcome: 'ok',
+          taskCount: 1,
+          visible: false,
+        }),
+      );
     });
 
     it('resolves the originating map after the user already left the topic', async () => {
@@ -349,6 +465,7 @@ describe('chatToolSlice - dalle', () => {
         activeTopicId: 'other-topic',
       });
       const stubs = installStoreStubs();
+      const logSpy = spyChatImageDebug();
       const createTaskMock = vi
         .spyOn(imageGenerationService, 'createChatImageTask')
         .mockImplementation(async ({ taskId }) => ({ taskId: taskId! }));
@@ -363,6 +480,21 @@ describe('chatToolSlice - dalle', () => {
       expect(createTaskMock).toHaveBeenCalledTimes(1);
       const sentTaskId = (createTaskMock.mock.calls[0][0] as { taskId?: string }).taskId!;
       expect(originContent()).toContain(`"imageId":"file-${sentTaskId}"`);
+      expect(logSpy).toHaveBeenCalledWith(
+        'chat_image_run_started',
+        expect.objectContaining({
+          toolName: 'lobe-image-designer',
+          visible: false,
+        }),
+      );
+      expect(logSpy).toHaveBeenCalledWith(
+        'chat_image_run_settled',
+        expect.objectContaining({
+          attachedCount: 1,
+          outcome: 'ok',
+          visible: false,
+        }),
+      );
     });
 
     it('two overlapping retries with identical snapshots produce ONE create and ONE persisted id (R12-1)', async () => {
@@ -778,6 +910,7 @@ describe('chatToolSlice - dalle', () => {
       seedToolMessage(JSON.stringify([{ prompt: 'p1' }]));
       const rejectOnce = { done: false };
       const stubs = installStoreStubs({ persistRejectOnce: rejectOnce });
+      const logSpy = spyChatImageDebug();
       const createTaskMock = vi
         .spyOn(imageGenerationService, 'createChatImageTask')
         .mockImplementation(async ({ taskId }) => ({ taskId: taskId! }));
@@ -792,6 +925,10 @@ describe('chatToolSlice - dalle', () => {
         store().generateImageFromPrompts([{ prompt: 'p1' }] as DallEImageItem[], 'message-id'),
       ).rejects.toThrow('persistence write failed');
       expect(createTaskMock).not.toHaveBeenCalled();
+      expect(logSpy).toHaveBeenCalledWith(
+        'chat_image_run_settled',
+        expect.objectContaining({ outcome: 'failed', toolName: 'lobe-image-designer' }),
+      );
 
       // retry with persistence healthy again: must NOT be locked out
       await store().retryDallEImages('message-id');

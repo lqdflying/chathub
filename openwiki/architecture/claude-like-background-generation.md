@@ -253,6 +253,8 @@ empty Reference Source hang.
 a successful tool is a regression.
 
 `CHATHUB_GENERATION_DEBUG=1` and `CHATHUB_KNOWLEDGE_DEBUG=1` are the switches.
+Chat Image tile create/persist/attach is on generation-debug (`chat_image_*`),
+not `CHATHUB_IMAGE_DEBUG` (that switch is the `/image` workspace).
 Copy-paste APL: **`.cursor/rules/debug-log-checks.mdc`**.
 
 ## Lessons learned (do not re-introduce)
@@ -286,6 +288,11 @@ Copy-paste APL: **`.cursor/rules/debug-log-checks.mdc`**.
    `invokeBuiltinTool` does not log a successful void return as `skipped`.
    Safari `Load failed` during **model think** (empty stream, tools never
    started) is a separate WebKit abort; do not treat it as this persist bug.
+   With `CHATHUB_GENERATION_DEBUG=1`, join `chat_image_run_started` /
+   `chat_image_item_settled` / `chat_image_run_settled` (and server
+   `chat_image_task_created`) on the send `spanId`. No `chat_image_run_started`
+   after `webkit_load_failed` is the Safari-before-tools case;
+   `persist_unproven` or missing `attached` after `visible=false` is persist.
 
 ## How to extend this without breaking it
 

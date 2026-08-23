@@ -886,6 +886,15 @@ configurable model rather than a hard-coded one.
   surface without creating. Leave-topic keeps the in-tab generate/poll loop
   writing into the originating map; mount-time `reconcileDallETasks` is still
   the backup if that tab died before `imageId` landed.
+- **Diagnostics.** Chat Image tile create/persist/attach is
+  `CHATHUB_GENERATION_DEBUG` (`chat_image_run_started` /
+  `chat_image_item_settled` / `chat_image_run_settled` on the send `spanId`,
+  plus server `chat_image_task_created` / `chat_image_task_rejected`).
+  `CHATHUB_IMAGE_DEBUG` covers the `/image` workspace `async_tasks` path, not
+  these tiles. Records carry hashed ids, counts, `visible`, and readable
+  `outcome` labels — never prompts or file ids. See
+  [Durable conversation generation](durable-conversation-generation.md)
+  and `.cursor/rules/debug-log-checks.mdc`.
 - **Server-side image handling.** The async procedure runs
   `agentRuntime.createImage` (same runtime init as the workspace; ComfyUI auth
   headers are forwarded to the protected result download exactly like the
