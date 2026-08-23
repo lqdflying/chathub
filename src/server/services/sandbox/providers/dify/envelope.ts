@@ -40,7 +40,12 @@ export const createSandboxEnvelopeToken = () => randomBytes(16).toString('hex');
  * Dify `preload` runs as root **before** chroot, seccomp, and setuid
  * (prescript.py → DifySeccomp). Guest Python cannot mkdir/chdir/unlink:
  * mkdir is ActErrno; chdir/unlink are ActKillProcess.
+ *
+ * Dify 0.2.10+ **discards** the HTTP `preload` field unless the sidecar has
+ * `ENABLE_PRELOAD=true` (default is false). Without that env, this script
+ * never runs and the guest probe-write fail-closes.
  * @see https://github.com/langgenius/dify-sandbox/blob/0.2.15/internal/core/runner/python/prescript.py
+ * @see https://github.com/langgenius/dify-sandbox/blob/0.2.15/internal/service/python.go
  * @see https://github.com/langgenius/dify-sandbox/blob/0.2.15/internal/static/python_syscall/syscalls_amd64.go
  */
 export const wrapSandboxPreload = (token: string): string => {
@@ -115,7 +120,7 @@ export const wrapSandboxPython = ({
     'try:',
     '    DATA_DIR = _data_dir()',
     'except Exception:',
-    '    sys.stderr.write("Sandbox could not create an isolated working directory.\\n")',
+    '    sys.stderr.write("Sandbox could not create an isolated working directory. Set ENABLE_PRELOAD=true on the Dify sidecar.\\n")',
     '    _emit(False, [])',
     '    raise SystemExit(0)',
     'os.environ["TMPDIR"] = DATA_DIR',

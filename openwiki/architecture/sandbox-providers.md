@@ -86,6 +86,13 @@ mode `0700` in Dify **`preload`**, which runs as **root before** chroot,
 seccomp, and setuid
 ([prescript.py](https://github.com/langgenius/dify-sandbox/blob/0.2.15/internal/core/runner/python/prescript.py),
 [syscalls_amd64.go](https://github.com/langgenius/dify-sandbox/blob/0.2.15/internal/static/python_syscall/syscalls_amd64.go)).
+Dify **0.2.10+ discards** the HTTP `preload` field unless the sidecar sets
+`ENABLE_PRELOAD=true` (default is false)
+([python.go](https://github.com/langgenius/dify-sandbox/blob/0.2.15/internal/service/python.go)).
+That flag is required for ChatHub isolation. ChatHub generates `preload`
+(hex-token mkdir + chown only); it never puts model or user code there. Keep
+port `8194` unpublished.
+
 The guest wrapper only probe-writes that directory, patches `open`/`getcwd` so
 relative paths stay inside it, and must not call `os.makedirs`, `os.chdir`, or
 `os.remove`. Do not fall back to a shared `/mnt/data` or the jail `/`.

@@ -96,6 +96,7 @@ describe('DifySandboxProvider', () => {
       language: 'python3',
     });
     expect(body.preload).toContain('os.makedirs(_path, mode=0o700, exist_ok=True)');
+    expect(body.preload).toContain('os.stat(__file__)');
     expect(body.preload).toContain(tokenMatch![1]);
     expect(body.code).toContain('MPLBACKEND');
     expect(body.code).not.toContain('os.makedirs(');

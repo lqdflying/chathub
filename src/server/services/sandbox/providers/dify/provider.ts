@@ -118,6 +118,8 @@ export class DifySandboxProvider implements SandboxProvider {
           code: wrapped,
           enable_network: input.enableNetwork !== false,
           language: 'python3',
+          // Dify 0.2.10+ strips this unless the sidecar sets ENABLE_PRELOAD=true.
+          // https://github.com/langgenius/dify-sandbox/blob/0.2.15/internal/service/python.go
           preload: wrapSandboxPreload(token),
         }),
         headers: {

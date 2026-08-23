@@ -94,6 +94,8 @@ services:
       - GIN_MODE=release
       - WORKER_TIMEOUT=60
       - ENABLE_NETWORK=true
+      # Required: 0.2.10+ discards HTTP preload unless this is true.
+      - ENABLE_PRELOAD=true
     volumes:
       - ./data/code-interpreter/dependencies:/dependencies
     healthcheck:

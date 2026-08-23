@@ -26,6 +26,7 @@ describe('Dify sandbox envelope', () => {
     expect(wrapped).not.toContain('shutil');
     expect(wrapped).toContain('os.chdir =');
     expect(wrapped).not.toContain('/mnt/data');
+    expect(wrapped).toContain('ENABLE_PRELOAD=true');
     expect(wrapped).not.toContain('print("secret-source")');
     expect(wrapped).not.toContain('../etc/passwd');
     expect(wrapped).toContain(Buffer.from('print("secret-source")', 'utf8').toString('base64'));
@@ -43,6 +44,7 @@ describe('Dify sandbox envelope', () => {
     expect(preload).toContain('os.chown(_path, _st.st_uid, _st.st_gid)');
     expect(preload).toContain('"abc123"');
     expect(preload).toContain(CI_WORKDIR_PREFIX);
+    expect(preload).toContain('os.stat(__file__)');
     expect(preload).not.toContain('print');
     expect(() => wrapSandboxPreload('not hex')).toThrow(/Invalid sandbox envelope token/);
   });

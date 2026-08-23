@@ -12,7 +12,7 @@ const runWrapper = ({
   code,
   env,
   files = [],
-  token = 'runtime-token',
+  token = 'aa',
 }: {
   code: string;
   env?: NodeJS.ProcessEnv;
@@ -25,23 +25,29 @@ const runWrapper = ({
     maxFileBytes: 1024 * 1024,
     token,
   });
-  const result = spawnSync('python3', ['-c', wrapped], {
-    encoding: 'utf8',
-    env: { ...process.env, ...env },
-    timeout: 15_000,
-  });
-  if (result.error) throw result.error;
-  return {
-    parsed: parseSandboxEnvelope({
-      maxFileBytes: 1024 * 1024,
-      maxFileCount: 20,
+  const workdir = join('/tmp', `chathub-ci-${token}`);
+  mkdirSync(workdir, { recursive: true, mode: 0o700 });
+  try {
+    const result = spawnSync('python3', ['-c', wrapped], {
+      encoding: 'utf8',
+      env: { ...process.env, ...env },
+      timeout: 15_000,
+    });
+    if (result.error) throw result.error;
+    return {
+      parsed: parseSandboxEnvelope({
+        maxFileBytes: 1024 * 1024,
+        maxFileCount: 20,
+        stdout: result.stdout ?? '',
+        token,
+      }),
+      status: result.status,
+      stderr: result.stderr ?? '',
       stdout: result.stdout ?? '',
-      token,
-    }),
-    status: result.status,
-    stderr: result.stderr ?? '',
-    stdout: result.stdout ?? '',
-  };
+    };
+  } finally {
+    rmSync(workdir, { force: true, recursive: true });
+  }
 };
 
 const file = (filename: string, content: string): SandboxInputFile => ({
@@ -53,11 +59,11 @@ describe('Dify sandbox envelope runtime', () => {
   it('uses a per-run /tmp directory and does not leak another run’s files', () => {
     const first = runWrapper({
       code: 'open("marker-a.txt", "w").write("alpha")',
-      token: 'token-a',
+      token: 'aa',
     });
     const second = runWrapper({
       code: 'open("marker-b.txt", "w").write("beta")\nimport os\nprint("\\n".join(sorted(os.listdir("."))))',
-      token: 'token-b',
+      token: 'bb',
     });
 
     expect(first.parsed.success).toBe(true);
