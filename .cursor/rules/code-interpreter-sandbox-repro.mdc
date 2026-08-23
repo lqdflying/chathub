@@ -1,0 +1,46 @@
+---
+description: Reproduce Code Interpreter / DifySandbox jail changes on a local sidecar image before canary; host Python is not proof
+alwaysApply: true
+---
+
+# Code Interpreter — local Dify jail first
+
+Before shipping a ChatHub wrapper, provider, or sidecar syscall/`ENABLE_*`
+change, **reproduce against `langgenius/dify-sandbox:0.2.15` on this host**.
+Host `python3`, Vitest `spawnSync`, and `docker exec` **without** seccomp are
+not the jail. Prod canaries are not a substitute for that replica.
+
+This does **not** lift `.cursor/rules/commands.mdc`: never `bun run build`,
+`next build`, or `docker build` the ChatHub image. A **sidecar-only** compose
+on `127.0.0.1` is the exception.
+
+## Must
+
+1. Start `langgenius/dify-sandbox:0.2.15` with the **same** `ENABLE_PRELOAD`,
+   `ENABLE_NETWORK`, `WORKER_TIMEOUT`, and `ALLOWED_SYSCALLS` as the target
+   host. Bind **`127.0.0.1:<port>:8194` only** (do not publish `8194` on all
+   interfaces). Wait for `python dependencies sandbox initialized`.
+2. Send `POST /v1/sandbox/run` with ChatHub `wrapSandboxPython` +
+   `wrapSandboxPreload` (`src/server/services/sandbox/providers/dify/`),
+   `X-Api-Key`, `language: python3`. That is the ChatHub call.
+3. Bisect guest imports (`matplotlib` vs `font_manager` vs `pyplot`) with
+   flushed prints. Classify: **~60s empty stdout, no `httpStatus`** = hang
+   (ChatHub `AbortSignal`); **~400ms `operation not permitted`** = SIGSYS.
+4. Tear the replica down when done. Do not leave a published sandbox port.
+
+## Do not
+
+- Treat unconstrained `strace` / image `python3 -c` as pass.
+- Add `execve` (59) or `vfork` (58) to `ALLOWED_SYSCALLS`.
+- Import matplotlib/pandas in the wrapper prologue.
+- Strip existing jail stubs because a later bisect found a **different** hang,
+  unless a stub is proven harmful. Keep: `MPLBACKEND`/`MPLCONFIGDIR`/`HOME`/
+  `MPL_IGNORE_SYSTEM_FONTS`, `Popen`/`fork`/`posix_spawn` fail-fast, BLAS
+  thread pins, fontconfig session file, **`threading.Timer` no-op**,
+  **`unlink`/`remove` no-op**, skip `fontlist-v*` outputs.
+- Ship / tag / ask the user to recreate prod until the local jail POST matches
+  the intended outcome (`hello`, version prints, `pyplot ok`, savefig PNG).
+
+Contract: `openwiki/architecture/sandbox-providers.md`, wiki
+`Code-Interpreter-Sandbox.md`. Prompt layering:
+`.cursor/rules/code-interpreter-prompt.mdc`.

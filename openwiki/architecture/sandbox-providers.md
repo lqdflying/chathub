@@ -141,6 +141,15 @@ closes the figure after saving so the final flush cannot overwrite it with an
 empty chart. In-place edits of input files are returned; unchanged inputs are
 not. Non-zero `SystemExit` is a failed run.
 
+## Local jail reproduction
+
+Wrapper, preload, or sidecar syscall/`ENABLE_*` changes must be proven on a
+local `langgenius/dify-sandbox:0.2.15` replica (`127.0.0.1` only, same
+`ALLOWED_SYSCALLS` / `ENABLE_PRELOAD` as the target) via `POST /v1/sandbox/run`
+with ChatHub `wrapSandboxPython`. Host Python and unconstrained `docker exec`
+are not the jail. Agent rule:
+`.cursor/rules/code-interpreter-sandbox-repro.mdc`.
+
 ## Future backends
 
 A later Microsandbox (or similar) provider can create/write/exec/destroy a

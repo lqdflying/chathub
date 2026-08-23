@@ -45,7 +45,8 @@ See `ensureAgentAssistantMemory.cjs` and `ensureMcpOAuthTokens.cjs` for template
 
 ## Hard "never do" list
 
-- **Never run local production or Docker builds to verify changes**, including `bun run build`, `bun run build:docker`, direct `next build`, or `docker build`. Local disk is constrained. Use targeted tests and `bun run type-check` locally; when image verification is required, use the remote GitHub Actions canary-tag workflow only after explicit in-turn permission to push and tag.
+- **Never run local production or Docker builds to verify changes**, including `bun run build`, `bun run build:docker`, direct `next build`, or `docker build`. Local disk is constrained. Use targeted tests and `bun run type-check` locally; when the **ChatHub** image must be verified, use the remote GitHub Actions canary-tag workflow only after explicit in-turn permission to push and tag.
+- **Exception — Code Interpreter jail:** a sidecar-only `langgenius/dify-sandbox:0.2.15` replica bound to `127.0.0.1` is required before shipping wrapper/syscall changes. Follow **`.cursor/rules/code-interpreter-sandbox-repro.mdc`**. That is not a ChatHub image build.
 - **Never** `bun run test` — runs the full suite, ~10 min.
 - **Never** `bun run db:push` against production — bypasses migration tracking.
 - **Never** `pnpm i18n` — CI translates all locales automatically.

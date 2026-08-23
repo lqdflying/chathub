@@ -81,7 +81,9 @@ send, stop, invalidate, RAG retrieve, or tool continuation.
 Builtin `systemRole` stays general sandbox contract. Special tasks go on the
 assistant prompt plus sidecar `python-requirements.txt`, not a ChatHub prompt
 change. There is no topic system-prompt field. Follow
-**`.cursor/rules/code-interpreter-prompt.mdc`**.
+**`.cursor/rules/code-interpreter-prompt.mdc`**. Jail wrapper / DifySandbox
+syscall work must reproduce on a local sidecar image first:
+**`.cursor/rules/code-interpreter-sandbox-repro.mdc`**.
 
 ## Provider-specific model options
 

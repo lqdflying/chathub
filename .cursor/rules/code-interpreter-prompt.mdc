@@ -39,3 +39,5 @@ unless also attached to the message.
 User-facing sidecar setup:
 [Code Interpreter Sandbox](https://github.com/lqdflying/chathub/wiki/Code-Interpreter-Sandbox).
 Maintainer note: `openwiki/architecture/sandbox-providers.md`.
+Jail changes: reproduce on a local `dify-sandbox` image first
+(`.cursor/rules/code-interpreter-sandbox-repro.mdc`).
