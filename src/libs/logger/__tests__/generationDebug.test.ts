@@ -166,11 +166,12 @@ describe('CHATHUB_GENERATION_DEBUG emitter', () => {
       });
     });
 
-    it('emits chat_image_task_created with hashed ids and a readable outcome', () => {
+    it('emits chat_image_task_created with hashed ids, a readable outcome, and an optional spanId', () => {
       logGenerationDebugSafe('chat_image_task_created', {
         index: 0,
         messageHash: hashGenerationDebugValue('message-private'),
         outcome: 'inserted',
+        spanId: 'gd_0123456789abcdef',
         taskHash: hashGenerationDebugValue('task-private'),
       });
 
@@ -180,6 +181,7 @@ describe('CHATHUB_GENERATION_DEBUG emitter', () => {
       expect(record).toMatchObject({
         index: 0,
         outcome: 'inserted',
+        spanId: 'gd_0123456789abcdef',
       });
       expect(record.messageHash).toMatch(/^[\da-f]{16}$/);
       expect(record.taskHash).toMatch(/^[\da-f]{16}$/);

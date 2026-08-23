@@ -290,6 +290,14 @@ export const imageRouter = router({
         model: z.string().trim().min(1),
         params: z.object({ prompt: z.string().trim().min(1) }).passthrough(),
         provider: z.string().trim().min(1),
+        // Optional send-path join key. Invalid values are dropped so a bad
+        // diagnostic id can never block a billable insert.
+        spanId: z
+          .union([z.string(), z.undefined(), z.null()])
+          .optional()
+          .transform((value) =>
+            typeof value === 'string' && /^gd_[\da-f]{16,64}$/i.test(value) ? value : undefined,
+          ),
         // client-generated (write-first) correlation id: the item persists it
         // BEFORE this request, so the task must be created under exactly this
         // id; resubmission is idempotent (insert no-ops, claim dedups)
@@ -330,6 +338,7 @@ export const imageRouter = router({
             index: input.correlation.index,
             messageHash: hashGenerationDebugValue(input.correlation.messageId),
             outcome: 'uncorrelated',
+            ...(input.spanId ? { spanId: input.spanId } : {}),
             taskHash: hashGenerationDebugValue(input.taskId),
           });
           throw new TRPCError({
@@ -358,6 +367,7 @@ export const imageRouter = router({
         index: input.correlation.index,
         messageHash: hashGenerationDebugValue(input.correlation.messageId),
         outcome: createOutcome,
+        ...(input.spanId ? { spanId: input.spanId } : {}),
         taskHash: hashGenerationDebugValue(taskId),
       });
 

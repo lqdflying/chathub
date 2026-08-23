@@ -6,6 +6,11 @@ import * as generationDebugClient from '@/libs/logger/generationDebugClient';
 import { ToolsRPCResponseError } from '@/libs/trpc/client/toolsResponse';
 import { imageGenerationService } from '@/services/textToImage';
 import { useChatStore } from '@/store/chat';
+import {
+  bumpLaneScopedClearGeneration,
+  isConversationClearFenceCurrent,
+} from '@/store/chat/utils/conversationClearGeneration';
+import { deferredBrowserGenerationLaneKey } from '@/store/chat/utils/deferredBrowserGeneration';
 import { findMessageInMessagesMap, messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { useUserStore } from '@/store/user';
 import { authSelectors } from '@/store/user/selectors';
@@ -42,12 +47,18 @@ const originKey = () => messageMapKey(ORIGIN_SESSION, undefined);
 
 // Seed the ORIGINATING conversation as active, with one tool message. All
 // reads in the store go through the real conversation-scoped selectors.
-const seedToolMessage = (content: string, messageId = 'message-id') => {
+const seedToolMessage = (
+  content: string,
+  messageId = 'message-id',
+  extras?: Partial<UIChatMessage>,
+) => {
   useChatStore.setState({
     activeId: ORIGIN_SESSION,
     activeTopicId: undefined,
     messagesMap: {
-      [originKey()]: [{ content, id: messageId, meta: {}, role: 'system' } as UIChatMessage],
+      [originKey()]: [
+        { content, id: messageId, meta: {}, role: 'system', ...extras } as UIChatMessage,
+      ],
     },
   });
 };
@@ -72,7 +83,14 @@ const installStoreStubs = (options?: {
     async (
       id: string,
       content: string,
-      extra?: { conversationContext?: { clearGeneration?: number } },
+      extra?: {
+        conversationContext?: {
+          clearGeneration?: number;
+          sessionId?: string;
+          threadId?: string | null;
+          topicId?: string | null;
+        };
+      },
     ) => {
       const requestedClear =
         extra?.conversationContext?.clearGeneration ??
@@ -83,7 +101,17 @@ const installStoreStubs = (options?: {
         throw new Error('persistence write failed');
       }
       const state = useChatStore.getState();
-      if (state.conversationClearGeneration !== requestedClear) {
+      const ctx = extra?.conversationContext;
+      const fenceCurrent = ctx?.sessionId
+        ? isConversationClearFenceCurrent(
+            state,
+            requestedClear,
+            ctx.sessionId,
+            ctx.topicId,
+            ctx.threadId,
+          )
+        : state.conversationClearGeneration === requestedClear;
+      if (!fenceCurrent) {
         return { persistenceAmbiguous: false };
       }
       const hit = findMessageInMessagesMap(state.messagesMap, id);
@@ -163,6 +191,8 @@ describe('chatToolSlice - dalle', () => {
     useChatStore.setState({
       activeId: ORIGIN_SESSION,
       conversationClearGeneration: 0,
+      conversationScopedClearGenerations: {},
+      deferredBrowserGenerationLanes: {},
       messagesMap: {},
     });
   });
@@ -409,6 +439,126 @@ describe('chatToolSlice - dalle', () => {
       await store().reconcileDallETasks('message-id');
       stubs2.restore();
       expect(createTaskMock).not.toHaveBeenCalled();
+    });
+
+    it('a lane-scoped Stop during write-first persist yields ZERO creates', async () => {
+      seedToolMessage(JSON.stringify([{ prompt: 'p1' }]));
+      let releasePersist!: () => void;
+      const persistGate = new Promise<void>((resolve) => {
+        releasePersist = resolve;
+      });
+      const stubs = installStoreStubs({ persistGate });
+      const createTaskMock = vi.spyOn(imageGenerationService, 'createChatImageTask');
+
+      const run = store().generateImageFromPrompts(
+        [{ prompt: 'p1' }] as DallEImageItem[],
+        'message-id',
+      );
+      useChatStore.setState((s) => ({
+        ...bumpLaneScopedClearGeneration(s, ORIGIN_SESSION, undefined, null),
+      }));
+      releasePersist();
+      await run;
+      stubs.restore();
+
+      expect(createTaskMock).not.toHaveBeenCalled();
+      expect(originContent()).not.toContain('taskId');
+      expect(useChatStore.getState().conversationClearGeneration).toBe(0);
+    });
+
+    it('a prior lane Stop does not block a later generate (global epoch stays 0)', async () => {
+      seedToolMessage(JSON.stringify([{ prompt: 'p1' }]));
+      useChatStore.setState((s) => ({
+        conversationClearGeneration: 0,
+        ...bumpLaneScopedClearGeneration(s, ORIGIN_SESSION, undefined, null),
+      }));
+      const stubs = installStoreStubs();
+      const createTaskMock = vi
+        .spyOn(imageGenerationService, 'createChatImageTask')
+        .mockImplementation(async ({ taskId }) => ({ taskId: taskId! }));
+      vi.spyOn(imageGenerationService, 'getChatImageResult').mockImplementation(async (taskId) => ({
+        file: { id: `file-${taskId}` },
+        status: 'success',
+      }));
+
+      await store().generateImageFromPrompts([{ prompt: 'p1' }] as DallEImageItem[], 'message-id');
+      stubs.restore();
+
+      expect(createTaskMock).toHaveBeenCalled();
+      expect(originContent()).toContain('taskId');
+      expect(originContent()).toContain('imageId');
+    });
+
+    it('a main-lane Stop does not fence a portal-thread image run', async () => {
+      seedToolMessage(JSON.stringify([{ prompt: 'p1' }]), 'message-id', { threadId: 'portal-1' });
+      useChatStore.setState((s) => ({
+        ...bumpLaneScopedClearGeneration(s, ORIGIN_SESSION, undefined, null),
+      }));
+      const stubs = installStoreStubs();
+      const createTaskMock = vi
+        .spyOn(imageGenerationService, 'createChatImageTask')
+        .mockImplementation(async ({ taskId }) => ({ taskId: taskId! }));
+      vi.spyOn(imageGenerationService, 'getChatImageResult').mockImplementation(async (taskId) => ({
+        file: { id: `file-${taskId}` },
+        status: 'success',
+      }));
+
+      await store().generateImageFromPrompts([{ prompt: 'p1' }] as DallEImageItem[], 'message-id');
+      stubs.restore();
+
+      expect(createTaskMock).toHaveBeenCalled();
+      expect(originContent()).toContain('imageId');
+    });
+
+    it('a portal-thread Stop does not fence a main-lane image run', async () => {
+      seedToolMessage(JSON.stringify([{ prompt: 'p1' }]));
+      useChatStore.setState((s) => ({
+        ...bumpLaneScopedClearGeneration(s, ORIGIN_SESSION, undefined, 'portal-1'),
+      }));
+      const stubs = installStoreStubs();
+      const createTaskMock = vi
+        .spyOn(imageGenerationService, 'createChatImageTask')
+        .mockImplementation(async ({ taskId }) => ({ taskId: taskId! }));
+      vi.spyOn(imageGenerationService, 'getChatImageResult').mockImplementation(async (taskId) => ({
+        file: { id: `file-${taskId}` },
+        status: 'success',
+      }));
+
+      await store().generateImageFromPrompts([{ prompt: 'p1' }] as DallEImageItem[], 'message-id');
+      stubs.restore();
+
+      expect(createTaskMock).toHaveBeenCalled();
+      expect(originContent()).toContain('imageId');
+    });
+
+    it('forwards the send spanId on createChatImageTask when a deferred lane exists', async () => {
+      seedToolMessage(JSON.stringify([{ prompt: 'p1' }]), 'message-id', { parentId: 'assistant-1' });
+      const laneKey = deferredBrowserGenerationLaneKey(ORIGIN_SESSION, undefined, null);
+      useChatStore.setState({
+        deferredBrowserGenerationLanes: {
+          [laneKey]: {
+            assistantMessageId: 'assistant-1',
+            reason: 'unsupported_tool',
+            spanId: 'gd_0123456789abcdef',
+            toolName: 'lobe-image-designer',
+          },
+        },
+      });
+      const stubs = installStoreStubs();
+      const createTaskMock = vi
+        .spyOn(imageGenerationService, 'createChatImageTask')
+        .mockImplementation(async ({ taskId }) => ({ taskId: taskId! }));
+      vi.spyOn(imageGenerationService, 'getChatImageResult').mockImplementation(async (taskId) => ({
+        file: { id: `file-${taskId}` },
+        status: 'success',
+      }));
+
+      await store().generateImageFromPrompts([{ prompt: 'p1' }] as DallEImageItem[], 'message-id');
+      stubs.restore();
+
+      expect(createTaskMock).toHaveBeenCalledWith(
+        expect.objectContaining({ spanId: 'gd_0123456789abcdef' }),
+      );
     });
 
     it('leaving the originating topic still persists and creates (leave is not Stop)', async () => {
@@ -1572,6 +1722,83 @@ describe('chatToolSlice - dalle', () => {
         data: [{ prompt: 'p1' }],
         outcome: 'completed',
         shouldContinue: true,
+      });
+    });
+
+    it('returns failed and does not continue when no image model is configured', async () => {
+      mockImageState.isInit = false;
+      seedToolMessage(JSON.stringify([{ prompt: 'p1' }]));
+      const stubs = installStoreStubs();
+
+      const result = await store().text2image('message-id', [{ prompt: 'p1' }] as DallEImageItem[]);
+      stubs.restore();
+
+      expect(result).toEqual({
+        data: [{ prompt: 'p1' }],
+        outcome: 'failed',
+        shouldContinue: false,
+      });
+    });
+
+    it('returns persistence_failed when the task id write cannot be proven', async () => {
+      seedToolMessage(JSON.stringify([{ prompt: 'p1' }]));
+      const stubs = installStoreStubs();
+      useChatStore.setState({
+        internal_updateMessageContent: vi.fn(async () => ({ persistenceAmbiguous: false })),
+      });
+
+      const result = await store().text2image('message-id', [{ prompt: 'p1' }] as DallEImageItem[]);
+      stubs.restore();
+
+      expect(result).toEqual({
+        data: [{ prompt: 'p1' }],
+        outcome: 'persistence_failed',
+        shouldContinue: false,
+      });
+    });
+
+    it('returns cancelled when Stop fences the write-first persist', async () => {
+      seedToolMessage(JSON.stringify([{ prompt: 'p1' }]));
+      let releasePersist!: () => void;
+      const persistGate = new Promise<void>((resolve) => {
+        releasePersist = resolve;
+      });
+      const stubs = installStoreStubs({ persistGate });
+      vi.spyOn(imageGenerationService, 'createChatImageTask');
+
+      const run = store().text2image('message-id', [{ prompt: 'p1' }] as DallEImageItem[]);
+      useChatStore.setState((s) => ({
+        ...bumpLaneScopedClearGeneration(s, ORIGIN_SESSION, undefined, null),
+      }));
+      releasePersist();
+      const result = await run;
+      stubs.restore();
+
+      expect(result).toEqual({
+        data: undefined,
+        outcome: 'cancelled',
+        shouldContinue: false,
+      });
+    });
+
+    it('returns failed after a terminal provider error', async () => {
+      seedToolMessage(JSON.stringify([{ prompt: 'p1' }]));
+      const stubs = installStoreStubs();
+      vi.spyOn(imageGenerationService, 'createChatImageTask').mockImplementation(
+        async ({ taskId }) => ({ taskId: taskId! }),
+      );
+      vi.spyOn(imageGenerationService, 'getChatImageResult').mockResolvedValue({
+        error: { body: { detail: 'upstream 503' }, name: 'ServerError' },
+        status: 'error',
+      });
+
+      const result = await store().text2image('message-id', [{ prompt: 'p1' }] as DallEImageItem[]);
+      stubs.restore();
+
+      expect(result).toEqual({
+        data: [{ prompt: 'p1' }],
+        outcome: 'failed',
+        shouldContinue: false,
       });
     });
   });

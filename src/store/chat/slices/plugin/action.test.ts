@@ -552,6 +552,47 @@ describe('ChatPluginAction', () => {
       expect(triggerAIMessageMock).not.toHaveBeenCalled();
     });
 
+    it('does not resume the model after a failed text2image builtin tool', async () => {
+      const assistantId = 'assistant-id';
+      const message = {
+        content: 'Assistant message',
+        id: assistantId,
+        role: 'assistant',
+        tools: [
+          {
+            apiName: 'text2image',
+            arguments: '{}',
+            id: 'tool-image',
+            identifier: 'lobe-image-designer',
+            type: 'builtin',
+          },
+        ],
+      } as UIChatMessage;
+      const invokeBuiltinToolMock = vi.fn().mockResolvedValue({
+        data: [{ prompt: 'p1' }],
+        outcome: 'failed',
+        shouldContinue: false,
+      });
+      const triggerAIMessageMock = vi.fn();
+      const internal_createMessageMock = vi.fn().mockResolvedValue('tool-message-id');
+
+      useChatStore.setState({
+        activeId: 'session-id',
+        activeTopicId: 'topic-id',
+        internal_createMessage: internal_createMessageMock,
+        invokeBuiltinTool: invokeBuiltinToolMock,
+        messagesMap: {
+          [messageMapKey('session-id', 'topic-id')]: [message],
+        },
+        triggerAIMessage: triggerAIMessageMock,
+      });
+
+      await useChatStore.getState().triggerToolCalls(assistantId);
+
+      expect(invokeBuiltinToolMock).toHaveBeenCalled();
+      expect(triggerAIMessageMock).not.toHaveBeenCalled();
+    });
+
     it('does not continue tool calls when the parent message is not active', async () => {
       const assistantId = 'inactive-assistant';
       const assistantMessage = {
@@ -829,6 +870,38 @@ describe('ChatPluginAction', () => {
         expect.any(String),
       );
       expect(useChatStore.getState().text2image).toHaveBeenCalled();
+    });
+
+    it('returns a failed text2image invocation without rewriting it as completed', async () => {
+      const payload = {
+        apiName: 'text2image',
+        arguments: JSON.stringify({ prompt: 'p' }),
+        identifier: 'lobe-image-designer',
+        type: 'builtin',
+      } as ChatToolPayload;
+      const toolResponse = JSON.stringify([{ prompt: 'p' }]);
+
+      useToolStore.setState({
+        transformApiArgumentsToAiState: vi.fn().mockResolvedValue(toolResponse),
+      });
+      const text2image = vi.fn().mockResolvedValue({
+        data: [{ prompt: 'p' }],
+        outcome: 'failed',
+        shouldContinue: false,
+      });
+      useChatStore.setState({
+        internal_togglePluginApiCalling: vi.fn(),
+        internal_updateMessageContent: vi.fn(),
+        text2image,
+      });
+
+      const result = await useChatStore.getState().invokeBuiltinTool('message-id', payload);
+
+      expect(text2image).toHaveBeenCalled();
+      expect(result).toMatchObject({
+        outcome: 'failed',
+        shouldContinue: false,
+      });
     });
 
     it('should invoke a builtin tool and update message content', async () => {

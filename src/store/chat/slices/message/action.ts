@@ -40,8 +40,10 @@ import {
   preserveChatLoadingLaneMapsForMessages,
 } from '@/store/chat/utils/chatLoadingLanes';
 import {
+  isConversationClearFenceCurrent,
   markAllDurableGenerationsStopped,
   markConversationTopicDurableGenerationStopped,
+  resolveConversationClearGeneration,
 } from '@/store/chat/utils/conversationClearGeneration';
 import {
   collectDeferredBrowserGenerationProtectedIds,
@@ -945,9 +947,15 @@ export const chatMessage: StateCreator<
     const inferredContext =
       mapHit && mapHit.mapKey !== activeMapKey && mapHit.sessionId
         ? {
-            clearGeneration: get().conversationClearGeneration,
+            clearGeneration: resolveConversationClearGeneration(
+              get(),
+              mapHit.sessionId,
+              mapHit.topicId,
+              mapHit.message.threadId ?? null,
+            ),
             generation: get().conversationNavigationGeneration,
             sessionId: mapHit.sessionId,
+            threadId: mapHit.message.threadId ?? null,
             topicId: mapHit.topicId,
           }
         : undefined;
@@ -959,16 +967,26 @@ export const chatMessage: StateCreator<
       conversationContext?.clearGeneration ?? get().conversationClearGeneration;
     const requestedSessionId = conversationContext?.sessionId ?? get().activeId;
     const requestedTopicId = conversationContext?.topicId ?? get().activeTopicId;
+    const isScopedFenceCurrent = () =>
+      conversationContext?.sessionId
+        ? isConversationClearFenceCurrent(
+            get(),
+            requestedClearGeneration,
+            conversationContext.sessionId,
+            conversationContext.topicId,
+            conversationContext.threadId,
+          )
+        : get().conversationClearGeneration === requestedClearGeneration;
     const isCurrentRequest = () =>
       isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
-      get().conversationClearGeneration === requestedClearGeneration &&
+      isScopedFenceCurrent() &&
       (conversationContext
         ? true
         : get().activeId === requestedSessionId && get().activeTopicId === requestedTopicId);
     if (!isCurrentRequest()) {
       const hardCancelled =
         !isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) ||
-        get().conversationClearGeneration !== requestedClearGeneration;
+        !isScopedFenceCurrent();
       logPersistSkipped(hardCancelled ? 'hard_cancelled' : 'not_visible');
       return { persistenceAmbiguous: false };
     }

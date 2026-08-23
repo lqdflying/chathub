@@ -1,4 +1,4 @@
-import { UIChatMessage } from '@lobechat/types';
+import { ToolDiagnosticTerminalOutcome, UIChatMessage } from '@lobechat/types';
 import { produce } from 'immer';
 import { sha256 } from 'js-sha256';
 import { omit } from 'lodash-es';
@@ -16,7 +16,10 @@ import { aiProviderSelectors, getAiInfraStoreState } from '@/store/aiInfra';
 import { chatSelectors } from '@/store/chat/selectors';
 import { ChatStore } from '@/store/chat/store';
 import type { ConversationContext } from '@/store/chat/types';
-import { resolveConversationClearGeneration } from '@/store/chat/utils/conversationClearGeneration';
+import {
+  isConversationClearFenceCurrent,
+  resolveConversationClearGeneration,
+} from '@/store/chat/utils/conversationClearGeneration';
 import {
   findDeferredBrowserGenerationLaneByAssistantId,
   findDeferredBrowserGenerationLaneForConversation,
@@ -257,6 +260,38 @@ const waitForChatImageTask = async (
   throw new Error('Image generation timed out while waiting for the task result.');
 };
 
+type ChatImageRunOutcome =
+  | 'already_done'
+  | 'failed'
+  | 'no_model'
+  | 'no_origin'
+  | 'not_current'
+  | 'ok'
+  | 'partial'
+  | 'persist_unproven';
+
+const toText2ImageInvocation = (
+  runOutcome: ChatImageRunOutcome,
+  data: DallEImageItem[],
+): {
+  data: unknown;
+  outcome: ToolDiagnosticTerminalOutcome;
+  shouldContinue: boolean;
+} => {
+  switch (runOutcome) {
+    case 'ok':
+    case 'already_done':
+    case 'partial':
+      return { data, outcome: 'completed', shouldContinue: true };
+    case 'persist_unproven':
+      return { data, outcome: 'persistence_failed', shouldContinue: false };
+    case 'not_current':
+      return { data: undefined, outcome: 'cancelled', shouldContinue: false };
+    default:
+      return { data, outcome: 'failed', shouldContinue: false };
+  }
+};
+
 const resolveOriginatingImageToolMessage = (
   state: ChatStore,
   messageId: string,
@@ -266,11 +301,19 @@ const resolveOriginatingImageToolMessage = (
   const hit = findMessageInMessagesMap(state.messagesMap, messageId);
   if (!hit?.sessionId) return;
 
+  const threadId = hit.message.threadId ?? null;
+
   return {
     conversationContext: {
-      clearGeneration: resolveConversationClearGeneration(state, hit.sessionId, hit.topicId),
+      clearGeneration: resolveConversationClearGeneration(
+        state,
+        hit.sessionId,
+        hit.topicId,
+        threadId,
+      ),
       generation: state.conversationNavigationGeneration,
       sessionId: hit.sessionId,
+      threadId,
       topicId: hit.topicId,
     },
     mapKey: hit.mapKey,
@@ -278,31 +321,49 @@ const resolveOriginatingImageToolMessage = (
   };
 };
 
+const isImageToolFenceCurrent = (state: ChatStore, conversationContext: ConversationContext) =>
+  isConversationClearFenceCurrent(
+    state,
+    conversationContext.clearGeneration,
+    conversationContext.sessionId,
+    conversationContext.topicId,
+    conversationContext.threadId,
+  );
+
+const resolveChatImageDebugLane = (
+  state: ChatStore,
+  assistantMessageId: string,
+  sessionId?: string | null,
+  topicId?: string | null,
+) =>
+  findDeferredBrowserGenerationLaneByAssistantId(
+    state.deferredBrowserGenerationLanes,
+    assistantMessageId,
+  ) ??
+  findDeferredBrowserGenerationLaneForConversation(
+    state.deferredBrowserGenerationLanes,
+    sessionId,
+    topicId,
+  );
+
 const logChatImageGeneration = (
   state: ChatStore,
   event: 'chat_image_item_settled' | 'chat_image_run_settled' | 'chat_image_run_started',
   input: {
     assistantMessageId: string;
     sessionId?: string | null;
+    threadId?: string | null;
     topicId?: string | null;
   } & Record<string, unknown>,
 ) => {
-  const { assistantMessageId, sessionId, topicId, ...fields } = input;
-  const match =
-    findDeferredBrowserGenerationLaneByAssistantId(
-      state.deferredBrowserGenerationLanes,
-      assistantMessageId,
-    ) ??
-    findDeferredBrowserGenerationLaneForConversation(
-      state.deferredBrowserGenerationLanes,
-      sessionId,
-      topicId,
-    );
+  const { assistantMessageId, sessionId, threadId, topicId, ...fields } = input;
+  const match = resolveChatImageDebugLane(state, assistantMessageId, sessionId, topicId);
   const originKey = sessionId ? messageMapKey(sessionId, topicId) : undefined;
   void logDeferredGenerationLane(event, {
     assistantMessageId,
     sessionId,
     spanId: match?.lane.spanId,
+    threadId,
     topicId,
     toolName: 'lobe-image-designer',
     visible: Boolean(
@@ -313,7 +374,7 @@ const logChatImageGeneration = (
 };
 
 export interface ChatDallEAction {
-  generateImageFromPrompts: (items: DallEImageItem[], id: string) => Promise<void>;
+  generateImageFromPrompts: (items: DallEImageItem[], id: string) => Promise<ChatImageRunOutcome>;
   /**
    * Recover items whose async task outlived this tab: adopt finished results,
    * resume waiting on pending ones, surface failures. For a provenance-valid
@@ -328,7 +389,11 @@ export interface ChatDallEAction {
   text2image: (
     id: string,
     data: DallEImageItem[],
-  ) => Promise<{ data: unknown; outcome: 'completed'; shouldContinue: true }>;
+  ) => Promise<{
+    data: unknown;
+    outcome: ToolDiagnosticTerminalOutcome;
+    shouldContinue: boolean;
+  }>;
   toggleDallEImageLoading: (key: string, value: boolean) => void;
   updateImageItem: (
     id: string,
@@ -345,11 +410,10 @@ export const dalleSlice: StateCreator<
   ChatDallEAction
 > = (set, get) => ({
   generateImageFromPrompts: async (items, messageId) => {
-    const invocationGeneration = get().conversationClearGeneration;
-    const invocationIsCurrent = () => get().conversationClearGeneration === invocationGeneration;
     // Pin the originating conversation from the tool message itself — not the
     // currently visible topic. Leave-topic is not Stop; `getMessageById` only
-    // reads the active map and would silently no-op after a switch.
+    // reads the active map and would silently no-op after a switch. Stop is
+    // the lane-scoped clear fence (plus thread id), not the global epoch.
     const origin = resolveOriginatingImageToolMessage(get(), messageId);
     if (!origin) {
       logChatImageGeneration(get(), 'chat_image_run_settled', {
@@ -358,16 +422,24 @@ export const dalleSlice: StateCreator<
         kind: 'generate',
         outcome: 'no_origin',
       });
-      return;
+      return 'no_origin';
     }
     const originKey = origin.mapKey;
     const conversationContext = origin.conversationContext;
+    const invocationIsCurrent = () => isImageToolFenceCurrent(get(), conversationContext);
     const persistItems = (updater: (data: DallEImageItem[]) => void) =>
       get().updateImageItem(messageId, updater, conversationContext);
     const assistantMessageId = origin.message.parentId || messageId;
+    const debugSpanId = resolveChatImageDebugLane(
+      get(),
+      assistantMessageId,
+      conversationContext.sessionId,
+      conversationContext.topicId,
+    )?.lane.spanId;
     const debugBase = {
       assistantMessageId,
       sessionId: conversationContext.sessionId,
+      threadId: conversationContext.threadId,
       topicId: conversationContext.topicId,
     };
     const countOriginImages = () => {
@@ -406,7 +478,7 @@ export const dalleSlice: StateCreator<
         outcome: 'already_done',
         ownedCount: 0,
       });
-      return;
+      return 'already_done';
     }
 
     logChatImageGeneration(get(), 'chat_image_run_started', {
@@ -416,8 +488,7 @@ export const dalleSlice: StateCreator<
       kind: 'generate',
       ownedCount: ownedIndices.length,
     });
-    let runOutcome: 'failed' | 'no_model' | 'not_current' | 'ok' | 'partial' | 'persist_unproven' =
-      'ok';
+    let runOutcome: ChatImageRunOutcome = 'ok';
 
     try {
       const resolved = resolveImageModel();
@@ -428,7 +499,7 @@ export const dalleSlice: StateCreator<
         await get().updatePluginState(messageId, {
           error: items.map(() => ({ errorType: 'NoImageModelConfigured' })),
         });
-        return;
+        return runOutcome;
       }
       const { model, provider, params: baseParams } = resolved;
 
@@ -532,7 +603,7 @@ export const dalleSlice: StateCreator<
             ),
           });
         }
-        return;
+        return runOutcome;
       }
 
       let persistUnprovenCount = 0;
@@ -667,6 +738,7 @@ export const dalleSlice: StateCreator<
                 model,
                 params: { ...baseParams, prompt: item.prompt },
                 provider,
+                ...(debugSpanId ? { spanId: debugSpanId } : {}),
                 taskId,
               });
               created = true;
@@ -730,7 +802,7 @@ export const dalleSlice: StateCreator<
 
       if (!invocationIsCurrent()) {
         runOutcome = 'not_current';
-        return;
+        return runOutcome;
       }
 
       // set plugin error ONCE, after all items settle, to avoid the concurrent
@@ -747,6 +819,7 @@ export const dalleSlice: StateCreator<
         runOutcome =
           persistUnprovenCount === ownedIndices.length ? 'persist_unproven' : 'partial';
       }
+      return runOutcome;
     } catch (error) {
       if (runOutcome === 'ok') runOutcome = 'failed';
       throw error;
@@ -769,12 +842,20 @@ export const dalleSlice: StateCreator<
     }
   },
   reconcileDallETasks: async (messageId) => {
-    const invocationGeneration = get().conversationClearGeneration;
-    const invocationIsCurrent = () => get().conversationClearGeneration === invocationGeneration;
+    const origin = resolveOriginatingImageToolMessage(get(), messageId);
+    if (!origin) return;
+    const conversationContext = origin.conversationContext;
+    const invocationIsCurrent = () => isImageToolFenceCurrent(get(), conversationContext);
     const reconcileToken = Symbol('dalle-reconcile-run');
+    const assistantMessageId = origin.message.parentId || messageId;
+    const debugSpanId = resolveChatImageDebugLane(
+      get(),
+      assistantMessageId,
+      conversationContext.sessionId,
+      conversationContext.topicId,
+    )?.lane.spanId;
 
-    const message = chatSelectors.getMessageById(messageId)(get());
-    if (!message) return;
+    const message = origin.message;
 
     let items: DallEImageItem[];
     try {
@@ -842,7 +923,7 @@ export const dalleSlice: StateCreator<
             // 3) current correlation: the message must still exist and still
             //    carry this exact unresolved id (deletion/mutation guard; the
             //    server re-verifies the same correlation before insert)
-            const current = chatSelectors.getMessageById(messageId)(get());
+            const current = get().messagesMap[origin.mapKey]?.find((m) => m.id === messageId);
             if (!current) return;
             let currentItems: DallEImageItem[] | undefined;
             try {
@@ -859,6 +940,7 @@ export const dalleSlice: StateCreator<
               model: resolved.model,
               params: { ...resolved.params, prompt: item.prompt },
               provider: resolved.provider,
+              ...(debugSpanId ? { spanId: debugSpanId } : {}),
               taskId: item.taskId,
             });
             if (!invocationIsCurrent()) return;
@@ -871,12 +953,16 @@ export const dalleSlice: StateCreator<
               });
           if (!ok || !invocationIsCurrent()) return;
           if (!file) return;
-          await get().updateImageItem(messageId, (draft) => {
-            if (draft[index]) {
-              draft[index].imageId = file.id;
-              draft[index].previewUrl = undefined;
-            }
-          });
+          await get().updateImageItem(
+            messageId,
+            (draft) => {
+              if (draft[index]) {
+                draft[index].imageId = file.id;
+                draft[index].previewUrl = undefined;
+              }
+            },
+            conversationContext,
+          );
         } catch (error) {
           if (!invocationIsCurrent()) return;
           hasError = true;
@@ -905,8 +991,8 @@ export const dalleSlice: StateCreator<
     await get().generateImageFromPrompts(items, messageId);
   },
   text2image: async (id, data) => {
-    await get().generateImageFromPrompts(data, id);
-    return { data, outcome: 'completed', shouldContinue: true };
+    const runOutcome = await get().generateImageFromPrompts(data, id);
+    return toText2ImageInvocation(runOutcome, data);
   },
 
   toggleDallEImageLoading: (key, value) => {

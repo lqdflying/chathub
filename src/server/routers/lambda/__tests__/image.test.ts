@@ -1041,6 +1041,50 @@ describe('imageRouter', () => {
       expect(JSON.stringify(fields)).not.toContain(CHAT_TASK_ID);
     });
 
+    it('joins chat_image_task_created onto the client send spanId', async () => {
+      const { db } = makeTxDb(correlatedRows);
+      installCommonMocks(db);
+      const logSpy = vi.spyOn(generationDebug, 'logGenerationDebugSafe');
+      const spanId = 'gd_0123456789abcdef';
+
+      await makeCaller().createChatImage({
+        correlation: CHAT_CORRELATION,
+        model: 'gpt-image-2',
+        params: { prompt: 'p' },
+        provider: 'openaicompatible',
+        spanId,
+        taskId: CHAT_TASK_ID,
+      });
+
+      const fields = logSpy.mock.calls.find(([event]) => event === 'chat_image_task_created')?.[1] as {
+        spanId?: string;
+      };
+      expect(fields.spanId).toBe(spanId);
+      expect(fields).not.toHaveProperty('prompt');
+      expect(JSON.stringify(fields)).not.toContain(CHAT_CORRELATION.messageId);
+      expect(JSON.stringify(fields)).not.toContain(CHAT_TASK_ID);
+    });
+
+    it('drops an invalid spanId instead of rejecting the billable insert', async () => {
+      const { db } = makeTxDb(correlatedRows);
+      installCommonMocks(db);
+      const logSpy = vi.spyOn(generationDebug, 'logGenerationDebugSafe');
+
+      await makeCaller().createChatImage({
+        correlation: CHAT_CORRELATION,
+        model: 'gpt-image-2',
+        params: { prompt: 'p' },
+        provider: 'openaicompatible',
+        spanId: 'not-a-span',
+        taskId: CHAT_TASK_ID,
+      });
+
+      const fields = logSpy.mock.calls.find(([event]) => event === 'chat_image_task_created')?.[1] as {
+        spanId?: string;
+      };
+      expect(fields.spanId).toBeUndefined();
+    });
+
     it('emits chat_image_task_rejected when the message is uncorrelated', async () => {
       const { db } = makeTxDb(() => []);
       installCommonMocks(db);
@@ -1064,6 +1108,32 @@ describe('imageRouter', () => {
         }),
       );
       expect(logSpy).not.toHaveBeenCalledWith('chat_image_task_created', expect.anything());
+    });
+
+    it('joins chat_image_task_rejected onto the client send spanId', async () => {
+      const { db } = makeTxDb(() => []);
+      installCommonMocks(db);
+      const logSpy = vi.spyOn(generationDebug, 'logGenerationDebugSafe');
+      const spanId = 'gd_fedcba9876543210';
+
+      await expect(
+        makeCaller().createChatImage({
+          correlation: CHAT_CORRELATION,
+          model: 'gpt-image-2',
+          params: { prompt: 'p' },
+          provider: 'openaicompatible',
+          spanId,
+          taskId: CHAT_TASK_ID,
+        }),
+      ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
+
+      expect(logSpy).toHaveBeenCalledWith(
+        'chat_image_task_rejected',
+        expect.objectContaining({
+          outcome: 'uncorrelated',
+          spanId,
+        }),
+      );
     });
 
     it('marks the task failed when the async dispatch rejects', async () => {

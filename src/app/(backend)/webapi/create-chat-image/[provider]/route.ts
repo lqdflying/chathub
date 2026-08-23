@@ -38,8 +38,14 @@ export const POST = checkAuth(async (req: Request, { params, jwtPayload }) => {
       correlation: { index: number; messageId: string };
       model: string;
       params: { prompt: string };
+      spanId?: string;
       taskId: string;
     };
+
+    const spanId =
+      typeof body.spanId === 'string' && /^gd_[\da-f]{16,64}$/i.test(body.spanId)
+        ? body.spanId
+        : undefined;
 
     // Normal requests carry the client's encoded provider header verbatim.
     // checkAuth's development/desktop bypass modes reach this handler WITHOUT
@@ -64,6 +70,7 @@ export const POST = checkAuth(async (req: Request, { params, jwtPayload }) => {
       model: body.model,
       params: body.params,
       provider,
+      ...(spanId ? { spanId } : {}),
       taskId: body.taskId,
     });
 

@@ -126,4 +126,49 @@ describe('POST /webapi/create-chat-image/[provider]', () => {
       }),
     );
   });
+
+  it('forwards a validated generation spanId and drops an invalid one', async () => {
+    createChatImage.mockResolvedValue({ taskId: 'task-1' });
+
+    const valid = new Request(
+      'https://chathub.example/webapi/create-chat-image/openaicompatible',
+      {
+        body: JSON.stringify({
+          correlation: { index: 0, messageId: 'message-1' },
+          model: 'gpt-image-2',
+          params: { prompt: 'a cat' },
+          spanId: 'gd_0123456789abcdef',
+          taskId: 'task-1',
+        }),
+        headers: { 'content-type': 'application/json', [LOBE_CHAT_AUTH_HEADER]: 'x' },
+        method: 'POST',
+      },
+    );
+    await POST(valid, { params: Promise.resolve({ provider: 'openaicompatible' }) } as any);
+
+    expect(createChatImage).toHaveBeenCalledWith(
+      expect.objectContaining({ spanId: 'gd_0123456789abcdef' }),
+    );
+
+    createChatImage.mockClear();
+    const invalid = new Request(
+      'https://chathub.example/webapi/create-chat-image/openaicompatible',
+      {
+        body: JSON.stringify({
+          correlation: { index: 0, messageId: 'message-1' },
+          model: 'gpt-image-2',
+          params: { prompt: 'a cat' },
+          spanId: 'not-a-span',
+          taskId: 'task-1',
+        }),
+        headers: { 'content-type': 'application/json', [LOBE_CHAT_AUTH_HEADER]: 'x' },
+        method: 'POST',
+      },
+    );
+    await POST(invalid, { params: Promise.resolve({ provider: 'openaicompatible' }) } as any);
+
+    expect(createChatImage).toHaveBeenCalledWith(
+      expect.not.objectContaining({ spanId: expect.anything() }),
+    );
+  });
 });

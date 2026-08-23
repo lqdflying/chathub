@@ -29,6 +29,7 @@ class ImageGenerationService {
       params,
       taskId,
       correlation,
+      spanId,
     }: {
       // REQUIRED: the server refuses to insert billable work unless the
       // user-owned message still carries exactly this unresolved (taskId,
@@ -38,6 +39,7 @@ class ImageGenerationService {
       model: string;
       params: { prompt: string };
       provider: string;
+      spanId?: string;
       taskId: string;
     },
     options?: FetchOptions,
@@ -48,7 +50,13 @@ class ImageGenerationService {
     });
 
     const res = await fetch(API_ENDPOINTS.createChatImage(provider), {
-      body: JSON.stringify({ correlation, model, params, taskId }),
+      body: JSON.stringify({
+        correlation,
+        model,
+        params,
+        taskId,
+        ...(spanId ? { spanId } : {}),
+      }),
       headers,
       method: 'POST',
       signal: options?.signal,

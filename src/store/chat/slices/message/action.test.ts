@@ -1194,6 +1194,63 @@ describe('chatMessage actions', () => {
       expect(updateSpy).not.toHaveBeenCalled();
     });
 
+    it('persists when the captured fence matches the lane-scoped epoch and global stays 0', async () => {
+      const updateSpy = vi.spyOn(messageService, 'updateMessage');
+      const { result } = renderHook(() => useChatStore());
+      useChatStore.setState({
+        conversationClearGeneration: 0,
+        conversationScopedClearGenerations: {
+          [`${messageMapKey('session-id', 'topic-id')}:main`]: 1,
+        },
+      });
+
+      await act(async () => {
+        await result.current.internal_updateMessageContent('message-id', 'search results', {
+          conversationContext: {
+            clearGeneration: 1,
+            generation: 0,
+            sessionId: 'session-id',
+            topicId: 'topic-id',
+          },
+        });
+      });
+
+      expect(updateSpy).toHaveBeenCalledWith('message-id', { content: 'search results' });
+    });
+
+    it('logs message_persist_skipped as hard_cancelled for a lane-scoped Stop', async () => {
+      const logSpy = vi
+        .spyOn(generationDebugClient, 'logDeferredGenerationLane')
+        .mockResolvedValue();
+      const updateSpy = vi.spyOn(messageService, 'updateMessage');
+      const { result } = renderHook(() => useChatStore());
+      useChatStore.setState({
+        conversationClearGeneration: 0,
+        conversationScopedClearGenerations: {
+          [`${messageMapKey('session-id', 'topic-id')}:main`]: 1,
+        },
+      });
+
+      await act(async () => {
+        await result.current.internal_updateMessageContent('message-id', 'search results', {
+          conversationContext: {
+            clearGeneration: 0,
+            generation: 0,
+            sessionId: 'session-id',
+            topicId: 'topic-id',
+          },
+        });
+      });
+
+      expect(logSpy).toHaveBeenCalledWith(
+        'message_persist_skipped',
+        expect.objectContaining({
+          reason: 'hard_cancelled',
+        }),
+      );
+      expect(updateSpy).not.toHaveBeenCalled();
+    });
+
     it('does not log message_persist_skipped when persisting a left-topic map row', async () => {
       const logSpy = vi
         .spyOn(generationDebugClient, 'logDeferredGenerationLane')
@@ -1204,6 +1261,7 @@ describe('chatMessage actions', () => {
         activeId: 'session-id',
         activeTopicId: 'other-topic',
         conversationClearGeneration: 0,
+        conversationScopedClearGenerations: {},
         messagesMap: {
           [messageMapKey('session-id', 'topic-id')]: [
             {
