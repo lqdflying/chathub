@@ -99,13 +99,15 @@ The guest wrapper only probe-writes that directory, patches `open`/`getcwd` so
 relative paths stay inside it, and must not call `os.makedirs`, `os.chdir`, or
 `os.remove`. It also sets `TMPDIR`, `HOME`, `MPLCONFIGDIR`,
 `XDG_CONFIG_HOME`, and `XDG_CACHE_HOME` to that directory, plus
-`MPL_IGNORE_SYSTEM_FONTS=1`. Matplotlib otherwise spawns `fc-list` on
-`import pyplot`
+`MPL_IGNORE_SYSTEM_FONTS=1`. It also replaces `subprocess.Popen` with a stub
+that raises `FileNotFoundError` immediately (and `os.system` returns 127).
+Matplotlib otherwise spawns `fc-list` on `import pyplot`
 ([font_manager.py](https://github.com/matplotlib/matplotlib/blob/v3.11.1/lib/matplotlib/font_manager.py),
 [matplotlib#28488](https://github.com/matplotlib/matplotlib/issues/28488)).
-Dify 0.2.15 can allow `clone3`/`pipe2` while still killing `execve`, so the
-parent waits on the pipe until ChatHub’s 60s `AbortSignal`. Bundled
-matplotlib fonts still work. Do not fall back to a shared `/mnt/data` or the
+Dify 0.2.15 can allow `clone3`/`pipe2` while still killing `execve`, so a real
+child hangs the parent on the pipe until ChatHub’s 60s `AbortSignal`. Env-only
+(`MPL_IGNORE_SYSTEM_FONTS`) was not enough on canary.21. Bundled matplotlib
+fonts still work; guest code cannot run binaries. Do not fall back to a shared `/mnt/data` or the
 jail `/`. Leftover per-run dirs are not deleted (unlink is blocked); they are
 unique per token and go away when the sidecar is recreated.
 

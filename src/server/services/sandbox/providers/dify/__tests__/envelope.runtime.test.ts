@@ -112,6 +112,26 @@ describe('Dify sandbox envelope runtime', () => {
     expect(failed.stderr).toContain('SystemExit: 2');
   });
 
+  it('fails subprocess immediately instead of hanging on a blocked execve', () => {
+    const result = runWrapper({
+      code: [
+        'import subprocess, time',
+        't = time.time()',
+        'try:',
+        "    subprocess.check_output(['fc-list', '--help'])",
+        "    print('spawned')",
+        'except FileNotFoundError as exc:',
+        "    print('blocked', int((time.time() - t) * 1000), type(exc).__name__)",
+      ].join('\n'),
+      token: 'ff',
+    });
+    expect(result.parsed.success).toBe(true);
+    expect(result.parsed.stdout).toMatch(/blocked \d+ FileNotFoundError/);
+    expect(result.parsed.stdout).not.toContain('spawned');
+    const msec = Number(/blocked (\d+)/.exec(result.parsed.stdout)?.[1]);
+    expect(msec).toBeLessThan(2000);
+  });
+
   it('pins matplotlib config to the session dir and skips system fontconfig', () => {
     const result = runWrapper({
       code: [

@@ -87,7 +87,7 @@ export const wrapSandboxPython = ({
   const userB64 = Buffer.from(code, 'utf8').toString('base64');
 
   return [
-    'import os, sys, json, base64, traceback, hashlib, builtins',
+    'import os, sys, json, base64, traceback, hashlib, builtins, subprocess',
     'os.environ.setdefault("MPLBACKEND", "Agg")',
     `_TOKEN = ${JSON.stringify(token)}`,
     `_SENTINEL = "${CI_FILES_SENTINEL_PREFIX}" + _TOKEN + ">>>"`,
@@ -129,13 +129,20 @@ export const wrapSandboxPython = ({
     // Guest mkdir is ActErrno; HOME is unset in the jail. Pin config/cache to
     // the existing session dir. MPL_IGNORE_SYSTEM_FONTS skips fc-list
     // (https://github.com/matplotlib/matplotlib/blob/v3.11.1/lib/matplotlib/font_manager.py).
-    // Dify allows clone3+pipe2 but not execve, so pyplot otherwise hangs until
-    // ChatHub's 60s AbortSignal (matplotlib#28488).
+    // Dify 0.2.15 can allow clone3+pipe2 while killing execve, so a real
+    // subprocess (pyplot fc-list, matplotlib#28488) hangs until ChatHub's 60s
+    // AbortSignal. Canary.21 env-only was not enough on prod. Stub Popen so
+    // check_output/run fail with FileNotFoundError (OSError) without fork.
     'os.environ["HOME"] = DATA_DIR',
     'os.environ["MPLCONFIGDIR"] = DATA_DIR',
     'os.environ["XDG_CONFIG_HOME"] = DATA_DIR',
     'os.environ["XDG_CACHE_HOME"] = DATA_DIR',
     'os.environ["MPL_IGNORE_SYSTEM_FONTS"] = "1"',
+    'class _SandboxPopen:',
+    '    def __init__(self, *args, **kwargs):',
+    "        raise FileNotFoundError(2, 'No such file or directory', 'sandbox-exec')",
+    'subprocess.Popen = _SandboxPopen',
+    'os.system = lambda *a, **k: 127',
     'os.getcwd = lambda: DATA_DIR',
     'os.chdir = lambda *a, **k: None',
     '_real_open = builtins.open',
