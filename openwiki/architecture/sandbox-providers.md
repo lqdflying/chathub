@@ -99,15 +99,24 @@ The guest wrapper only probe-writes that directory, patches `open`/`getcwd` so
 relative paths stay inside it, and must not call `os.makedirs`, `os.chdir`, or
 `os.remove`. It also sets `TMPDIR`, `HOME`, `MPLCONFIGDIR`,
 `XDG_CONFIG_HOME`, and `XDG_CACHE_HOME` to that directory, plus
-`MPL_IGNORE_SYSTEM_FONTS=1`. It also replaces `subprocess.Popen` with a stub
-that raises `FileNotFoundError` immediately (and `os.system` returns 127).
+`MPLBACKEND=Agg` (forced, not `setdefault`), `MPL_IGNORE_SYSTEM_FONTS=1`,
+`OMP_NUM_THREADS` / `OPENBLAS_NUM_THREADS` / `MKL_NUM_THREADS` = `1`
+([NumPy global state](https://numpy.org/doc/stable/reference/global_state.html)),
+and `FONTCONFIG_FILE` / `FONTCONFIG_PATH` to an empty
+`<fontconfig><reset-dirs/></fontconfig>` in the session dir
+([fonts-conf](https://www.freedesktop.org/software/fontconfig/fontconfig-user.html)).
+It replaces `subprocess.Popen` with a stub that raises `FileNotFoundError`
+immediately, returns 127 from `os.system`, and stubs `os.fork` /
+`os.posix_spawn` / `_posixsubprocess.fork_exec` the same way.
 Matplotlib otherwise spawns `fc-list` on `import pyplot`
 ([font_manager.py](https://github.com/matplotlib/matplotlib/blob/v3.11.1/lib/matplotlib/font_manager.py),
 [matplotlib#28488](https://github.com/matplotlib/matplotlib/issues/28488)).
-Dify 0.2.15 can allow `clone3`/`pipe2` while still killing `execve`, so a real
-child hangs the parent on the pipe until ChatHub’s 60s `AbortSignal`. Env-only
-(`MPL_IGNORE_SYSTEM_FONTS`) was not enough on canary.21. Bundled matplotlib
-fonts still work; guest code cannot run binaries. Do not fall back to a shared `/mnt/data` or the
+Dify 0.2.15 can allow `clone3`/`pipe2`/`posix_spawn` while still killing
+`execve`, so a real child hangs the parent on the pipe until ChatHub’s 60s
+`AbortSignal`. Env-only (`MPL_IGNORE_SYSTEM_FONTS`) was not enough on
+canary.21; a Python `Popen` stub was not enough on canary.22
+(`import matplotlib` ~350ms, isolated `import pyplot` still 60s). Bundled
+matplotlib fonts still work; guest code cannot run binaries. Do not fall back to a shared `/mnt/data` or the
 jail `/`. Leftover per-run dirs are not deleted (unlink is blocked); they are
 unique per token and go away when the sidecar is recreated.
 

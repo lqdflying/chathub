@@ -88,7 +88,9 @@ export const wrapSandboxPython = ({
 
   return [
     'import os, sys, json, base64, traceback, hashlib, builtins, subprocess',
-    'os.environ.setdefault("MPLBACKEND", "Agg")',
+    // Force Agg. setdefault loses if the sidecar already set Tk/Qt; pyplot then
+    // probes GUI backends (https://matplotlib.org/stable/users/explain/figure/backends.html).
+    'os.environ["MPLBACKEND"] = "Agg"',
     `_TOKEN = ${JSON.stringify(token)}`,
     `_SENTINEL = "${CI_FILES_SENTINEL_PREFIX}" + _TOKEN + ">>>"`,
     `_MAX_FILE = ${Math.max(1, Math.floor(maxFileBytes))}`,
@@ -127,22 +129,45 @@ export const wrapSandboxPython = ({
     // Matplotlib: MPLCONFIGDIR first, else $HOME/.config, else tempfile+mkdir
     // (https://matplotlib.org/stable/api/matplotlib_configuration_api.html).
     // Guest mkdir is ActErrno; HOME is unset in the jail. Pin config/cache to
-    // the existing session dir. MPL_IGNORE_SYSTEM_FONTS skips fc-list
+    // the existing session dir. MPL_IGNORE_SYSTEM_FONTS skips Python fc-list
     // (https://github.com/matplotlib/matplotlib/blob/v3.11.1/lib/matplotlib/font_manager.py).
     // Dify 0.2.15 can allow clone3+pipe2 while killing execve, so a real
     // subprocess (pyplot fc-list, matplotlib#28488) hangs until ChatHub's 60s
-    // AbortSignal. Canary.21 env-only was not enough on prod. Stub Popen so
-    // check_output/run fail with FileNotFoundError (OSError) without fork.
+    // AbortSignal. Canary.21 env-only and canary.22 Popen-only still hung on
+    // `import pyplot` in prod (C posix_spawn / OpenBLAS clone3 / libfontconfig).
+    // Pin BLAS to 1 thread (https://numpy.org/doc/stable/reference/global_state.html)
+    // and point fontconfig at an empty config (fonts-conf FONTCONFIG_FILE).
     'os.environ["HOME"] = DATA_DIR',
     'os.environ["MPLCONFIGDIR"] = DATA_DIR',
     'os.environ["XDG_CONFIG_HOME"] = DATA_DIR',
     'os.environ["XDG_CACHE_HOME"] = DATA_DIR',
     'os.environ["MPL_IGNORE_SYSTEM_FONTS"] = "1"',
+    'os.environ["OMP_NUM_THREADS"] = "1"',
+    'os.environ["OPENBLAS_NUM_THREADS"] = "1"',
+    'os.environ["MKL_NUM_THREADS"] = "1"',
+    'os.environ["NUMEXPR_NUM_THREADS"] = "1"',
+    '_fc = os.path.join(DATA_DIR, ".fonts.conf")',
+    'open(_fc, "w").write("<?xml version=\\"1.0\\"?><fontconfig><reset-dirs/></fontconfig>\\n")',
+    'os.environ["FONTCONFIG_FILE"] = _fc',
+    'os.environ["FONTCONFIG_PATH"] = DATA_DIR',
+    'def _no_spawn(*a, **k):',
+    "    raise FileNotFoundError(2, 'No such file or directory', 'sandbox-exec')",
     'class _SandboxPopen:',
     '    def __init__(self, *args, **kwargs):',
-    "        raise FileNotFoundError(2, 'No such file or directory', 'sandbox-exec')",
+    '        _no_spawn()',
     'subprocess.Popen = _SandboxPopen',
     'os.system = lambda *a, **k: 127',
+    'for _n in ("fork", "forkpty", "posix_spawn", "posix_spawnp"):',
+    '    if hasattr(os, _n):',
+    '        setattr(os, _n, _no_spawn)',
+    '_ps = sys.modules.get("_posixsubprocess")',
+    'if _ps is None:',
+    '    try:',
+    '        _ps = __import__("_posixsubprocess")',
+    '    except Exception:',
+    '        _ps = None',
+    'if _ps is not None and hasattr(_ps, "fork_exec"):',
+    '    _ps.fork_exec = _no_spawn',
     'os.getcwd = lambda: DATA_DIR',
     'os.chdir = lambda *a, **k: None',
     '_real_open = builtins.open',

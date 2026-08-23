@@ -139,13 +139,46 @@ describe('Dify sandbox envelope runtime', () => {
         'print(os.environ.get("MPLCONFIGDIR"))',
         'print(os.environ.get("MPL_IGNORE_SYSTEM_FONTS"))',
         'print(os.environ.get("HOME") == os.environ.get("TMPDIR"))',
+        'print(os.environ.get("OMP_NUM_THREADS"))',
+        'print(os.environ.get("MPLBACKEND"))',
+        'print(os.path.basename(os.environ.get("FONTCONFIG_FILE") or ""))',
       ].join('\n'),
       token: 'ee',
     });
     expect(result.parsed.success).toBe(true);
     expect(result.parsed.stdout).toContain('/tmp/chathub-ci-ee');
-    expect(result.parsed.stdout).toContain('\n1\n');
-    expect(result.parsed.stdout).toContain('True');
+    expect(result.parsed.stdout).toContain('\n1\nTrue\n1\nAgg\n.fonts.conf');
+    expect(result.parsed.files.map((item) => item.filename)).not.toContain('.fonts.conf');
+  });
+
+  it('fails posix_spawn and fork immediately instead of hanging', () => {
+    const result = runWrapper({
+      code: [
+        'import os, time',
+        't = time.time()',
+        'try:',
+        "    os.posix_spawn('/bin/true', ['/bin/true'], os.environ)",
+        "    print('spawned')",
+        'except FileNotFoundError:',
+        "    print('posix_blocked', int((time.time() - t) * 1000))",
+        't = time.time()',
+        'try:',
+        '    os.fork()',
+        "    print('forked')",
+        'except FileNotFoundError:',
+        "    print('fork_blocked', int((time.time() - t) * 1000))",
+      ].join('\n'),
+      token: 'fd',
+    });
+    expect(result.parsed.success).toBe(true);
+    expect(result.parsed.stdout).toMatch(/posix_blocked \d+/);
+    expect(result.parsed.stdout).toMatch(/fork_blocked \d+/);
+    expect(result.parsed.stdout).not.toContain('spawned');
+    expect(result.parsed.stdout).not.toContain('forked');
+    const posixMs = Number(/posix_blocked (\d+)/.exec(result.parsed.stdout)?.[1]);
+    const forkMs = Number(/fork_blocked (\d+)/.exec(result.parsed.stdout)?.[1]);
+    expect(posixMs).toBeLessThan(2000);
+    expect(forkMs).toBeLessThan(2000);
   });
 
   it('does not import matplotlib for a print-only run', () => {
