@@ -4,6 +4,7 @@ import {
   CI_FILES_SENTINEL_PREFIX,
   CI_WORKDIR_PREFIX,
   parseSandboxEnvelope,
+  wrapSandboxPreload,
   wrapSandboxPython,
 } from '../envelope';
 
@@ -19,7 +20,11 @@ describe('Dify sandbox envelope', () => {
     expect(wrapped).toContain('MPLBACKEND');
     expect(wrapped).toContain(`/tmp`);
     expect(wrapped).toContain(CI_WORKDIR_PREFIX);
-    expect(wrapped).toContain('mode=0o700');
+    expect(wrapped).not.toContain('os.makedirs(');
+    expect(wrapped).not.toContain('os.chdir(');
+    expect(wrapped).not.toContain('os.remove(');
+    expect(wrapped).not.toContain('shutil');
+    expect(wrapped).toContain('os.chdir =');
     expect(wrapped).not.toContain('/mnt/data');
     expect(wrapped).not.toContain('print("secret-source")');
     expect(wrapped).not.toContain('../etc/passwd');
@@ -30,6 +35,16 @@ describe('Dify sandbox envelope', () => {
         'utf8',
       ).toString('base64'),
     );
+  });
+
+  it('preload creates the 0700 workdir as root before seccomp', () => {
+    const preload = wrapSandboxPreload('abc123');
+    expect(preload).toContain('os.makedirs(_path, mode=0o700, exist_ok=True)');
+    expect(preload).toContain('os.chown(_path, _st.st_uid, _st.st_gid)');
+    expect(preload).toContain('"abc123"');
+    expect(preload).toContain(CI_WORKDIR_PREFIX);
+    expect(preload).not.toContain('print');
+    expect(() => wrapSandboxPreload('not hex')).toThrow(/Invalid sandbox envelope token/);
   });
 
   it('parses stdout before the sentinel and decodes output files', () => {

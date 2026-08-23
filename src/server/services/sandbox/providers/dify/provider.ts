@@ -11,6 +11,7 @@ import {
 import {
   createSandboxEnvelopeToken,
   parseSandboxEnvelope,
+  wrapSandboxPreload,
   wrapSandboxPython,
 } from './envelope';
 import type { DifySandboxRunResponse } from './types';
@@ -117,7 +118,7 @@ export class DifySandboxProvider implements SandboxProvider {
           code: wrapped,
           enable_network: input.enableNetwork !== false,
           language: 'python3',
-          preload: '',
+          preload: wrapSandboxPreload(token),
         }),
         headers: {
           'Content-Type': 'application/json',

@@ -316,10 +316,12 @@ The ChatHub image is distroless and has no CPython. User-facing setup:
 - **Provider** — `SANDBOX_PROVIDER` defaults to `dify`.
   `src/server/services/sandbox/providers/dify/` owns
   `POST /v1/sandbox/run` with `X-Api-Key`, body
-  `{ language: "python3", code, preload, enable_network }`. HTTP 200 + envelope
-  `code === 0` is transport OK; `data.error` is an execution failure. Isolation
-  is seccomp + chroot. There is no file-upload API; the Dify provider wraps
-  files into the Python string.
+  `{ language: "python3", code, preload, enable_network }`. `preload` creates
+  the per-run `0700` workdir as root before seccomp; `code` is the guest
+  wrapper (no mkdir/chdir/unlink). HTTP 200 + envelope `code === 0` is
+  transport OK; `data.error` is an execution failure. Isolation is seccomp +
+  chroot. There is no file-upload API; the Dify provider wraps files into the
+  Python string.
 - **ChatHub adapter** — `src/server/services/codeInterpreter/` gathers
   conversation files (paginated, newest-first, thread-scoped), calls
   `getSandboxProvider().run()`, and uploads results with the server file

@@ -20,6 +20,14 @@ export interface ParsedSandboxEnvelope {
   wrapperPresent: boolean;
 }
 
+const HEX_TOKEN = /^[0-9a-f]+$/u;
+
+const assertSandboxEnvelopeToken = (token: string) => {
+  if (!HEX_TOKEN.test(token)) {
+    throw new Error('Invalid sandbox envelope token');
+  }
+};
+
 const safeBasename = (filename: string) => {
   const name = filename.replaceAll('\\', '/').split('/').pop() ?? '';
   if (!name || name === '.' || name === '..') return undefined;
@@ -27,6 +35,28 @@ const safeBasename = (filename: string) => {
 };
 
 export const createSandboxEnvelopeToken = () => randomBytes(16).toString('hex');
+
+/**
+ * Dify `preload` runs as root **before** chroot, seccomp, and setuid
+ * (prescript.py → DifySeccomp). Guest Python cannot mkdir/chdir/unlink:
+ * mkdir is ActErrno; chdir/unlink are ActKillProcess.
+ * @see https://github.com/langgenius/dify-sandbox/blob/0.2.15/internal/core/runner/python/prescript.py
+ * @see https://github.com/langgenius/dify-sandbox/blob/0.2.15/internal/static/python_syscall/syscalls_amd64.go
+ */
+export const wrapSandboxPreload = (token: string): string => {
+  assertSandboxEnvelopeToken(token);
+  return [
+    'import os',
+    `_TOKEN = ${JSON.stringify(token)}`,
+    'os.umask(0o077)',
+    'os.makedirs("tmp", mode=0o755, exist_ok=True)',
+    `_path = os.path.join("tmp", "${CI_WORKDIR_PREFIX}" + _TOKEN)`,
+    'os.makedirs(_path, mode=0o700, exist_ok=True)',
+    '_st = os.stat(__file__)',
+    'os.chown(_path, _st.st_uid, _st.st_gid)',
+    'os.chmod(_path, 0o700)',
+  ].join('\n');
+};
 
 export const wrapSandboxPython = ({
   code,
@@ -39,6 +69,7 @@ export const wrapSandboxPython = ({
   maxFileBytes: number;
   token: string;
 }): string => {
+  assertSandboxEnvelopeToken(token);
   const inputs = files
     .map((file) => {
       const filename = safeBasename(file.filename);
@@ -51,7 +82,7 @@ export const wrapSandboxPython = ({
   const userB64 = Buffer.from(code, 'utf8').toString('base64');
 
   return [
-    'import os, sys, json, base64, traceback, hashlib, shutil',
+    'import os, sys, json, base64, traceback, hashlib, builtins',
     'os.environ.setdefault("MPLBACKEND", "Agg")',
     `_TOKEN = ${JSON.stringify(token)}`,
     `_SENTINEL = "${CI_FILES_SENTINEL_PREFIX}" + _TOKEN + ">>>"`,
@@ -62,13 +93,24 @@ export const wrapSandboxPython = ({
     '    sys.stdout.write("\\n" + _SENTINEL + "\\n")',
     '    sys.stdout.write(json.dumps({"files": files, "success": success}))',
     '    sys.stdout.flush()',
+    'def _basename(path):',
+    '    name = os.fspath(path).replace("\\\\", "/").split("/")[-1]',
+    '    if not name or name in (".", ".."):',
+    '        return None',
+    '    return name',
+    'def _resolve(path):',
+    '    if isinstance(path, int):',
+    '        return path',
+    '    s = os.fspath(path)',
+    '    if os.path.isabs(s):',
+    '        return s',
+    '    name = _basename(s)',
+    '    return DATA_DIR if not name else os.path.join(DATA_DIR, name)',
     'def _data_dir():',
     `    path = os.path.join("/tmp", "${CI_WORKDIR_PREFIX}" + _TOKEN)`,
-    '    os.makedirs(path, mode=0o700)',
     '    probe = os.path.join(path, ".chathub_ci_write")',
     '    with open(probe, "wb") as fh:',
     '        fh.write(b"ok")',
-    '    os.remove(probe)',
     '    return path',
     'try:',
     '    DATA_DIR = _data_dir()',
@@ -76,7 +118,31 @@ export const wrapSandboxPython = ({
     '    sys.stderr.write("Sandbox could not create an isolated working directory.\\n")',
     '    _emit(False, [])',
     '    raise SystemExit(0)',
-    'os.chdir(DATA_DIR)',
+    'os.environ["TMPDIR"] = DATA_DIR',
+    'os.getcwd = lambda: DATA_DIR',
+    'os.chdir = lambda *a, **k: None',
+    '_real_open = builtins.open',
+    'def _open(file, *args, **kwargs):',
+    '    if not isinstance(file, int):',
+    '        try:',
+    '            file = _resolve(file)',
+    '        except TypeError:',
+    '            pass',
+    '    return _real_open(file, *args, **kwargs)',
+    'builtins.open = _open',
+    '_real_os_open = os.open',
+    'def _os_open(path, flags, mode=0o777, *args, **kwargs):',
+    '    return _real_os_open(_resolve(path), flags, mode, *args, **kwargs)',
+    'os.open = _os_open',
+    '_real_listdir = os.listdir',
+    'def _listdir(path="."):',
+    '    if isinstance(path, int):',
+    '        return _real_listdir(path)',
+    '    s = os.fspath(path)',
+    '    if s in (".", "") or os.path.normpath(s) == os.path.normpath(DATA_DIR):',
+    '        return _real_listdir(DATA_DIR)',
+    '    return _real_listdir(_resolve(path))',
+    'os.listdir = _listdir',
     '_INPUT_NAMES = set()',
     '_INPUT_HASHES = {}',
     'for item in _INPUTS:',
@@ -130,30 +196,23 @@ export const wrapSandboxPython = ({
     '    sys.stderr.write(traceback.format_exc())',
     '_flush_mpl()',
     '_files = []',
-    'try:',
-    '    for entry in os.listdir(DATA_DIR):',
-    '        if entry in (".", "..") or entry.startswith("."):',
-    '            continue',
-    '        path = os.path.join(DATA_DIR, entry)',
-    '        if not os.path.isfile(path):',
-    '            continue',
-    '        try:',
-    '            size = os.path.getsize(path)',
-    '            if size > _MAX_FILE:',
-    '                continue',
-    '            with open(path, "rb") as fh:',
-    '                raw = fh.read()',
-    '            if entry in _INPUT_HASHES and hashlib.sha256(raw).digest() == _INPUT_HASHES[entry]:',
-    '                continue',
-    '            _files.append({"b64": base64.b64encode(raw).decode("ascii"), "name": entry})',
-    '        except Exception:',
-    '            continue',
-    'finally:',
+    'for entry in os.listdir(DATA_DIR):',
+    '    if entry in (".", "..") or entry.startswith("."):',
+    '        continue',
+    '    path = os.path.join(DATA_DIR, entry)',
+    '    if not os.path.isfile(path):',
+    '        continue',
     '    try:',
-    '        os.chdir("/tmp")',
+    '        size = os.path.getsize(path)',
+    '        if size > _MAX_FILE:',
+    '            continue',
+    '        with open(path, "rb") as fh:',
+    '            raw = fh.read()',
+    '        if entry in _INPUT_HASHES and hashlib.sha256(raw).digest() == _INPUT_HASHES[entry]:',
+    '            continue',
+    '        _files.append({"b64": base64.b64encode(raw).decode("ascii"), "name": entry})',
     '    except Exception:',
-    '        pass',
-    '    shutil.rmtree(DATA_DIR, ignore_errors=True)',
+    '        continue',
     '_emit(_success, _files)',
   ].join('\n');
 };

@@ -76,12 +76,25 @@ and leftover tRPC keep calling `runCodeInterpreter`.
 ## Dify working directory
 
 DifySandbox `0.2.15` chroots to `/var/sandbox/sandbox-python` and runs each
-request as a pooled UID (10,000–10,999). The Dify provider therefore creates
-`/tmp/chathub-ci-<token>` with mode `0700`, never a shared `/mnt/data` or the
-process cwd. Guest `/tmp` is the chroot’s `tmp` directory. Matplotlib
-`plt.show()` closes the figure after saving so the final flush cannot overwrite
-it with an empty chart. In-place edits of input files are returned; unchanged
-inputs are not. Non-zero `SystemExit` is a failed run.
+request as a pooled UID (10,000–10,999). Guest `/tmp` is the chroot’s `tmp`
+directory.
+
+Dify’s Python seccomp list **does not allow** `mkdir`/`mkdirat` (they return
+errno via `ActErrno`) and **kills** the process on `chdir`/`unlink`
+(`ActKillProcess`). ChatHub therefore creates `/tmp/chathub-ci-<token>` with
+mode `0700` in Dify **`preload`**, which runs as **root before** chroot,
+seccomp, and setuid
+([prescript.py](https://github.com/langgenius/dify-sandbox/blob/0.2.15/internal/core/runner/python/prescript.py),
+[syscalls_amd64.go](https://github.com/langgenius/dify-sandbox/blob/0.2.15/internal/static/python_syscall/syscalls_amd64.go)).
+The guest wrapper only probe-writes that directory, patches `open`/`getcwd` so
+relative paths stay inside it, and must not call `os.makedirs`, `os.chdir`, or
+`os.remove`. Do not fall back to a shared `/mnt/data` or the jail `/`.
+Leftover per-run dirs are not deleted (unlink is blocked); they are unique per
+token and go away when the sidecar is recreated.
+
+Matplotlib `plt.show()` closes the figure after saving so the final flush
+cannot overwrite it with an empty chart. In-place edits of input files are
+returned; unchanged inputs are not. Non-zero `SystemExit` is a failed run.
 
 ## Future backends
 

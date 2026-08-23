@@ -89,12 +89,16 @@ describe('DifySandboxProvider', () => {
     expect(init.headers['Content-Type']).toBe('application/json');
     expect(init.headers['X-Api-Key']).toBe('sandbox-secret');
     const body = JSON.parse(init.body as string);
+    const tokenMatch = /_TOKEN = "([0-9a-f]+)"/.exec(body.code);
+    expect(tokenMatch?.[1]).toBeTruthy();
     expect(body).toMatchObject({
       enable_network: true,
       language: 'python3',
-      preload: '',
     });
+    expect(body.preload).toContain('os.makedirs(_path, mode=0o700, exist_ok=True)');
+    expect(body.preload).toContain(tokenMatch![1]);
     expect(body.code).toContain('MPLBACKEND');
+    expect(body.code).not.toContain('os.makedirs(');
     expect(body.code).not.toContain('print(1)');
   });
 
