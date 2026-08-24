@@ -1997,6 +1997,58 @@ describe('chatToolSlice - dalle', () => {
       expect(parsed[0]?.taskId).toBe(successId);
     });
 
+    it('surfaces a permanent alias lookup error so prompt-only tiles keep Retry', async () => {
+      const probes = promptOnlyProbeIds();
+      expect(probes.length).toBeGreaterThanOrEqual(2);
+      const unauthorizedId = probes[0]?.taskId;
+      seedToolMessage(JSON.stringify([{ prompt: 'p1' }]));
+      const stubs = installStoreStubs();
+      const createTaskMock = vi.spyOn(imageGenerationService, 'createChatImageTask');
+      vi.spyOn(imageGenerationService, 'getChatImageResult').mockImplementation(async (taskId) => {
+        if (taskId === unauthorizedId) {
+          throw Object.assign(new Error('UNAUTHORIZED'), { data: { httpStatus: 401 } });
+        }
+        return { status: 'task_missing' };
+      });
+
+      await store().reconcileDallETasks('message-id');
+      stubs.restore();
+
+      expect(createTaskMock).not.toHaveBeenCalled();
+      expect(originContent()).toBe(JSON.stringify([{ prompt: 'p1' }]));
+      // pluginState.error[index] is what Item/Error.tsx reads; without it the
+      // Prompt card has no Retry button
+      const errorArg = stubs.pluginStateSpy.mock.calls[0]?.[1] as { error: unknown[] };
+      expect(errorArg.error[0]).toMatchObject({ message: 'UNAUTHORIZED', status: 401 });
+    });
+
+    it('still adopts a successful alias when another scope returns a permanent 401', async () => {
+      const probes = promptOnlyProbeIds();
+      expect(probes.length).toBeGreaterThanOrEqual(2);
+      const unauthorizedId = probes[0]?.taskId;
+      const successId = probes[1]?.taskId;
+      seedToolMessage(JSON.stringify([{ prompt: 'p1' }]));
+      const stubs = installStoreStubs();
+      const createTaskMock = vi.spyOn(imageGenerationService, 'createChatImageTask');
+      vi.spyOn(imageGenerationService, 'getChatImageResult').mockImplementation(async (taskId) => {
+        if (taskId === successId)
+          return { file: { id: 'file-from-other-scope' }, status: 'success' };
+        if (taskId === unauthorizedId) {
+          throw Object.assign(new Error('UNAUTHORIZED'), { data: { httpStatus: 401 } });
+        }
+        return { status: 'task_missing' };
+      });
+
+      await store().reconcileDallETasks('message-id');
+      stubs.restore();
+
+      expect(createTaskMock).not.toHaveBeenCalled();
+      expect(stubs.pluginStateSpy).not.toHaveBeenCalled();
+      const parsed = JSON.parse(originContent()) as { imageId?: string; taskId?: string }[];
+      expect(parsed[0]?.imageId).toBe('file-from-other-scope');
+      expect(parsed[0]?.taskId).toBe(successId);
+    });
+
     it('does not auto-create when prompt-only tiles have no matching task row', async () => {
       seedToolMessage(JSON.stringify([{ prompt: 'p1' }]));
       const stubs = installStoreStubs();

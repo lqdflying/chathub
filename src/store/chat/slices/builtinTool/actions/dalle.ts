@@ -1222,6 +1222,15 @@ export const dalleSlice: StateCreator<
               errorArray[index] = isChatImageStopTombstoneError(terminal.error)
                 ? { errorType: CHAT_IMAGE_TASK_CANCELLED_ERROR }
                 : serializePluginError(terminal.error);
+              return;
+            }
+            // Permanent lookup failures (4xx / timeout) used to reach the outer
+            // catch via Promise.all. Settling probes must still surface them so
+            // the tile gets an error card + Retry; pure task_missing stays silent.
+            const lookupError = probes.find((probe) => probe.error);
+            if (lookupError?.error) {
+              hasError = true;
+              errorArray[index] = serializePluginError(lookupError.error);
             }
             return;
           }
