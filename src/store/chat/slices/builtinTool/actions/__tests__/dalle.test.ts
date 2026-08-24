@@ -4,7 +4,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import * as generationDebugClient from '@/libs/logger/generationDebugClient';
 import { ToolsRPCResponseError } from '@/libs/trpc/client/toolsResponse';
-import { imageGenerationService } from '@/services/textToImage';
+import {
+  CHAT_IMAGE_STOP_TOMBSTONE_BATCH_MAX,
+  imageGenerationService,
+} from '@/services/textToImage';
 import { useChatStore } from '@/store/chat';
 import {
   bumpLaneScopedClearGeneration,
@@ -643,6 +646,11 @@ describe('chatToolSlice - dalle', () => {
 
       const stopPromise = store().stopGenerateMessage({ threadId });
       await vi.waitFor(() => expect(stoppedRegistryHas(validId)).toBe(true));
+      await vi.waitFor(() =>
+        expect(imageGenerationService.cancelUnstartedChatImageTasks).toHaveBeenCalledWith([
+          { index: 0, messageId: 'message-id', taskId: validId },
+        ]),
+      );
       expect(laneController.signal.aborted).toBe(true);
       expect(stopDurable).toHaveBeenCalled();
       let settled = false;
@@ -652,6 +660,7 @@ describe('chatToolSlice - dalle', () => {
       await Promise.resolve();
       expect(settled).toBe(false);
 
+      clearStoppedChatImageTaskStorage();
       seedToolMessage(
         JSON.stringify([{ prompt: 'p1', taskFence: 0, taskId: validId }]),
         'message-id',
@@ -662,7 +671,8 @@ describe('chatToolSlice - dalle', () => {
         conversationScopedClearGenerations: {},
       });
       vi.spyOn(imageGenerationService, 'getChatImageResult').mockResolvedValue({
-        status: 'task_missing',
+        error: { name: 'ChatImageTaskCancelled' },
+        status: 'error',
       });
       const stubs2 = installStoreStubs();
       await store().reconcileDallETasks('message-id');
@@ -691,6 +701,11 @@ describe('chatToolSlice - dalle', () => {
 
       const stopPromise = store().cancelSendMessageInServer();
       await vi.waitFor(() => expect(stoppedRegistryHas(validId)).toBe(true));
+      await vi.waitFor(() =>
+        expect(imageGenerationService.cancelUnstartedChatImageTasks).toHaveBeenCalledWith([
+          { index: 0, messageId: 'message-id', taskId: validId },
+        ]),
+      );
       let settled = false;
       void stopPromise.then(() => {
         settled = true;
@@ -698,13 +713,15 @@ describe('chatToolSlice - dalle', () => {
       await Promise.resolve();
       expect(settled).toBe(false);
 
+      clearStoppedChatImageTaskStorage();
       seedToolMessage(preStopContent, 'message-id', { plugin: IMAGE_TOOL_PLUGIN });
       useChatStore.setState({
         conversationClearGeneration: 0,
         conversationScopedClearGenerations: {},
       });
       vi.spyOn(imageGenerationService, 'getChatImageResult').mockResolvedValue({
-        status: 'task_missing',
+        error: { name: 'ChatImageTaskCancelled' },
+        status: 'error',
       });
       const stubs2 = installStoreStubs();
       await store().reconcileDallETasks('message-id');
@@ -893,7 +910,9 @@ describe('chatToolSlice - dalle', () => {
 
       await store().stopGenerateMessage();
       stubs.restore();
-      expect(imageGenerationService.cancelUnstartedChatImageTasks).toHaveBeenCalledWith([validId]);
+      expect(imageGenerationService.cancelUnstartedChatImageTasks).toHaveBeenCalledWith([
+        { index: 0, messageId: 'message-id', taskId: validId },
+      ]);
 
       seedToolMessage(preStopContent, 'message-id', { plugin: IMAGE_TOOL_PLUGIN });
       useChatStore.setState({
@@ -912,6 +931,109 @@ describe('chatToolSlice - dalle', () => {
       expect(stubs2.pluginStateSpy).toHaveBeenCalledWith('message-id', {
         error: [{ errorType: 'ChatImageTaskCancelled' }],
       });
+    });
+
+    it('collects every unpaid id above the server batch limit on Stop', async () => {
+      const count = CHAT_IMAGE_STOP_TOMBSTONE_BATCH_MAX + 1;
+      const items = Array.from({ length: count }, (_, index) => ({
+        prompt: `p${index}`,
+        taskFence: 0,
+        taskId: initialIdFor(index),
+      }));
+      seedToolMessage(JSON.stringify(items), 'message-id', { plugin: IMAGE_TOOL_PLUGIN });
+      useChatStore.setState({ stopDurableConversationGeneration: vi.fn(async () => {}) });
+      const stubs = installStoreStubs({ persistReject: true });
+
+      await store().stopGenerateMessage();
+      stubs.restore();
+
+      const tombstone = vi.mocked(imageGenerationService.cancelUnstartedChatImageTasks);
+      expect(tombstone).toHaveBeenCalledTimes(1);
+      expect(tombstone.mock.calls[0][0]).toHaveLength(count);
+      expect(tombstone.mock.calls[0][0].map((item) => item.taskId)).toEqual(
+        items.map((item) => item.taskId),
+      );
+    });
+
+    it('tombstones every unpaid id above the local registry bound when persist fails', async () => {
+      const count = 257;
+      const items = Array.from({ length: count }, (_, index) => ({
+        prompt: `p${index}`,
+        taskFence: 0,
+        taskId: initialIdFor(index),
+      }));
+      seedToolMessage(JSON.stringify(items), 'message-id', { plugin: IMAGE_TOOL_PLUGIN });
+      useChatStore.setState({ stopDurableConversationGeneration: vi.fn(async () => {}) });
+      const stubs = installStoreStubs({ persistReject: true });
+
+      await store().stopGenerateMessage();
+      stubs.restore();
+
+      const tombstone = vi.mocked(imageGenerationService.cancelUnstartedChatImageTasks);
+      const sentIds = tombstone.mock.calls.flatMap(([payload]) =>
+        payload.map((item) => item.taskId),
+      );
+      expect(sentIds).toHaveLength(count);
+      expect(new Set(sentIds).size).toBe(count);
+
+      const oldestId = items[0]!.taskId;
+      expect(stoppedRegistryHas(oldestId)).toBe(false);
+      expect(sentIds).toContain(oldestId);
+      clearStoppedChatImageTaskStorage();
+      seedToolMessage(
+        JSON.stringify([{ prompt: 'p0', taskFence: 0, taskId: oldestId }]),
+        'message-id',
+        { plugin: IMAGE_TOOL_PLUGIN },
+      );
+      useChatStore.setState({
+        conversationClearGeneration: 0,
+        conversationScopedClearGenerations: {},
+      });
+      const createTaskMock = vi.spyOn(imageGenerationService, 'createChatImageTask');
+      vi.spyOn(imageGenerationService, 'getChatImageResult').mockResolvedValue({
+        error: { name: 'ChatImageTaskCancelled' },
+        status: 'error',
+      });
+      const stubs2 = installStoreStubs();
+      await store().reconcileDallETasks('message-id');
+      stubs2.restore();
+
+      expect(createTaskMock).not.toHaveBeenCalled();
+      expect(stubs2.pluginStateSpy).toHaveBeenCalledWith('message-id', {
+        error: [{ errorType: 'ChatImageTaskCancelled' }],
+      });
+    });
+
+    it('does not drop a new unpaid tile because historical cancelled tiles would overflow the batch', async () => {
+      const historical = Array.from(
+        { length: CHAT_IMAGE_STOP_TOMBSTONE_BATCH_MAX },
+        (_, index) => ({
+          prompt: `old${index}`,
+          taskCancelled: true,
+          taskFence: 0,
+          taskId: initialIdFor(index),
+        }),
+      );
+      const unpaidId = initialIdFor(CHAT_IMAGE_STOP_TOMBSTONE_BATCH_MAX);
+      seedToolMessage(
+        JSON.stringify([...historical, { prompt: 'new', taskFence: 0, taskId: unpaidId }]),
+        'message-id',
+        { plugin: IMAGE_TOOL_PLUGIN },
+      );
+      useChatStore.setState({ stopDurableConversationGeneration: vi.fn(async () => {}) });
+      const stubs = installStoreStubs({ persistReject: true });
+
+      await store().stopGenerateMessage();
+      stubs.restore();
+
+      expect(imageGenerationService.cancelUnstartedChatImageTasks).toHaveBeenCalledTimes(1);
+      expect(imageGenerationService.cancelUnstartedChatImageTasks).toHaveBeenCalledWith([
+        {
+          index: CHAT_IMAGE_STOP_TOMBSTONE_BATCH_MAX,
+          messageId: 'message-id',
+          taskId: unpaidId,
+        },
+      ]);
     });
 
     it('a later generate after a prior lane Stop still runs (global epoch stays 0)', async () => {

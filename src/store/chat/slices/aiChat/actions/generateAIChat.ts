@@ -428,7 +428,10 @@ export const generateAIChat: StateCreator<
       );
     }
 
-    await get().stopDurableConversationGeneration(options);
+    await Promise.allSettled([
+      get().tombstonePreparedChatImageTasks(activeId, activeTopicId, threadId),
+      get().stopDurableConversationGeneration(options),
+    ]);
 
     try {
       await get().cancelPreparedChatImageTasks(activeId, activeTopicId, threadId);

@@ -940,8 +940,13 @@ describe('imageRouter', () => {
             insertedValues.push(value);
             return {
               onConflictDoNothing: () => ({
-                returning: async () =>
-                  options?.insertConflict ? [] : [{ id: (value as { id?: string }).id }],
+                returning: async () => {
+                  if (options?.insertConflict) return [];
+                  if (Array.isArray(value)) {
+                    return value.map((row) => ({ id: (row as { id?: string }).id }));
+                  }
+                  return [{ id: (value as { id?: string }).id }];
+                },
               }),
             };
           },
@@ -1351,55 +1356,193 @@ describe('imageRouter', () => {
         expect.objectContaining({ outcome: 'stopped' }),
       );
     });
-  });
 
-  describe('cancelUnstartedChatImageTasks', () => {
-    it('inserts cancelled placeholders without touching existing rows', async () => {
-      const insertedValues: unknown[] = [];
-      const insert = vi.fn(() => ({
-        values: (value: unknown) => {
-          insertedValues.push(value);
-          return {
-            onConflictDoNothing: () => ({
-              returning: async () => [{ id: '3f2c8f7e-1c2d-4e5f-9a6b-7c8d9e0f1a2b' }],
-            }),
-          };
-        },
-      }));
-      vi.mocked(AsyncTaskModel).mockImplementation(() => ({}) as never);
-      vi.mocked(getServerDB).mockResolvedValue({ insert } as never);
+    it('does not treat a generic error row as a Stop tombstone', async () => {
+      const { db } = makeTxDb(correlatedRows, { insertConflict: true });
+      const findById = vi.fn().mockResolvedValue({
+        error: { name: 'ServerError' },
+        status: 'error',
+      });
+      const dispatchChatImage = vi.fn();
+      vi.mocked(AsyncTaskModel).mockImplementation(
+        () => ({ findById, updatePendingToError: vi.fn() }) as never,
+      );
+      vi.mocked(createAsyncCaller).mockResolvedValue({
+        image: { createChatImage: dispatchChatImage },
+      } as never);
+      vi.mocked(getServerDB).mockResolvedValue(db);
       vi.mocked(FileService).mockImplementation(() => ({}) as never);
       const logSpy = vi.spyOn(generationDebug, 'logGenerationDebugSafe');
 
-      const result = await createCallerFactory(imageRouter)({
-        authorizationHeader: 'test-authorization',
-        userId: 'account-a',
-      } as never).cancelUnstartedChatImageTasks({
-        taskIds: ['3f2c8f7e-1c2d-4e5f-9a6b-7c8d9e0f1a2b', '3f2c8f7e-1c2d-4e5f-9a6b-7c8d9e0f1a2b'],
-      });
+      await expect(
+        makeCaller().createChatImage({
+          correlation: CHAT_CORRELATION,
+          model: 'gpt-image-2',
+          params: { prompt: 'p' },
+          provider: 'openaicompatible',
+          taskId: CHAT_TASK_ID,
+        }),
+      ).resolves.toEqual({ taskId: CHAT_TASK_ID });
 
-      expect(result).toEqual({ inserted: 1 });
-      expect(insertedValues).toEqual([
-        [
-          {
-            error: {
-              body: { detail: 'Stopped before generation started' },
-              name: 'ChatImageTaskCancelled',
-            },
-            id: '3f2c8f7e-1c2d-4e5f-9a6b-7c8d9e0f1a2b',
-            status: 'error',
-            type: 'image_generation',
-            userId: 'account-a',
-          },
-        ],
-      ]);
+      expect(dispatchChatImage).not.toHaveBeenCalled();
       expect(logSpy).toHaveBeenCalledWith(
+        'chat_image_task_created',
+        expect.objectContaining({ outcome: 'idempotent' }),
+      );
+      expect(logSpy).not.toHaveBeenCalledWith(
         'chat_image_task_rejected',
         expect.objectContaining({ outcome: 'stopped' }),
       );
-      expect(JSON.stringify(logSpy.mock.calls)).not.toContain(
-        '3f2c8f7e-1c2d-4e5f-9a6b-7c8d9e0f1a2b',
+    });
+
+    it('does not dispatch when an insert conflict has no same-user task row', async () => {
+      const { db } = makeTxDb(correlatedRows, { insertConflict: true });
+      const findById = vi.fn().mockResolvedValue(undefined);
+      const dispatchChatImage = vi.fn();
+      vi.mocked(AsyncTaskModel).mockImplementation(
+        () => ({ findById, updatePendingToError: vi.fn() }) as never,
       );
+      vi.mocked(createAsyncCaller).mockResolvedValue({
+        image: { createChatImage: dispatchChatImage },
+      } as never);
+      vi.mocked(getServerDB).mockResolvedValue(db);
+      vi.mocked(FileService).mockImplementation(() => ({}) as never);
+      const logSpy = vi.spyOn(generationDebug, 'logGenerationDebugSafe');
+
+      await expect(
+        makeCaller().createChatImage({
+          correlation: CHAT_CORRELATION,
+          model: 'gpt-image-2',
+          params: { prompt: 'p' },
+          provider: 'openaicompatible',
+          taskId: CHAT_TASK_ID,
+        }),
+      ).rejects.toMatchObject({ code: 'CONFLICT' });
+
+      expect(dispatchChatImage).not.toHaveBeenCalled();
+      expect(logSpy).toHaveBeenCalledWith(
+        'chat_image_task_rejected',
+        expect.objectContaining({ outcome: 'conflict' }),
+      );
+      expect(logSpy).not.toHaveBeenCalledWith(
+        'chat_image_task_rejected',
+        expect.objectContaining({ outcome: 'stopped' }),
+      );
+    });
+
+    describe('cancelUnstartedChatImageTasks', () => {
+      const OTHER_TASK_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+      const cancelItem = { index: 0, messageId: 'message-1', taskId: CHAT_TASK_ID };
+      const tombstoneRow = {
+        error: {
+          body: { detail: 'Stopped before generation started' },
+          name: 'ChatImageTaskCancelled',
+        },
+        id: CHAT_TASK_ID,
+        status: 'error',
+        type: 'image_generation',
+        userId: 'account-a',
+      };
+
+      it('inserts a cancelled placeholder for a caller-owned unpaid correlation', async () => {
+        const { db, insertedValues, transaction, tx } = makeTxDb(correlatedRows);
+        installCommonMocks(db);
+        const logSpy = vi.spyOn(generationDebug, 'logGenerationDebugSafe');
+
+        const result = await makeCaller().cancelUnstartedChatImageTasks({
+          items: [cancelItem, cancelItem],
+        });
+
+        expect(result).toEqual({ inserted: 1 });
+        expect(transaction).toHaveBeenCalledTimes(1);
+        expect(tx.select).toHaveBeenCalled();
+        expect(insertedValues).toEqual([[tombstoneRow]]);
+        expect(logSpy).toHaveBeenCalledWith(
+          'chat_image_task_rejected',
+          expect.objectContaining({ outcome: 'stopped' }),
+        );
+        expect(JSON.stringify(logSpy.mock.calls)).not.toContain(CHAT_TASK_ID);
+      });
+
+      it('does not overwrite an existing task row', async () => {
+        const { db, insertedValues } = makeTxDb(correlatedRows, { insertConflict: true });
+        installCommonMocks(db);
+        const logSpy = vi.spyOn(generationDebug, 'logGenerationDebugSafe');
+
+        await expect(
+          makeCaller().cancelUnstartedChatImageTasks({ items: [cancelItem] }),
+        ).resolves.toEqual({ inserted: 0 });
+
+        expect(insertedValues).toEqual([[tombstoneRow]]);
+        expect(logSpy).not.toHaveBeenCalled();
+      });
+
+      it('skips insert when the message is missing or owned by another user', async () => {
+        const { db, insertedValues, tx } = makeTxDb(() => []);
+        installCommonMocks(db);
+
+        await expect(
+          makeCaller().cancelUnstartedChatImageTasks({ items: [cancelItem] }),
+        ).resolves.toEqual({ inserted: 0 });
+
+        expect(tx.select).toHaveBeenCalled();
+        expect(tx.insert).not.toHaveBeenCalled();
+        expect(insertedValues).toHaveLength(0);
+      });
+
+      it('skips insert for an arbitrary task id that is not on the owned message', async () => {
+        const { db, insertedValues, tx } = makeTxDb(correlatedRows);
+        installCommonMocks(db);
+
+        await expect(
+          makeCaller().cancelUnstartedChatImageTasks({
+            items: [{ index: 0, messageId: 'message-1', taskId: OTHER_TASK_ID }],
+          }),
+        ).resolves.toEqual({ inserted: 0 });
+
+        expect(tx.insert).not.toHaveBeenCalled();
+        expect(insertedValues).toHaveLength(0);
+      });
+
+      it('skips insert when the correlation is mutated or already resolved', async () => {
+        const scenarios: unknown[][] = [
+          [
+            {
+              content: JSON.stringify([{ prompt: 'p', taskId: OTHER_TASK_ID }]),
+            },
+          ],
+          [{ content: JSON.stringify([{ imageId: 'img', prompt: 'p', taskId: CHAT_TASK_ID }]) }],
+          [{ content: 'not-json' }],
+        ];
+
+        for (const rows of scenarios) {
+          const { db, insertedValues, tx } = makeTxDb(() => rows);
+          installCommonMocks(db);
+
+          await expect(
+            makeCaller().cancelUnstartedChatImageTasks({ items: [cancelItem] }),
+          ).resolves.toEqual({ inserted: 0 });
+
+          expect(tx.insert).not.toHaveBeenCalled();
+          expect(insertedValues).toHaveLength(0);
+        }
+      });
+
+      it('rejects more than 64 items before any database work', async () => {
+        const { db, transaction } = makeTxDb(correlatedRows);
+        installCommonMocks(db);
+        const items = Array.from({ length: 65 }, (_, index) => ({
+          index,
+          messageId: 'message-1',
+          taskId: `00000000-0000-4000-8000-${index.toString(16).padStart(12, '0')}`,
+        }));
+
+        await expect(makeCaller().cancelUnstartedChatImageTasks({ items })).rejects.toMatchObject({
+          code: 'BAD_REQUEST',
+        });
+
+        expect(transaction).not.toHaveBeenCalled();
+      });
     });
   });
 

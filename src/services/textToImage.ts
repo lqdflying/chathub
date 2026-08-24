@@ -3,9 +3,13 @@ import { createHeaderWithAuth } from '@/services/_auth';
 
 import { API_ENDPOINTS } from './_url';
 
-interface FetchOptions {
-  signal?: AbortSignal | undefined;
-}
+export const CHAT_IMAGE_STOP_TOMBSTONE_BATCH_MAX = 64;
+
+export type ChatImageStopTombstoneItem = {
+  index: number;
+  messageId: string;
+  taskId: string;
+};
 
 export interface ChatImageTaskResult {
   error?: { body?: { detail?: string }; name?: string } | null;
@@ -114,15 +118,31 @@ class ImageGenerationService {
 
   /**
    * Insert cancelled placeholder rows for write-first task ids that never ran.
-   * Existing pending/success rows are left alone (`ON CONFLICT DO NOTHING`).
+   * Each item must still appear unresolved on a caller-owned message. Existing
+   * pending/success rows are left alone (`ON CONFLICT DO NOTHING`).
    */
-  cancelUnstartedChatImageTasks = async (taskIds: string[]): Promise<{ inserted: number }> => {
-    const ids = [...new Set(taskIds.filter(Boolean))];
-    if (ids.length === 0) return { inserted: 0 };
-    return lambdaClient.image.cancelUnstartedChatImageTasks.mutate(
-      { taskIds: ids },
-      { context: { showNotification: false } },
-    ) as Promise<{ inserted: number }>;
+  cancelUnstartedChatImageTasks = async (
+    items: ChatImageStopTombstoneItem[],
+  ): Promise<{ inserted: number }> => {
+    const unique: ChatImageStopTombstoneItem[] = [];
+    const seen = new Set<string>();
+    for (const item of items) {
+      if (!item?.taskId || seen.has(item.taskId)) continue;
+      seen.add(item.taskId);
+      unique.push(item);
+    }
+    if (unique.length === 0) return { inserted: 0 };
+
+    let inserted = 0;
+    for (let offset = 0; offset < unique.length; offset += CHAT_IMAGE_STOP_TOMBSTONE_BATCH_MAX) {
+      const chunk = unique.slice(offset, offset + CHAT_IMAGE_STOP_TOMBSTONE_BATCH_MAX);
+      const result = (await lambdaClient.image.cancelUnstartedChatImageTasks.mutate(
+        { items: chunk },
+        { context: { showNotification: false } },
+      )) as { inserted: number };
+      inserted += result.inserted ?? 0;
+    }
+    return { inserted };
   };
 }
 

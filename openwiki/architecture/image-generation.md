@@ -875,23 +875,32 @@ configurable model rather than a hard-coded one.
   Stop authorization — auto-create is refused when the tile is marked
   `taskCancelled`, when a same-browser remembered stop id is present (a bounded
   `localStorage` registry written synchronously on Stop **before** any awaited
-  durable-cancel or persist, so a hung server-cancel lookup or a rejected first
-  message write cannot skip later tiles or leave reload unprotected), when
-  `getChatImageResult` returns the cancelled-placeholder error
-  (`ChatImageTaskCancelled` — inserted on Stop with `ON CONFLICT DO NOTHING` so
-  existing pending/success rows stay adoptable), or when a legacy tile has no
-  `taskFence`. Same-session Stop also refuses a prepared fence that no longer
-  matches the live (non-zero) lane fence. Reload resets that live fence to 0,
-  so that comparison is skipped then — otherwise a later authorized generation
-  stamped `taskFence > 0` would be misreported as stopped. Leave-topic does not
-  bump the fence. Stop aborts in-flight work before awaiting durable cancel and
-  cancellation persist, persists each Image tool message independently (one
-  failure does not skip later messages), retries each write once, forgets the
-  local stop id after a confirmed `taskCancelled` persist, and logs
-  `chat_image_run_settled` with `kind=stop_mark` / `outcome=persist_failed`
-  plus the hashed assistant/message id and persisted `gd_…` span. Create
-  refuses a `taskCancelled` correlation and does not dispatch when the id
-  already has an error placeholder. Explicit Retry re-stamps the fence, clears
+  durable-cancel, tombstone, or persist, so a hung server-cancel lookup or a
+  rejected first message write cannot skip later tiles or leave reload
+  unprotected), when `getChatImageResult` returns the cancelled-placeholder
+  error (`ChatImageTaskCancelled`), or when a legacy tile has no `taskFence`.
+  After local abort, Stop starts the server tombstone **in parallel with**
+  durable conversation cancel (`Promise.allSettled`) so a stalled cancel
+  lookup cannot delay the cross-device placeholder. The client sends only
+  unpaid correlations (`messageId` + `index` + `taskId`), skips tiles that
+  already have `taskCancelled`, and chunks at 64. The mutation verifies each
+  item on a caller-owned message (`FOR SHARE`) before insert;
+  `ON CONFLICT DO NOTHING` leaves pending/success/provider-error rows
+  adoptable. An insert conflict with no same-user row is `CONFLICT` and never
+  dispatches. Create refuses a `taskCancelled` correlation and does not
+  dispatch when the id already has a `ChatImageTaskCancelled` placeholder;
+  another existing `error` row (provider/trigger/timeout) is ordinary
+  idempotent — `outcome=stopped` is not used for those. Same-session Stop also
+  refuses a prepared fence that no longer matches the live (non-zero) lane
+  fence. Reload resets that live fence to 0, so that comparison is skipped
+  then — otherwise a later authorized generation stamped `taskFence > 0` would
+  be misreported as stopped. Leave-topic does not bump the fence. Stop aborts
+  in-flight work before awaiting durable cancel and cancellation persist,
+  persists each Image tool message independently (one failure does not skip
+  later messages), retries each write once, forgets the local stop id after a
+  confirmed `taskCancelled` persist, and logs `chat_image_run_settled` with
+  `kind=stop_mark` / `outcome=persist_failed` plus the hashed assistant/message
+  id and persisted `gd_…` span. Explicit Retry re-stamps the fence, clears
   `taskCancelled` and the remembered stop id, and may submit. If every durable
   path fails (offline + storage unavailable + tombstone insert failed), a later
   `task_missing` remount is indistinguishable from crash recovery and may

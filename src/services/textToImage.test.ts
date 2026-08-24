@@ -129,16 +129,60 @@ describe('imageGenerationService', () => {
       });
       expect(cancelUnstartedMutate).not.toHaveBeenCalled();
 
+      const item = {
+        index: 0,
+        messageId: 'message-1',
+        taskId: '3f2c8f7e-1c2d-4e5f-9a6b-7c8d9e0f1a2b',
+      };
       await expect(
-        imageGenerationService.cancelUnstartedChatImageTasks([
-          '3f2c8f7e-1c2d-4e5f-9a6b-7c8d9e0f1a2b',
-          '3f2c8f7e-1c2d-4e5f-9a6b-7c8d9e0f1a2b',
-        ]),
+        imageGenerationService.cancelUnstartedChatImageTasks([item, item]),
       ).resolves.toEqual({ inserted: 1 });
       expect(cancelUnstartedMutate).toHaveBeenCalledWith(
-        { taskIds: ['3f2c8f7e-1c2d-4e5f-9a6b-7c8d9e0f1a2b'] },
+        { items: [item] },
         { context: { showNotification: false } },
       );
+    });
+
+    it('chunks tombstone requests to the server batch maximum', async () => {
+      cancelUnstartedMutate.mockResolvedValue({ inserted: 1 });
+      const items = Array.from({ length: 65 }, (_, index) => ({
+        index,
+        messageId: 'message-1',
+        taskId: `00000000-0000-4000-8000-${index.toString(16).padStart(12, '0')}`,
+      }));
+
+      await expect(imageGenerationService.cancelUnstartedChatImageTasks(items)).resolves.toEqual({
+        inserted: 2,
+      });
+
+      expect(cancelUnstartedMutate).toHaveBeenCalledTimes(2);
+      expect(cancelUnstartedMutate.mock.calls[0][0].items).toHaveLength(64);
+      expect(cancelUnstartedMutate.mock.calls[1][0].items).toHaveLength(1);
+      expect(cancelUnstartedMutate.mock.calls[0][1]).toEqual({
+        context: { showNotification: false },
+      });
+    });
+
+    it('chunks payloads larger than the local stop registry bound', async () => {
+      cancelUnstartedMutate.mockResolvedValue({ inserted: 1 });
+      const items = Array.from({ length: 257 }, (_, index) => ({
+        index,
+        messageId: 'message-1',
+        taskId: `00000000-0000-4000-8000-${index.toString(16).padStart(12, '0')}`,
+      }));
+
+      await expect(imageGenerationService.cancelUnstartedChatImageTasks(items)).resolves.toEqual({
+        inserted: 5,
+      });
+
+      expect(cancelUnstartedMutate).toHaveBeenCalledTimes(5);
+      expect(cancelUnstartedMutate.mock.calls.map(([input]) => input.items)).toEqual([
+        items.slice(0, 64),
+        items.slice(64, 128),
+        items.slice(128, 192),
+        items.slice(192, 256),
+        items.slice(256),
+      ]);
     });
   });
 });

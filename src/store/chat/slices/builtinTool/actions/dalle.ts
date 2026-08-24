@@ -440,6 +440,12 @@ type PreparedChatImageStop = {
   taskIds: string[];
 };
 
+type ChatImageStopTombstoneItem = {
+  index: number;
+  messageId: string;
+  taskId: string;
+};
+
 const collectPreparedChatImageStops = (
   state: ChatStore,
   sessionId: string,
@@ -470,6 +476,27 @@ const collectPreparedChatImageStops = (
   }
 
   return prepared;
+};
+
+const collectUnpaidChatImageStopTombstones = (
+  state: ChatStore,
+  sessionId: string,
+  topicId?: string | null,
+  threadId?: string | null,
+): ChatImageStopTombstoneItem[] => {
+  const prepared = collectPreparedChatImageStops(state, sessionId, topicId, threadId);
+  // Skip tiles that already persist `taskCancelled` so a long topic cannot
+  // blow the 64-item server batch and drop a newly unpaid id.
+  const items: ChatImageStopTombstoneItem[] = [];
+  const seen = new Set<string>();
+  for (const entry of prepared) {
+    for (const [index, item] of entry.items.entries()) {
+      if (!item?.taskId || item.imageId || item.taskCancelled || seen.has(item.taskId)) continue;
+      seen.add(item.taskId);
+      items.push({ index, messageId: entry.message.id, taskId: item.taskId });
+    }
+  }
+  return items;
 };
 
 const snapshotAndRememberPreparedChatImageStops = (
@@ -529,10 +556,11 @@ const logChatImageGeneration = (
 export interface ChatDallEAction {
   /**
    * Durable Stop mark for prepared chat-image tiles in this lane. Remembers
-   * each task id locally first (same-browser reload backup), writes a server
-   * cancelled-placeholder for unstarted ids, then persists `taskCancelled`
-   * independently per message. Existing server tasks are still adopted.
-   * Callers must snapshot ids and abort in-flight work before awaiting this.
+   * each task id locally first (same-browser reload backup), then persists
+   * `taskCancelled` independently per message. Server cancelled-placeholders
+   * are started by `tombstonePreparedChatImageTasks` before durable cancel.
+   * Existing server tasks are still adopted. Callers must snapshot ids and
+   * abort in-flight work before awaiting this.
    */
   cancelPreparedChatImageTasks: (
     sessionId: string,
@@ -549,6 +577,15 @@ export interface ChatDallEAction {
     topicId?: string | null,
     threadId?: string | null,
   ) => void;
+  /**
+   * Insert server cancelled-placeholders for unpaid prepared ids in this lane.
+   * Call after the local abort and before awaiting unrelated durable cancel.
+   */
+  tombstonePreparedChatImageTasks: (
+    sessionId: string,
+    topicId?: string | null,
+    threadId?: string | null,
+  ) => Promise<void>;
   generateImageFromPrompts: (items: DallEImageItem[], id: string) => Promise<ChatImageRunOutcome>;
   /**
    * Recover items whose async task outlived this tab: adopt finished results,
@@ -587,14 +624,6 @@ export const dalleSlice: StateCreator<
 > = (set, get) => ({
   cancelPreparedChatImageTasks: async (sessionId, topicId, threadId) => {
     const prepared = snapshotAndRememberPreparedChatImageStops(get(), sessionId, topicId, threadId);
-    const taskIds = [...new Set(prepared.flatMap((entry) => entry.taskIds))];
-    if (taskIds.length > 0) {
-      try {
-        await imageGenerationService.cancelUnstartedChatImageTasks(taskIds);
-      } catch {
-        // Tombstone is best-effort. Local registry and message persist remain.
-      }
-    }
 
     const conversationContext: ConversationContext = {
       clearGeneration: resolveConversationClearGeneration(get(), sessionId, topicId, threadId),
@@ -654,6 +683,15 @@ export const dalleSlice: StateCreator<
   },
   rememberPreparedChatImageStopIds: (sessionId, topicId, threadId) => {
     snapshotAndRememberPreparedChatImageStops(get(), sessionId, topicId, threadId);
+  },
+  tombstonePreparedChatImageTasks: async (sessionId, topicId, threadId) => {
+    const items = collectUnpaidChatImageStopTombstones(get(), sessionId, topicId, threadId);
+    if (items.length === 0) return;
+    try {
+      await imageGenerationService.cancelUnstartedChatImageTasks(items);
+    } catch {
+      // Tombstone is best-effort. Local registry and message persist remain.
+    }
   },
   generateImageFromPrompts: async (items, messageId) => {
     // Pin the originating conversation from the tool message itself — not the

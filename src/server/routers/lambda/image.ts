@@ -53,6 +53,15 @@ export type { CreateImageServicePayload } from './image/schema';
 const IMAGE_TRIGGER_ERROR_MESSAGE =
   'trigger image generation async task error. Please make sure INTERNAL_APP_URL or APP_URL is reachable from the server.';
 const IMAGE_REFERENCE_FORMAT_VERSION = 1;
+const CHAT_IMAGE_TASK_CANCELLED_ERROR = 'ChatImageTaskCancelled';
+const CHAT_IMAGE_STOP_TOMBSTONE_BATCH_MAX = 64;
+
+const isChatImageStopTombstone = (task?: { error?: unknown; status?: string | null }) => {
+  if (task?.status !== AsyncTaskStatus.Error) return false;
+  return (
+    (task.error as { name?: string } | null | undefined)?.name === CHAT_IMAGE_TASK_CANCELLED_ERROR
+  );
+};
 
 type ImageReferenceConfig = {
   imageReferenceFormatVersion?: number;
@@ -384,7 +393,21 @@ export const imageRouter = router({
       });
       if (createOutcome === 'idempotent') {
         const existing = await asyncTaskModel.findById(taskId);
-        if (existing?.status === AsyncTaskStatus.Error) {
+        if (!existing) {
+          logGenerationDebugSafe('chat_image_task_rejected', {
+            index: input.correlation.index,
+            messageHash: hashGenerationDebugValue(input.correlation.messageId),
+            outcome: 'conflict',
+            ...(input.spanId ? { spanId: input.spanId } : {}),
+            taskHash: hashGenerationDebugValue(taskId),
+          });
+          throw new TRPCError({
+            code: 'CONFLICT',
+            message:
+              'This image task id is not available to the current account, so no generation was started.',
+          });
+        }
+        if (isChatImageStopTombstone(existing)) {
           logGenerationDebugSafe('chat_image_task_rejected', {
             index: input.correlation.index,
             messageHash: hashGenerationDebugValue(input.correlation.messageId),
@@ -397,6 +420,19 @@ export const imageRouter = router({
             message:
               'This image task was stopped before generation started, so no generation was started.',
           });
+        }
+        if (
+          existing.status !== AsyncTaskStatus.Pending &&
+          existing.status !== AsyncTaskStatus.Processing
+        ) {
+          logGenerationDebugSafe('chat_image_task_created', {
+            index: input.correlation.index,
+            messageHash: hashGenerationDebugValue(input.correlation.messageId),
+            outcome: createOutcome,
+            ...(input.spanId ? { spanId: input.spanId } : {}),
+            taskHash: hashGenerationDebugValue(taskId),
+          });
+          return { taskId };
         }
       }
       logGenerationDebugSafe('chat_image_task_created', {
@@ -461,36 +497,90 @@ export const imageRouter = router({
 
   /**
    * Record unpaid write-first chat-image task ids as cancelled placeholders so
-   * a later `task_missing` remount cannot auto-create them. Existing pending /
-   * processing / success rows are left alone (`ON CONFLICT DO NOTHING`) and
-   * remain adoptable.
+   * a later `task_missing` remount cannot auto-create them. Each item must
+   * still appear as an unresolved correlation on a caller-owned message
+   * (FOR SHARE). Existing pending / processing / success rows are left alone
+   * (`ON CONFLICT DO NOTHING`) and remain adoptable.
    */
   cancelUnstartedChatImageTasks: imageProcedure
     .input(
       z.object({
-        taskIds: z.array(z.string().uuid()).max(64),
+        items: z
+          .array(
+            z.object({
+              index: z.number().int().min(0),
+              messageId: z.string().min(1),
+              taskId: z.string().uuid(),
+            }),
+          )
+          .max(CHAT_IMAGE_STOP_TOMBSTONE_BATCH_MAX),
       }),
     )
     .mutation(async ({ input, ctx }) => {
-      const uniqueIds = [...new Set(input.taskIds)];
-      if (uniqueIds.length === 0) return { inserted: 0 };
+      const uniqueItems: { index: number; messageId: string; taskId: string }[] = [];
+      const seen = new Set<string>();
+      for (const item of input.items) {
+        if (seen.has(item.taskId)) continue;
+        seen.add(item.taskId);
+        uniqueItems.push(item);
+      }
+      if (uniqueItems.length === 0) return { inserted: 0 };
 
-      const inserted = await ctx.serverDB
-        .insert(asyncTasks)
-        .values(
-          uniqueIds.map((id) => ({
-            error: {
-              body: { detail: 'Stopped before generation started' },
-              name: 'ChatImageTaskCancelled',
-            },
-            id,
-            status: AsyncTaskStatus.Error,
-            type: AsyncTaskType.ImageGeneration,
-            userId: ctx.userId,
-          })),
-        )
-        .onConflictDoNothing()
-        .returning({ id: asyncTasks.id });
+      const inserted = await ctx.serverDB.transaction(async (tx) => {
+        const byMessage = new Map<string, { index: number; taskId: string }[]>();
+        for (const item of uniqueItems) {
+          const list = byMessage.get(item.messageId) ?? [];
+          list.push({ index: item.index, taskId: item.taskId });
+          byMessage.set(item.messageId, list);
+        }
+
+        const authorizedIds: string[] = [];
+        for (const [messageId, correlations] of byMessage) {
+          const [ownedMessage] = await tx
+            .select({ content: messages.content })
+            .from(messages)
+            .where(and(eq(messages.id, messageId), eq(messages.userId, ctx.userId)))
+            .limit(1)
+            .for('share');
+
+          if (!ownedMessage?.content) continue;
+          let parsed: {
+            imageId?: string;
+            taskId?: string;
+          }[];
+          try {
+            parsed = JSON.parse(ownedMessage.content);
+          } catch {
+            continue;
+          }
+          if (!Array.isArray(parsed)) continue;
+
+          for (const { index, taskId } of correlations) {
+            const item = parsed[index];
+            if (!item || item.taskId !== taskId || item.imageId) continue;
+            authorizedIds.push(taskId);
+          }
+        }
+
+        if (authorizedIds.length === 0) return [];
+
+        return tx
+          .insert(asyncTasks)
+          .values(
+            authorizedIds.map((id) => ({
+              error: {
+                body: { detail: 'Stopped before generation started' },
+                name: CHAT_IMAGE_TASK_CANCELLED_ERROR,
+              },
+              id,
+              status: AsyncTaskStatus.Error,
+              type: AsyncTaskType.ImageGeneration,
+              userId: ctx.userId,
+            })),
+          )
+          .onConflictDoNothing()
+          .returning({ id: asyncTasks.id });
+      });
 
       for (const row of inserted) {
         logGenerationDebugSafe('chat_image_task_rejected', {

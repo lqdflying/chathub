@@ -976,12 +976,15 @@ export const generateAIChatV2: StateCreator<
       if (editorTempState) get().mainInputEditor?.setJSONState(editorTempState);
     }
 
-    await get().cancelActiveDurableOpsInScope({
-      kind: ConversationGenerationChatFamilyKinds,
-      sessionId: activeId,
-      threadId: targetThreadId,
-      topicId: targetTopicId,
-    });
+    await Promise.allSettled([
+      get().tombstonePreparedChatImageTasks(activeId, targetTopicId, targetThreadId),
+      get().cancelActiveDurableOpsInScope({
+        kind: ConversationGenerationChatFamilyKinds,
+        sessionId: activeId,
+        threadId: targetThreadId,
+        topicId: targetTopicId,
+      }),
+    ]);
 
     try {
       await get().cancelPreparedChatImageTasks(activeId, targetTopicId, targetThreadId);
