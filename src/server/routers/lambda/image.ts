@@ -18,7 +18,11 @@ import {
 import { appEnv } from '@/envs/app';
 import {
   ChatImageTaskCorrelationItem,
+  classifyChatImageTaskIdScopeKind,
   decideChatImageTaskCorrelation,
+  listChatImageTaskIdScopeAliases,
+  matchChatImageTaskIdScope,
+  normalizeChatImageTaskAttempt,
 } from '@/helpers/chatImageTaskId';
 import { hashGenerationDebugValue, logGenerationDebugSafe } from '@/libs/logger/generationDebug';
 import {
@@ -31,6 +35,7 @@ import {
   runWithImageDebugContext,
 } from '@/libs/logger/imageDebug';
 import { authedProcedure, router } from '@/libs/trpc/lambda';
+import type { LambdaContext } from '@/libs/trpc/lambda/context';
 import { keyVaults, serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { resolveAuthenticatedAccountScope } from '@/libs/trpc/lambda/middleware/verifiedAccountScope';
 import { createAsyncCaller } from '@/server/routers/async/caller';
@@ -77,9 +82,17 @@ const parseChatImageToolItems = (content: string): ChatImageTaskCorrelationItem[
   }
 };
 
+const chatImageTaskIdScopesForContext = (ctx: LambdaContext) =>
+  listChatImageTaskIdScopeAliases({
+    authenticatedScope: resolveAuthenticatedAccountScope(ctx),
+    rawAuthUserId: ctx.rawAuthUserId,
+    userId: ctx.userId,
+  });
+
 const rejectUncorrelatedChatImageTask = (input: {
   correlation: { index: number; messageId: string };
   outcome: 'uncorrelated' | 'unproven';
+  scopeKind?: ReturnType<typeof classifyChatImageTaskIdScopeKind>;
   spanId?: string;
   taskId: string;
 }) => {
@@ -87,6 +100,7 @@ const rejectUncorrelatedChatImageTask = (input: {
     index: input.correlation.index,
     messageHash: hashGenerationDebugValue(input.correlation.messageId),
     outcome: input.outcome,
+    ...(input.scopeKind ? { scopeKind: input.scopeKind } : {}),
     ...(input.spanId ? { spanId: input.spanId } : {}),
     taskHash: hashGenerationDebugValue(input.taskId),
   });
@@ -355,7 +369,11 @@ export const imageRouter = router({
       // (its own transaction): if the deletion commits first the read sees
       // nothing and we refuse; while we hold the lock the deletion waits, so
       // a task can never be inserted for a message that no longer exists.
-      const { outcome: createOutcome, taskId } = await ctx.serverDB.transaction(async (tx) => {
+      const {
+        outcome: createOutcome,
+        scopeKind,
+        taskId,
+      } = await ctx.serverDB.transaction(async (tx) => {
         const [ownedMessage] = await tx
           .select({ content: messages.content })
           .from(messages)
@@ -366,12 +384,13 @@ export const imageRouter = router({
         const items = ownedMessage?.content
           ? parseChatImageToolItems(ownedMessage.content)
           : undefined;
+        const userScopes = chatImageTaskIdScopesForContext(ctx);
         const decision = decideChatImageTaskCorrelation({
           index: input.correlation.index,
           item: items?.[input.correlation.index],
           messageId: input.correlation.messageId,
           taskId: input.taskId,
-          userScope: resolveAuthenticatedAccountScope(ctx),
+          userScopes,
         });
         if (decision === 'stopped') {
           logGenerationDebugSafe('chat_image_task_rejected', {
@@ -391,6 +410,7 @@ export const imageRouter = router({
           rejectUncorrelatedChatImageTask({
             correlation: input.correlation,
             outcome: decision === 'unproven' ? 'unproven' : 'uncorrelated',
+            scopeKind: decision === 'unproven' ? 'none' : undefined,
             spanId: input.spanId,
             taskId: input.taskId,
           });
@@ -408,6 +428,16 @@ export const imageRouter = router({
           .returning();
         return {
           outcome: inserted[0]?.id ? 'inserted' : 'idempotent',
+          scopeKind: classifyChatImageTaskIdScopeKind(
+            matchChatImageTaskIdScope(
+              userScopes,
+              input.correlation.messageId,
+              input.correlation.index,
+              input.taskId,
+              normalizeChatImageTaskAttempt(items?.[input.correlation.index]?.taskAttempt),
+            ),
+            ctx,
+          ),
           taskId: inserted[0]?.id ?? input.taskId,
         };
       });
@@ -449,6 +479,7 @@ export const imageRouter = router({
             index: input.correlation.index,
             messageHash: hashGenerationDebugValue(input.correlation.messageId),
             outcome: createOutcome,
+            scopeKind,
             ...(input.spanId ? { spanId: input.spanId } : {}),
             taskHash: hashGenerationDebugValue(taskId),
           });
@@ -459,6 +490,7 @@ export const imageRouter = router({
         index: input.correlation.index,
         messageHash: hashGenerationDebugValue(input.correlation.messageId),
         outcome: createOutcome,
+        scopeKind,
         ...(input.spanId ? { spanId: input.spanId } : {}),
         taskHash: hashGenerationDebugValue(taskId),
       });
@@ -568,7 +600,7 @@ export const imageRouter = router({
           const parsed = parseChatImageToolItems(ownedMessage.content);
           if (!parsed) continue;
 
-          const userScope = resolveAuthenticatedAccountScope(ctx);
+          const userScopes = chatImageTaskIdScopesForContext(ctx);
           for (const { index, taskId } of correlations) {
             if (
               decideChatImageTaskCorrelation({
@@ -576,7 +608,7 @@ export const imageRouter = router({
                 item: parsed[index],
                 messageId,
                 taskId,
-                userScope,
+                userScopes,
               }) !== 'authorized'
             ) {
               continue;

@@ -1365,7 +1365,7 @@ describe('imageRouter', () => {
       expect(dispatchChatImage).not.toHaveBeenCalled();
       expect(logSpy).toHaveBeenCalledWith(
         'chat_image_task_rejected',
-        expect.objectContaining({ outcome: 'unproven' }),
+        expect.objectContaining({ outcome: 'unproven', scopeKind: 'none' }),
       );
     });
 
@@ -1452,6 +1452,52 @@ describe('imageRouter', () => {
         expect.objectContaining({ id: CHAT_TASK_ID, userId: 'mapped-database-owner' }),
       ]);
       expect(dispatchChatImage).toHaveBeenCalled();
+    });
+
+    it('accepts write-first ids stamped with client local, anonymous, or mapped-owner aliases', async () => {
+      const cases = [
+        {
+          ctx: {},
+          scopeKind: 'anonymous',
+          taskId: deriveChatImageTaskId('anonymous', CHAT_CORRELATION.messageId, 0, 0),
+        },
+        {
+          ctx: { rawAuthUserId: 'clerk-raw', userId: 'mapped-db' },
+          scopeKind: 'mapped',
+          taskId: deriveChatImageTaskId('user:mapped-db', CHAT_CORRELATION.messageId, 0, 0),
+        },
+        {
+          ctx: { rawAuthUserId: 'clerk-raw', userId: 'mapped-db' },
+          scopeKind: 'local',
+          taskId: deriveChatImageTaskId('local', CHAT_CORRELATION.messageId, 0, 0),
+        },
+      ] as const;
+
+      for (const { ctx, scopeKind, taskId } of cases) {
+        const { db, insertedValues } = makeTxDb(() => [
+          { content: JSON.stringify([{ prompt: 'p', taskId }]) },
+        ]);
+        const dispatchChatImage = installCommonMocks(db);
+        const logSpy = vi.spyOn(generationDebug, 'logGenerationDebugSafe');
+
+        await expect(
+          makeCaller(ctx).createChatImage({
+            correlation: CHAT_CORRELATION,
+            model: 'gpt-image-2',
+            params: { prompt: 'p' },
+            provider: 'openaicompatible',
+            taskId,
+          }),
+        ).resolves.toEqual({ taskId });
+
+        expect(insertedValues).toEqual([expect.objectContaining({ id: taskId })]);
+        expect(dispatchChatImage).toHaveBeenCalledWith(expect.objectContaining({ taskId }));
+        expect(logSpy).toHaveBeenCalledWith(
+          'chat_image_task_created',
+          expect.objectContaining({ outcome: 'inserted', scopeKind }),
+        );
+        logSpy.mockRestore();
+      }
     });
 
     it('does not dispatch when a cancelled placeholder already occupies the task id', async () => {
@@ -1674,6 +1720,24 @@ describe('imageRouter', () => {
 
         expect(tx.insert).not.toHaveBeenCalled();
         expect(insertedValues).toHaveLength(0);
+      });
+
+      it('tombstones an unpaid id stamped with the client anonymous alias', async () => {
+        const anonymousId = deriveChatImageTaskId('anonymous', 'message-1', 0, 0);
+        const { db, insertedValues } = makeTxDb(() => [
+          { content: JSON.stringify([{ prompt: 'p', taskId: anonymousId }]) },
+        ]);
+        installCommonMocks(db);
+
+        await expect(
+          makeCaller().cancelUnstartedChatImageTasks({
+            items: [{ index: 0, messageId: 'message-1', taskId: anonymousId }],
+          }),
+        ).resolves.toEqual({ inserted: 1 });
+
+        expect(insertedValues).toEqual([
+          [expect.objectContaining({ id: anonymousId, status: 'error', userId: 'account-a' })],
+        ]);
       });
 
       it('tombstones a later attempt when the derived id matches taskAttempt', async () => {

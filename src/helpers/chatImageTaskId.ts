@@ -64,6 +64,69 @@ export const isChatImageTaskIdProvenanceValid = (
   attempt >= 0 &&
   deriveChatImageTaskId(userScope, messageId, index, attempt) === taskId;
 
+/**
+ * Scope strings this authenticated request may have used when stamping a
+ * write-first id. Possession of a UUID is still not authorization (RFC 4122
+ * §6): each alias is this caller's namespace, never another principal's.
+ *
+ * The client `currentUserScope` and the server `resolveAuthenticatedAccountScope`
+ * can disagree for the same browser session:
+ * - `enableTokenAuth` is `!!process.env.AUTH_TOKEN`. Next.js inlines only
+ *   `NEXT_PUBLIC_*` into the browser bundle, so a Docker host with `AUTH_TOKEN`
+ *   has `enableAuth=true` on the server and often `enableAuth=false` in the
+ *   client, which stamps `local`.
+ *   @see https://nextjs.org/docs/app/guides/environment-variables
+ * - Unresolved client auth used to fall back to `anonymous`.
+ * - Clerk mapping keeps `rawAuthUserId` distinct from the database `userId`.
+ */
+export const listChatImageTaskIdScopeAliases = (input: {
+  authenticatedScope?: string;
+  rawAuthUserId?: string | null;
+  userId?: string | null;
+}): string[] => {
+  const aliases: string[] = [];
+  const seen = new Set<string>();
+  const add = (scope?: string | null) => {
+    if (!scope || seen.has(scope)) return;
+    seen.add(scope);
+    aliases.push(scope);
+  };
+  add(input.authenticatedScope);
+  if (input.rawAuthUserId) add(`user:${input.rawAuthUserId}`);
+  if (input.userId) add(`user:${input.userId}`);
+  add('local');
+  add('anonymous');
+  add('guest');
+  return aliases;
+};
+
+export const matchChatImageTaskIdScope = (
+  userScopes: readonly string[],
+  messageId: string,
+  index: number,
+  taskId: string,
+  attempt: number | undefined,
+): string | undefined =>
+  userScopes.find((scope) =>
+    isChatImageTaskIdProvenanceValid(scope, messageId, index, taskId, attempt),
+  );
+
+export type ChatImageTaskIdScopeKind =
+  'anonymous' | 'canonical' | 'guest' | 'local' | 'mapped' | 'none';
+
+export const classifyChatImageTaskIdScopeKind = (
+  scope: string | undefined,
+  principals: { rawAuthUserId?: string | null; userId?: string | null },
+): ChatImageTaskIdScopeKind => {
+  if (!scope) return 'none';
+  if (scope === 'local') return 'local';
+  if (scope === 'anonymous') return 'anonymous';
+  if (scope === 'guest') return 'guest';
+  if (principals.rawAuthUserId && scope === `user:${principals.rawAuthUserId}`) return 'canonical';
+  if (principals.userId && scope === `user:${principals.userId}`) return 'mapped';
+  return 'none';
+};
+
 export type ChatImageTaskCorrelationItem = {
   imageId?: string;
   taskAttempt?: unknown;
@@ -79,19 +142,18 @@ export const decideChatImageTaskCorrelation = ({
   item,
   messageId,
   taskId,
-  userScope,
+  userScopes,
 }: {
   index: number;
   item?: ChatImageTaskCorrelationItem;
   messageId: string;
   taskId: string;
-  userScope?: string;
+  userScopes: readonly string[];
 }): ChatImageTaskCorrelationDecision => {
   if (!item || item.taskId !== taskId) return 'missing';
   if (
-    !userScope ||
-    !isChatImageTaskIdProvenanceValid(
-      userScope,
+    !matchChatImageTaskIdScope(
+      userScopes,
       messageId,
       index,
       taskId,

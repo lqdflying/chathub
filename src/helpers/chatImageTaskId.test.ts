@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  classifyChatImageTaskIdScopeKind,
   decideChatImageTaskCorrelation,
   deriveChatImageTaskId,
   isChatImageTaskIdProvenanceValid,
+  listChatImageTaskIdScopeAliases,
+  matchChatImageTaskIdScope,
   normalizeChatImageTaskAttempt,
 } from './chatImageTaskId';
 
@@ -51,9 +54,66 @@ describe('chatImageTaskId', () => {
         item: { taskId: victimId },
         messageId,
         taskId: victimId,
-        userScope: scope,
+        userScopes: [scope],
       }),
     ).toBe('unproven');
+  });
+
+  it('authorizes this caller local, anonymous, and mapped-owner aliases', () => {
+    const message = 'message-1';
+    const localId = deriveChatImageTaskId('local', message, 0, 0);
+    const anonymousId = deriveChatImageTaskId('anonymous', message, 0, 0);
+    const mappedId = deriveChatImageTaskId('user:mapped-db', message, 0, 0);
+    const aliases = listChatImageTaskIdScopeAliases({
+      authenticatedScope: 'user:clerk-raw',
+      rawAuthUserId: 'clerk-raw',
+      userId: 'mapped-db',
+    });
+    expect(aliases).toEqual(['user:clerk-raw', 'user:mapped-db', 'local', 'anonymous', 'guest']);
+    expect(
+      decideChatImageTaskCorrelation({
+        index: 0,
+        item: { taskId: localId },
+        messageId: message,
+        taskId: localId,
+        userScopes: aliases,
+      }),
+    ).toBe('authorized');
+    expect(
+      decideChatImageTaskCorrelation({
+        index: 0,
+        item: { taskId: anonymousId },
+        messageId: message,
+        taskId: anonymousId,
+        userScopes: aliases,
+      }),
+    ).toBe('authorized');
+    expect(
+      decideChatImageTaskCorrelation({
+        index: 0,
+        item: { taskId: mappedId },
+        messageId: message,
+        taskId: mappedId,
+        userScopes: aliases,
+      }),
+    ).toBe('authorized');
+    expect(classifyChatImageTaskIdScopeKind('local', {})).toBe('local');
+    expect(
+      classifyChatImageTaskIdScopeKind('user:mapped-db', {
+        rawAuthUserId: 'clerk-raw',
+        userId: 'mapped-db',
+      }),
+    ).toBe('mapped');
+    expect(matchChatImageTaskIdScope(aliases, message, 0, localId, 0)).toBe('local');
+    expect(
+      matchChatImageTaskIdScope(
+        aliases,
+        message,
+        0,
+        deriveChatImageTaskId('user:account-b', message, 0, 0),
+        0,
+      ),
+    ).toBeUndefined();
   });
 
   it('authorizes attempt 0 and a later attempt when the derived id matches', () => {
@@ -65,7 +125,7 @@ describe('chatImageTaskId', () => {
         item: { taskId: attempt0 },
         messageId,
         taskId: attempt0,
-        userScope: scope,
+        userScopes: [scope],
       }),
     ).toBe('authorized');
     expect(
@@ -74,7 +134,7 @@ describe('chatImageTaskId', () => {
         item: { taskAttempt: 2, taskId: attempt2 },
         messageId,
         taskId: attempt2,
-        userScope: scope,
+        userScopes: [scope],
       }),
     ).toBe('authorized');
   });
@@ -87,7 +147,7 @@ describe('chatImageTaskId', () => {
         item: { taskCancelled: true, taskId },
         messageId,
         taskId,
-        userScope: scope,
+        userScopes: [scope],
       }),
     ).toBe('stopped');
     expect(
@@ -96,7 +156,7 @@ describe('chatImageTaskId', () => {
         item: { imageId: 'img', taskId },
         messageId,
         taskId,
-        userScope: scope,
+        userScopes: [scope],
       }),
     ).toBe('resolved');
   });

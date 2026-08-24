@@ -885,7 +885,14 @@ configurable model rather than a hard-coded one.
   unpaid correlations (`messageId` + `index` + `taskId`), skips tiles that
   already have `taskCancelled`, and chunks at 64. The mutation verifies each
   item on a caller-owned message (`FOR SHARE`) before insert, then re-derives
-  the expected UUID from the authenticated account scope plus `messageId`,
+  the expected UUID from this request's principal aliases plus `messageId`,
+  `index`, and `taskAttempt` (missing attempt = 0). Aliases are this caller's
+  namespaces only: `user:<rawAuthUserId>`, `user:<ctx.userId>` when mapped,
+  plus `local` / `anonymous` / `guest` because the browser `currentUserScope`
+  can disagree with the server. Next.js inlines only `NEXT_PUBLIC_*` into the
+  client bundle, so server-only `AUTH_TOKEN` (`enableTokenAuth`) makes
+  `enableAuth` true on the server while the client still stamps `local`.
+  Unresolved client auth previously fell back to `anonymous`. A UUID that is merely
   `index`, and `taskAttempt` (missing attempt = 0). A UUID that is merely
   present in caller-writable message content is not authorization — RFC 4122
   §6 forbids using UUIDs as capabilities, and this check closes the
@@ -914,8 +921,9 @@ configurable model rather than a hard-coded one.
   server-side verification — the create contract REQUIRES the correlation
   (message id + index) and the task id, and the mutation verifies provenance
   and inserts in ONE transaction with the message row read FOR SHARE,
-  linearized against message deletion. The expected id is derived from the
-  authenticated user scope (`user:<rawAuthUserId>` or `local`), message id,
+  linearized against message deletion. The expected id is derived from this
+  request's principal aliases (`user:<rawAuthUserId>`, mapped `user:<userId>`,
+  `local`, `anonymous`, `guest`), message id,
   index, and attempt — embedding another account's UUID in owned content
   cannot authorize insert. Neither an omitted field nor a delete/create race
   can insert work the conversation no longer contains. Item writes are serialized

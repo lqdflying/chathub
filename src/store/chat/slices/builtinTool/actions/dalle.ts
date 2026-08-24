@@ -6,7 +6,11 @@ import pMap from 'p-map';
 import { SWRResponse } from 'swr';
 import { StateCreator } from 'zustand/vanilla';
 
-import { deriveChatImageTaskId, isChatImageTaskIdProvenanceValid } from '@/helpers/chatImageTaskId';
+import {
+  deriveChatImageTaskId,
+  listChatImageTaskIdScopeAliases,
+  matchChatImageTaskIdScope,
+} from '@/helpers/chatImageTaskId';
 import { logDeferredGenerationLane } from '@/libs/logger/generationDebugClient';
 import { useClientDataSWR } from '@/libs/swr';
 import { findRPCResponseError } from '@/libs/trpc/client/toolsResponse';
@@ -704,7 +708,13 @@ export const dalleSlice: StateCreator<
     };
     const resolveItemSpanId = (index: number) =>
       resolvePersistedChatImageSpanId(parseOriginItems()[index]?.spanId);
-    const userScope = authSelectors.currentUserScope(useUserStore.getState()) ?? 'anonymous';
+    const userState = useUserStore.getState();
+    const userScope = authSelectors.currentUserScope(userState);
+    const scopeAliases = listChatImageTaskIdScopeAliases({
+      authenticatedScope: userScope,
+      rawAuthUserId: userState.authUserId,
+      userId: userState.user?.id,
+    });
 
     // EXCLUSIVE OWNERSHIP FIRST (synchronously, before ANY await): claim every
     // index this run may generate for, under this run's token. An overlapping
@@ -740,6 +750,22 @@ export const dalleSlice: StateCreator<
     let runOutcome: ChatImageRunOutcome = 'ok';
 
     try {
+      if (!userScope) {
+        runOutcome = 'persist_unproven';
+        if (invocationIsCurrent()) {
+          await get().updatePluginState(messageId, {
+            error: items.map(() =>
+              serializePluginError(
+                new Error(
+                  'The generation task could not be saved to this conversation, so nothing was generated or billed. Please retry.',
+                ),
+              ),
+            ),
+          });
+        }
+        return runOutcome;
+      }
+
       const resolved = resolveImageModel();
       if (!resolved) {
         runOutcome = 'no_model';
@@ -917,7 +943,7 @@ export const dalleSlice: StateCreator<
             // checked write, then created fresh
             if (
               !mustCreate &&
-              !isChatImageTaskIdProvenanceValid(userScope, messageId, index, taskId, attempt)
+              !matchChatImageTaskIdScope(scopeAliases, messageId, index, taskId, attempt)
             ) {
               const derivedId = deriveChatImageTaskId(userScope, messageId, index, 0);
               const replaced = await persistTaskIdsChecked(
@@ -1162,11 +1188,15 @@ export const dalleSlice: StateCreator<
             // AUTOMATIC resubmission is billable — every gate below must pass.
             // 1) provenance: only an id derivable for (user, message, index)
             //    may auto-generate; restored/arbitrary ids surface for Retry
-            const userScope =
-              authSelectors.currentUserScope(useUserStore.getState()) ?? 'anonymous';
+            const reconcileUserState = useUserStore.getState();
+            const reconcileScopes = listChatImageTaskIdScopeAliases({
+              authenticatedScope: authSelectors.currentUserScope(reconcileUserState),
+              rawAuthUserId: reconcileUserState.authUserId,
+              userId: reconcileUserState.user?.id,
+            });
             if (
-              !isChatImageTaskIdProvenanceValid(
-                userScope,
+              !matchChatImageTaskIdScope(
+                reconcileScopes,
                 messageId,
                 index,
                 item.taskId,
