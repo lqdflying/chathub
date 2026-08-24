@@ -299,10 +299,13 @@ Copy-paste APL: **`.cursor/rules/debug-log-checks.mdc`**.
     started before persist (SWR mutation race / overlapping refresh). Merge
     file and task ids on fetch as one versioned attempt tuple (a stale Stop
     snapshot must not replace a newer Retry), including tool rows that omit
-    `plugin`. Prompt-only remount adopts a derived attempt 0–2 task file
-    (or the `messages_files` link, or an Artifacts file whose `async_tasks`
-    row is gone) without auto-creating, settling each scope alias
-    independently so one terminal legacy id cannot hide a successful file.
+    `plugin` when the in-memory row is Chat Image. An explicit non-image
+    plugin is never treated as Chat Image. Prompt-only remount adopts the
+    saved file from a 1:1 `messages_files` link, then `getChatImageSlotResult`
+    (latest attempt for that prompt, including historical derived task ids),
+    then attempt-0 alias probes — never auto-creating, and never assigning
+    `imageList[index]` on a multi-prompt card. One terminal legacy id cannot
+    hide a successful file.
     The Image tool renderer reads the live store rather than a stale parsed
     `content` prop, and re-runs reconcile when tiles become prompt-only
     again. `attachedCount=N` with Prompt-only cards is this wipe, not a failed

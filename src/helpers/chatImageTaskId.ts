@@ -51,6 +51,17 @@ export const normalizeChatImageTaskAttempt = (value: unknown): number | undefine
   return undefined;
 };
 
+/**
+ * Parse a stored slot integer without treating missing as 0. File metadata
+ * and jsonb `->>` values may be numbers or decimal strings; a missing key
+ * must not collapse to attempt 0 and hide a later Retry.
+ */
+export const parseStoredChatImageSlotInt = (value: unknown): number | undefined => {
+  if (typeof value === 'number' && Number.isInteger(value) && value >= 0) return value;
+  if (typeof value === 'string' && /^(0|[1-9]\d*)$/.test(value)) return Number(value);
+  return undefined;
+};
+
 export const isChatImageTaskIdProvenanceValid = (
   userScope: string,
   messageId: string,
@@ -140,12 +151,127 @@ export type ChatImageTaskCorrelationItem = {
 export type ChatImageTaskCorrelationDecision =
   'authorized' | 'missing' | 'resolved' | 'stopped' | 'unproven';
 
+export type ChatImageToolPluginLike = {
+  apiName?: string | null;
+  identifier?: string | null;
+};
+
 export type ChatImageToolMessageLike = {
   content?: string | null;
   id: string;
   imageList?: { id?: string }[] | null;
-  plugin?: { apiName?: string; identifier?: string } | null;
+  plugin?: ChatImageToolPluginLike | null;
   role?: string;
+};
+
+const CHAT_IMAGE_PLUGIN_IDENTIFIER = 'lobe-image-designer';
+const CHAT_IMAGE_API_NAME = 'text2image';
+
+/**
+ * Files created before slot metadata (`chatImageMessageId` / index / attempt)
+ * can only be rediscovered by re-deriving task ids. This bound is a
+ * compatibility scan for those historical rows, not a Retry product cap:
+ * new files are found by slot keys at any attempt.
+ */
+export const HISTORICAL_CHAT_IMAGE_SLOT_MAX_ATTEMPT = 256;
+
+const pluginIdentity = (plugin?: ChatImageToolPluginLike | null) => ({
+  apiName: typeof plugin?.apiName === 'string' && plugin.apiName ? plugin.apiName : undefined,
+  identifier:
+    typeof plugin?.identifier === 'string' && plugin.identifier ? plugin.identifier : undefined,
+});
+
+export const isExplicitChatImagePlugin = (plugin?: ChatImageToolPluginLike | null): boolean => {
+  const identity = pluginIdentity(plugin);
+  return (
+    identity.identifier === CHAT_IMAGE_PLUGIN_IDENTIFIER || identity.apiName === CHAT_IMAGE_API_NAME
+  );
+};
+
+export const hasExplicitNonImagePlugin = (plugin?: ChatImageToolPluginLike | null): boolean => {
+  const identity = pluginIdentity(plugin);
+  return Boolean((identity.identifier || identity.apiName) && !isExplicitChatImagePlugin(plugin));
+};
+
+export const listDerivedChatImageTaskIds = (
+  userScopes: readonly string[],
+  messageId: string,
+  index: number,
+  maxAttemptInclusive = HISTORICAL_CHAT_IMAGE_SLOT_MAX_ATTEMPT,
+): string[] => {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (let attempt = 0; attempt <= maxAttemptInclusive; attempt += 1) {
+    for (const scope of userScopes) {
+      const taskId = deriveChatImageTaskId(scope, messageId, index, attempt);
+      if (seen.has(taskId)) continue;
+      seen.add(taskId);
+      ids.push(taskId);
+    }
+  }
+  return ids;
+};
+
+export const matchDerivedChatImageTaskAttempt = (
+  userScopes: readonly string[],
+  messageId: string,
+  index: number,
+  taskId: string,
+  maxAttemptInclusive = HISTORICAL_CHAT_IMAGE_SLOT_MAX_ATTEMPT,
+): number | undefined => {
+  for (let attempt = 0; attempt <= maxAttemptInclusive; attempt += 1) {
+    if (matchChatImageTaskIdScope(userScopes, messageId, index, taskId, attempt)) return attempt;
+  }
+  return undefined;
+};
+
+export const singletonLinkedChatImageId = (
+  itemCount: number,
+  imageList?: { id?: string }[] | null,
+): string | undefined => {
+  if (itemCount !== 1 || imageList?.length !== 1) return undefined;
+  return imageList[0]?.id;
+};
+
+type ChatImageSlotFileLike = {
+  id: string;
+  metadata?: {
+    chatImageAttempt?: unknown;
+    chatImageIndex?: unknown;
+    chatImageMessageId?: unknown;
+    chatImageTaskId?: unknown;
+    height?: number;
+    width?: number;
+  } | null;
+};
+
+export const pickLatestChatImageSlotFile = <T extends ChatImageSlotFileLike>(
+  rows: T[],
+  input: {
+    index: number;
+    messageId: string;
+    userScopes: readonly string[];
+  },
+): { attempt: number; file: T; taskId?: string } | undefined => {
+  let winner: { attempt: number; file: T; taskId?: string } | undefined;
+  for (const file of rows) {
+    const metadata = file.metadata ?? {};
+    const taskId =
+      typeof metadata.chatImageTaskId === 'string' ? metadata.chatImageTaskId : undefined;
+    const slottedMessage =
+      typeof metadata.chatImageMessageId === 'string' ? metadata.chatImageMessageId : undefined;
+    const slottedIndex = parseStoredChatImageSlotInt(metadata.chatImageIndex);
+    if (slottedMessage && slottedMessage !== input.messageId) continue;
+    if (slottedIndex !== undefined && slottedIndex !== input.index) continue;
+    const slottedAttempt = parseStoredChatImageSlotInt(metadata.chatImageAttempt);
+    const derivedAttempt = taskId
+      ? matchDerivedChatImageTaskAttempt(input.userScopes, input.messageId, input.index, taskId)
+      : undefined;
+    const attempt = slottedAttempt ?? derivedAttempt;
+    if (attempt === undefined) continue;
+    if (!winner || attempt > winner.attempt) winner = { attempt, file, taskId };
+  }
+  return winner;
 };
 
 export const parseChatImageToolItems = (
@@ -167,14 +293,54 @@ export const looksLikeChatImageToolItems = (content?: string | null): boolean =>
   return items.every((item) => item && typeof (item as { prompt?: unknown }).prompt === 'string');
 };
 
-export const isChatImageToolMessage = (message: ChatImageToolMessageLike): boolean => {
-  const pluginMatch =
-    message.plugin?.identifier === 'lobe-image-designer' ||
-    message.plugin?.apiName === 'text2image';
-  if (pluginMatch) return true;
-  // Fetched tool rows can omit `plugin` on a left-join glitch. Still merge
-  // by the prompt-array shape so a stale getMessages cannot wipe imageId.
-  return message.role === 'tool' && looksLikeChatImageToolItems(message.content);
+/**
+ * Stop / lifecycle classifier. An explicit non-image plugin identity always
+ * wins over the prompt-array shape. Join-omitted plugin rows still match when
+ * a task id derives for this message under the caller's scopes.
+ */
+export const isChatImageToolMessage = (
+  message: ChatImageToolMessageLike,
+  userScopes?: readonly string[],
+): boolean => {
+  if (isExplicitChatImagePlugin(message.plugin)) return true;
+  if (hasExplicitNonImagePlugin(message.plugin)) return false;
+  if (message.role !== 'tool' || !looksLikeChatImageToolItems(message.content)) return false;
+  if (!userScopes?.length) return false;
+  const items = parseChatImageToolItems(message.content) ?? [];
+  return items.some(
+    (item, index) =>
+      Boolean(item?.taskId) &&
+      matchChatImageTaskIdScope(
+        userScopes,
+        message.id,
+        index,
+        item.taskId as string,
+        normalizeChatImageTaskAttempt(item.taskAttempt),
+      ),
+  );
+};
+
+/**
+ * Fetch-repair classifier. Incoming rows that name a different plugin must
+ * not be merged. Join-omitted plugin uses the previous in-memory Image
+ * identity. Both sides omitting plugin still merge when the in-memory row
+ * already carries image/task correlation.
+ */
+export const shouldPreserveChatImageToolOnFetch = (
+  incoming: ChatImageToolMessageLike,
+  previous?: ChatImageToolMessageLike,
+): boolean => {
+  if (isExplicitChatImagePlugin(incoming.plugin)) return true;
+  if (hasExplicitNonImagePlugin(incoming.plugin)) return false;
+  if (previous && isExplicitChatImagePlugin(previous.plugin)) return true;
+  if (previous && hasExplicitNonImagePlugin(previous.plugin)) return false;
+  const previousItems = parseChatImageToolItems(previous?.content);
+  return Boolean(
+    incoming.role === 'tool' &&
+    looksLikeChatImageToolItems(incoming.content) &&
+    (previousItems?.some((item) => item.imageId || item.taskId) ||
+      Boolean(previous?.imageList?.length)),
+  );
 };
 
 const copyChatImageTaskCorrelation = <T extends ChatImageTaskCorrelationItem>(
@@ -288,15 +454,10 @@ const mergeChatImageImageList = <T extends { id?: string }>(
   incoming: T[] | null | undefined,
   previous: T[] | null | undefined,
 ): T[] | undefined => {
-  if (!previous?.length) return incoming ?? undefined;
-  if (!incoming?.length) return previous;
-  const length = Math.max(incoming.length, previous.length);
-  return Array.from({ length }, (_, index) => {
-    const next = incoming[index];
-    const prior = previous[index];
-    if (next?.id) return next;
-    return prior ?? next;
-  }).filter((item): item is T => Boolean(item));
+  // `messages_files` is an unordered bag. Never zip by index.
+  if (incoming?.length) return incoming;
+  if (previous?.length) return previous;
+  return incoming ?? undefined;
 };
 
 export const preserveChatImageToolContentOnFetch = <T extends ChatImageToolMessageLike>(
@@ -306,8 +467,8 @@ export const preserveChatImageToolContentOnFetch = <T extends ChatImageToolMessa
   if (existing.length === 0) return incoming;
   const existingById = new Map(existing.map((message) => [message.id, message]));
   return incoming.map((message) => {
-    if (!isChatImageToolMessage(message)) return message;
     const previous = existingById.get(message.id);
+    if (!shouldPreserveChatImageToolOnFetch(message, previous)) return message;
     if (!previous) return message;
     const mergedContent = previous.content
       ? mergeChatImageToolContent(message.content ?? '', previous.content)

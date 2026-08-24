@@ -190,6 +190,13 @@ export const imageRouter = router({
   createChatImage: imageProcedure
     .input(
       z.object({
+        correlation: z
+          .object({
+            attempt: z.number().int().min(0).optional(),
+            index: z.number().int().min(0),
+            messageId: z.string(),
+          })
+          .optional(),
         model: z.string(),
         params: z.object({ prompt: z.string() }).passthrough(),
         provider: z.string(),
@@ -248,6 +255,13 @@ export const imageRouter = router({
               fileType: image.mime,
               metadata: {
                 chatImageTaskId: taskId,
+                ...(input.correlation
+                  ? {
+                      chatImageAttempt: input.correlation.attempt ?? 0,
+                      chatImageIndex: input.correlation.index,
+                      chatImageMessageId: input.correlation.messageId,
+                    }
+                  : {}),
                 height: height ?? image.height,
                 path: uploaded.imageUrl,
                 width: width ?? image.width,

@@ -21,8 +21,11 @@ import {
   classifyChatImageTaskIdScopeKind,
   decideChatImageTaskCorrelation,
   listChatImageTaskIdScopeAliases,
+  listDerivedChatImageTaskIds,
   matchChatImageTaskIdScope,
   normalizeChatImageTaskAttempt,
+  parseStoredChatImageSlotInt,
+  pickLatestChatImageSlotFile,
 } from '@/helpers/chatImageTaskId';
 import { hashGenerationDebugValue, logGenerationDebugSafe } from '@/libs/logger/generationDebug';
 import {
@@ -89,11 +92,28 @@ const chatImageTaskIdScopesForContext = (ctx: LambdaContext) =>
     userId: ctx.userId,
   });
 
-const chatImageFileResult = (file: {
-  id: string;
-  metadata?: { height?: number; width?: number } | null;
-}) => {
-  const metadata = (file.metadata ?? {}) as { height?: number; width?: number };
+const chatImageFileResult = (
+  file: {
+    id: string;
+    metadata?: {
+      chatImageAttempt?: unknown;
+      chatImageTaskId?: unknown;
+      height?: number;
+      width?: number;
+    } | null;
+  },
+  extra?: { taskAttempt?: number; taskId?: string },
+) => {
+  const metadata = (file.metadata ?? {}) as {
+    chatImageAttempt?: unknown;
+    chatImageTaskId?: unknown;
+    height?: number;
+    width?: number;
+  };
+  const taskId =
+    extra?.taskId ??
+    (typeof metadata.chatImageTaskId === 'string' ? metadata.chatImageTaskId : undefined);
+  const taskAttempt = extra?.taskAttempt ?? parseStoredChatImageSlotInt(metadata.chatImageAttempt);
   return {
     file: {
       height: metadata.height,
@@ -101,6 +121,8 @@ const chatImageFileResult = (file: {
       width: metadata.width,
     },
     status: AsyncTaskStatus.Success as string,
+    ...(taskAttempt !== undefined ? { taskAttempt } : {}),
+    ...(taskId ? { taskId } : {}),
   };
 };
 
@@ -385,6 +407,7 @@ export const imageRouter = router({
       // nothing and we refuse; while we hold the lock the deletion waits, so
       // a task can never be inserted for a message that no longer exists.
       const {
+        attempt: chatImageAttempt,
         outcome: createOutcome,
         scopeKind,
         taskId,
@@ -442,6 +465,8 @@ export const imageRouter = router({
           .onConflictDoNothing()
           .returning();
         return {
+          attempt:
+            normalizeChatImageTaskAttempt(items?.[input.correlation.index]?.taskAttempt) ?? 0,
           outcome: inserted[0]?.id ? 'inserted' : 'idempotent',
           scopeKind: classifyChatImageTaskIdScopeKind(
             matchChatImageTaskIdScope(
@@ -517,6 +542,11 @@ export const imageRouter = router({
         });
         asyncCaller.image
           .createChatImage({
+            correlation: {
+              attempt: chatImageAttempt,
+              index: input.correlation.index,
+              messageId: input.correlation.messageId,
+            },
             model: input.model,
             params: input.params as { prompt: string },
             provider: input.provider,
@@ -1017,6 +1047,35 @@ export const imageRouter = router({
       if (!file) return { status: 'result_missing' as const };
 
       return chatImageFileResult(file);
+    }),
+
+  getChatImageSlotResult: imageProcedure
+    .input(z.object({ index: z.number().int().min(0), messageId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const fileModel = new FileModel(ctx.serverDB, ctx.userId);
+      const slotted = await fileModel.findLatestByChatImageSlot(input.messageId, input.index);
+      if (slotted) return chatImageFileResult(slotted);
+
+      const userScopes = chatImageTaskIdScopesForContext(ctx);
+      const historicalTaskIds = listDerivedChatImageTaskIds(
+        userScopes,
+        input.messageId,
+        input.index,
+      );
+      const historicalFiles = await fileModel.findByChatImageTaskIds(historicalTaskIds);
+      const historical = pickLatestChatImageSlotFile(historicalFiles, {
+        index: input.index,
+        messageId: input.messageId,
+        userScopes,
+      });
+      if (historical) {
+        return chatImageFileResult(historical.file, {
+          taskAttempt: historical.attempt,
+          taskId: historical.taskId,
+        });
+      }
+
+      return { status: 'task_missing' as const };
     }),
 });
 

@@ -6,15 +6,19 @@ vi.mock('@/services/_auth', () => ({
   createHeaderWithAuth: vi.fn(async () => ({ 'X-lobe-chat-auth': 'encoded-payload' })),
 }));
 
-const { cancelUnstartedMutate, getChatImageResultQuery } = vi.hoisted(() => ({
-  cancelUnstartedMutate: vi.fn(),
-  getChatImageResultQuery: vi.fn(),
-}));
+const { cancelUnstartedMutate, getChatImageResultQuery, getChatImageSlotResultQuery } = vi.hoisted(
+  () => ({
+    cancelUnstartedMutate: vi.fn(),
+    getChatImageResultQuery: vi.fn(),
+    getChatImageSlotResultQuery: vi.fn(),
+  }),
+);
 vi.mock('@/libs/trpc/client', () => ({
   lambdaClient: {
     image: {
       cancelUnstartedChatImageTasks: { mutate: cancelUnstartedMutate },
       getChatImageResult: { query: getChatImageResultQuery },
+      getChatImageSlotResult: { query: getChatImageSlotResultQuery },
     },
   },
 }));
@@ -115,6 +119,19 @@ describe('imageGenerationService', () => {
 
       expect(getChatImageResultQuery).toHaveBeenCalledWith(
         { taskId: 'task-1' },
+        { context: { showNotification: false } },
+      );
+    });
+  });
+
+  describe('getChatImageSlotResult', () => {
+    it('queries the slot with global error notifications suppressed', async () => {
+      getChatImageSlotResultQuery.mockResolvedValue({ status: 'task_missing' });
+
+      await imageGenerationService.getChatImageSlotResult({ index: 1, messageId: 'message-1' });
+
+      expect(getChatImageSlotResultQuery).toHaveBeenCalledWith(
+        { index: 1, messageId: 'message-1' },
         { context: { showNotification: false } },
       );
     });

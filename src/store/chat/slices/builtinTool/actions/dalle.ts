@@ -11,6 +11,7 @@ import {
   isChatImageToolMessage,
   listChatImageTaskIdScopeAliases,
   matchChatImageTaskIdScope,
+  singletonLinkedChatImageId,
 } from '@/helpers/chatImageTaskId';
 import { logDeferredGenerationLane } from '@/libs/logger/generationDebugClient';
 import { useClientDataSWR } from '@/libs/swr';
@@ -92,10 +93,6 @@ const resolveImageModel = ():
 const TASK_POLL_INTERVAL = 2500;
 const TASK_POLL_BUDGET = 300_000;
 const TERMINAL_TASK_STATUSES = new Set(['success', 'error']);
-// Prompt-only remount used to probe only attempt 0. A wiped Retry tile is
-// attempt 1+, so also probe 1 and 2. Scope order is unchanged (attempt 0
-// first) so alias-priority tests keep the same first two ids.
-const PROMPT_ONLY_RECOVERY_ATTEMPTS = [0, 1, 2];
 
 const sleep = (ms: number) =>
   new Promise<void>((resolve) => {
@@ -420,10 +417,16 @@ const collectPreparedChatImageStops = (
 ): PreparedChatImageStop[] => {
   const messages = state.messagesMap[messageMapKey(sessionId, topicId)] ?? [];
   const prepared: PreparedChatImageStop[] = [];
+  const userState = useUserStore.getState();
+  const userScopes = listChatImageTaskIdScopeAliases({
+    authenticatedScope: authSelectors.currentUserScope(userState),
+    rawAuthUserId: userState.authUserId,
+    userId: userState.user?.id,
+  });
 
   for (const message of messages) {
     if ((message.threadId ?? null) !== (threadId ?? null)) continue;
-    if (!isChatImageToolMessage(message)) continue;
+    if (!isChatImageToolMessage(message, userScopes)) continue;
 
     let items: DallEImageItem[];
     try {
@@ -1171,13 +1174,10 @@ export const dalleSlice: StateCreator<
       items,
       async (item, index) => {
         // Prompt-only tiles (stale fetch wiped `taskId`/`imageId`) still have
-        // a deterministic attempt id. Adopt a finished file from that id
-        // (attempts 0–2 × this-request scopes); never auto-create — that
-        // would bill a generation the user already paid.
+        // a deterministic task id. Adopt a finished file from that slot;
+        // never auto-create — that would bill a generation the user already paid.
         if (!item || item.imageId) return;
-        const linkedFileId =
-          origin.message.imageList?.[index]?.id ??
-          (items.length === 1 ? origin.message.imageList?.[0]?.id : undefined);
+        const linkedFileId = singletonLinkedChatImageId(items.length, origin.message.imageList);
         const loadingKey = `${messageId}_${index}`;
         if (!claimTaskKey(loadingKey, reconcileToken)) return;
         get().toggleDallEImageLoading(loadingKey, true);
@@ -1197,6 +1197,37 @@ export const dalleSlice: StateCreator<
             return;
           }
           if (!item.taskId) {
+            try {
+              const slot = await imageGenerationService.getChatImageSlotResult({
+                index,
+                messageId,
+              });
+              if (slot.status === 'success' && slot.file && invocationIsCurrent()) {
+                await get().updateImageItem(
+                  messageId,
+                  (draft) => {
+                    if (draft[index]) {
+                      draft[index].imageId = slot.file!.id;
+                      draft[index].previewUrl = undefined;
+                      if (slot.taskAttempt !== undefined) {
+                        draft[index].taskAttempt = slot.taskAttempt;
+                      }
+                      if (slot.taskId) draft[index].taskId = slot.taskId;
+                    }
+                  },
+                  conversationContext,
+                );
+                return;
+              }
+            } catch (error) {
+              if (!isTransientPollError(error)) {
+                hasError = true;
+                errorArray[index] = isChatImageStopTombstoneError(error)
+                  ? { errorType: CHAT_IMAGE_TASK_CANCELLED_ERROR }
+                  : serializePluginError(error);
+                return;
+              }
+            }
             const reconcileUserState = useUserStore.getState();
             const reconcileScopes = listChatImageTaskIdScopeAliases({
               authenticatedScope: authSelectors.currentUserScope(reconcileUserState),
@@ -1204,20 +1235,18 @@ export const dalleSlice: StateCreator<
               userId: reconcileUserState.user?.id,
             });
             const probes = await Promise.all(
-              PROMPT_ONLY_RECOVERY_ATTEMPTS.flatMap((attempt) =>
-                reconcileScopes.map(async (scope) => {
-                  const taskId = deriveChatImageTaskId(scope, messageId, index, attempt);
-                  try {
-                    const result = await waitForChatImageTask(taskId, invocationIsCurrent, {
-                      adoptProbe: true,
-                      immediate: true,
-                    });
-                    return { attempt, result, taskId };
-                  } catch (error) {
-                    return { attempt, error, taskId };
-                  }
-                }),
-              ),
+              reconcileScopes.map(async (scope) => {
+                const taskId = deriveChatImageTaskId(scope, messageId, index, 0);
+                try {
+                  const result = await waitForChatImageTask(taskId, invocationIsCurrent, {
+                    adoptProbe: true,
+                    immediate: true,
+                  });
+                  return { attempt: 0, result, taskId };
+                } catch (error) {
+                  return { attempt: 0, error, taskId };
+                }
+              }),
             );
             if (!invocationIsCurrent()) return;
             // Alias order is the recovery priority. Settle each probe so one

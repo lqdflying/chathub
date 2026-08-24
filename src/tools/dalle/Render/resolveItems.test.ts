@@ -10,25 +10,53 @@ describe('resolveDalleRenderItems', () => {
   });
 
   it('prefers live store imageId over stale prompt-only props', () => {
-    const items = resolveDalleRenderItems([{ prompt: 'p' }], {
-      content: JSON.stringify([{ imageId: 'file-live', prompt: 'p' }]),
-    }, 'm1');
+    const items = resolveDalleRenderItems(
+      [{ prompt: 'p' }],
+      {
+        content: JSON.stringify([{ imageId: 'file-live', prompt: 'p' }]),
+      },
+      'm1',
+    );
     expect(items[0]?.imageId).toBe('file-live');
   });
 
   it('fills imageId from message imageList when content is prompt-only', () => {
-    const items = resolveDalleRenderItems([{ prompt: 'p' }], {
-      content: JSON.stringify([{ prompt: 'p' }]),
-      imageList: [{ alt: 'p', id: 'file-linked', url: '' }],
-    }, 'm1');
+    const items = resolveDalleRenderItems(
+      [{ prompt: 'p' }],
+      {
+        content: JSON.stringify([{ prompt: 'p' }]),
+        imageList: [{ alt: 'p', id: 'file-linked', url: '' }],
+      },
+      'm1',
+    );
     expect(items[0]?.imageId).toBe('file-linked');
   });
 
   it('does not attach a compact imageList onto the wrong tile', () => {
-    const items = resolveDalleRenderItems([{ prompt: 'a' }, { prompt: 'b' }], {
-      content: JSON.stringify([{ prompt: 'a' }, { prompt: 'b' }]),
-      imageList: [{ alt: 'b', id: 'file-b', url: '' }],
-    }, 'm1');
+    const items = resolveDalleRenderItems(
+      [{ prompt: 'a' }, { prompt: 'b' }],
+      {
+        content: JSON.stringify([{ prompt: 'a' }, { prompt: 'b' }]),
+        imageList: [{ alt: 'b', id: 'file-b', url: '' }],
+      },
+      'm1',
+    );
+    expect(items[0]?.imageId).toBeUndefined();
+    expect(items[1]?.imageId).toBeUndefined();
+  });
+
+  it('does not zip an equal-length imageList onto prompts', () => {
+    const items = resolveDalleRenderItems(
+      [{ prompt: 'a' }, { prompt: 'b' }],
+      {
+        content: JSON.stringify([{ prompt: 'a' }, { prompt: 'b' }]),
+        imageList: [
+          { alt: 'b', id: 'file-b', url: '' },
+          { alt: 'a', id: 'file-a', url: '' },
+        ],
+      },
+      'm1',
+    );
     expect(items[0]?.imageId).toBeUndefined();
     expect(items[1]?.imageId).toBeUndefined();
   });

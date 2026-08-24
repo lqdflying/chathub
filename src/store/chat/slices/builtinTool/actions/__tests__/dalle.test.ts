@@ -253,6 +253,9 @@ describe('chatToolSlice - dalle', () => {
     vi.spyOn(imageGenerationService, 'cancelUnstartedChatImageTasks').mockResolvedValue({
       inserted: 0,
     });
+    vi.spyOn(imageGenerationService, 'getChatImageSlotResult').mockResolvedValue({
+      status: 'task_missing',
+    });
   });
 
   afterEach(() => {
@@ -1940,35 +1943,60 @@ describe('chatToolSlice - dalle', () => {
       expect(parsed[0]?.taskId).toBe(recoveredId);
     });
 
-    it('adopts a finished Retry attempt when attempt 0 is missing', async () => {
-      const userState = useUserStore.getState();
-      const scope = listChatImageTaskIdScopeAliases({
-        authenticatedScope: authSelectors.currentUserScope(userState),
-        rawAuthUserId: userState.authUserId,
-        userId: userState.user?.id,
-      })[0];
-      const attempt1 = deriveChatImageTaskId(scope!, 'message-id', 0, 1);
+    it('adopts a finished Retry attempt from the slot lookup', async () => {
+      const attempt3 = taskIdForAttempt(0, 3);
       seedToolMessage(JSON.stringify([{ prompt: 'p1' }]));
       const stubs = installStoreStubs();
       const createTaskMock = vi.spyOn(imageGenerationService, 'createChatImageTask');
-      vi.spyOn(imageGenerationService, 'getChatImageResult').mockImplementation(async (taskId) =>
-        taskId === attempt1
-          ? { file: { id: 'file-from-retry' }, status: 'success' }
-          : { status: 'task_missing' },
-      );
+      const pollMock = vi.spyOn(imageGenerationService, 'getChatImageResult');
+      vi.spyOn(imageGenerationService, 'getChatImageSlotResult').mockResolvedValue({
+        file: { id: 'file-from-retry' },
+        status: 'success',
+        taskAttempt: 3,
+        taskId: attempt3,
+      });
 
       await store().reconcileDallETasks('message-id');
       stubs.restore();
 
       expect(createTaskMock).not.toHaveBeenCalled();
+      expect(pollMock).not.toHaveBeenCalled();
       const parsed = JSON.parse(originContent()) as {
         imageId?: string;
         taskAttempt?: number;
         taskId?: string;
       }[];
       expect(parsed[0]?.imageId).toBe('file-from-retry');
-      expect(parsed[0]?.taskAttempt).toBe(1);
-      expect(parsed[0]?.taskId).toBe(attempt1);
+      expect(parsed[0]?.taskAttempt).toBe(3);
+      expect(parsed[0]?.taskId).toBe(attempt3);
+    });
+
+    it('adopts Retry attempt 9 from the slot lookup without probing earlier ids', async () => {
+      const attempt9 = taskIdForAttempt(0, 9);
+      seedToolMessage(JSON.stringify([{ prompt: 'p1' }]));
+      const stubs = installStoreStubs();
+      const createTaskMock = vi.spyOn(imageGenerationService, 'createChatImageTask');
+      const pollMock = vi.spyOn(imageGenerationService, 'getChatImageResult');
+      vi.spyOn(imageGenerationService, 'getChatImageSlotResult').mockResolvedValue({
+        file: { id: 'file-from-attempt-9' },
+        status: 'success',
+        taskAttempt: 9,
+        taskId: attempt9,
+      });
+
+      await store().reconcileDallETasks('message-id');
+      stubs.restore();
+
+      expect(createTaskMock).not.toHaveBeenCalled();
+      expect(pollMock).not.toHaveBeenCalled();
+      const parsed = JSON.parse(originContent()) as {
+        imageId?: string;
+        taskAttempt?: number;
+        taskId?: string;
+      }[];
+      expect(parsed[0]?.imageId).toBe('file-from-attempt-9');
+      expect(parsed[0]?.taskAttempt).toBe(9);
+      expect(parsed[0]?.taskId).toBe(attempt9);
     });
 
     it('adopts a messages_files link without probing when content is prompt-only', async () => {
@@ -1986,6 +2014,55 @@ describe('chatToolSlice - dalle', () => {
       expect(pollMock).not.toHaveBeenCalled();
       const parsed = JSON.parse(originContent()) as { imageId?: string }[];
       expect(parsed[0]?.imageId).toBe('file-linked');
+    });
+
+    it('does not persist a compact imageList onto the first prompt', async () => {
+      seedToolMessage(JSON.stringify([{ prompt: 'a' }, { prompt: 'b' }]), 'message-id', {
+        imageList: [{ alt: 'b', id: 'file-b', url: '' }],
+      });
+      const stubs = installStoreStubs();
+      const createTaskMock = vi.spyOn(imageGenerationService, 'createChatImageTask');
+      const pollMock = vi
+        .spyOn(imageGenerationService, 'getChatImageResult')
+        .mockResolvedValue({ status: 'task_missing' });
+
+      await store().reconcileDallETasks('message-id');
+      stubs.restore();
+
+      expect(createTaskMock).not.toHaveBeenCalled();
+      expect(pollMock).toHaveBeenCalled();
+      const parsed = JSON.parse(originContent()) as { imageId?: string }[];
+      expect(parsed[0]?.imageId).toBeUndefined();
+      expect(parsed[1]?.imageId).toBeUndefined();
+    });
+
+    it('attaches slot files by prompt index rather than imageList order', async () => {
+      seedToolMessage(JSON.stringify([{ prompt: 'a' }, { prompt: 'b' }]), 'message-id', {
+        imageList: [
+          { alt: 'b', id: 'file-b', url: '' },
+          { alt: 'a', id: 'file-a', url: '' },
+        ],
+      });
+      const stubs = installStoreStubs();
+      const createTaskMock = vi.spyOn(imageGenerationService, 'createChatImageTask');
+      const pollMock = vi.spyOn(imageGenerationService, 'getChatImageResult');
+      vi.spyOn(imageGenerationService, 'getChatImageSlotResult').mockImplementation(
+        async ({ index }) =>
+          index === 0
+            ? { file: { id: 'file-a' }, status: 'success', taskAttempt: 0, taskId: 'task-a' }
+            : { file: { id: 'file-b' }, status: 'success', taskAttempt: 0, taskId: 'task-b' },
+      );
+
+      await store().reconcileDallETasks('message-id');
+      stubs.restore();
+
+      expect(createTaskMock).not.toHaveBeenCalled();
+      expect(pollMock).not.toHaveBeenCalled();
+      const parsed = JSON.parse(originContent()) as { imageId?: string; taskId?: string }[];
+      expect(parsed[0]?.imageId).toBe('file-a');
+      expect(parsed[0]?.taskId).toBe('task-a');
+      expect(parsed[1]?.imageId).toBe('file-b');
+      expect(parsed[1]?.taskId).toBe('task-b');
     });
 
     it('adopts a successful alias when an earlier legacy scope is terminal', async () => {
@@ -2256,6 +2333,28 @@ describe('chatToolSlice - dalle', () => {
       expect(stubs2.pluginStateSpy).toHaveBeenCalledWith('message-id', {
         error: [{ errorType: 'ChatImageTaskCancelled' }],
       });
+    });
+
+    it('does not cancel an explicit non-image tool that happens to look like a prompt array', async () => {
+      const derivedId = initialIdFor(0);
+      seedToolMessage(JSON.stringify([{ prompt: 'p1', taskId: derivedId }]), 'message-id', {
+        plugin: {
+          apiName: 'plan',
+          arguments: '{}',
+          identifier: 'task-planner',
+          type: 'plugin',
+        },
+        role: 'tool',
+      });
+      const stubs = installStoreStubs();
+      const cancelSpy = vi.spyOn(imageGenerationService, 'cancelUnstartedChatImageTasks');
+
+      await store().cancelPreparedChatImageTasks(ORIGIN_SESSION, undefined, null);
+      stubs.restore();
+
+      expect(cancelSpy).not.toHaveBeenCalled();
+      expect(stoppedRegistryHas(derivedId)).toBe(false);
+      expect(originContent()).not.toContain('taskCancelled');
     });
 
     it('Retry after a Stop-marked tile re-authorizes and may submit', async () => {

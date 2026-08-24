@@ -1040,6 +1040,11 @@ describe('imageRouter', () => {
       // the generation itself is dispatched to the async router — the mutation
       // returns immediately and the client polls, never holding a long request
       expect(dispatchChatImage).toHaveBeenCalledWith({
+        correlation: {
+          attempt: 0,
+          index: CHAT_CORRELATION.index,
+          messageId: CHAT_CORRELATION.messageId,
+        },
         model: 'gpt-image-2',
         params: { prompt: 'a rain-washed street at night' },
         provider: 'openaicompatible',
@@ -1432,7 +1437,10 @@ describe('imageRouter', () => {
         expect.objectContaining({ id: ATTEMPT_1_TASK_ID, userId: 'account-a' }),
       ]);
       expect(dispatchChatImage).toHaveBeenCalledWith(
-        expect.objectContaining({ taskId: ATTEMPT_1_TASK_ID }),
+        expect.objectContaining({
+          correlation: expect.objectContaining({ attempt: 1, index: 0 }),
+          taskId: ATTEMPT_1_TASK_ID,
+        }),
       );
     });
 
@@ -1865,6 +1873,7 @@ describe('imageRouter', () => {
       await expect(caller.getChatImageResult({ taskId: 'task-orphan' })).resolves.toEqual({
         file: { height: 1024, id: 'file-orphan', width: 1024 },
         status: 'success',
+        taskId: 'task-orphan',
       });
       expect(findByChatImageTaskId).toHaveBeenCalledWith('task-orphan');
     });
@@ -1892,7 +1901,105 @@ describe('imageRouter', () => {
       expect(result).toEqual({
         file: { height: 4096, id: 'file-1', width: 4096 },
         status: 'success',
+        taskId: 'task-4',
       });
+    });
+  });
+
+  describe('getChatImageSlotResult', () => {
+    const CALLER_USER_ID = 'account-a';
+    const makeCallerCtx = (overrides?: Partial<LambdaContext>) =>
+      ({
+        authorizationHeader: 'test-authorization',
+        rawAuthUserId: CALLER_USER_ID,
+        userId: CALLER_USER_ID,
+        ...overrides,
+      }) as LambdaContext;
+    const USER_SCOPE = resolveAuthenticatedAccountScope(makeCallerCtx(), enableAuth) ?? 'local';
+    const messageId = 'message-1';
+
+    const makeSlotCaller = () => {
+      vi.mocked(getServerDB).mockResolvedValue({} as never);
+      vi.mocked(FileService).mockImplementation(() => ({}) as never);
+      vi.mocked(AsyncTaskModel).mockImplementation(() => ({}) as never);
+      return createCallerFactory(imageRouter)(makeCallerCtx() as never);
+    };
+
+    it('returns the slotted file without scanning historical task ids', async () => {
+      const findLatestByChatImageSlot = vi.fn().mockResolvedValue({
+        id: 'file-slot',
+        metadata: {
+          chatImageAttempt: 4,
+          chatImageIndex: 0,
+          chatImageMessageId: messageId,
+          chatImageTaskId: 'task-slot',
+          height: 1024,
+          width: 1024,
+        },
+      });
+      const findByChatImageTaskIds = vi.fn();
+      vi.mocked(FileModel).mockImplementation(
+        () =>
+          ({
+            findByChatImageTaskIds,
+            findLatestByChatImageSlot,
+          }) as never,
+      );
+
+      const result = await makeSlotCaller().getChatImageSlotResult({ index: 0, messageId });
+
+      expect(findLatestByChatImageSlot).toHaveBeenCalledWith(messageId, 0);
+      expect(findByChatImageTaskIds).not.toHaveBeenCalled();
+      expect(result).toEqual({
+        file: { height: 1024, id: 'file-slot', width: 1024 },
+        status: 'success',
+        taskAttempt: 4,
+        taskId: 'task-slot',
+      });
+    });
+
+    it('picks the highest historical derived attempt when slot metadata is absent', async () => {
+      const attempt3 = deriveChatImageTaskId(USER_SCOPE, messageId, 0, 3);
+      const attempt9 = deriveChatImageTaskId(USER_SCOPE, messageId, 0, 9);
+      const findLatestByChatImageSlot = vi.fn().mockResolvedValue(undefined);
+      const findByChatImageTaskIds = vi.fn().mockResolvedValue([
+        { id: 'file-3', metadata: { chatImageTaskId: attempt3 } },
+        { id: 'file-9', metadata: { chatImageTaskId: attempt9 } },
+      ]);
+      vi.mocked(FileModel).mockImplementation(
+        () =>
+          ({
+            findByChatImageTaskIds,
+            findLatestByChatImageSlot,
+          }) as never,
+      );
+
+      const result = await makeSlotCaller().getChatImageSlotResult({ index: 0, messageId });
+
+      expect(findByChatImageTaskIds).toHaveBeenCalled();
+      const scanned = findByChatImageTaskIds.mock.calls[0]?.[0] as string[];
+      expect(scanned).toContain(attempt3);
+      expect(scanned).toContain(attempt9);
+      expect(result).toEqual({
+        file: { height: undefined, id: 'file-9', width: undefined },
+        status: 'success',
+        taskAttempt: 9,
+        taskId: attempt9,
+      });
+    });
+
+    it('returns task_missing when no slotted or historical file exists', async () => {
+      vi.mocked(FileModel).mockImplementation(
+        () =>
+          ({
+            findByChatImageTaskIds: vi.fn().mockResolvedValue([]),
+            findLatestByChatImageSlot: vi.fn().mockResolvedValue(undefined),
+          }) as never,
+      );
+
+      await expect(
+        makeSlotCaller().getChatImageSlotResult({ index: 1, messageId }),
+      ).resolves.toEqual({ status: 'task_missing' });
     });
   });
 });

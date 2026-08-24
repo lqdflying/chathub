@@ -145,6 +145,71 @@ describe('imageRouter', () => {
       expect(updateTask).toHaveBeenCalledWith('task-2', { status: 'success' });
     });
 
+    it('stores prompt-slot keys on the file when correlation is forwarded', async () => {
+      mockClaimPendingTask.mockResolvedValue(true);
+      const updateTask = vi.fn().mockResolvedValue(undefined);
+      vi.mocked(AsyncTaskModel).mockImplementation(
+        () => ({ claimPendingTask: mockClaimPendingTask, update: updateTask }) as never,
+      );
+      vi.mocked(initModelRuntimeWithUserPayload).mockResolvedValue({
+        createImage: vi.fn().mockResolvedValue({
+          height: 1024,
+          imageUrl: 'data:image/png;base64,AAAA',
+          width: 1024,
+        }),
+      } as never);
+      const { GenerationService } = await import('@/server/services/generation');
+      vi.mocked(GenerationService).mockImplementation(
+        () =>
+          ({
+            transformImageForGeneration: vi.fn().mockResolvedValue({
+              image: {
+                extension: 'png',
+                hash: 'hash-1',
+                height: 1024,
+                mime: 'image/png',
+                size: 123,
+                width: 1024,
+              },
+              thumbnailImage: { height: 512, mime: 'image/png', size: 12, width: 512 },
+            }),
+            uploadImageForGeneration: vi.fn().mockResolvedValue({
+              imageUrl: 'files/generations/img.png',
+              thumbnailImageUrl: 'files/generations/thumb.png',
+            }),
+          }) as never,
+      );
+      const createFile = vi.fn().mockResolvedValue({ id: 'file-1' });
+      const { FileModel } = await import('@/database/models/file');
+      vi.mocked(FileModel).mockImplementation(() => ({ create: createFile }) as never);
+
+      const caller = imageRouter.createCaller({
+        jwtPayload: { apiKey: 'test-key' },
+        secret: 'test-internal-secret',
+        userId: 'test-user',
+      });
+
+      await caller.createChatImage({
+        correlation: { attempt: 3, index: 1, messageId: 'message-1' },
+        model: 'gpt-image-2',
+        params: { prompt: 'a rain-washed street' },
+        provider: 'openaicompatible',
+        taskId: 'task-2',
+      });
+
+      expect(createFile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          metadata: expect.objectContaining({
+            chatImageAttempt: 3,
+            chatImageIndex: 1,
+            chatImageMessageId: 'message-1',
+            chatImageTaskId: 'task-2',
+          }),
+        }),
+        true,
+      );
+    });
+
     it('forwards ComfyUI auth headers to the protected result download (R9-2)', async () => {
       mockClaimPendingTask.mockResolvedValue(true);
       const updateTask = vi.fn().mockResolvedValue(undefined);

@@ -936,22 +936,31 @@ configurable model rather than a hard-coded one.
   mutation race; `mutate(..., { revalidate: false })` / skipRefresh is the
   local write, and merge is the fetch-side repair;
   [SWR Mutation](https://swr.vercel.app/docs/mutation)). Fetch rows that omit
-  `plugin` (LEFT JOIN `message_plugins`) still merge when `role === 'tool'`
-  and the JSON is a prompt array. Tile persist also writes `messages_files`
-  (`imageList`) so a later getMessages can fill the card without the JSON
-  `imageId`. The Image tool renderer subscribes to the live tool-message
-  `{ content, imageList }` instead of a one-shot parsed `content` prop, and
-  re-runs `reconcileDallETasks` when tiles become prompt-only again
-  ([useEffect](https://react.dev/reference/react/useEffect) dependency
-  fingerprint). `getChatImageResult` returns the Artifacts file when the
-  `async_tasks` row is gone. Task correlation is one versioned
-  tuple: a higher valid `taskAttempt` wins from either side, so a stale Stop
-  snapshot cannot replace a newer Retry. The tool render's
+  `plugin` (LEFT JOIN `message_plugins`) still merge when the previous in-memory
+  row is the Chat Image tool (or already carries `imageId`/`taskId`). An
+  explicit non-image plugin identity always wins over a prompt-array payload
+  shape, so Stop/fetch cannot mutate another tool. Tile persist also writes
+  `messages_files` (`imageList`). That relation is an unordered bag with no
+  prompt index — only a **one-prompt / one-file** message may use it as a
+  fallback. Multi-prompt cards attach by file metadata
+  (`chatImageMessageId` / `chatImageIndex` / `chatImageAttempt`) or by
+  re-deriving historical `chatImageTaskId` values; they never zip
+  `imageList[index]`. The Image tool renderer subscribes to the live
+  tool-message `{ content, imageList }` instead of a one-shot parsed
+  `content` prop, and re-runs `reconcileDallETasks` when tiles become
+  prompt-only again ([useEffect](https://react.dev/reference/react/useEffect)
+  dependency fingerprint). `getChatImageResult` returns the Artifacts file
+  when the `async_tasks` row is gone. `getChatImageSlotResult` returns the
+  latest file for one prompt slot at any Retry attempt. Task correlation is
+  one versioned tuple: a higher valid `taskAttempt` wins from either side, so
+  a stale Stop snapshot cannot replace a newer Retry. The tool render's
   mount-time `reconcileDallETasks` adopts a finished task's file, including
-  prompt-only tiles whose `taskId` was wiped — it probes this request's
-  derived attempt 0–2 ids **independently** (one terminal legacy scope does not
-  hide a successful file on another alias) and **does not auto-create** on
-  that path; `retryDallEImages`
+  prompt-only tiles whose `taskId` was wiped — it uses the 1:1 `imageList`
+  link, then the slot lookup, then **attempt-0** scope-alias probes
+  **independently** (one terminal legacy scope does not hide a successful
+  file on another alias) and **does not auto-create** on that path. There is
+  no Retry attempt ceiling on recovery; later attempts are found by slot
+  metadata or the historical derived-id scan. `retryDallEImages`
   adopts an existing task first and creates a replacement ONLY after the
   server reports an authoritative terminal `error` state with ownership
   re-checked after that await — lookup, transport and local-timeout failures
@@ -975,7 +984,10 @@ configurable model rather than a hard-coded one.
   headers are forwarded to the protected result download exactly like the
   workspace flow), then `GenerationService.transformImageForGeneration` +
   `uploadImageForGeneration`, and creates a **files row** linked to the task
-  via `metadata.chatImageTaskId` (`FileModel.findByChatImageTaskId`). The chat
+  via `metadata.chatImageTaskId` (`FileModel.findByChatImageTaskId`). New Chat
+  Image files also store `chatImageMessageId`, `chatImageIndex`, and
+  `chatImageAttempt` so remount recovery can find Retry attempt N without a
+  client attempt ceiling. The chat
   message stores only the durable `fileId` — the raw provider/base64 payload
   never crosses the task/message boundary into content or the store (that was
   the cause of the live-page crash this design replaced); the browser

@@ -1,12 +1,13 @@
 import { UIChatMessage } from '@lobechat/types';
 
-import { parseChatImageToolItems } from '@/helpers/chatImageTaskId';
+import { parseChatImageToolItems, singletonLinkedChatImageId } from '@/helpers/chatImageTaskId';
 import { DallEImageItem } from '@/types/tool/dalle';
 
 /**
- * Prefer the live tool-message JSON (and `imageList` from `messages_files`)
- * over the parsed `content` prop. A stale BuiltinType/useParseContent chain
- * can keep Prompt-only tiles after `updateImageItem` already wrote `imageId`.
+ * Prefer the live tool-message JSON over the parsed `content` prop. A stale
+ * BuiltinType/useParseContent chain can keep Prompt-only tiles after
+ * `updateImageItem` already wrote `imageId`. `imageList` from `messages_files`
+ * is an unordered bag — only a one-prompt / one-link message may use it.
  */
 export const resolveDalleRenderItems = (
   content: unknown,
@@ -18,18 +19,12 @@ export const resolveDalleRenderItems = (
     ? (raw as DallEImageItem[])
     : (parseChatImageToolItems(raw) as DallEImageItem[] | undefined);
   const items = parsed ?? [];
-  const linked = message?.imageList;
-  return items.map((item, index) => {
-    const linkedId =
-      item.imageId ||
-      (linked && linked.length === items.length ? linked[index]?.id : undefined) ||
-      (items.length === 1 ? linked?.[0]?.id : undefined);
-    return {
-      ...item,
-      imageId: linkedId,
-      messageId,
-    };
-  });
+  const singletonId = singletonLinkedChatImageId(items.length, message?.imageList);
+  return items.map((item) => ({
+    ...item,
+    imageId: item.imageId || singletonId,
+    messageId,
+  }));
 };
 
 export const dalleMissingImageKey = (items: Array<{ imageId?: string }>) =>

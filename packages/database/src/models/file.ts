@@ -445,6 +445,51 @@ export class FileModel {
     });
   };
 
+  /**
+   * Latest in-chat image file for one prompt slot. Slot keys are stored on
+   * `files.metadata` at create time so Retry attempts are not capped.
+   */
+  findLatestByChatImageSlot = async (messageId: string, index: number) => {
+    const rows = await this.db
+      .select()
+      .from(files)
+      .where(
+        and(
+          eq(files.userId, this.userId),
+          sql`${files.metadata}->>'chatImageMessageId' = ${messageId}`,
+          sql`${files.metadata}->>'chatImageIndex' = ${String(index)}`,
+        ),
+      );
+    if (rows.length === 0) return undefined;
+    return rows.reduce((best, row) => {
+      const bestAttempt = Number(
+        (best.metadata as { chatImageAttempt?: unknown } | null)?.chatImageAttempt,
+      );
+      const rowAttempt = Number(
+        (row.metadata as { chatImageAttempt?: unknown } | null)?.chatImageAttempt,
+      );
+      const bestValue = Number.isFinite(bestAttempt) ? bestAttempt : -1;
+      const rowValue = Number.isFinite(rowAttempt) ? rowAttempt : -1;
+      return rowValue > bestValue ? row : best;
+    });
+  };
+
+  findByChatImageTaskIds = async (taskIds: string[]) => {
+    if (taskIds.length === 0) return [];
+    return this.db
+      .select()
+      .from(files)
+      .where(
+        and(
+          eq(files.userId, this.userId),
+          sql`${files.metadata}->>'chatImageTaskId' in (${sql.join(
+            taskIds.map((taskId) => sql`${taskId}`),
+            sql`, `,
+          )})`,
+        ),
+      );
+  };
+
   countFilesByHash = async (hash: string) => {
     const result = await this.db
       .select({

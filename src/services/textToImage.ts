@@ -15,6 +15,8 @@ export interface ChatImageTaskResult {
   error?: { body?: { detail?: string }; name?: string } | null;
   file?: { height?: number; id: string; width?: number };
   status: string;
+  taskAttempt?: number;
+  taskId?: string;
 }
 
 class ImageGenerationService {
@@ -114,6 +116,19 @@ class ImageGenerationService {
       { taskId },
       { context: { showNotification: false } },
     ) as Promise<ChatImageTaskResult>;
+  };
+
+  /**
+   * Latest file for one prompt slot. New files carry message/index/attempt
+   * metadata; historical files are matched by re-derived task ids. Never bills.
+   */
+  getChatImageSlotResult = async (input: {
+    index: number;
+    messageId: string;
+  }): Promise<ChatImageTaskResult> => {
+    return lambdaClient.image.getChatImageSlotResult.query(input, {
+      context: { showNotification: false },
+    }) as Promise<ChatImageTaskResult>;
   };
 
   /**

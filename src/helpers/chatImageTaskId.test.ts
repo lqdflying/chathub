@@ -5,12 +5,16 @@ import {
   decideChatImageTaskCorrelation,
   deriveChatImageTaskId,
   isChatImageTaskIdProvenanceValid,
+  isChatImageToolMessage,
   listChatImageTaskIdScopeAliases,
   matchChatImageTaskIdScope,
   mergeChatImageToolContent,
   mergeChatImageToolItems,
   normalizeChatImageTaskAttempt,
+  parseStoredChatImageSlotInt,
+  pickLatestChatImageSlotFile,
   preserveChatImageToolContentOnFetch,
+  singletonLinkedChatImageId,
 } from './chatImageTaskId';
 
 describe('chatImageTaskId', () => {
@@ -256,6 +260,63 @@ describe('chatImageTaskId', () => {
     ];
     const merged = preserveChatImageToolContentOnFetch(incoming, existing);
     expect(merged[0]?.imageList).toEqual([{ id: 'file-linked' }]);
+  });
+
+  it('does not merge an explicit non-image tool when the fetch omitted plugin', () => {
+    const existing = [
+      {
+        content: JSON.stringify([{ prompt: 'old', taskId: 'foreign-task' }]),
+        id: 'other-tool',
+        plugin: { apiName: 'plan', identifier: 'task-planner' },
+        role: 'tool' as const,
+      },
+    ];
+    const incoming = [
+      {
+        content: JSON.stringify([{ prompt: 'new', taskId: 'foreign-task' }]),
+        id: 'other-tool',
+        role: 'tool' as const,
+      },
+    ];
+    const merged = preserveChatImageToolContentOnFetch(incoming, existing);
+    expect(merged[0]).toBe(incoming[0]);
+    expect(merged[0]?.content).toBe(incoming[0]?.content);
+  });
+
+  it('does not classify an explicit non-image prompt array as Chat Image', () => {
+    const taskId = deriveChatImageTaskId(scope, messageId, 0, 0);
+    expect(
+      isChatImageToolMessage(
+        {
+          content: JSON.stringify([{ prompt: 'p1', taskId }]),
+          id: messageId,
+          plugin: { identifier: 'task-planner' },
+          role: 'tool',
+        },
+        [scope],
+      ),
+    ).toBe(false);
+  });
+
+  it('uses a 1:1 messages_files link only for a single prompt', () => {
+    expect(singletonLinkedChatImageId(1, [{ id: 'file-a' }])).toBe('file-a');
+    expect(singletonLinkedChatImageId(2, [{ id: 'file-b' }])).toBeUndefined();
+    expect(singletonLinkedChatImageId(2, [{ id: 'file-b' }, { id: 'file-a' }])).toBeUndefined();
+  });
+
+  it('picks the highest matching slot file rather than list order', () => {
+    const attempt3 = deriveChatImageTaskId(scope, messageId, 1, 3);
+    const attempt9 = deriveChatImageTaskId(scope, messageId, 1, 9);
+    const winner = pickLatestChatImageSlotFile(
+      [
+        { id: 'file-9', metadata: { chatImageTaskId: attempt9 } },
+        { id: 'file-3', metadata: { chatImageTaskId: attempt3 } },
+      ],
+      { index: 1, messageId, userScopes: [scope] },
+    );
+    expect(winner).toMatchObject({ attempt: 9, file: { id: 'file-9' }, taskId: attempt9 });
+    expect(parseStoredChatImageSlotInt(undefined)).toBeUndefined();
+    expect(parseStoredChatImageSlotInt('9')).toBe(9);
   });
 
   it('authorizes attempt 0 and a later attempt when the derived id matches', () => {
