@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  HISTORICAL_CHAT_IMAGE_SLOT_MAX_ATTEMPT,
   classifyChatImageTaskIdScopeKind,
   decideChatImageTaskCorrelation,
   deriveChatImageTaskId,
   isChatImageTaskIdProvenanceValid,
   isChatImageToolMessage,
   listChatImageTaskIdScopeAliases,
+  listDerivedChatImageTaskIds,
   matchChatImageTaskIdScope,
   mergeChatImageToolContent,
   mergeChatImageToolItems,
@@ -14,6 +16,7 @@ import {
   parseStoredChatImageSlotInt,
   pickLatestChatImageSlotFile,
   preserveChatImageToolContentOnFetch,
+  resolveChatImageSlotAttempt,
   singletonLinkedChatImageId,
 } from './chatImageTaskId';
 
@@ -317,6 +320,44 @@ describe('chatImageTaskId', () => {
     expect(winner).toMatchObject({ attempt: 9, file: { id: 'file-9' }, taskId: attempt9 });
     expect(parseStoredChatImageSlotInt(undefined)).toBeUndefined();
     expect(parseStoredChatImageSlotInt('9')).toBe(9);
+  });
+
+  it('rejects caller-supplied slot metadata that does not re-derive', () => {
+    expect(
+      pickLatestChatImageSlotFile(
+        [
+          {
+            id: 'ordinary-upload',
+            metadata: {
+              chatImageAttempt: 999,
+              chatImageIndex: 0,
+              chatImageMessageId: messageId,
+              chatImageTaskId: 'not-derived',
+            },
+          },
+        ],
+        { index: 0, messageId, userScopes: [scope] },
+      ),
+    ).toBeUndefined();
+  });
+
+  it('matches a stored attempt beyond the pre-metadata compatibility window', () => {
+    const attempt257 = deriveChatImageTaskId(scope, messageId, 0, 257);
+    expect(listDerivedChatImageTaskIds([scope], messageId, 0).includes(attempt257)).toBe(false);
+    expect(resolveChatImageSlotAttempt([scope], messageId, 0, attempt257)).toBeUndefined();
+    expect(resolveChatImageSlotAttempt([scope], messageId, 0, attempt257, 257)).toBe(257);
+    expect(
+      pickLatestChatImageSlotFile(
+        [
+          {
+            id: 'file-257',
+            metadata: { chatImageAttempt: 257, chatImageTaskId: attempt257 },
+          },
+        ],
+        { index: 0, messageId, userScopes: [scope] },
+      ),
+    ).toMatchObject({ attempt: 257, file: { id: 'file-257' }, taskId: attempt257 });
+    expect(HISTORICAL_CHAT_IMAGE_SLOT_MAX_ATTEMPT).toBe(256);
   });
 
   it('authorizes attempt 0 and a later attempt when the derived id matches', () => {

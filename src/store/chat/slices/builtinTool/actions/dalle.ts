@@ -1197,36 +1197,65 @@ export const dalleSlice: StateCreator<
             return;
           }
           if (!item.taskId) {
+            let slot;
             try {
-              const slot = await imageGenerationService.getChatImageSlotResult({
+              slot = await imageGenerationService.getChatImageSlotResult({
                 index,
                 messageId,
               });
-              if (slot.status === 'success' && slot.file && invocationIsCurrent()) {
+            } catch (error) {
+              hasError = true;
+              errorArray[index] = isChatImageStopTombstoneError(error)
+                ? { errorType: CHAT_IMAGE_TASK_CANCELLED_ERROR }
+                : serializePluginError(error);
+              return;
+            }
+            const slotStatus = (slot.status ?? '').toLowerCase();
+            if (slot.status === 'success' && slot.file && invocationIsCurrent()) {
+              await get().updateImageItem(
+                messageId,
+                (draft) => {
+                  if (draft[index]) {
+                    draft[index].imageId = slot.file!.id;
+                    draft[index].previewUrl = undefined;
+                    if (slot.taskAttempt !== undefined) {
+                      draft[index].taskAttempt = slot.taskAttempt;
+                    }
+                    if (slot.taskId) draft[index].taskId = slot.taskId;
+                  }
+                },
+                conversationContext,
+              );
+              return;
+            }
+            if (
+              slot.taskId &&
+              slotStatus !== 'task_missing' &&
+              slotStatus !== 'not_found' &&
+              invocationIsCurrent()
+            ) {
+              const recovered = await waitForChatImageTask(slot.taskId, invocationIsCurrent, {
+                immediate: true,
+              });
+              if (!invocationIsCurrent()) return;
+              if (recovered.ok && recovered.file) {
                 await get().updateImageItem(
                   messageId,
                   (draft) => {
                     if (draft[index]) {
-                      draft[index].imageId = slot.file!.id;
+                      draft[index].imageId = recovered.file!.id;
                       draft[index].previewUrl = undefined;
                       if (slot.taskAttempt !== undefined) {
                         draft[index].taskAttempt = slot.taskAttempt;
                       }
-                      if (slot.taskId) draft[index].taskId = slot.taskId;
+                      draft[index].taskId = slot.taskId;
                     }
                   },
                   conversationContext,
                 );
                 return;
               }
-            } catch (error) {
-              if (!isTransientPollError(error)) {
-                hasError = true;
-                errorArray[index] = isChatImageStopTombstoneError(error)
-                  ? { errorType: CHAT_IMAGE_TASK_CANCELLED_ERROR }
-                  : serializePluginError(error);
-                return;
-              }
+              return;
             }
             const reconcileUserState = useUserStore.getState();
             const reconcileScopes = listChatImageTaskIdScopeAliases({

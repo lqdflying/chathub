@@ -168,10 +168,11 @@ const CHAT_IMAGE_PLUGIN_IDENTIFIER = 'lobe-image-designer';
 const CHAT_IMAGE_API_NAME = 'text2image';
 
 /**
- * Files created before slot metadata (`chatImageMessageId` / index / attempt)
- * can only be rediscovered by re-deriving task ids. This bound is a
- * compatibility scan for those historical rows, not a Retry product cap:
- * new files are found by slot keys at any attempt.
+ * Files/tasks created before slot keys (`chatImageMessageId` / index /
+ * attempt) can only be rediscovered by re-deriving task ids. This is a
+ * **pre-metadata compatibility window** (attempts 0–256 inclusive), not a
+ * Retry product cap: rows that store a slot attempt are matched in O(scopes)
+ * against that exact integer, including attempt 257+.
  */
 export const HISTORICAL_CHAT_IMAGE_SLOT_MAX_ATTEMPT = 256;
 
@@ -225,6 +226,27 @@ export const matchDerivedChatImageTaskAttempt = (
   return undefined;
 };
 
+/**
+ * Prove a task id belongs to this prompt slot. A stored attempt is trusted
+ * only when it re-derives to the same id (unbounded Retry). Missing stored
+ * attempt uses the pre-metadata compatibility scan.
+ */
+export const resolveChatImageSlotAttempt = (
+  userScopes: readonly string[],
+  messageId: string,
+  index: number,
+  taskId: string | undefined,
+  storedAttempt?: number,
+): number | undefined => {
+  if (!taskId) return undefined;
+  if (storedAttempt !== undefined) {
+    return matchChatImageTaskIdScope(userScopes, messageId, index, taskId, storedAttempt)
+      ? storedAttempt
+      : undefined;
+  }
+  return matchDerivedChatImageTaskAttempt(userScopes, messageId, index, taskId);
+};
+
 export const singletonLinkedChatImageId = (
   itemCount: number,
   imageList?: { id?: string }[] | null,
@@ -264,10 +286,13 @@ export const pickLatestChatImageSlotFile = <T extends ChatImageSlotFileLike>(
     if (slottedMessage && slottedMessage !== input.messageId) continue;
     if (slottedIndex !== undefined && slottedIndex !== input.index) continue;
     const slottedAttempt = parseStoredChatImageSlotInt(metadata.chatImageAttempt);
-    const derivedAttempt = taskId
-      ? matchDerivedChatImageTaskAttempt(input.userScopes, input.messageId, input.index, taskId)
-      : undefined;
-    const attempt = slottedAttempt ?? derivedAttempt;
+    const attempt = resolveChatImageSlotAttempt(
+      input.userScopes,
+      input.messageId,
+      input.index,
+      taskId,
+      slottedAttempt,
+    );
     if (attempt === undefined) continue;
     if (!winner || attempt > winner.attempt) winner = { attempt, file, taskId };
   }

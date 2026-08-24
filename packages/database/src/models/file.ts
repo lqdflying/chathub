@@ -447,7 +447,8 @@ export class FileModel {
 
   /**
    * Latest in-chat image file for one prompt slot. Slot keys are stored on
-   * `files.metadata` at create time so Retry attempts are not capped.
+   * `files.metadata` at create time so Retry attempts are not capped. Only
+   * server-created `image_generation` rows are eligible.
    */
   findLatestByChatImageSlot = async (messageId: string, index: number) => {
     const rows = await this.db
@@ -456,6 +457,7 @@ export class FileModel {
       .where(
         and(
           eq(files.userId, this.userId),
+          eq(files.source, FileSource.ImageGeneration),
           sql`${files.metadata}->>'chatImageMessageId' = ${messageId}`,
           sql`${files.metadata}->>'chatImageIndex' = ${String(index)}`,
         ),
@@ -482,6 +484,7 @@ export class FileModel {
       .where(
         and(
           eq(files.userId, this.userId),
+          eq(files.source, FileSource.ImageGeneration),
           sql`${files.metadata}->>'chatImageTaskId' in (${sql.join(
             taskIds.map((taskId) => sql`${taskId}`),
             sql`, `,

@@ -1918,21 +1918,27 @@ describe('imageRouter', () => {
     const USER_SCOPE = resolveAuthenticatedAccountScope(makeCallerCtx(), enableAuth) ?? 'local';
     const messageId = 'message-1';
 
-    const makeSlotCaller = () => {
+    const makeSlotCaller = (asyncTaskModel?: { findByIds?: ReturnType<typeof vi.fn> }) => {
       vi.mocked(getServerDB).mockResolvedValue({} as never);
       vi.mocked(FileService).mockImplementation(() => ({}) as never);
-      vi.mocked(AsyncTaskModel).mockImplementation(() => ({}) as never);
+      vi.mocked(AsyncTaskModel).mockImplementation(
+        () =>
+          ({
+            findByIds: asyncTaskModel?.findByIds ?? vi.fn().mockResolvedValue([]),
+          }) as never,
+      );
       return createCallerFactory(imageRouter)(makeCallerCtx() as never);
     };
 
     it('returns the slotted file without scanning historical task ids', async () => {
+      const taskId = deriveChatImageTaskId(USER_SCOPE, messageId, 0, 4);
       const findLatestByChatImageSlot = vi.fn().mockResolvedValue({
         id: 'file-slot',
         metadata: {
           chatImageAttempt: 4,
           chatImageIndex: 0,
           chatImageMessageId: messageId,
-          chatImageTaskId: 'task-slot',
+          chatImageTaskId: taskId,
           height: 1024,
           width: 1024,
         },
@@ -1954,7 +1960,7 @@ describe('imageRouter', () => {
         file: { height: 1024, id: 'file-slot', width: 1024 },
         status: 'success',
         taskAttempt: 4,
-        taskId: 'task-slot',
+        taskId,
       });
     });
 
@@ -1999,6 +2005,50 @@ describe('imageRouter', () => {
 
       await expect(
         makeSlotCaller().getChatImageSlotResult({ index: 1, messageId }),
+      ).resolves.toEqual({ status: 'task_missing' });
+    });
+
+    it('returns a pending Retry task for the prompt slot', async () => {
+      const attempt3 = deriveChatImageTaskId(USER_SCOPE, messageId, 0, 3);
+      vi.mocked(FileModel).mockImplementation(
+        () =>
+          ({
+            findByChatImageTaskIds: vi.fn().mockResolvedValue([]),
+            findLatestByChatImageSlot: vi.fn().mockResolvedValue(undefined),
+          }) as never,
+      );
+      const findByIds = vi.fn().mockResolvedValue([{ id: attempt3, status: 'processing' }]);
+
+      await expect(
+        makeSlotCaller({ findByIds }).getChatImageSlotResult({ index: 0, messageId }),
+      ).resolves.toEqual({
+        error: undefined,
+        status: 'processing',
+        taskAttempt: 3,
+        taskId: attempt3,
+      });
+      expect(findByIds).toHaveBeenCalled();
+    });
+
+    it('rejects an ordinary upload whose metadata forges the prompt slot', async () => {
+      vi.mocked(FileModel).mockImplementation(
+        () =>
+          ({
+            findByChatImageTaskIds: vi.fn().mockResolvedValue([]),
+            findLatestByChatImageSlot: vi.fn().mockResolvedValue({
+              id: 'ordinary-upload',
+              metadata: {
+                chatImageAttempt: 999,
+                chatImageIndex: 0,
+                chatImageMessageId: messageId,
+                chatImageTaskId: 'not-derived',
+              },
+            }),
+          }) as never,
+      );
+
+      await expect(
+        makeSlotCaller().getChatImageSlotResult({ index: 0, messageId }),
       ).resolves.toEqual({ status: 'task_missing' });
     });
   });

@@ -304,8 +304,10 @@ Copy-paste APL: **`.cursor/rules/debug-log-checks.mdc`**.
     saved file from a 1:1 `messages_files` link, then `getChatImageSlotResult`
     (latest attempt for that prompt, including historical derived task ids),
     then attempt-0 alias probes — never auto-creating, and never assigning
-    `imageList[index]` on a multi-prompt card. One terminal legacy id cannot
-    hide a successful file.
+    `imageList[index]` on a multi-prompt card. A pending later attempt is
+    polled until it produces the file. Pre-metadata historical rows are
+    discoverable only for attempts 0–256; stored slot keys have no Retry
+    ceiling. One terminal legacy id cannot hide a successful file.
     The Image tool renderer reads the live store rather than a stale parsed
     `content` prop, and re-runs reconcile when tiles become prompt-only
     again. `attachedCount=N` with Prompt-only cards is this wipe, not a failed

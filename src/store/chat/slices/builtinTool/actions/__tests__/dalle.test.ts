@@ -1999,6 +1999,64 @@ describe('chatToolSlice - dalle', () => {
       expect(parsed[0]?.taskId).toBe(attempt9);
     });
 
+    it('polls a pending Retry attempt until the file appears without creating', async () => {
+      vi.useFakeTimers();
+      const attempt3 = taskIdForAttempt(0, 3);
+      seedToolMessage(JSON.stringify([{ prompt: 'p1' }]));
+      const stubs = installStoreStubs();
+      const createTaskMock = vi.spyOn(imageGenerationService, 'createChatImageTask');
+      vi.spyOn(imageGenerationService, 'getChatImageSlotResult').mockResolvedValue({
+        status: 'processing',
+        taskAttempt: 3,
+        taskId: attempt3,
+      });
+      let polls = 0;
+      vi.spyOn(imageGenerationService, 'getChatImageResult').mockImplementation(async (taskId) => {
+        if (taskId !== attempt3) return { status: 'task_missing' };
+        polls += 1;
+        if (polls === 1) return { status: 'processing' };
+        return { file: { id: 'file-from-pending' }, status: 'success' };
+      });
+
+      const run = store().reconcileDallETasks('message-id');
+      await vi.advanceTimersByTimeAsync(3000);
+      await run;
+      stubs.restore();
+
+      expect(createTaskMock).not.toHaveBeenCalled();
+      const parsed = JSON.parse(originContent()) as {
+        imageId?: string;
+        taskAttempt?: number;
+        taskId?: string;
+      }[];
+      expect(parsed[0]?.imageId).toBe('file-from-pending');
+      expect(parsed[0]?.taskAttempt).toBe(3);
+      expect(parsed[0]?.taskId).toBe(attempt3);
+    });
+
+    it('surfaces a transient slot lookup failure instead of leaving a blank tile', async () => {
+      seedToolMessage(JSON.stringify([{ prompt: 'p1' }]));
+      const stubs = installStoreStubs();
+      const createTaskMock = vi.spyOn(imageGenerationService, 'createChatImageTask');
+      vi.spyOn(imageGenerationService, 'getChatImageSlotResult').mockRejectedValue(
+        Object.assign(new Error('slot unavailable'), { data: { httpStatus: 503 } }),
+      );
+      const pollMock = vi
+        .spyOn(imageGenerationService, 'getChatImageResult')
+        .mockResolvedValue({ status: 'task_missing' });
+
+      await store().reconcileDallETasks('message-id');
+      stubs.restore();
+
+      expect(createTaskMock).not.toHaveBeenCalled();
+      expect(pollMock).not.toHaveBeenCalled();
+      expect(stubs.pluginStateSpy).toHaveBeenCalledWith('message-id', {
+        error: [expect.objectContaining({ message: 'slot unavailable' })],
+      });
+      const parsed = JSON.parse(originContent()) as { imageId?: string }[];
+      expect(parsed[0]?.imageId).toBeUndefined();
+    });
+
     it('adopts a messages_files link without probing when content is prompt-only', async () => {
       seedToolMessage(JSON.stringify([{ prompt: 'p1' }]), 'message-id', {
         imageList: [{ alt: 'p1', id: 'file-linked', url: '' }],

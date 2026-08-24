@@ -26,6 +26,7 @@ import {
   normalizeChatImageTaskAttempt,
   parseStoredChatImageSlotInt,
   pickLatestChatImageSlotFile,
+  resolveChatImageSlotAttempt,
 } from '@/helpers/chatImageTaskId';
 import { hashGenerationDebugValue, logGenerationDebugSafe } from '@/libs/logger/generationDebug';
 import {
@@ -1053,25 +1054,84 @@ export const imageRouter = router({
     .input(z.object({ index: z.number().int().min(0), messageId: z.string() }))
     .query(async ({ ctx, input }) => {
       const fileModel = new FileModel(ctx.serverDB, ctx.userId);
-      const slotted = await fileModel.findLatestByChatImageSlot(input.messageId, input.index);
-      if (slotted) return chatImageFileResult(slotted);
-
       const userScopes = chatImageTaskIdScopesForContext(ctx);
+      const slotInput = {
+        index: input.index,
+        messageId: input.messageId,
+        userScopes,
+      };
+
+      const slotted = await fileModel.findLatestByChatImageSlot(input.messageId, input.index);
+      const provenSlotted = slotted ? pickLatestChatImageSlotFile([slotted], slotInput) : undefined;
+
       const historicalTaskIds = listDerivedChatImageTaskIds(
         userScopes,
         input.messageId,
         input.index,
       );
-      const historicalFiles = await fileModel.findByChatImageTaskIds(historicalTaskIds);
-      const historical = pickLatestChatImageSlotFile(historicalFiles, {
-        index: input.index,
-        messageId: input.messageId,
-        userScopes,
-      });
-      if (historical) {
-        return chatImageFileResult(historical.file, {
-          taskAttempt: historical.attempt,
-          taskId: historical.taskId,
+      const historicalFile = provenSlotted
+        ? provenSlotted
+        : pickLatestChatImageSlotFile(
+            await fileModel.findByChatImageTaskIds(historicalTaskIds),
+            slotInput,
+          );
+
+      const tasks = await ctx.asyncTaskModel.findByIds(
+        historicalTaskIds,
+        AsyncTaskType.ImageGeneration,
+      );
+      let bestTask:
+        { attempt: number; error?: unknown; status: string; taskId: string } | undefined;
+      for (const task of tasks) {
+        const attempt = resolveChatImageSlotAttempt(
+          userScopes,
+          input.messageId,
+          input.index,
+          task.id,
+        );
+        if (attempt === undefined) continue;
+        if (!bestTask || attempt > bestTask.attempt) {
+          bestTask = {
+            attempt,
+            error: task.error,
+            status: task.status as string,
+            taskId: task.id,
+          };
+        }
+      }
+
+      const fileAttempt = historicalFile?.attempt ?? -1;
+      const taskAttempt = bestTask?.attempt ?? -1;
+      if (bestTask && taskAttempt > fileAttempt) {
+        if (bestTask.status === AsyncTaskStatus.Success) {
+          const file =
+            historicalFile?.taskId === bestTask.taskId
+              ? historicalFile.file
+              : await fileModel.findByChatImageTaskId(bestTask.taskId);
+          if (file) {
+            return chatImageFileResult(file, {
+              taskAttempt: bestTask.attempt,
+              taskId: bestTask.taskId,
+            });
+          }
+          return {
+            status: 'result_missing' as const,
+            taskAttempt: bestTask.attempt,
+            taskId: bestTask.taskId,
+          };
+        }
+        return {
+          error: bestTask.error as { body?: { detail?: string }; name?: string } | null,
+          status: bestTask.status,
+          taskAttempt: bestTask.attempt,
+          taskId: bestTask.taskId,
+        };
+      }
+
+      if (historicalFile) {
+        return chatImageFileResult(historicalFile.file, {
+          taskAttempt: historicalFile.attempt,
+          taskId: historicalFile.taskId,
         });
       }
 

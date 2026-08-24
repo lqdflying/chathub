@@ -951,16 +951,21 @@ configurable model rather than a hard-coded one.
   prompt-only again ([useEffect](https://react.dev/reference/react/useEffect)
   dependency fingerprint). `getChatImageResult` returns the Artifacts file
   when the `async_tasks` row is gone. `getChatImageSlotResult` returns the
-  latest file for one prompt slot at any Retry attempt. Task correlation is
-  one versioned tuple: a higher valid `taskAttempt` wins from either side, so
-  a stale Stop snapshot cannot replace a newer Retry. The tool render's
-  mount-time `reconcileDallETasks` adopts a finished task's file, including
-  prompt-only tiles whose `taskId` was wiped — it uses the 1:1 `imageList`
-  link, then the slot lookup, then **attempt-0** scope-alias probes
-  **independently** (one terminal legacy scope does not hide a successful
-  file on another alias) and **does not auto-create** on that path. There is
-  no Retry attempt ceiling on recovery; later attempts are found by slot
-  metadata or the historical derived-id scan. `retryDallEImages`
+  latest **proven** file or in-flight task for one prompt slot (server-created
+  `image_generation` rows whose `chatImageTaskId` re-derives for that
+  message/index/attempt). A pending Retry is polled until the file appears;
+  lookup/transport failures surface Retry instead of falling through to
+  attempt 0. Task correlation is one versioned tuple: a higher valid
+  `taskAttempt` wins from either side, so a stale Stop snapshot cannot
+  replace a newer Retry. The tool render's mount-time `reconcileDallETasks`
+  adopts a finished or in-flight task, including prompt-only tiles whose
+  `taskId` was wiped — it uses the 1:1 `imageList` link, then the slot
+  lookup (which may return a later pending attempt), then **attempt-0**
+  scope-alias probes **independently** (one terminal legacy scope does not
+  hide a successful file on another alias) and **does not auto-create** on
+  that path. Rows that store slot metadata have no Retry ceiling. Files and
+  tasks created **before** those keys can only be rediscovered for attempts
+  0–256. `retryDallEImages`
   adopts an existing task first and creates a replacement ONLY after the
   server reports an authoritative terminal `error` state with ownership
   re-checked after that await — lookup, transport and local-timeout failures
