@@ -1,10 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { enableAuth } from '@/const/auth';
 import { getServerDB } from '@/database/core/db-adaptor';
 import { AsyncTaskModel } from '@/database/models/asyncTask';
 import { FileModel } from '@/database/models/file';
+import { deriveChatImageTaskId } from '@/helpers/chatImageTaskId';
 import * as generationDebug from '@/libs/logger/generationDebug';
 import { createCallerFactory } from '@/libs/trpc/lambda';
+import type { LambdaContext } from '@/libs/trpc/lambda/context';
+import { resolveAuthenticatedAccountScope } from '@/libs/trpc/lambda/middleware/verifiedAccountScope';
 import { createAsyncCaller } from '@/server/routers/async/caller';
 import {
   createImageInputSchema,
@@ -923,8 +927,29 @@ describe('imageRouter', () => {
   });
 
   describe('createChatImage (in-chat async generation)', () => {
-    const CHAT_TASK_ID = '3f2c8f7e-1c2d-4e5f-9a6b-7c8d9e0f1a2b';
+    const CALLER_USER_ID = 'account-a';
+    const makeCallerCtx = (overrides?: Partial<LambdaContext>) =>
+      ({
+        authorizationHeader: 'test-authorization',
+        rawAuthUserId: CALLER_USER_ID,
+        userId: CALLER_USER_ID,
+        ...overrides,
+      }) as LambdaContext;
+    const USER_SCOPE = resolveAuthenticatedAccountScope(makeCallerCtx(), enableAuth) ?? 'local';
     const CHAT_CORRELATION = { index: 0, messageId: 'message-1' };
+    const CHAT_TASK_ID = deriveChatImageTaskId(
+      USER_SCOPE,
+      CHAT_CORRELATION.messageId,
+      CHAT_CORRELATION.index,
+      0,
+    );
+    const VICTIM_TASK_ID = deriveChatImageTaskId(
+      'user:account-b',
+      CHAT_CORRELATION.messageId,
+      0,
+      0,
+    );
+    const ATTEMPT_1_TASK_ID = deriveChatImageTaskId(USER_SCOPE, CHAT_CORRELATION.messageId, 0, 1);
 
     // serverDB.transaction stand-in whose select/insert chains mirror the real
     // drizzle calls (including the FOR SHARE read); `rowsProvider` feeds the
@@ -977,11 +1002,8 @@ describe('imageRouter', () => {
       return dispatch;
     };
 
-    const makeCaller = () =>
-      createCallerFactory(imageRouter)({
-        authorizationHeader: 'test-authorization',
-        userId: 'account-a',
-      } as never);
+    const makeCaller = (overrides?: Partial<LambdaContext>) =>
+      createCallerFactory(imageRouter)(makeCallerCtx(overrides) as never);
 
     it('verifies the correlation and inserts the pending task in ONE transaction, then dispatches', async () => {
       const { db, insertedValues, transaction, tx } = makeTxDb(correlatedRows);
@@ -1322,6 +1344,116 @@ describe('imageRouter', () => {
       expect(JSON.stringify(fields)).not.toContain(CHAT_TASK_ID);
     });
 
+    it('rejects a victim UUID embedded in a caller-owned message before insert', async () => {
+      const { db, insertedValues } = makeTxDb(() => [
+        { content: JSON.stringify([{ prompt: 'p', taskId: VICTIM_TASK_ID }]) },
+      ]);
+      const dispatchChatImage = installCommonMocks(db);
+      const logSpy = vi.spyOn(generationDebug, 'logGenerationDebugSafe');
+
+      await expect(
+        makeCaller().createChatImage({
+          correlation: CHAT_CORRELATION,
+          model: 'gpt-image-2',
+          params: { prompt: 'p' },
+          provider: 'openaicompatible',
+          taskId: VICTIM_TASK_ID,
+        }),
+      ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
+
+      expect(insertedValues).toHaveLength(0);
+      expect(dispatchChatImage).not.toHaveBeenCalled();
+      expect(logSpy).toHaveBeenCalledWith(
+        'chat_image_task_rejected',
+        expect.objectContaining({ outcome: 'unproven' }),
+      );
+    });
+
+    it('rejects a matching UUID whose attempt, message, or index does not derive', async () => {
+      const scenarios = [
+        [{ prompt: 'p', taskAttempt: 1, taskId: CHAT_TASK_ID }],
+        [{ prompt: 'p', taskId: deriveChatImageTaskId(USER_SCOPE, 'other-message', 0, 0) }],
+        [{ prompt: 'p' }, { prompt: 'p', taskId: CHAT_TASK_ID }],
+      ] as const;
+      const correlations = [
+        CHAT_CORRELATION,
+        CHAT_CORRELATION,
+        { index: 1, messageId: 'message-1' },
+      ];
+      const taskIds = [
+        CHAT_TASK_ID,
+        deriveChatImageTaskId(USER_SCOPE, 'other-message', 0, 0),
+        CHAT_TASK_ID,
+      ];
+
+      for (const [i, content] of scenarios.entries()) {
+        const { db, insertedValues } = makeTxDb(() => [{ content: JSON.stringify(content) }]);
+        const dispatchChatImage = installCommonMocks(db);
+
+        await expect(
+          makeCaller().createChatImage({
+            correlation: correlations[i]!,
+            model: 'gpt-image-2',
+            params: { prompt: 'p' },
+            provider: 'openaicompatible',
+            taskId: taskIds[i]!,
+          }),
+        ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
+
+        expect(insertedValues).toHaveLength(0);
+        expect(dispatchChatImage).not.toHaveBeenCalled();
+      }
+    });
+
+    it('inserts a later attempt when the derived id matches taskAttempt', async () => {
+      const { db, insertedValues } = makeTxDb(() => [
+        {
+          content: JSON.stringify([{ prompt: 'p', taskAttempt: 1, taskId: ATTEMPT_1_TASK_ID }]),
+        },
+      ]);
+      const dispatchChatImage = installCommonMocks(db);
+
+      await expect(
+        makeCaller().createChatImage({
+          correlation: CHAT_CORRELATION,
+          model: 'gpt-image-2',
+          params: { prompt: 'p' },
+          provider: 'openaicompatible',
+          taskId: ATTEMPT_1_TASK_ID,
+        }),
+      ).resolves.toEqual({ taskId: ATTEMPT_1_TASK_ID });
+
+      expect(insertedValues).toEqual([
+        expect.objectContaining({ id: ATTEMPT_1_TASK_ID, userId: 'account-a' }),
+      ]);
+      expect(dispatchChatImage).toHaveBeenCalledWith(
+        expect.objectContaining({ taskId: ATTEMPT_1_TASK_ID }),
+      );
+    });
+
+    it('derives provenance from the raw authenticated principal, not the mapped database owner', async () => {
+      const { db, insertedValues } = makeTxDb(correlatedRows);
+      const dispatchChatImage = installCommonMocks(db);
+
+      await expect(
+        makeCaller({
+          rawAuthUserId: CALLER_USER_ID,
+          userId: 'mapped-database-owner',
+        }).createChatImage({
+          correlation: CHAT_CORRELATION,
+          model: 'gpt-image-2',
+          params: { prompt: 'p' },
+          provider: 'openaicompatible',
+          taskId: CHAT_TASK_ID,
+        }),
+      ).resolves.toEqual({ taskId: CHAT_TASK_ID });
+
+      expect(insertedValues).toEqual([
+        expect.objectContaining({ id: CHAT_TASK_ID, userId: 'mapped-database-owner' }),
+      ]);
+      expect(dispatchChatImage).toHaveBeenCalled();
+    });
+
     it('does not dispatch when a cancelled placeholder already occupies the task id', async () => {
       const { db } = makeTxDb(correlatedRows, { insertConflict: true });
       const findById = vi.fn().mockResolvedValue({
@@ -1526,6 +1658,47 @@ describe('imageRouter', () => {
           expect(tx.insert).not.toHaveBeenCalled();
           expect(insertedValues).toHaveLength(0);
         }
+      });
+
+      it('does not tombstone a victim UUID embedded in a caller-owned message', async () => {
+        const { db, insertedValues, tx } = makeTxDb(() => [
+          { content: JSON.stringify([{ prompt: 'p', taskId: VICTIM_TASK_ID }]) },
+        ]);
+        installCommonMocks(db);
+
+        await expect(
+          makeCaller().cancelUnstartedChatImageTasks({
+            items: [{ index: 0, messageId: 'message-1', taskId: VICTIM_TASK_ID }],
+          }),
+        ).resolves.toEqual({ inserted: 0 });
+
+        expect(tx.insert).not.toHaveBeenCalled();
+        expect(insertedValues).toHaveLength(0);
+      });
+
+      it('tombstones a later attempt when the derived id matches taskAttempt', async () => {
+        const { db, insertedValues } = makeTxDb(() => [
+          {
+            content: JSON.stringify([{ prompt: 'p', taskAttempt: 1, taskId: ATTEMPT_1_TASK_ID }]),
+          },
+        ]);
+        installCommonMocks(db);
+
+        await expect(
+          makeCaller().cancelUnstartedChatImageTasks({
+            items: [{ index: 0, messageId: 'message-1', taskId: ATTEMPT_1_TASK_ID }],
+          }),
+        ).resolves.toEqual({ inserted: 1 });
+
+        expect(insertedValues).toEqual([
+          [
+            expect.objectContaining({
+              id: ATTEMPT_1_TASK_ID,
+              status: 'error',
+              userId: 'account-a',
+            }),
+          ],
+        ]);
       });
 
       it('rejects more than 64 items before any database work', async () => {

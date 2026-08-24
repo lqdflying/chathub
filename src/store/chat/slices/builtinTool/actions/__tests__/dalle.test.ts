@@ -1,7 +1,7 @@
 import { UIChatMessage } from '@lobechat/types';
-import { sha256 } from 'js-sha256';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { deriveChatImageTaskId } from '@/helpers/chatImageTaskId';
 import * as generationDebugClient from '@/libs/logger/generationDebugClient';
 import { ToolsRPCResponseError } from '@/libs/trpc/client/toolsResponse';
 import {
@@ -169,17 +169,9 @@ const store = () => useChatStore.getState();
 const spyChatImageDebug = () =>
   vi.spyOn(generationDebugClient, 'logDeferredGenerationLane').mockResolvedValue();
 
-// test-side replica of the action's deterministic derivation
-const deriveTestTaskId = (seed: string): string => {
-  const bytes = new Uint8Array(sha256.arrayBuffer(seed)).slice(0, 16);
-  bytes[6] = (bytes[6] & 15) | 80;
-  bytes[8] = (bytes[8] & 63) | 128;
-  const hex = [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-};
 const currentScope = () => authSelectors.currentUserScope(useUserStore.getState()) ?? 'anonymous';
 const taskIdForAttempt = (index: number, attempt: number, messageId = 'message-id') =>
-  deriveTestTaskId(`chathub-chat-image-task:${currentScope()}:${messageId}:${index}:${attempt}`);
+  deriveChatImageTaskId(currentScope(), messageId, index, attempt);
 const initialIdFor = (index: number, messageId = 'message-id') =>
   taskIdForAttempt(index, 0, messageId);
 

@@ -16,6 +16,10 @@ import {
   messages,
 } from '@/database/schemas';
 import { appEnv } from '@/envs/app';
+import {
+  ChatImageTaskCorrelationItem,
+  decideChatImageTaskCorrelation,
+} from '@/helpers/chatImageTaskId';
 import { hashGenerationDebugValue, logGenerationDebugSafe } from '@/libs/logger/generationDebug';
 import {
   createImageDiagnosticId,
@@ -28,6 +32,7 @@ import {
 } from '@/libs/logger/imageDebug';
 import { authedProcedure, router } from '@/libs/trpc/lambda';
 import { keyVaults, serverDatabase } from '@/libs/trpc/lambda/middleware';
+import { resolveAuthenticatedAccountScope } from '@/libs/trpc/lambda/middleware/verifiedAccountScope';
 import { createAsyncCaller } from '@/server/routers/async/caller';
 import { FileService } from '@/server/services/file';
 import {
@@ -61,6 +66,35 @@ const isChatImageStopTombstone = (task?: { error?: unknown; status?: string | nu
   return (
     (task.error as { name?: string } | null | undefined)?.name === CHAT_IMAGE_TASK_CANCELLED_ERROR
   );
+};
+
+const parseChatImageToolItems = (content: string): ChatImageTaskCorrelationItem[] | undefined => {
+  try {
+    const parsed = JSON.parse(content) as ChatImageTaskCorrelationItem[];
+    return Array.isArray(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+const rejectUncorrelatedChatImageTask = (input: {
+  correlation: { index: number; messageId: string };
+  outcome: 'uncorrelated' | 'unproven';
+  spanId?: string;
+  taskId: string;
+}) => {
+  logGenerationDebugSafe('chat_image_task_rejected', {
+    index: input.correlation.index,
+    messageHash: hashGenerationDebugValue(input.correlation.messageId),
+    outcome: input.outcome,
+    ...(input.spanId ? { spanId: input.spanId } : {}),
+    taskHash: hashGenerationDebugValue(input.taskId),
+  });
+  throw new TRPCError({
+    code: 'PRECONDITION_FAILED',
+    message:
+      'The originating message no longer carries this unresolved image task, so no generation was started.',
+  });
 };
 
 type ImageReferenceConfig = {
@@ -291,10 +325,10 @@ export const imageRouter = router({
   createChatImage: imageProcedure
     .input(
       z.object({
-        // MANDATORY: the user-owned message must STILL contain exactly this
-        // unresolved taskId at this index — the server-authoritative guard
-        // that a deleted/mutated message (or a stale/hostile client omitting
-        // the fields) cannot authorize billable work
+        // MANDATORY: the user-owned message must STILL contain this unresolved
+        // taskId at this index AND that id must derive from the authenticated
+        // user scope + message + index + attempt. Presence in caller-writable
+        // content is not authorization (RFC 4122 §6 / OWASP IDOR).
         correlation: z.object({ index: z.number().int().min(0), messageId: z.string().min(1) }),
         model: z.string().trim().min(1),
         params: z.object({ prompt: z.string().trim().min(1) }).passthrough(),
@@ -329,25 +363,17 @@ export const imageRouter = router({
           .limit(1)
           .for('share');
 
-        let correlated = false;
-        let stopped = false;
-        if (ownedMessage?.content) {
-          try {
-            const items = JSON.parse(ownedMessage.content) as {
-              imageId?: string;
-              taskCancelled?: boolean;
-              taskId?: string;
-            }[];
-            const item = items?.[input.correlation.index];
-            stopped = Boolean(item && item.taskId === input.taskId && item.taskCancelled);
-            correlated = Boolean(
-              item && item.taskId === input.taskId && !item.imageId && !item.taskCancelled,
-            );
-          } catch {
-            correlated = false;
-          }
-        }
-        if (stopped) {
+        const items = ownedMessage?.content
+          ? parseChatImageToolItems(ownedMessage.content)
+          : undefined;
+        const decision = decideChatImageTaskCorrelation({
+          index: input.correlation.index,
+          item: items?.[input.correlation.index],
+          messageId: input.correlation.messageId,
+          taskId: input.taskId,
+          userScope: resolveAuthenticatedAccountScope(ctx),
+        });
+        if (decision === 'stopped') {
           logGenerationDebugSafe('chat_image_task_rejected', {
             index: input.correlation.index,
             messageHash: hashGenerationDebugValue(input.correlation.messageId),
@@ -361,18 +387,12 @@ export const imageRouter = router({
               'This image task was stopped before generation started, so no generation was started.',
           });
         }
-        if (!correlated) {
-          logGenerationDebugSafe('chat_image_task_rejected', {
-            index: input.correlation.index,
-            messageHash: hashGenerationDebugValue(input.correlation.messageId),
-            outcome: 'uncorrelated',
-            ...(input.spanId ? { spanId: input.spanId } : {}),
-            taskHash: hashGenerationDebugValue(input.taskId),
-          });
-          throw new TRPCError({
-            code: 'PRECONDITION_FAILED',
-            message:
-              'The originating message no longer carries this unresolved image task, so no generation was started.',
+        if (decision !== 'authorized') {
+          rejectUncorrelatedChatImageTask({
+            correlation: input.correlation,
+            outcome: decision === 'unproven' ? 'unproven' : 'uncorrelated',
+            spanId: input.spanId,
+            taskId: input.taskId,
           });
         }
 
@@ -499,8 +519,9 @@ export const imageRouter = router({
    * Record unpaid write-first chat-image task ids as cancelled placeholders so
    * a later `task_missing` remount cannot auto-create them. Each item must
    * still appear as an unresolved correlation on a caller-owned message
-   * (FOR SHARE). Existing pending / processing / success rows are left alone
-   * (`ON CONFLICT DO NOTHING`) and remain adoptable.
+   * (FOR SHARE) whose task id matches the authenticated user/message/index/
+   * attempt derivation. Existing pending / processing / success rows are left
+   * alone (`ON CONFLICT DO NOTHING`) and remain adoptable.
    */
   cancelUnstartedChatImageTasks: imageProcedure
     .input(
@@ -544,20 +565,22 @@ export const imageRouter = router({
             .for('share');
 
           if (!ownedMessage?.content) continue;
-          let parsed: {
-            imageId?: string;
-            taskId?: string;
-          }[];
-          try {
-            parsed = JSON.parse(ownedMessage.content);
-          } catch {
-            continue;
-          }
-          if (!Array.isArray(parsed)) continue;
+          const parsed = parseChatImageToolItems(ownedMessage.content);
+          if (!parsed) continue;
 
+          const userScope = resolveAuthenticatedAccountScope(ctx);
           for (const { index, taskId } of correlations) {
-            const item = parsed[index];
-            if (!item || item.taskId !== taskId || item.imageId) continue;
+            if (
+              decideChatImageTaskCorrelation({
+                index,
+                item: parsed[index],
+                messageId,
+                taskId,
+                userScope,
+              }) !== 'authorized'
+            ) {
+              continue;
+            }
             authorizedIds.push(taskId);
           }
         }

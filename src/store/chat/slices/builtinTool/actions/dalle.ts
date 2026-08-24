@@ -1,12 +1,12 @@
 import { ToolDiagnosticTerminalOutcome, UIChatMessage } from '@lobechat/types';
 import { produce } from 'immer';
-import { sha256 } from 'js-sha256';
 import { omit } from 'lodash-es';
 import { RuntimeImageGenParams } from 'model-bank';
 import pMap from 'p-map';
 import { SWRResponse } from 'swr';
 import { StateCreator } from 'zustand/vanilla';
 
+import { deriveChatImageTaskId, isChatImageTaskIdProvenanceValid } from '@/helpers/chatImageTaskId';
 import { logDeferredGenerationLane } from '@/libs/logger/generationDebugClient';
 import { useClientDataSWR } from '@/libs/swr';
 import { findRPCResponseError } from '@/libs/trpc/client/toolsResponse';
@@ -108,51 +108,11 @@ const releaseTaskKey = (key: string, token: symbol) => {
   if (inFlightTaskKeys.get(key) === token) inFlightTaskKeys.delete(key);
 };
 
-// DETERMINISTIC task ids — SHA-256-derived, RFC-4122-shaped (the version-5
-// nibble is set only for UUID-schema compatibility; this is NOT SHA-1 UUIDv5).
-// Every tab derives the SAME id for the same (user, message, item, attempt),
-// so a cross-tab overlap
-// cannot create two different paid tasks — the server's idempotent same-id
-// insert plus the pending-claim dedup collapse duplicate submissions into one
-// task, and both tabs adopt the same result. A replacement is simply the
-// NEXT ATTEMPT of the same tuple — the attempt counter persisted on the item
-// tells every tab which attempt is current, so they stay converged.
-const CHAT_IMAGE_TASK_SEED = 'chathub-chat-image-task';
-const deriveDeterministicTaskId = (seed: string): string => {
-  const bytes = new Uint8Array(sha256.arrayBuffer(seed)).slice(0, 16);
-  // decimal to stay neutral in the prettier/unicorn hex-casing conflict:
-  // 15/80 = version-5 nibble, 63/128 = RFC-4122 variant
-  bytes[6] = (bytes[6] & 15) | 80;
-  bytes[8] = (bytes[8] & 63) | 128;
-  const hex = [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-};
-// Every attempt's id comes straight from the base tuple (scope, message,
-// index, attempt) — the item persists its attempt counter next to the id, so
-// provenance validation is ONE derivation + comparison. No chain walk, no
-// arbitrary chain cap, and Retry is never limited by the validator: attempt N
-// terminally failing simply advances to attempt N+1 (R16-3).
-const deriveTaskId = (userScope: string, messageId: string, index: number, attempt: number) =>
-  deriveDeterministicTaskId(
-    `${CHAT_IMAGE_TASK_SEED}:${userScope}:${messageId}:${index}:${attempt}`,
-  );
-
-// PROVENANCE: a persisted id may only authorize AUTOMATIC work if it provably
-// belongs to (user, message, index, attempt). Restored/imported messages keep
-// their nested content but get NEW message ids (and their async-task rows are
-// not part of backups), so their stale ids fail this check and must go through
-// explicit Retry instead of billing on view. A missing/garbled attempt counter
-// fails closed the same way.
-const isTaskIdProvenanceValid = (
-  userScope: string,
-  messageId: string,
-  index: number,
-  taskId: string,
-  attempt: number,
-): boolean =>
-  Number.isInteger(attempt) &&
-  attempt >= 0 &&
-  deriveTaskId(userScope, messageId, index, attempt) === taskId;
+// DETERMINISTIC task ids — shared with the server (`chatImageTaskId`). Every
+// tab derives the SAME id for the same (user, message, item, attempt), so a
+// cross-tab overlap cannot create two different paid tasks. A replacement is
+// the NEXT ATTEMPT of the same tuple (R16-3). Provenance is one derivation +
+// comparison; restored/imported messages with new ids fail closed.
 
 // Owner-aware image config hydrates asynchronously after reload; "still
 // initializing" must never be conflated with "initialized and no usable
@@ -849,7 +809,7 @@ export const dalleSlice: StateCreator<
       for (const index of ownedIndices) {
         if (!items[index].taskId) {
           allocations.set(index, {
-            next: deriveTaskId(userScope, messageId, index, 0),
+            next: deriveChatImageTaskId(userScope, messageId, index, 0),
             nextAttempt: 0,
           });
         }
@@ -957,9 +917,9 @@ export const dalleSlice: StateCreator<
             // checked write, then created fresh
             if (
               !mustCreate &&
-              !isTaskIdProvenanceValid(userScope, messageId, index, taskId, attempt)
+              !isChatImageTaskIdProvenanceValid(userScope, messageId, index, taskId, attempt)
             ) {
-              const derivedId = deriveTaskId(userScope, messageId, index, 0);
+              const derivedId = deriveChatImageTaskId(userScope, messageId, index, 0);
               const replaced = await persistTaskIdsChecked(
                 new Map([[index, { expected: taskId, next: derivedId, nextAttempt: 0 }]]),
               );
@@ -1019,7 +979,12 @@ export const dalleSlice: StateCreator<
                 // pass the same checked write BEFORE its task is created; the
                 // expectation pins the failed id
                 const nextAttempt = attempt + 1;
-                const replacementId = deriveTaskId(userScope, messageId, index, nextAttempt);
+                const replacementId = deriveChatImageTaskId(
+                  userScope,
+                  messageId,
+                  index,
+                  nextAttempt,
+                );
                 const replaced = await persistTaskIdsChecked(
                   new Map([[index, { expected: taskId, next: replacementId, nextAttempt }]]),
                 );
@@ -1200,7 +1165,7 @@ export const dalleSlice: StateCreator<
             const userScope =
               authSelectors.currentUserScope(useUserStore.getState()) ?? 'anonymous';
             if (
-              !isTaskIdProvenanceValid(
+              !isChatImageTaskIdProvenanceValid(
                 userScope,
                 messageId,
                 index,

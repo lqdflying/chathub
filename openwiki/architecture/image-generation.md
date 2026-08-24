@@ -884,13 +884,18 @@ configurable model rather than a hard-coded one.
   lookup cannot delay the cross-device placeholder. The client sends only
   unpaid correlations (`messageId` + `index` + `taskId`), skips tiles that
   already have `taskCancelled`, and chunks at 64. The mutation verifies each
-  item on a caller-owned message (`FOR SHARE`) before insert;
-  `ON CONFLICT DO NOTHING` leaves pending/success/provider-error rows
-  adoptable. An insert conflict with no same-user row is `CONFLICT` and never
-  dispatches. Create refuses a `taskCancelled` correlation and does not
-  dispatch when the id already has a `ChatImageTaskCancelled` placeholder;
-  another existing `error` row (provider/trigger/timeout) is ordinary
-  idempotent — `outcome=stopped` is not used for those. Same-session Stop also
+  item on a caller-owned message (`FOR SHARE`) before insert, then re-derives
+  the expected UUID from the authenticated account scope plus `messageId`,
+  `index`, and `taskAttempt` (missing attempt = 0). A UUID that is merely
+  present in caller-writable message content is not authorization — RFC 4122
+  §6 forbids using UUIDs as capabilities, and this check closes the
+  cross-account global-PK squat. `ON CONFLICT DO NOTHING` leaves
+  pending/success/provider-error rows adoptable. An insert conflict with no
+  same-user row is `CONFLICT` and never dispatches. Create refuses a
+  `taskCancelled` correlation and does not dispatch when the id already has a
+  `ChatImageTaskCancelled` placeholder; another existing `error` row
+  (provider/trigger/timeout) is ordinary idempotent — `outcome=stopped` is not
+  used for those. Same-session Stop also
   refuses a prepared fence that no longer matches the live (non-zero) lane
   fence. Reload resets that live fence to 0, so that comparison is skipped
   then — otherwise a later authorized generation stamped `taskFence > 0` would
@@ -907,10 +912,13 @@ configurable model rather than a hard-coded one.
   auto-create. Existing server tasks (pending or success) are adopted
   before this gate and are never discarded; and
   server-side verification — the create contract REQUIRES the correlation
-  (message id + index) and the task id, and the mutation verifies and inserts
-  in ONE transaction with the message row read FOR SHARE, linearized against
-  message deletion — neither an omitted field nor a delete/create race can
-  insert work the conversation no longer contains. Item writes are serialized
+  (message id + index) and the task id, and the mutation verifies provenance
+  and inserts in ONE transaction with the message row read FOR SHARE,
+  linearized against message deletion. The expected id is derived from the
+  authenticated user scope (`user:<rawAuthUserId>` or `local`), message id,
+  index, and attempt — embedding another account's UUID in owned content
+  cannot authorize insert. Neither an omitted field nor a delete/create race
+  can insert work the conversation no longer contains. Item writes are serialized
   per message (a promise queue in `updateImageItem`). The tool render's
   mount-time `reconcileDallETasks` adopts a finished task's file, resumes
   waiting on a pending one, or surfaces its failure; `retryDallEImages`
