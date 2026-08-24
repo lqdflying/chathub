@@ -146,6 +146,44 @@ describe('chatImageTaskId', () => {
     expect(merged[0]?.taskCancelled).toBeUndefined();
   });
 
+  it('does not let a stale Stop snapshot overwrite a newer Retry tuple', () => {
+    const stopped = deriveChatImageTaskId(scope, messageId, 0, 0);
+    const retried = deriveChatImageTaskId(scope, messageId, 0, 1);
+    const merged = mergeChatImageToolItems(
+      [{ prompt: 'p', taskAttempt: 0, taskCancelled: true, taskFence: 1, taskId: stopped }],
+      [{ prompt: 'p', taskAttempt: 1, taskFence: 2, taskId: retried }],
+    );
+    expect(merged[0]).toMatchObject({
+      prompt: 'p',
+      taskAttempt: 1,
+      taskFence: 2,
+      taskId: retried,
+    });
+    expect(merged[0]?.taskCancelled).toBeUndefined();
+  });
+
+  it('does not attach an older attempt file onto a newer Retry tuple', () => {
+    const stopped = deriveChatImageTaskId(scope, messageId, 0, 0);
+    const retried = deriveChatImageTaskId(scope, messageId, 0, 1);
+    const merged = mergeChatImageToolItems(
+      [{ imageId: 'file-attempt-0', prompt: 'p', taskAttempt: 0, taskId: stopped }],
+      [{ prompt: 'p', taskAttempt: 1, taskId: retried }],
+    );
+    expect(merged[0]?.taskId).toBe(retried);
+    expect(merged[0]?.imageId).toBeUndefined();
+  });
+
+  it('keeps a live same-attempt alias instead of reviving a stopped predecessor', () => {
+    const stopped = deriveChatImageTaskId('local', messageId, 0, 0);
+    const live = deriveChatImageTaskId(scope, messageId, 0, 0);
+    const merged = mergeChatImageToolItems(
+      [{ prompt: 'p', taskAttempt: 0, taskCancelled: true, taskId: stopped }],
+      [{ prompt: 'p', taskAttempt: 0, taskId: live }],
+    );
+    expect(merged[0]?.taskId).toBe(live);
+    expect(merged[0]?.taskCancelled).toBeUndefined();
+  });
+
   it('preserves chat Image tool content on fetch without touching other roles', () => {
     const existing = [
       {

@@ -932,10 +932,14 @@ configurable model rather than a hard-coded one.
   conversation. `useFetchMessages` / `replaceMessages` merge incoming
   prompt-only tool content with any in-memory `imageId`/`taskId` (SWR focus
   revalidate and overlapping `refreshMessages` can otherwise wipe the tiles
-  while Artifacts still list the files). The tool render's
+  while Artifacts still list the files). Task correlation is one versioned
+  tuple: a higher valid `taskAttempt` wins from either side, so a stale Stop
+  snapshot cannot replace a newer Retry. The tool render's
   mount-time `reconcileDallETasks` adopts a finished task's file, including
   prompt-only tiles whose `taskId` was wiped — it probes this request's
-  derived attempt-0 ids and **does not auto-create** on that path; `retryDallEImages`
+  derived attempt-0 ids **independently** (one terminal legacy scope does not
+  hide a successful file on another alias) and **does not auto-create** on
+  that path; `retryDallEImages`
   adopts an existing task first and creates a replacement ONLY after the
   server reports an authoritative terminal `error` state with ownership
   re-checked after that await — lookup, transport and local-timeout failures

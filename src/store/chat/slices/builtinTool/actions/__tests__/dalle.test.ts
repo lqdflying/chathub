@@ -1,7 +1,7 @@
 import { UIChatMessage } from '@lobechat/types';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { deriveChatImageTaskId } from '@/helpers/chatImageTaskId';
+import { deriveChatImageTaskId, listChatImageTaskIdScopeAliases } from '@/helpers/chatImageTaskId';
 import * as generationDebugClient from '@/libs/logger/generationDebugClient';
 import { ToolsRPCResponseError } from '@/libs/trpc/client/toolsResponse';
 import {
@@ -73,6 +73,7 @@ const seedToolMessage = (
 // Stop). After a clear-generation bump the write is skipped, matching the
 // real `internal_updateMessageContent` Stop fence.
 const installStoreStubs = (options?: {
+  onPersist?: (callIndex: number, content: string) => void | Promise<void>;
   persistGate?: Promise<void>;
   persistReject?: boolean;
   persistRejectIds?: string[];
@@ -85,6 +86,7 @@ const installStoreStubs = (options?: {
     toggleDallEImageLoading: useChatStore.getState().toggleDallEImageLoading,
     updatePluginState: useChatStore.getState().updatePluginState,
   };
+  let persistCallCount = 0;
   const persistImpl = vi.fn(
     async (
       id: string,
@@ -136,6 +138,8 @@ const installStoreStubs = (options?: {
           ),
         },
       });
+      persistCallCount += 1;
+      await options?.onPersist?.(persistCallCount, content);
       // the REAL ordering: the optimistic map update above has already happened
       // when the server write is still pending — hold here to model navigation
       // during that in-flight server request
@@ -192,6 +196,30 @@ const IMAGE_TOOL_PLUGIN = {
   arguments: '{}',
   identifier: 'lobe-image-designer',
   type: 'builtin' as const,
+};
+
+const applyStaleChatImageFetch = (content: string, messageId = 'message-id') => {
+  useChatStore.getState().replaceMessages([
+    {
+      content,
+      id: messageId,
+      meta: {},
+      plugin: IMAGE_TOOL_PLUGIN,
+      role: 'tool',
+    } as UIChatMessage,
+  ]);
+};
+
+const promptOnlyProbeIds = (index = 0, messageId = 'message-id') => {
+  const userState = useUserStore.getState();
+  return listChatImageTaskIdScopeAliases({
+    authenticatedScope: authSelectors.currentUserScope(userState),
+    rawAuthUserId: userState.authUserId,
+    userId: userState.user?.id,
+  }).map((scope) => ({
+    scope,
+    taskId: deriveChatImageTaskId(scope, messageId, index, 0),
+  }));
 };
 
 const CHAT_IMAGE_STOPPED_REGISTRY_KEY = 'chathub:chat-image:stopped-v1';
@@ -1508,6 +1536,114 @@ describe('chatToolSlice - dalle', () => {
       expect(originContent()).toContain('"imageId":"file-new"');
     });
 
+    it('keeps a Retry tuple when a stale Stop fetch lands before write verification', async () => {
+      vi.useFakeTimers();
+      const validId = initialIdFor(0);
+      const retried = taskIdForAttempt(0, 1);
+      seedToolMessage(JSON.stringify([{ prompt: 'p1', taskId: validId }]), 'message-id', {
+        plugin: IMAGE_TOOL_PLUGIN,
+        role: 'tool',
+      });
+      const stubs = installStoreStubs({
+        onPersist: (callIndex) => {
+          if (callIndex !== 2) return;
+          applyStaleChatImageFetch(
+            JSON.stringify([
+              {
+                prompt: 'p1',
+                taskAttempt: 0,
+                taskCancelled: true,
+                taskFence: 1,
+                taskId: validId,
+              },
+            ]),
+          );
+        },
+      });
+      const createTaskMock = vi
+        .spyOn(imageGenerationService, 'createChatImageTask')
+        .mockImplementation(async ({ taskId }) => ({ taskId: taskId! }));
+      vi.spyOn(imageGenerationService, 'getChatImageResult').mockImplementation(async (taskId) =>
+        taskId === validId
+          ? { error: { body: { detail: 'expired' }, name: 'ServerError' }, status: 'error' }
+          : { file: { id: `file-${taskId}` }, status: 'success' },
+      );
+
+      const run = store().generateImageFromPrompts(
+        [{ prompt: 'p1', taskId: validId }] as DallEImageItem[],
+        'message-id',
+      );
+      await vi.advanceTimersByTimeAsync(3000);
+      await run;
+      stubs.restore();
+
+      expect(createTaskMock).toHaveBeenCalledTimes(1);
+      expect(createTaskMock).toHaveBeenCalledWith(expect.objectContaining({ taskId: retried }));
+      const parsed = JSON.parse(originContent()) as {
+        imageId?: string;
+        taskAttempt?: number;
+        taskCancelled?: boolean;
+        taskId?: string;
+      }[];
+      expect(parsed[0]?.taskId).toBe(retried);
+      expect(parsed[0]?.taskAttempt).toBe(1);
+      expect(parsed[0]?.taskCancelled).toBeUndefined();
+      expect(parsed[0]?.imageId).toBe(`file-${retried}`);
+    });
+
+    it('persists the Retry file when a stale Stop fetch lands after verification', async () => {
+      vi.useFakeTimers();
+      const validId = initialIdFor(0);
+      const retried = taskIdForAttempt(0, 1);
+      seedToolMessage(JSON.stringify([{ prompt: 'p1', taskId: validId }]), 'message-id', {
+        plugin: IMAGE_TOOL_PLUGIN,
+        role: 'tool',
+      });
+      const stubs = installStoreStubs();
+      const createTaskMock = vi
+        .spyOn(imageGenerationService, 'createChatImageTask')
+        .mockImplementation(async ({ taskId }) => {
+          applyStaleChatImageFetch(
+            JSON.stringify([
+              {
+                prompt: 'p1',
+                taskAttempt: 0,
+                taskCancelled: true,
+                taskFence: 1,
+                taskId: validId,
+              },
+            ]),
+          );
+          return { taskId: taskId! };
+        });
+      vi.spyOn(imageGenerationService, 'getChatImageResult').mockImplementation(async (taskId) =>
+        taskId === validId
+          ? { error: { body: { detail: 'expired' }, name: 'ServerError' }, status: 'error' }
+          : { file: { id: `file-${taskId}` }, status: 'success' },
+      );
+
+      const run = store().generateImageFromPrompts(
+        [{ prompt: 'p1', taskId: validId }] as DallEImageItem[],
+        'message-id',
+      );
+      await vi.advanceTimersByTimeAsync(3000);
+      await run;
+      stubs.restore();
+
+      expect(createTaskMock).toHaveBeenCalledTimes(1);
+      expect(createTaskMock).toHaveBeenCalledWith(expect.objectContaining({ taskId: retried }));
+      const parsed = JSON.parse(originContent()) as {
+        imageId?: string;
+        taskAttempt?: number;
+        taskCancelled?: boolean;
+        taskId?: string;
+      }[];
+      expect(parsed[0]?.taskId).toBe(retried);
+      expect(parsed[0]?.taskAttempt).toBe(1);
+      expect(parsed[0]?.taskCancelled).toBeUndefined();
+      expect(parsed[0]?.imageId).toBe(`file-${retried}`);
+    });
+
     it('throws a permanent tRPC/4xx poll error after a single poll instead of retrying it', async () => {
       vi.useFakeTimers();
       seedToolMessage(JSON.stringify([{ prompt: 'p1' }]));
@@ -1799,6 +1935,66 @@ describe('chatToolSlice - dalle', () => {
       const parsed = JSON.parse(originContent()) as { imageId?: string; taskId?: string }[];
       expect(parsed[0]?.imageId).toBe('file-from-artifacts');
       expect(parsed[0]?.taskId).toBe(recoveredId);
+    });
+
+    it('adopts a successful alias when an earlier legacy scope is terminal', async () => {
+      const probes = promptOnlyProbeIds();
+      expect(probes.length).toBeGreaterThanOrEqual(2);
+      const terminalId = probes[0]?.taskId;
+      const successId = probes[1]?.taskId;
+      seedToolMessage(JSON.stringify([{ prompt: 'p1' }]));
+      const stubs = installStoreStubs();
+      const createTaskMock = vi.spyOn(imageGenerationService, 'createChatImageTask');
+      vi.spyOn(imageGenerationService, 'getChatImageResult').mockImplementation(async (taskId) => {
+        if (taskId === successId)
+          return { file: { id: 'file-from-other-scope' }, status: 'success' };
+        if (taskId === terminalId) {
+          return {
+            error: { body: { detail: 'stopped' }, name: 'ImageGenerationError' },
+            status: 'error',
+          };
+        }
+        return { status: 'task_missing' };
+      });
+
+      await store().reconcileDallETasks('message-id');
+      stubs.restore();
+
+      expect(createTaskMock).not.toHaveBeenCalled();
+      expect(stubs.pluginStateSpy).not.toHaveBeenCalled();
+      const parsed = JSON.parse(originContent()) as { imageId?: string; taskId?: string }[];
+      expect(parsed[0]?.imageId).toBe('file-from-other-scope');
+      expect(parsed[0]?.taskId).toBe(successId);
+    });
+
+    it('adopts a successful first alias even when a later scope is terminal', async () => {
+      const probes = promptOnlyProbeIds();
+      expect(probes.length).toBeGreaterThanOrEqual(2);
+      const successId = probes[0]?.taskId;
+      const terminalId = probes[1]?.taskId;
+      seedToolMessage(JSON.stringify([{ prompt: 'p1' }]));
+      const stubs = installStoreStubs();
+      const createTaskMock = vi.spyOn(imageGenerationService, 'createChatImageTask');
+      vi.spyOn(imageGenerationService, 'getChatImageResult').mockImplementation(async (taskId) => {
+        if (taskId === successId)
+          return { file: { id: 'file-from-first-scope' }, status: 'success' };
+        if (taskId === terminalId) {
+          return {
+            error: { body: { detail: 'expired' }, name: 'ImageGenerationError' },
+            status: 'error',
+          };
+        }
+        return { status: 'task_missing' };
+      });
+
+      await store().reconcileDallETasks('message-id');
+      stubs.restore();
+
+      expect(createTaskMock).not.toHaveBeenCalled();
+      expect(stubs.pluginStateSpy).not.toHaveBeenCalled();
+      const parsed = JSON.parse(originContent()) as { imageId?: string; taskId?: string }[];
+      expect(parsed[0]?.imageId).toBe('file-from-first-scope');
+      expect(parsed[0]?.taskId).toBe(successId);
     });
 
     it('does not auto-create when prompt-only tiles have no matching task row', async () => {

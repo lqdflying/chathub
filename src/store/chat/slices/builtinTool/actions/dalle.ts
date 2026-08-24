@@ -1186,28 +1186,43 @@ export const dalleSlice: StateCreator<
             const probes = await Promise.all(
               reconcileScopes.map(async (scope) => {
                 const taskId = deriveChatImageTaskId(scope, messageId, index, 0);
-                const result = await waitForChatImageTask(taskId, invocationIsCurrent, {
-                  adoptProbe: true,
-                  immediate: true,
-                });
-                return { result, taskId };
+                try {
+                  const result = await waitForChatImageTask(taskId, invocationIsCurrent, {
+                    adoptProbe: true,
+                    immediate: true,
+                  });
+                  return { result, taskId };
+                } catch (error) {
+                  return { error, taskId };
+                }
               }),
             );
             if (!invocationIsCurrent()) return;
-            const recovered = probes.find((probe) => probe.result.ok && probe.result.file);
-            if (!recovered?.result.file) return;
-            await get().updateImageItem(
-              messageId,
-              (draft) => {
-                if (draft[index]) {
-                  draft[index].imageId = recovered.result.file!.id;
-                  draft[index].previewUrl = undefined;
-                  draft[index].taskAttempt = 0;
-                  draft[index].taskId = recovered.taskId;
-                }
-              },
-              conversationContext,
-            );
+            // Alias order is the recovery priority. Settle each probe so one
+            // terminal legacy scope cannot hide a successful file on another.
+            const recovered = probes.find((probe) => probe.result?.ok && probe.result.file);
+            if (recovered?.result?.file) {
+              await get().updateImageItem(
+                messageId,
+                (draft) => {
+                  if (draft[index]) {
+                    draft[index].imageId = recovered.result!.file!.id;
+                    draft[index].previewUrl = undefined;
+                    draft[index].taskAttempt = 0;
+                    draft[index].taskId = recovered.taskId;
+                  }
+                },
+                conversationContext,
+              );
+              return;
+            }
+            const terminal = probes.find((probe) => isTerminalTaskStateError(probe.error));
+            if (terminal?.error) {
+              hasError = true;
+              errorArray[index] = isChatImageStopTombstoneError(terminal.error)
+                ? { errorType: CHAT_IMAGE_TASK_CANCELLED_ERROR }
+                : serializePluginError(terminal.error);
+            }
             return;
           }
 

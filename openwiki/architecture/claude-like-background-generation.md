@@ -297,9 +297,12 @@ Copy-paste APL: **`.cursor/rules/debug-log-checks.mdc`**.
     writes the file to Artifacts independently of the tool-message JSON.
     `useFetchMessages` onSuccess used to replace the map with a fetch that
     started before persist (SWR mutation race / overlapping refresh). Merge
-    file and task ids on fetch; prompt-only remount adopts the derived
-    attempt-0 task file without auto-creating. `attachedCount=N` with
-    Prompt-only cards is this wipe, not a failed generation.
+    file and task ids on fetch as one versioned attempt tuple (a stale Stop
+    snapshot must not replace a newer Retry); prompt-only remount adopts a
+    derived attempt-0 task file without auto-creating, settling each scope
+    alias independently so one terminal legacy id cannot hide a successful
+    file. `attachedCount=N` with Prompt-only cards is this wipe, not a failed
+    generation.
 
 ## How to extend this without breaking it
 

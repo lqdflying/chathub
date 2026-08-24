@@ -1641,6 +1641,55 @@ describe('chatMessage actions', () => {
       );
       expect(useChatStore.getState().messagesMap[chatKey][0].content).toContain('"taskId":"t-1"');
     });
+
+    it('keeps a newer Retry tuple when a fetched snapshot is a stale Stop', () => {
+      const chatKey = messageMapKey(mockState.activeId, mockState.activeTopicId);
+      useChatStore.setState({
+        messagesMap: {
+          [chatKey]: [
+            {
+              content: JSON.stringify([
+                {
+                  prompt: 'p',
+                  taskAttempt: 1,
+                  taskFence: 2,
+                  taskId: '22222222-2222-4222-8222-222222222222',
+                },
+              ]),
+              id: 'tool-1',
+              plugin: { apiName: 'text2image', identifier: 'lobe-image-designer', type: 'builtin' },
+              role: 'tool',
+            } as UIChatMessage,
+          ],
+        },
+      });
+
+      useChatStore.getState().replaceMessages([
+        {
+          content: JSON.stringify([
+            {
+              prompt: 'p',
+              taskAttempt: 0,
+              taskCancelled: true,
+              taskFence: 1,
+              taskId: '11111111-1111-4111-8111-111111111111',
+            },
+          ]),
+          id: 'tool-1',
+          plugin: { apiName: 'text2image', identifier: 'lobe-image-designer', type: 'builtin' },
+          role: 'tool',
+        } as UIChatMessage,
+      ]);
+
+      const parsed = JSON.parse(useChatStore.getState().messagesMap[chatKey][0].content) as {
+        taskAttempt?: number;
+        taskCancelled?: boolean;
+        taskId?: string;
+      }[];
+      expect(parsed[0]?.taskId).toBe('22222222-2222-4222-8222-222222222222');
+      expect(parsed[0]?.taskAttempt).toBe(1);
+      expect(parsed[0]?.taskCancelled).toBeUndefined();
+    });
   });
 
   describe('useFetchMessages hook', () => {

@@ -129,6 +129,7 @@ export const classifyChatImageTaskIdScopeKind = (
 
 export type ChatImageTaskCorrelationItem = {
   imageId?: string;
+  previewUrl?: string;
   spanId?: string;
   taskAttempt?: unknown;
   taskCancelled?: boolean;
@@ -160,6 +161,63 @@ const parseChatImageToolItems = (content: string): ChatImageTaskCorrelationItem[
   }
 };
 
+const copyChatImageTaskCorrelation = <T extends ChatImageTaskCorrelationItem>(
+  incoming: T,
+  winner: T,
+): T => ({
+  ...incoming,
+  imageId: winner.imageId,
+  previewUrl: winner.previewUrl,
+  spanId: winner.spanId,
+  taskAttempt: winner.taskAttempt,
+  taskCancelled: winner.taskCancelled,
+  taskFence: winner.taskFence,
+  taskId: winner.taskId,
+});
+
+const rankSameAttemptChatImageItem = (item: ChatImageTaskCorrelationItem): number => {
+  if (item.imageId) return 3;
+  if (item.taskId && !item.taskCancelled) return 2;
+  if (item.taskId && item.taskCancelled) return 1;
+  return 0;
+};
+
+const pickSameAttemptDifferentIds = <T extends ChatImageTaskCorrelationItem>(
+  incoming: T,
+  previous: T,
+): T => {
+  const incomingRank = rankSameAttemptChatImageItem(incoming);
+  const previousRank = rankSameAttemptChatImageItem(previous);
+  if (incomingRank !== previousRank) {
+    return incomingRank > previousRank ? incoming : previous;
+  }
+  const incomingFence = typeof incoming.taskFence === 'number' ? incoming.taskFence : -1;
+  const previousFence = typeof previous.taskFence === 'number' ? previous.taskFence : -1;
+  if (incomingFence !== previousFence) {
+    return incomingFence > previousFence ? incoming : previous;
+  }
+  return previous;
+};
+
+const mergeSameAttemptChatImageItems = <T extends ChatImageTaskCorrelationItem>(
+  incoming: T,
+  previous: T,
+): T => {
+  if (incoming.taskId && previous.taskId && incoming.taskId !== previous.taskId) {
+    return copyChatImageTaskCorrelation(incoming, pickSameAttemptDifferentIds(incoming, previous));
+  }
+  return {
+    ...incoming,
+    imageId: incoming.imageId || previous.imageId,
+    previewUrl: incoming.previewUrl || previous.previewUrl,
+    spanId: incoming.spanId || previous.spanId,
+    taskAttempt: incoming.taskAttempt ?? previous.taskAttempt,
+    taskCancelled: incoming.taskCancelled || previous.taskCancelled,
+    taskFence: incoming.taskFence ?? previous.taskFence,
+    taskId: incoming.taskId || previous.taskId,
+  };
+};
+
 /**
  * Keep durable chat-Image tile ids across a stale message fetch.
  *
@@ -167,8 +225,11 @@ const parseChatImageToolItems = (content: string): ChatImageTaskCorrelationItem[
  * `getMessages`. A fetch that started before `imageId`/`taskId` landed (SWR
  * focus revalidate, overlapping `refreshMessages`, a later send) can return
  * the original prompt-only array and wipe the tiles while Artifacts still
- * show the files. Prefer incoming prompts/length; never drop a file id or a
- * Stop mark for the same attempt.
+ * show the files. Prefer incoming prompts/length. Task correlation
+ * (`taskId` / attempt / fence / cancelled / span / file) is one versioned
+ * tuple: a higher valid `taskAttempt` wins from either side, and a stale
+ * Stop snapshot must not replace a newer Retry. Same-attempt Stop still
+ * sticks; do not mix file ids across attempts.
  *
  * @see https://swr.vercel.app/docs/mutation
  */
@@ -180,18 +241,18 @@ export const mergeChatImageToolItems = <T extends ChatImageTaskCorrelationItem>(
   return incoming.map((item, index) => {
     const previous = existing[index];
     if (!previous) return item;
-    const sameAttempt = !item.taskId || !previous.taskId || item.taskId === previous.taskId;
-    return {
-      ...item,
-      imageId: item.imageId || previous.imageId,
-      spanId: item.spanId || previous.spanId,
-      taskAttempt: item.taskAttempt ?? previous.taskAttempt,
-      taskCancelled: sameAttempt
-        ? item.taskCancelled || previous.taskCancelled
-        : item.taskCancelled,
-      taskFence: item.taskFence ?? previous.taskFence,
-      taskId: item.taskId || previous.taskId,
-    };
+    const incomingAttempt = normalizeChatImageTaskAttempt(item.taskAttempt);
+    const previousAttempt = normalizeChatImageTaskAttempt(previous.taskAttempt);
+    const incomingValid = incomingAttempt !== undefined;
+    const previousValid = previousAttempt !== undefined;
+    if (incomingValid && previousValid && incomingAttempt !== previousAttempt) {
+      const winner = incomingAttempt > previousAttempt ? item : previous;
+      return copyChatImageTaskCorrelation(item, winner);
+    }
+    if (incomingValid !== previousValid) {
+      return copyChatImageTaskCorrelation(item, incomingValid ? item : previous);
+    }
+    return mergeSameAttemptChatImageItems(item, previous);
   });
 };
 
