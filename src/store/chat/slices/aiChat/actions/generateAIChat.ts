@@ -373,6 +373,10 @@ export const generateAIChat: StateCreator<
       n('stopGenerateMessage/bumpLaneScopedClearGeneration'),
     );
 
+    // Record unpaid chat-image ids before any network await so a stalled
+    // durable-cancel lookup cannot leave reload unprotected.
+    get().rememberPreparedChatImageStopIds(activeId, activeTopicId, threadId);
+
     if (!isThreadScopedStop) {
       const operationKey = messageMapKey(activeId, activeTopicId);
       const sendOperation = mainSendMessageOperations[operationKey];
@@ -380,8 +384,6 @@ export const generateAIChat: StateCreator<
         sendOperation.abortController.abort(MESSAGE_CANCEL_FLAT);
       }
     }
-
-    await get().stopDurableConversationGeneration(options);
 
     const deferredKeys = isThreadScopedStop
       ? [laneScopedClearKey(activeId, activeTopicId, threadId)].filter(
@@ -426,18 +428,12 @@ export const generateAIChat: StateCreator<
       );
     }
 
+    await get().stopDurableConversationGeneration(options);
+
     try {
       await get().cancelPreparedChatImageTasks(activeId, activeTopicId, threadId);
-    } catch (error) {
-      void logDeferredGenerationLane('chat_image_run_settled', {
-        errorClass: error instanceof Error ? error.name : 'Error',
-        kind: 'stop_mark',
-        outcome: 'persist_failed',
-        sessionId: activeId,
-        threadId,
-        topicId: activeTopicId,
-        toolName: 'lobe-image-designer',
-      });
+    } catch {
+      // Per-message persist_failed events are emitted inside cancelPrepared.
     }
   },
 

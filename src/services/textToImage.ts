@@ -111,6 +111,19 @@ class ImageGenerationService {
       { context: { showNotification: false } },
     ) as Promise<ChatImageTaskResult>;
   };
+
+  /**
+   * Insert cancelled placeholder rows for write-first task ids that never ran.
+   * Existing pending/success rows are left alone (`ON CONFLICT DO NOTHING`).
+   */
+  cancelUnstartedChatImageTasks = async (taskIds: string[]): Promise<{ inserted: number }> => {
+    const ids = [...new Set(taskIds.filter(Boolean))];
+    if (ids.length === 0) return { inserted: 0 };
+    return lambdaClient.image.cancelUnstartedChatImageTasks.mutate(
+      { taskIds: ids },
+      { context: { showNotification: false } },
+    ) as Promise<{ inserted: number }>;
+  };
 }
 
 export const imageGenerationService = new ImageGenerationService();

@@ -9,6 +9,7 @@ import { useChatStore } from '@/store/chat';
 import {
   bumpLaneScopedClearGeneration,
   isConversationClearFenceCurrent,
+  laneScopedClearKey,
 } from '@/store/chat/utils/conversationClearGeneration';
 import { deferredBrowserGenerationLaneKey } from '@/store/chat/utils/deferredBrowserGeneration';
 import { findMessageInMessagesMap, messageMapKey } from '@/store/chat/utils/messageMapKey';
@@ -71,6 +72,7 @@ const seedToolMessage = (
 const installStoreStubs = (options?: {
   persistGate?: Promise<void>;
   persistReject?: boolean;
+  persistRejectIds?: string[];
   persistRejectOnce?: { done?: boolean };
   persistServerGate?: Promise<void>;
   pluginStateGate?: Promise<void>;
@@ -98,6 +100,9 @@ const installStoreStubs = (options?: {
         useChatStore.getState().conversationClearGeneration;
       if (options?.persistGate) await options.persistGate;
       if (options?.persistReject) {
+        throw new Error('persistence write failed');
+      }
+      if (options?.persistRejectIds?.includes(id)) {
         throw new Error('persistence write failed');
       }
       if (options?.persistRejectOnce && !options.persistRejectOnce.done) {
@@ -194,8 +199,20 @@ const IMAGE_TOOL_PLUGIN = {
   type: 'builtin' as const,
 };
 
+const CHAT_IMAGE_STOPPED_REGISTRY_KEY = 'chathub:chat-image:stopped-v1';
+
+const stoppedRegistryHas = (taskId: string) => {
+  try {
+    const raw = globalThis.localStorage.getItem(CHAT_IMAGE_STOPPED_REGISTRY_KEY);
+    return Boolean(raw && (JSON.parse(raw) as { ids?: string[] }).ids?.includes(taskId));
+  } catch {
+    return false;
+  }
+};
+
 const clearStoppedChatImageTaskStorage = () => {
   try {
+    globalThis.localStorage.removeItem(CHAT_IMAGE_STOPPED_REGISTRY_KEY);
     const keys = Object.keys(globalThis.localStorage ?? {}).filter((key) =>
       key.startsWith('chathub:chat-image:stopped:'),
     );
@@ -206,6 +223,12 @@ const clearStoppedChatImageTaskStorage = () => {
 };
 
 describe('chatToolSlice - dalle', () => {
+  beforeEach(() => {
+    vi.spyOn(imageGenerationService, 'cancelUnstartedChatImageTasks').mockResolvedValue({
+      inserted: 0,
+    });
+  });
+
   afterEach(() => {
     mockImageState.isInit = true;
     vi.useRealTimers();
@@ -596,7 +619,302 @@ describe('chatToolSlice - dalle', () => {
       stubs.restore();
     });
 
-    it('a prior lane Stop does not block a later generate (global epoch stays 0)', async () => {
+    it('records stop ids and aborts the lane before a hung durable cancel returns', async () => {
+      const validId = initialIdFor(0);
+      const threadId = 'thread-portal';
+      seedToolMessage(
+        JSON.stringify([{ prompt: 'p1', taskFence: 0, taskId: validId }]),
+        'message-id',
+        { plugin: IMAGE_TOOL_PLUGIN, threadId },
+      );
+      let releaseDurable!: () => void;
+      const durableGate = new Promise<void>((resolve) => {
+        releaseDurable = resolve;
+      });
+      const laneKey = laneScopedClearKey(ORIGIN_SESSION, undefined, threadId);
+      const laneController = new AbortController();
+      const stopDurable = vi.fn(async () => durableGate);
+      useChatStore.setState({
+        chatLoadingAbortControllersByLane: { [laneKey]: laneController },
+        stopDurableConversationGeneration: stopDurable,
+      });
+      const stubs = installStoreStubs({ persistReject: true });
+      const createTaskMock = vi.spyOn(imageGenerationService, 'createChatImageTask');
+
+      const stopPromise = store().stopGenerateMessage({ threadId });
+      await vi.waitFor(() => expect(stoppedRegistryHas(validId)).toBe(true));
+      expect(laneController.signal.aborted).toBe(true);
+      expect(stopDurable).toHaveBeenCalled();
+      let settled = false;
+      void stopPromise.then(() => {
+        settled = true;
+      });
+      await Promise.resolve();
+      expect(settled).toBe(false);
+
+      seedToolMessage(
+        JSON.stringify([{ prompt: 'p1', taskFence: 0, taskId: validId }]),
+        'message-id',
+        { plugin: IMAGE_TOOL_PLUGIN, threadId },
+      );
+      useChatStore.setState({
+        conversationClearGeneration: 0,
+        conversationScopedClearGenerations: {},
+      });
+      vi.spyOn(imageGenerationService, 'getChatImageResult').mockResolvedValue({
+        status: 'task_missing',
+      });
+      const stubs2 = installStoreStubs();
+      await store().reconcileDallETasks('message-id');
+      stubs2.restore();
+
+      expect(createTaskMock).not.toHaveBeenCalled();
+
+      releaseDurable();
+      await stopPromise;
+      stubs.restore();
+    });
+
+    it('a V2 Stop still records stop ids before a hung server-cancel lookup returns', async () => {
+      const validId = initialIdFor(0);
+      const preStopContent = JSON.stringify([{ prompt: 'p1', taskFence: 0, taskId: validId }]);
+      seedToolMessage(preStopContent, 'message-id', { plugin: IMAGE_TOOL_PLUGIN });
+      let releaseDurable!: () => void;
+      const durableGate = new Promise<void>((resolve) => {
+        releaseDurable = resolve;
+      });
+      useChatStore.setState({
+        cancelActiveDurableOpsInScope: vi.fn(async () => durableGate),
+      });
+      const stubs = installStoreStubs({ persistReject: true });
+      const createTaskMock = vi.spyOn(imageGenerationService, 'createChatImageTask');
+
+      const stopPromise = store().cancelSendMessageInServer();
+      await vi.waitFor(() => expect(stoppedRegistryHas(validId)).toBe(true));
+      let settled = false;
+      void stopPromise.then(() => {
+        settled = true;
+      });
+      await Promise.resolve();
+      expect(settled).toBe(false);
+
+      seedToolMessage(preStopContent, 'message-id', { plugin: IMAGE_TOOL_PLUGIN });
+      useChatStore.setState({
+        conversationClearGeneration: 0,
+        conversationScopedClearGenerations: {},
+      });
+      vi.spyOn(imageGenerationService, 'getChatImageResult').mockResolvedValue({
+        status: 'task_missing',
+      });
+      const stubs2 = installStoreStubs();
+      await store().reconcileDallETasks('message-id');
+      stubs2.restore();
+
+      expect(createTaskMock).not.toHaveBeenCalled();
+
+      releaseDurable();
+      await stopPromise;
+      stubs.restore();
+    });
+
+    it('a failed first message persist still protects a later Image tool message', async () => {
+      const idA = initialIdFor(0, 'message-a');
+      const idB = initialIdFor(0, 'message-b');
+      const contentA = JSON.stringify([{ prompt: 'p1', taskFence: 0, taskId: idA }]);
+      const contentB = JSON.stringify([{ prompt: 'p2', taskFence: 0, taskId: idB }]);
+      useChatStore.setState({
+        activeId: ORIGIN_SESSION,
+        activeTopicId: undefined,
+        messagesMap: {
+          [originKey()]: [
+            {
+              content: contentA,
+              id: 'message-a',
+              meta: {},
+              plugin: IMAGE_TOOL_PLUGIN,
+              role: 'system',
+            } as UIChatMessage,
+            {
+              content: contentB,
+              id: 'message-b',
+              meta: {},
+              plugin: IMAGE_TOOL_PLUGIN,
+              role: 'system',
+            } as UIChatMessage,
+          ],
+        },
+      });
+      useChatStore.setState({ stopDurableConversationGeneration: vi.fn(async () => {}) });
+      const stubs = installStoreStubs({ persistReject: true });
+      const createTaskMock = vi.spyOn(imageGenerationService, 'createChatImageTask');
+
+      await store().stopGenerateMessage();
+      stubs.restore();
+      expect(stoppedRegistryHas(idA)).toBe(true);
+      expect(stoppedRegistryHas(idB)).toBe(true);
+
+      useChatStore.setState((s) => ({
+        conversationClearGeneration: 0,
+        conversationScopedClearGenerations: {},
+        messagesMap: {
+          ...s.messagesMap,
+          [originKey()]: [
+            {
+              content: contentA,
+              id: 'message-a',
+              meta: {},
+              plugin: IMAGE_TOOL_PLUGIN,
+              role: 'system',
+            } as UIChatMessage,
+            {
+              content: contentB,
+              id: 'message-b',
+              meta: {},
+              plugin: IMAGE_TOOL_PLUGIN,
+              role: 'system',
+            } as UIChatMessage,
+          ],
+        },
+      }));
+      vi.spyOn(imageGenerationService, 'getChatImageResult').mockResolvedValue({
+        status: 'task_missing',
+      });
+      const stubs2 = installStoreStubs();
+      await store().reconcileDallETasks('message-b');
+      stubs2.restore();
+
+      expect(createTaskMock).not.toHaveBeenCalled();
+      expect(stubs2.pluginStateSpy).toHaveBeenCalledWith('message-b', {
+        error: [{ errorType: 'ChatImageTaskCancelled' }],
+      });
+    });
+
+    it('still persists later Image tool messages when an earlier cancel write fails', async () => {
+      const idA = initialIdFor(0, 'message-a');
+      const idB = initialIdFor(0, 'message-b');
+      useChatStore.setState({
+        activeId: ORIGIN_SESSION,
+        activeTopicId: undefined,
+        messagesMap: {
+          [originKey()]: [
+            {
+              content: JSON.stringify([{ prompt: 'p1', taskFence: 0, taskId: idA }]),
+              id: 'message-a',
+              meta: {},
+              plugin: IMAGE_TOOL_PLUGIN,
+              role: 'system',
+            } as UIChatMessage,
+            {
+              content: JSON.stringify([{ prompt: 'p2', taskFence: 0, taskId: idB }]),
+              id: 'message-b',
+              meta: {},
+              plugin: IMAGE_TOOL_PLUGIN,
+              role: 'system',
+            } as UIChatMessage,
+          ],
+        },
+        stopDurableConversationGeneration: vi.fn(async () => {}),
+      });
+      const stubs = installStoreStubs({ persistRejectIds: ['message-a'] });
+
+      await store().stopGenerateMessage();
+      stubs.restore();
+
+      const messages = useChatStore.getState().messagesMap[originKey()] ?? [];
+      const parsedA = JSON.parse(messages.find((m) => m.id === 'message-a')?.content ?? '[]') as {
+        taskCancelled?: boolean;
+      }[];
+      const parsedB = JSON.parse(messages.find((m) => m.id === 'message-b')?.content ?? '[]') as {
+        taskCancelled?: boolean;
+      }[];
+      expect(parsedA[0]?.taskCancelled).toBeUndefined();
+      expect(parsedB[0]?.taskCancelled).toBe(true);
+    });
+
+    it('a Stop-marker persist failure logs the affected span and hashed message id', async () => {
+      const validId = initialIdFor(0);
+      const spanId = 'gd_0123456789abcdef';
+      const assistantMessageId = 'assistant-row';
+      seedToolMessage(
+        JSON.stringify([{ prompt: 'p1', spanId, taskFence: 0, taskId: validId }]),
+        'message-id',
+        { parentId: assistantMessageId, plugin: IMAGE_TOOL_PLUGIN },
+      );
+      useChatStore.setState({ stopDurableConversationGeneration: vi.fn(async () => {}) });
+      const logSpy = vi.spyOn(generationDebugClient, 'logDeferredGenerationLane');
+      const stubs = installStoreStubs({ persistReject: true });
+
+      await store().stopGenerateMessage();
+      stubs.restore();
+
+      await vi.waitFor(() =>
+        expect(logSpy).toHaveBeenCalledWith(
+          'chat_image_run_settled',
+          expect.objectContaining({
+            assistantMessageId,
+            kind: 'stop_mark',
+            outcome: 'persist_failed',
+            spanId,
+          }),
+        ),
+      );
+      const fields = logSpy.mock.calls.find(
+        ([event, payload]) =>
+          event === 'chat_image_run_settled' &&
+          (payload as { kind?: string })?.kind === 'stop_mark',
+      )?.[1] as { assistantMessageId?: string; spanId?: string };
+      expect(fields.spanId).toBe(spanId);
+      expect(fields.assistantMessageId).toBe(assistantMessageId);
+      const messageHash =
+        await generationDebugClient.hashGenerationDebugClientValue(assistantMessageId);
+      const emptyHash = await generationDebugClient.hashGenerationDebugClientValue('');
+      expect(messageHash).toMatch(/^[\da-f]{16}$/);
+      expect(messageHash).not.toBe(emptyHash);
+      expect(JSON.stringify(fields)).not.toContain(validId);
+    });
+
+    it('a server cancelled-placeholder still blocks remount create when localStorage cannot store the stop id', async () => {
+      const validId = initialIdFor(0);
+      const preStopContent = JSON.stringify([{ prompt: 'p1', taskFence: 0, taskId: validId }]);
+      seedToolMessage(preStopContent, 'message-id', { plugin: IMAGE_TOOL_PLUGIN });
+      const originalSetItem = globalThis.localStorage.setItem.bind(globalThis.localStorage);
+      vi.spyOn(Storage.prototype, 'setItem').mockImplementation((key, value) => {
+        if (String(key).includes('chat-image:stopped')) {
+          throw new DOMException('The quota has been exceeded.', 'QuotaExceededError');
+        }
+        originalSetItem(key, String(value));
+      });
+      vi.spyOn(imageGenerationService, 'cancelUnstartedChatImageTasks').mockResolvedValue({
+        inserted: 1,
+      });
+      useChatStore.setState({ stopDurableConversationGeneration: vi.fn(async () => {}) });
+      const stubs = installStoreStubs({ persistReject: true });
+      const createTaskMock = vi.spyOn(imageGenerationService, 'createChatImageTask');
+
+      await store().stopGenerateMessage();
+      stubs.restore();
+      expect(imageGenerationService.cancelUnstartedChatImageTasks).toHaveBeenCalledWith([validId]);
+
+      seedToolMessage(preStopContent, 'message-id', { plugin: IMAGE_TOOL_PLUGIN });
+      useChatStore.setState({
+        conversationClearGeneration: 0,
+        conversationScopedClearGenerations: {},
+      });
+      vi.spyOn(imageGenerationService, 'getChatImageResult').mockResolvedValue({
+        error: { name: 'ChatImageTaskCancelled' },
+        status: 'error',
+      });
+      const stubs2 = installStoreStubs();
+      await store().reconcileDallETasks('message-id');
+      stubs2.restore();
+
+      expect(createTaskMock).not.toHaveBeenCalled();
+      expect(stubs2.pluginStateSpy).toHaveBeenCalledWith('message-id', {
+        error: [{ errorType: 'ChatImageTaskCancelled' }],
+      });
+    });
+
+    it('a later generate after a prior lane Stop still runs (global epoch stays 0)', async () => {
       seedToolMessage(JSON.stringify([{ prompt: 'p1' }]));
       useChatStore.setState((s) => ({
         conversationClearGeneration: 0,

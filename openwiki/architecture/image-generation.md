@@ -873,18 +873,29 @@ configurable model rather than a hard-coded one.
   must still exist and still carry that exact unresolved id at that index
   when the create is sent (deleting a message mid-probe aborts silently);
   Stop authorization — auto-create is refused when the tile is marked
-  `taskCancelled`, when a same-browser remembered stop id is present (set
-  synchronously on Stop before message persist, so a rejected save cannot
-  re-bill after reload), or when a legacy tile has no `taskFence`. Same-session
-  Stop also refuses a prepared fence that no longer matches the live (non-zero)
-  lane fence. Reload resets that live fence to 0, so that comparison is skipped
-  then — otherwise a later authorized generation stamped `taskFence > 0` would
-  be misreported as stopped. Leave-topic does not bump the fence. Stop aborts
-  in-flight work before awaiting the cancellation persist, retries the write
-  once, and logs `chat_image_run_settled` with `kind=stop_mark` /
-  `outcome=persist_failed` instead of swallowing. Explicit Retry re-stamps the
-  fence, clears `taskCancelled` and the remembered stop id, and may submit.
-  Existing server tasks (pending or success) are adopted
+  `taskCancelled`, when a same-browser remembered stop id is present (a bounded
+  `localStorage` registry written synchronously on Stop **before** any awaited
+  durable-cancel or persist, so a hung server-cancel lookup or a rejected first
+  message write cannot skip later tiles or leave reload unprotected), when
+  `getChatImageResult` returns the cancelled-placeholder error
+  (`ChatImageTaskCancelled` — inserted on Stop with `ON CONFLICT DO NOTHING` so
+  existing pending/success rows stay adoptable), or when a legacy tile has no
+  `taskFence`. Same-session Stop also refuses a prepared fence that no longer
+  matches the live (non-zero) lane fence. Reload resets that live fence to 0,
+  so that comparison is skipped then — otherwise a later authorized generation
+  stamped `taskFence > 0` would be misreported as stopped. Leave-topic does not
+  bump the fence. Stop aborts in-flight work before awaiting durable cancel and
+  cancellation persist, persists each Image tool message independently (one
+  failure does not skip later messages), retries each write once, forgets the
+  local stop id after a confirmed `taskCancelled` persist, and logs
+  `chat_image_run_settled` with `kind=stop_mark` / `outcome=persist_failed`
+  plus the hashed assistant/message id and persisted `gd_…` span. Create
+  refuses a `taskCancelled` correlation and does not dispatch when the id
+  already has an error placeholder. Explicit Retry re-stamps the fence, clears
+  `taskCancelled` and the remembered stop id, and may submit. If every durable
+  path fails (offline + storage unavailable + tombstone insert failed), a later
+  `task_missing` remount is indistinguishable from crash recovery and may
+  auto-create. Existing server tasks (pending or success) are adopted
   before this gate and are never discarded; and
   server-side verification — the create contract REQUIRES the correlation
   (message id + index) and the task id, and the mutation verifies and inserts

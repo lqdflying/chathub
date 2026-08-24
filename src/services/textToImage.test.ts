@@ -6,10 +6,16 @@ vi.mock('@/services/_auth', () => ({
   createHeaderWithAuth: vi.fn(async () => ({ 'X-lobe-chat-auth': 'encoded-payload' })),
 }));
 
-const { getChatImageResultQuery } = vi.hoisted(() => ({ getChatImageResultQuery: vi.fn() }));
+const { cancelUnstartedMutate, getChatImageResultQuery } = vi.hoisted(() => ({
+  cancelUnstartedMutate: vi.fn(),
+  getChatImageResultQuery: vi.fn(),
+}));
 vi.mock('@/libs/trpc/client', () => ({
   lambdaClient: {
-    image: { getChatImageResult: { query: getChatImageResultQuery } },
+    image: {
+      cancelUnstartedChatImageTasks: { mutate: cancelUnstartedMutate },
+      getChatImageResult: { query: getChatImageResultQuery },
+    },
   },
 }));
 
@@ -109,6 +115,28 @@ describe('imageGenerationService', () => {
 
       expect(getChatImageResultQuery).toHaveBeenCalledWith(
         { taskId: 'task-1' },
+        { context: { showNotification: false } },
+      );
+    });
+  });
+
+  describe('cancelUnstartedChatImageTasks', () => {
+    it('mutates with notifications suppressed and skips an empty list', async () => {
+      cancelUnstartedMutate.mockResolvedValue({ inserted: 1 });
+
+      await expect(imageGenerationService.cancelUnstartedChatImageTasks([])).resolves.toEqual({
+        inserted: 0,
+      });
+      expect(cancelUnstartedMutate).not.toHaveBeenCalled();
+
+      await expect(
+        imageGenerationService.cancelUnstartedChatImageTasks([
+          '3f2c8f7e-1c2d-4e5f-9a6b-7c8d9e0f1a2b',
+          '3f2c8f7e-1c2d-4e5f-9a6b-7c8d9e0f1a2b',
+        ]),
+      ).resolves.toEqual({ inserted: 1 });
+      expect(cancelUnstartedMutate).toHaveBeenCalledWith(
+        { taskIds: ['3f2c8f7e-1c2d-4e5f-9a6b-7c8d9e0f1a2b'] },
         { context: { showNotification: false } },
       );
     });

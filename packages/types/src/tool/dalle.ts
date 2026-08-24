@@ -22,7 +22,8 @@ export interface DallEImageItem {
   /**
    * Durable Stop mark. Written after a lane Stop with the post-Stop fence so
    * that persist is not itself cancelled. Reload zeros in-memory fences; this
-   * flag is what keeps remount reconciliation from billing an unsubmitted id.
+   * flag plus the server cancelled-placeholder row (same `taskId`) keep remount
+   * reconciliation from billing an unsubmitted id, including on another device.
    * Explicit Retry clears it when re-stamping authorization.
    */
   taskCancelled?: boolean;

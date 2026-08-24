@@ -321,17 +321,36 @@ export const imageRouter = router({
           .for('share');
 
         let correlated = false;
+        let stopped = false;
         if (ownedMessage?.content) {
           try {
             const items = JSON.parse(ownedMessage.content) as {
               imageId?: string;
+              taskCancelled?: boolean;
               taskId?: string;
             }[];
             const item = items?.[input.correlation.index];
-            correlated = Boolean(item && item.taskId === input.taskId && !item.imageId);
+            stopped = Boolean(item && item.taskId === input.taskId && item.taskCancelled);
+            correlated = Boolean(
+              item && item.taskId === input.taskId && !item.imageId && !item.taskCancelled,
+            );
           } catch {
             correlated = false;
           }
+        }
+        if (stopped) {
+          logGenerationDebugSafe('chat_image_task_rejected', {
+            index: input.correlation.index,
+            messageHash: hashGenerationDebugValue(input.correlation.messageId),
+            outcome: 'stopped',
+            ...(input.spanId ? { spanId: input.spanId } : {}),
+            taskHash: hashGenerationDebugValue(input.taskId),
+          });
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message:
+              'This image task was stopped before generation started, so no generation was started.',
+          });
         }
         if (!correlated) {
           logGenerationDebugSafe('chat_image_task_rejected', {
@@ -363,6 +382,23 @@ export const imageRouter = router({
           taskId: inserted[0]?.id ?? input.taskId,
         };
       });
+      if (createOutcome === 'idempotent') {
+        const existing = await asyncTaskModel.findById(taskId);
+        if (existing?.status === AsyncTaskStatus.Error) {
+          logGenerationDebugSafe('chat_image_task_rejected', {
+            index: input.correlation.index,
+            messageHash: hashGenerationDebugValue(input.correlation.messageId),
+            outcome: 'stopped',
+            ...(input.spanId ? { spanId: input.spanId } : {}),
+            taskHash: hashGenerationDebugValue(taskId),
+          });
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message:
+              'This image task was stopped before generation started, so no generation was started.',
+          });
+        }
+      }
       logGenerationDebugSafe('chat_image_task_created', {
         index: input.correlation.index,
         messageHash: hashGenerationDebugValue(input.correlation.messageId),
@@ -421,6 +457,49 @@ export const imageRouter = router({
       }
 
       return { taskId };
+    }),
+
+  /**
+   * Record unpaid write-first chat-image task ids as cancelled placeholders so
+   * a later `task_missing` remount cannot auto-create them. Existing pending /
+   * processing / success rows are left alone (`ON CONFLICT DO NOTHING`) and
+   * remain adoptable.
+   */
+  cancelUnstartedChatImageTasks: imageProcedure
+    .input(
+      z.object({
+        taskIds: z.array(z.string().uuid()).max(64),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      const uniqueIds = [...new Set(input.taskIds)];
+      if (uniqueIds.length === 0) return { inserted: 0 };
+
+      const inserted = await ctx.serverDB
+        .insert(asyncTasks)
+        .values(
+          uniqueIds.map((id) => ({
+            error: {
+              body: { detail: 'Stopped before generation started' },
+              name: 'ChatImageTaskCancelled',
+            },
+            id,
+            status: AsyncTaskStatus.Error,
+            type: AsyncTaskType.ImageGeneration,
+            userId: ctx.userId,
+          })),
+        )
+        .onConflictDoNothing()
+        .returning({ id: asyncTasks.id });
+
+      for (const row of inserted) {
+        logGenerationDebugSafe('chat_image_task_rejected', {
+          outcome: 'stopped',
+          taskHash: hashGenerationDebugValue(row.id),
+        });
+      }
+
+      return { inserted: inserted.length };
     }),
 
   createImage: imageProcedure.input(createImageInputSchema).mutation(async ({ input, ctx }) => {

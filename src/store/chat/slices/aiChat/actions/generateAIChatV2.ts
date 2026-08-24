@@ -31,7 +31,6 @@ import { buildHistorySummaryForRequest } from '@/helpers/memoryArchivePrompt';
 import { isModelNativeSearchDisabledProvider } from '@/helpers/modelNativeSearch';
 import {
   createGenerationDebugSpanId,
-  logDeferredGenerationLane,
   logGenerationDebugClientSafe,
 } from '@/libs/logger/generationDebugClient';
 import { aiChatService } from '@/services/aiChat';
@@ -967,12 +966,7 @@ export const generateAIChatV2: StateCreator<
       n('cancelSendMessageInServer/bumpLaneScopedClearGeneration'),
     );
 
-    await get().cancelActiveDurableOpsInScope({
-      kind: ConversationGenerationChatFamilyKinds,
-      sessionId: activeId,
-      threadId: targetThreadId,
-      topicId: targetTopicId,
-    });
+    get().rememberPreparedChatImageStopIds(activeId, targetTopicId, targetThreadId);
 
     get().internal_toggleSendMessageOperation(operationKey, false, USER_CANCELLED_SEND);
 
@@ -982,18 +976,17 @@ export const generateAIChatV2: StateCreator<
       if (editorTempState) get().mainInputEditor?.setJSONState(editorTempState);
     }
 
+    await get().cancelActiveDurableOpsInScope({
+      kind: ConversationGenerationChatFamilyKinds,
+      sessionId: activeId,
+      threadId: targetThreadId,
+      topicId: targetTopicId,
+    });
+
     try {
       await get().cancelPreparedChatImageTasks(activeId, targetTopicId, targetThreadId);
-    } catch (error) {
-      void logDeferredGenerationLane('chat_image_run_settled', {
-        errorClass: error instanceof Error ? error.name : 'Error',
-        kind: 'stop_mark',
-        outcome: 'persist_failed',
-        sessionId: activeId,
-        threadId: targetThreadId,
-        topicId: targetTopicId,
-        toolName: 'lobe-image-designer',
-      });
+    } catch {
+      // Per-message persist_failed events are emitted inside cancelPrepared.
     }
   },
   clearSendMessageError: () => {

@@ -929,7 +929,10 @@ describe('imageRouter', () => {
     // serverDB.transaction stand-in whose select/insert chains mirror the real
     // drizzle calls (including the FOR SHARE read); `rowsProvider` feeds the
     // locked message read so tests can model deletion winning the race
-    const makeTxDb = (rowsProvider: () => unknown[] | Promise<unknown[]>) => {
+    const makeTxDb = (
+      rowsProvider: () => unknown[] | Promise<unknown[]>,
+      options?: { insertConflict?: boolean },
+    ) => {
       const insertedValues: unknown[] = [];
       const tx = {
         insert: vi.fn(() => ({
@@ -937,7 +940,8 @@ describe('imageRouter', () => {
             insertedValues.push(value);
             return {
               onConflictDoNothing: () => ({
-                returning: async () => [{ id: (value as { id?: string }).id }],
+                returning: async () =>
+                  options?.insertConflict ? [] : [{ id: (value as { id?: string }).id }],
               }),
             };
           },
@@ -1280,6 +1284,122 @@ describe('imageRouter', () => {
       });
 
       expect(transaction).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects create when the message already carries taskCancelled', async () => {
+      const { db, insertedValues } = makeTxDb(() => [
+        {
+          content: JSON.stringify([{ prompt: 'p', taskCancelled: true, taskId: CHAT_TASK_ID }]),
+        },
+      ]);
+      const dispatchChatImage = installCommonMocks(db);
+      const logSpy = vi.spyOn(generationDebug, 'logGenerationDebugSafe');
+
+      await expect(
+        makeCaller().createChatImage({
+          correlation: CHAT_CORRELATION,
+          model: 'gpt-image-2',
+          params: { prompt: 'p' },
+          provider: 'openaicompatible',
+          taskId: CHAT_TASK_ID,
+        }),
+      ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
+
+      expect(insertedValues).toHaveLength(0);
+      expect(dispatchChatImage).not.toHaveBeenCalled();
+      expect(logSpy).toHaveBeenCalledWith(
+        'chat_image_task_rejected',
+        expect.objectContaining({ outcome: 'stopped' }),
+      );
+      const fields = logSpy.mock.calls.find(
+        ([event]) => event === 'chat_image_task_rejected',
+      )?.[1] as { taskHash?: string };
+      expect(JSON.stringify(fields)).not.toContain(CHAT_TASK_ID);
+    });
+
+    it('does not dispatch when a cancelled placeholder already occupies the task id', async () => {
+      const { db } = makeTxDb(correlatedRows, { insertConflict: true });
+      const findById = vi.fn().mockResolvedValue({
+        error: { name: 'ChatImageTaskCancelled' },
+        status: 'error',
+      });
+      const dispatchChatImage = vi.fn();
+      vi.mocked(AsyncTaskModel).mockImplementation(
+        () => ({ findById, updatePendingToError: vi.fn() }) as never,
+      );
+      vi.mocked(createAsyncCaller).mockResolvedValue({
+        image: { createChatImage: dispatchChatImage },
+      } as never);
+      vi.mocked(getServerDB).mockResolvedValue(db);
+      vi.mocked(FileService).mockImplementation(() => ({}) as never);
+      const logSpy = vi.spyOn(generationDebug, 'logGenerationDebugSafe');
+
+      await expect(
+        makeCaller().createChatImage({
+          correlation: CHAT_CORRELATION,
+          model: 'gpt-image-2',
+          params: { prompt: 'p' },
+          provider: 'openaicompatible',
+          taskId: CHAT_TASK_ID,
+        }),
+      ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
+
+      expect(dispatchChatImage).not.toHaveBeenCalled();
+      expect(findById).toHaveBeenCalledWith(CHAT_TASK_ID);
+      expect(logSpy).toHaveBeenCalledWith(
+        'chat_image_task_rejected',
+        expect.objectContaining({ outcome: 'stopped' }),
+      );
+    });
+  });
+
+  describe('cancelUnstartedChatImageTasks', () => {
+    it('inserts cancelled placeholders without touching existing rows', async () => {
+      const insertedValues: unknown[] = [];
+      const insert = vi.fn(() => ({
+        values: (value: unknown) => {
+          insertedValues.push(value);
+          return {
+            onConflictDoNothing: () => ({
+              returning: async () => [{ id: '3f2c8f7e-1c2d-4e5f-9a6b-7c8d9e0f1a2b' }],
+            }),
+          };
+        },
+      }));
+      vi.mocked(AsyncTaskModel).mockImplementation(() => ({}) as never);
+      vi.mocked(getServerDB).mockResolvedValue({ insert } as never);
+      vi.mocked(FileService).mockImplementation(() => ({}) as never);
+      const logSpy = vi.spyOn(generationDebug, 'logGenerationDebugSafe');
+
+      const result = await createCallerFactory(imageRouter)({
+        authorizationHeader: 'test-authorization',
+        userId: 'account-a',
+      } as never).cancelUnstartedChatImageTasks({
+        taskIds: ['3f2c8f7e-1c2d-4e5f-9a6b-7c8d9e0f1a2b', '3f2c8f7e-1c2d-4e5f-9a6b-7c8d9e0f1a2b'],
+      });
+
+      expect(result).toEqual({ inserted: 1 });
+      expect(insertedValues).toEqual([
+        [
+          {
+            error: {
+              body: { detail: 'Stopped before generation started' },
+              name: 'ChatImageTaskCancelled',
+            },
+            id: '3f2c8f7e-1c2d-4e5f-9a6b-7c8d9e0f1a2b',
+            status: 'error',
+            type: 'image_generation',
+            userId: 'account-a',
+          },
+        ],
+      ]);
+      expect(logSpy).toHaveBeenCalledWith(
+        'chat_image_task_rejected',
+        expect.objectContaining({ outcome: 'stopped' }),
+      );
+      expect(JSON.stringify(logSpy.mock.calls)).not.toContain(
+        '3f2c8f7e-1c2d-4e5f-9a6b-7c8d9e0f1a2b',
+      );
     });
   });
 

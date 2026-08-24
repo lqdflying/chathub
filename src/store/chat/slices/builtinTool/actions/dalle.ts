@@ -335,22 +335,47 @@ const GENERATION_DEBUG_SPAN_ID_PATTERN = /^gd_[\da-f]{16,64}$/i;
 const resolvePersistedChatImageSpanId = (value?: string) =>
   typeof value === 'string' && GENERATION_DEBUG_SPAN_ID_PATTERN.test(value) ? value : undefined;
 
+const CHAT_IMAGE_TASK_CANCELLED_ERROR = 'ChatImageTaskCancelled';
+const CHAT_IMAGE_STOPPED_REGISTRY_KEY = 'chathub:chat-image:stopped-v1';
+const CHAT_IMAGE_STOPPED_REGISTRY_LIMIT = 256;
 const CHAT_IMAGE_STOPPED_TASK_PREFIX = 'chathub:chat-image:stopped:';
 
 const stoppedChatImageTaskStorageKey = (taskId: string) =>
   `${CHAT_IMAGE_STOPPED_TASK_PREFIX}${taskId}`;
 
+const readStoppedChatImageTaskIds = (): string[] => {
+  try {
+    const raw = globalThis.localStorage?.getItem(CHAT_IMAGE_STOPPED_REGISTRY_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as { ids?: unknown };
+    return Array.isArray(parsed?.ids)
+      ? parsed.ids.filter((id): id is string => typeof id === 'string' && id.length > 0)
+      : [];
+  } catch {
+    return [];
+  }
+};
+
+const writeStoppedChatImageTaskIds = (ids: string[]) => {
+  const next = [...new Set(ids)].slice(0, CHAT_IMAGE_STOPPED_REGISTRY_LIMIT);
+  globalThis.localStorage?.setItem(CHAT_IMAGE_STOPPED_REGISTRY_KEY, JSON.stringify({ ids: next }));
+};
+
 const rememberStoppedChatImageTask = (taskId: string) => {
   try {
-    globalThis.localStorage?.setItem(stoppedChatImageTaskStorageKey(taskId), '1');
+    writeStoppedChatImageTaskIds([
+      taskId,
+      ...readStoppedChatImageTaskIds().filter((id) => id !== taskId),
+    ]);
   } catch {
-    // quota / privacy mode — message persist remains the durable path
+    // quota / privacy mode — message persist and the server tombstone remain
   }
 };
 
 const forgetStoppedChatImageTask = (taskId?: string) => {
   if (!taskId) return;
   try {
+    writeStoppedChatImageTaskIds(readStoppedChatImageTaskIds().filter((id) => id !== taskId));
     globalThis.localStorage?.removeItem(stoppedChatImageTaskStorageKey(taskId));
   } catch {
     // ignore
@@ -360,11 +385,15 @@ const forgetStoppedChatImageTask = (taskId?: string) => {
 const isStoppedChatImageTaskRemembered = (taskId?: string) => {
   if (!taskId) return false;
   try {
+    if (readStoppedChatImageTaskIds().includes(taskId)) return true;
     return globalThis.localStorage?.getItem(stoppedChatImageTaskStorageKey(taskId)) === '1';
   } catch {
     return false;
   }
 };
+
+const isChatImageStopTombstoneError = (error: unknown) =>
+  (error as { name?: string } | undefined)?.name === CHAT_IMAGE_TASK_CANCELLED_ERROR;
 
 const stampChatImageTaskAuthorization = (
   target: DallEImageItem,
@@ -394,15 +423,67 @@ const isChatImageAutoCreateAuthorized = (
   );
   // Same-session Stop bumps the live fence; a stale prepared fence must not
   // auto-submit. Reload resets live to 0, so this mismatch is skipped then —
-  // `taskCancelled` and the remembered stop id cover Stop across reload.
-  // Comparing a persisted fence against that reset zero would reject a later
-  // authorized generation (taskFence > 0) as if it had been stopped.
+  // `taskCancelled`, the remembered stop id, and a server cancelled-placeholder
+  // row cover Stop across reload / another device. Comparing a persisted fence
+  // against that reset zero would reject a later authorized generation
+  // (taskFence > 0) as if it had been stopped.
   if (live !== 0 && live !== item.taskFence) return false;
   return true;
 };
 
 const isChatImageToolMessage = (message: UIChatMessage) =>
   message.plugin?.identifier === 'lobe-image-designer' || message.plugin?.apiName === 'text2image';
+
+type PreparedChatImageStop = {
+  items: DallEImageItem[];
+  message: UIChatMessage;
+  taskIds: string[];
+};
+
+const collectPreparedChatImageStops = (
+  state: ChatStore,
+  sessionId: string,
+  topicId?: string | null,
+  threadId?: string | null,
+): PreparedChatImageStop[] => {
+  const messages = state.messagesMap[messageMapKey(sessionId, topicId)] ?? [];
+  const prepared: PreparedChatImageStop[] = [];
+
+  for (const message of messages) {
+    if ((message.threadId ?? null) !== (threadId ?? null)) continue;
+    if (!isChatImageToolMessage(message)) continue;
+
+    let items: DallEImageItem[];
+    try {
+      items = JSON.parse(message.content);
+    } catch {
+      continue;
+    }
+    if (!Array.isArray(items)) continue;
+
+    const taskIds = items
+      .filter((item) => item?.taskId && !item.imageId)
+      .map((item) => item.taskId as string);
+    if (taskIds.length === 0) continue;
+
+    prepared.push({ items, message, taskIds });
+  }
+
+  return prepared;
+};
+
+const snapshotAndRememberPreparedChatImageStops = (
+  state: ChatStore,
+  sessionId: string,
+  topicId?: string | null,
+  threadId?: string | null,
+): PreparedChatImageStop[] => {
+  const prepared = collectPreparedChatImageStops(state, sessionId, topicId, threadId);
+  for (const { taskIds } of prepared) {
+    for (const taskId of taskIds) rememberStoppedChatImageTask(taskId);
+  }
+  return prepared;
+};
 
 const resolveChatImageDebugLane = (
   state: ChatStore,
@@ -448,15 +529,26 @@ const logChatImageGeneration = (
 export interface ChatDallEAction {
   /**
    * Durable Stop mark for prepared chat-image tiles in this lane. Remembers
-   * each task id locally first (same-browser reload backup), then persists
-   * `taskCancelled` with the post-Stop fence. Existing server tasks are still
-   * adopted. Callers must abort in-flight work before awaiting this.
+   * each task id locally first (same-browser reload backup), writes a server
+   * cancelled-placeholder for unstarted ids, then persists `taskCancelled`
+   * independently per message. Existing server tasks are still adopted.
+   * Callers must snapshot ids and abort in-flight work before awaiting this.
    */
   cancelPreparedChatImageTasks: (
     sessionId: string,
     topicId?: string | null,
     threadId?: string | null,
   ) => Promise<void>;
+  /**
+   * Synchronously record every prepared unpaid chat-image task id in this lane
+   * into the bounded local stop registry. Must run after the fence bump and
+   * before any awaited durable-cancel / persist call.
+   */
+  rememberPreparedChatImageStopIds: (
+    sessionId: string,
+    topicId?: string | null,
+    threadId?: string | null,
+  ) => void;
   generateImageFromPrompts: (items: DallEImageItem[], id: string) => Promise<ChatImageRunOutcome>;
   /**
    * Recover items whose async task outlived this tab: adopt finished results,
@@ -494,38 +586,26 @@ export const dalleSlice: StateCreator<
   ChatDallEAction
 > = (set, get) => ({
   cancelPreparedChatImageTasks: async (sessionId, topicId, threadId) => {
-    const mapKey = messageMapKey(sessionId, topicId);
-    const messages = get().messagesMap[mapKey] ?? [];
-    const clearGeneration = resolveConversationClearGeneration(get(), sessionId, topicId, threadId);
+    const prepared = snapshotAndRememberPreparedChatImageStops(get(), sessionId, topicId, threadId);
+    const taskIds = [...new Set(prepared.flatMap((entry) => entry.taskIds))];
+    if (taskIds.length > 0) {
+      try {
+        await imageGenerationService.cancelUnstartedChatImageTasks(taskIds);
+      } catch {
+        // Tombstone is best-effort. Local registry and message persist remain.
+      }
+    }
+
     const conversationContext: ConversationContext = {
-      clearGeneration,
+      clearGeneration: resolveConversationClearGeneration(get(), sessionId, topicId, threadId),
       generation: get().conversationNavigationGeneration,
       sessionId,
       threadId,
       topicId,
     };
 
-    for (const message of messages) {
-      if ((message.threadId ?? null) !== (threadId ?? null)) continue;
-      if (!isChatImageToolMessage(message)) continue;
-
-      let items: DallEImageItem[];
-      try {
-        items = JSON.parse(message.content);
-      } catch {
-        continue;
-      }
-      if (
-        !Array.isArray(items) ||
-        !items.some((item) => item?.taskId && !item.imageId && !item.taskCancelled)
-      ) {
-        continue;
-      }
-
-      for (const item of items) {
-        if (item?.taskId && !item.imageId) rememberStoppedChatImageTask(item.taskId);
-      }
-
+    const failures: unknown[] = [];
+    for (const { items, message } of prepared) {
       let lastError: unknown;
       for (let attempt = 0; attempt < 2; attempt += 1) {
         try {
@@ -544,8 +624,36 @@ export const dalleSlice: StateCreator<
           lastError = error;
         }
       }
-      if (lastError) throw lastError;
+      if (!lastError) {
+        for (const taskId of [
+          ...new Set(
+            items.filter((item) => item?.taskId && !item.imageId).map((item) => item.taskId!),
+          ),
+        ]) {
+          forgetStoppedChatImageTask(taskId);
+        }
+        continue;
+      }
+      failures.push(lastError);
+      const spanId = items
+        .map((item) => resolvePersistedChatImageSpanId(item?.spanId))
+        .find(Boolean);
+      logChatImageGeneration(get(), 'chat_image_run_settled', {
+        assistantMessageId: message.parentId || message.id,
+        errorClass: lastError instanceof Error ? lastError.name : 'Error',
+        itemCount: items.length,
+        kind: 'stop_mark',
+        outcome: 'persist_failed',
+        sessionId,
+        threadId,
+        topicId,
+        ...(spanId ? { spanId } : {}),
+      });
     }
+    if (failures[0]) throw failures[0];
+  },
+  rememberPreparedChatImageStopIds: (sessionId, topicId, threadId) => {
+    snapshotAndRememberPreparedChatImageStops(get(), sessionId, topicId, threadId);
   },
   generateImageFromPrompts: async (items, messageId) => {
     // Pin the originating conversation from the tool message itself — not the
@@ -1098,9 +1206,10 @@ export const dalleSlice: StateCreator<
             // 4) Stop authorization: auto-create is billable. Same-session Stop
             //    is a stale prepared fence vs the live (non-zero) lane fence.
             //    Reload zeros that fence, so authorization then is
-            //    `taskCancelled` / remembered stop id, not a compare-to-zero.
-            //    A missing fence (legacy tile) fails closed. Existing server
-            //    tasks are adopted above this gate and are never discarded.
+            //    `taskCancelled` / remembered stop id / cancelled-placeholder
+            //    probe, not a compare-to-zero. A missing fence (legacy tile)
+            //    fails closed. Existing server tasks are adopted above this
+            //    gate and are never discarded.
             if (!isChatImageAutoCreateAuthorized(currentItem, get(), conversationContext)) {
               hasError = true;
               errorArray[index] = { errorType: 'ChatImageTaskCancelled' };
@@ -1138,7 +1247,9 @@ export const dalleSlice: StateCreator<
         } catch (error) {
           if (!invocationIsCurrent()) return;
           hasError = true;
-          errorArray[index] = serializePluginError(error);
+          errorArray[index] = isChatImageStopTombstoneError(error)
+            ? { errorType: CHAT_IMAGE_TASK_CANCELLED_ERROR }
+            : serializePluginError(error);
         } finally {
           releaseTaskKey(loadingKey, reconcileToken);
           get().toggleDallEImageLoading(loadingKey, false);
