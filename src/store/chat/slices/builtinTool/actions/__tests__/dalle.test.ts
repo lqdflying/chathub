@@ -2057,6 +2057,90 @@ describe('chatToolSlice - dalle', () => {
       expect(parsed[0]?.imageId).toBeUndefined();
     });
 
+    it('does not attach a slot-missing ordinary file returned for a derived attempt-0 id', async () => {
+      const probes = promptOnlyProbeIds();
+      seedToolMessage(JSON.stringify([{ prompt: 'p1' }]));
+      const stubs = installStoreStubs();
+      const createTaskMock = vi.spyOn(imageGenerationService, 'createChatImageTask');
+      vi.spyOn(imageGenerationService, 'getChatImageSlotResult').mockResolvedValue({
+        status: 'task_missing',
+      });
+      vi.spyOn(imageGenerationService, 'getChatImageResult').mockImplementation(async (taskId) => {
+        if (probes.some((probe) => probe.taskId === taskId)) {
+          return { status: 'task_missing' };
+        }
+        return { file: { id: 'ordinary-upload' }, status: 'success' };
+      });
+
+      await store().reconcileDallETasks('message-id');
+      stubs.restore();
+
+      expect(createTaskMock).not.toHaveBeenCalled();
+      const parsed = JSON.parse(originContent()) as { imageId?: string }[];
+      expect(parsed[0]?.imageId).toBeUndefined();
+    });
+
+    it.each([
+      ['terminal first', true],
+      ['processing first', false],
+    ] as const)(
+      'attaches the live same-attempt alias when a failed alias is %s',
+      async (_order, terminalFirst) => {
+        vi.useFakeTimers();
+        const userState = useUserStore.getState();
+        const probes = listChatImageTaskIdScopeAliases({
+          authenticatedScope: authSelectors.currentUserScope(userState),
+          rawAuthUserId: userState.authUserId,
+          userId: userState.user?.id,
+        }).map((scope) => ({
+          taskId: deriveChatImageTaskId(scope, 'message-id', 0, 3),
+        }));
+        expect(probes.length).toBeGreaterThanOrEqual(2);
+        const terminalId = probes[0]?.taskId as string;
+        const successId = probes[1]?.taskId as string;
+        seedToolMessage(JSON.stringify([{ prompt: 'p1' }]));
+        const stubs = installStoreStubs();
+        const createTaskMock = vi.spyOn(imageGenerationService, 'createChatImageTask');
+        vi.spyOn(imageGenerationService, 'getChatImageSlotResult').mockResolvedValue({
+          status: 'error',
+          taskAttempt: 3,
+          taskId: terminalFirst ? terminalId : successId,
+        });
+        let successPolls = 0;
+        vi.spyOn(imageGenerationService, 'getChatImageResult').mockImplementation(
+          async (taskId) => {
+            if (taskId === terminalId) {
+              return {
+                error: { body: { detail: 'stopped' }, name: 'ImageGenerationError' },
+                status: 'error',
+              };
+            }
+            if (taskId === successId) {
+              successPolls += 1;
+              if (successPolls === 1) return { status: 'processing' };
+              return { file: { id: 'file-from-live-alias' }, status: 'success' };
+            }
+            return { status: 'task_missing' };
+          },
+        );
+
+        const run = store().reconcileDallETasks('message-id');
+        await vi.advanceTimersByTimeAsync(3000);
+        await run;
+        stubs.restore();
+
+        expect(createTaskMock).not.toHaveBeenCalled();
+        const parsed = JSON.parse(originContent()) as {
+          imageId?: string;
+          taskAttempt?: number;
+          taskId?: string;
+        }[];
+        expect(parsed[0]?.imageId).toBe('file-from-live-alias');
+        expect(parsed[0]?.taskAttempt).toBe(3);
+        expect(parsed[0]?.taskId).toBe(successId);
+      },
+    );
+
     it('adopts a messages_files link without probing when content is prompt-only', async () => {
       seedToolMessage(JSON.stringify([{ prompt: 'p1' }]), 'message-id', {
         imageList: [{ alt: 'p1', id: 'file-linked', url: '' }],

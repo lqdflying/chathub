@@ -15,6 +15,7 @@ import {
   validateNoUrlsInConfig,
 } from '@/server/routers/lambda/image/schema';
 import { FileService } from '@/server/services/file';
+import { FileSource } from '@/types/files';
 
 import { imageRouter } from '../image';
 
@@ -1860,6 +1861,7 @@ describe('imageRouter', () => {
       const findByChatImageTaskId = vi.fn().mockResolvedValue({
         id: 'file-orphan',
         metadata: { chatImageTaskId: 'task-orphan', height: 1024, width: 1024 },
+        source: FileSource.ImageGeneration,
       });
       vi.mocked(FileModel).mockImplementation(() => ({ findByChatImageTaskId }) as never);
       vi.mocked(getServerDB).mockResolvedValue({} as never);
@@ -1885,6 +1887,7 @@ describe('imageRouter', () => {
       const findByChatImageTaskId = vi.fn().mockResolvedValue({
         id: 'file-1',
         metadata: { chatImageTaskId: 'task-4', height: 4096, width: 4096 },
+        source: FileSource.ImageGeneration,
       });
       vi.mocked(FileModel).mockImplementation(() => ({ findByChatImageTaskId }) as never);
       vi.mocked(getServerDB).mockResolvedValue({} as never);
@@ -1904,6 +1907,38 @@ describe('imageRouter', () => {
         taskId: 'task-4',
       });
     });
+
+    it('does not adopt an ordinary upload whose metadata forges a valid task id', async () => {
+      const CALLER_USER_ID = 'account-a';
+      const ctx = {
+        authorizationHeader: 'test-authorization',
+        rawAuthUserId: CALLER_USER_ID,
+        userId: CALLER_USER_ID,
+      } as LambdaContext;
+      const taskId = deriveChatImageTaskId(
+        resolveAuthenticatedAccountScope(ctx, enableAuth) ?? 'local',
+        'message-1',
+        0,
+        0,
+      );
+      vi.mocked(AsyncTaskModel).mockImplementation(
+        () => ({ findById: vi.fn().mockResolvedValue(undefined) }) as never,
+      );
+      const findByChatImageTaskId = vi.fn().mockResolvedValue({
+        id: 'ordinary-upload',
+        metadata: { chatImageTaskId: taskId },
+      });
+      vi.mocked(FileModel).mockImplementation(() => ({ findByChatImageTaskId }) as never);
+      vi.mocked(getServerDB).mockResolvedValue({} as never);
+      vi.mocked(FileService).mockImplementation(() => ({}) as never);
+
+      const caller = createCallerFactory(imageRouter)(ctx as never);
+
+      await expect(caller.getChatImageResult({ taskId })).resolves.toEqual({
+        status: 'task_missing',
+      });
+      expect(findByChatImageTaskId).toHaveBeenCalledWith(taskId);
+    });
   });
 
   describe('getChatImageSlotResult', () => {
@@ -1918,8 +1953,19 @@ describe('imageRouter', () => {
     const USER_SCOPE = resolveAuthenticatedAccountScope(makeCallerCtx(), enableAuth) ?? 'local';
     const messageId = 'message-1';
 
-    const makeSlotCaller = (asyncTaskModel?: { findByIds?: ReturnType<typeof vi.fn> }) => {
-      vi.mocked(getServerDB).mockResolvedValue({} as never);
+    const makeSlotCaller = (
+      asyncTaskModel?: { findByIds?: ReturnType<typeof vi.fn> },
+      options?: { messageRows?: { content: string }[] },
+    ) => {
+      vi.mocked(getServerDB).mockResolvedValue({
+        select: vi.fn(() => ({
+          from: () => ({
+            where: () => ({
+              limit: async () => options?.messageRows ?? [],
+            }),
+          }),
+        })),
+      } as never);
       vi.mocked(FileService).mockImplementation(() => ({}) as never);
       vi.mocked(AsyncTaskModel).mockImplementation(
         () =>
@@ -2050,6 +2096,73 @@ describe('imageRouter', () => {
       await expect(
         makeSlotCaller().getChatImageSlotResult({ index: 0, messageId }),
       ).resolves.toEqual({ status: 'task_missing' });
+    });
+
+    it.each([
+      ['terminal first', true],
+      ['processing first', false],
+    ] as const)(
+      'returns the live same-attempt alias when a failed alias is %s',
+      async (_order, terminalFirst) => {
+        const processingId = deriveChatImageTaskId(USER_SCOPE, messageId, 0, 3);
+        const errorId = deriveChatImageTaskId('local', messageId, 0, 3);
+        vi.mocked(FileModel).mockImplementation(
+          () =>
+            ({
+              findByChatImageTaskId: vi.fn().mockResolvedValue(undefined),
+              findByChatImageTaskIds: vi.fn().mockResolvedValue([]),
+              findLatestByChatImageSlot: vi.fn().mockResolvedValue(undefined),
+            }) as never,
+        );
+        const rows = [
+          { error: { name: 'ImageGenerationError' }, id: errorId, status: 'error' },
+          { id: processingId, status: 'processing' },
+        ];
+        const findByIds = vi.fn().mockResolvedValue(terminalFirst ? rows : [...rows].reverse());
+
+        await expect(
+          makeSlotCaller({ findByIds }).getChatImageSlotResult({ index: 0, messageId }),
+        ).resolves.toEqual({
+          error: undefined,
+          status: 'processing',
+          taskAttempt: 3,
+          taskId: processingId,
+        });
+      },
+    );
+
+    it('discovers a pending attempt above the historical scan from the owned message item', async () => {
+      const attempt257 = deriveChatImageTaskId(USER_SCOPE, messageId, 0, 257);
+      vi.mocked(FileModel).mockImplementation(
+        () =>
+          ({
+            findByChatImageTaskId: vi.fn().mockResolvedValue(undefined),
+            findByChatImageTaskIds: vi.fn().mockResolvedValue([]),
+            findLatestByChatImageSlot: vi.fn().mockResolvedValue(undefined),
+          }) as never,
+      );
+      const findByIds = vi.fn().mockResolvedValue([{ id: attempt257, status: 'processing' }]);
+
+      await expect(
+        makeSlotCaller(
+          { findByIds },
+          {
+            messageRows: [
+              {
+                content: JSON.stringify([{ prompt: 'p', taskAttempt: 257, taskId: attempt257 }]),
+              },
+            ],
+          },
+        ).getChatImageSlotResult({ index: 0, messageId }),
+      ).resolves.toEqual({
+        error: undefined,
+        status: 'processing',
+        taskAttempt: 257,
+        taskId: attempt257,
+      });
+      const scanned = findByIds.mock.calls[0]?.[0] as string[];
+      expect(scanned).toContain(attempt257);
+      expect(scanned.length).toBeGreaterThan(1);
     });
   });
 });

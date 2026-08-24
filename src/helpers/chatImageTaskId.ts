@@ -168,13 +168,53 @@ const CHAT_IMAGE_PLUGIN_IDENTIFIER = 'lobe-image-designer';
 const CHAT_IMAGE_API_NAME = 'text2image';
 
 /**
- * Files/tasks created before slot keys (`chatImageMessageId` / index /
- * attempt) can only be rediscovered by re-deriving task ids. This is a
- * **pre-metadata compatibility window** (attempts 0–256 inclusive), not a
- * Retry product cap: rows that store a slot attempt are matched in O(scopes)
- * against that exact integer, including attempt 257+.
+ * Compatibility scan when neither the owned message item nor file metadata
+ * stores an attempt. This is not a Retry product cap: a persisted
+ * `taskId`/`taskAttempt` on the message, or a stored file slot key, is matched
+ * in O(scopes) against that exact integer, including attempt 257+.
  */
 export const HISTORICAL_CHAT_IMAGE_SLOT_MAX_ATTEMPT = 256;
+
+const ACTIVE_CHAT_IMAGE_SLOT_STATUSES = new Set(['pending', 'processing']);
+
+export type ChatImageSlotTaskCandidate = {
+  attempt: number;
+  error?: unknown;
+  status: string;
+  taskId: string;
+};
+
+/**
+ * Same-attempt aliases must not follow PostgreSQL row order. Prefer a live
+ * pending/processing task over success-without-file, and both over a terminal
+ * error, so one failed scope cannot hide an active generation.
+ */
+export const rankChatImageSlotTaskStatus = (status: string): number => {
+  const normalized = status.toLowerCase();
+  if (ACTIVE_CHAT_IMAGE_SLOT_STATUSES.has(normalized)) return 3;
+  if (normalized === 'success') return 2;
+  return 1;
+};
+
+export const isActiveChatImageSlotStatus = (status: string): boolean =>
+  ACTIVE_CHAT_IMAGE_SLOT_STATUSES.has(status.toLowerCase());
+
+export const pickBestChatImageSlotTask = (
+  candidates: ChatImageSlotTaskCandidate[],
+): ChatImageSlotTaskCandidate | undefined => {
+  let best: ChatImageSlotTaskCandidate | undefined;
+  for (const candidate of candidates) {
+    if (!best || candidate.attempt > best.attempt) {
+      best = candidate;
+      continue;
+    }
+    if (candidate.attempt < best.attempt) continue;
+    if (rankChatImageSlotTaskStatus(candidate.status) > rankChatImageSlotTaskStatus(best.status)) {
+      best = candidate;
+    }
+  }
+  return best;
+};
 
 const pluginIdentity = (plugin?: ChatImageToolPluginLike | null) => ({
   apiName: typeof plugin?.apiName === 'string' && plugin.apiName ? plugin.apiName : undefined,

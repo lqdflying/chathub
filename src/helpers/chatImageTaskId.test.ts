@@ -14,8 +14,10 @@ import {
   mergeChatImageToolItems,
   normalizeChatImageTaskAttempt,
   parseStoredChatImageSlotInt,
+  pickBestChatImageSlotTask,
   pickLatestChatImageSlotFile,
   preserveChatImageToolContentOnFetch,
+  rankChatImageSlotTaskStatus,
   resolveChatImageSlotAttempt,
   singletonLinkedChatImageId,
 } from './chatImageTaskId';
@@ -358,6 +360,34 @@ describe('chatImageTaskId', () => {
       ),
     ).toMatchObject({ attempt: 257, file: { id: 'file-257' }, taskId: attempt257 });
     expect(HISTORICAL_CHAT_IMAGE_SLOT_MAX_ATTEMPT).toBe(256);
+  });
+
+  it('prefers an active same-attempt alias over a terminal one regardless of row order', () => {
+    const processing = {
+      attempt: 3,
+      status: 'processing',
+      taskId: 'task-processing',
+    };
+    const failed = {
+      attempt: 3,
+      error: { name: 'ImageGenerationError' },
+      status: 'error',
+      taskId: 'task-error',
+    };
+    expect(rankChatImageSlotTaskStatus('processing')).toBeGreaterThan(
+      rankChatImageSlotTaskStatus('error'),
+    );
+    expect(pickBestChatImageSlotTask([failed, processing])?.taskId).toBe('task-processing');
+    expect(pickBestChatImageSlotTask([processing, failed])?.taskId).toBe('task-processing');
+    expect(pickBestChatImageSlotTask([failed, { ...processing, attempt: 2 }])?.taskId).toBe(
+      'task-error',
+    );
+    expect(
+      pickBestChatImageSlotTask([
+        { attempt: 3, status: 'success', taskId: 'task-success' },
+        processing,
+      ])?.taskId,
+    ).toBe('task-processing');
   });
 
   it('authorizes attempt 0 and a later attempt when the derived id matches', () => {

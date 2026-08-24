@@ -8,6 +8,7 @@ import { StateCreator } from 'zustand/vanilla';
 
 import {
   deriveChatImageTaskId,
+  isActiveChatImageSlotStatus,
   isChatImageToolMessage,
   listChatImageTaskIdScopeAliases,
   matchChatImageTaskIdScope,
@@ -224,6 +225,114 @@ const waitForChatImageTask = async (
     }
   }
   throw new Error('Image generation timed out while waiting for the task result.');
+};
+
+type ChatImageAliasRecovery =
+  | { error: unknown; file?: undefined; ok: false; taskId?: string }
+  | {
+      error?: undefined;
+      file: { height?: number; id: string; width?: number };
+      ok: true;
+      taskId: string;
+    }
+  | { error?: undefined; file?: undefined; ok: false; taskId?: string };
+
+const recoverChatImageSlotAliases = async ({
+  attempt,
+  index,
+  invocationIsCurrent,
+  messageId,
+  preferredTaskId,
+}: {
+  attempt?: number;
+  index: number;
+  invocationIsCurrent: () => boolean;
+  messageId: string;
+  preferredTaskId: string;
+}): Promise<ChatImageAliasRecovery> => {
+  const userState = useUserStore.getState();
+  const taskIds = new Set<string>([preferredTaskId]);
+  if (attempt !== undefined) {
+    for (const scope of listChatImageTaskIdScopeAliases({
+      authenticatedScope: authSelectors.currentUserScope(userState),
+      rawAuthUserId: userState.authUserId,
+      userId: userState.user?.id,
+    })) {
+      taskIds.add(deriveChatImageTaskId(scope, messageId, index, attempt));
+    }
+  }
+
+  const snapshots = await Promise.all(
+    [...taskIds].map(async (taskId) => {
+      try {
+        const result = await imageGenerationService.getChatImageResult(taskId);
+        return { result, taskId };
+      } catch (error) {
+        return { error, taskId };
+      }
+    }),
+  );
+  if (!invocationIsCurrent()) return { ok: false };
+
+  const successful = snapshots.find(
+    (snapshot) =>
+      (snapshot.result?.status ?? '').toLowerCase() === 'success' && snapshot.result?.file,
+  );
+  if (successful?.result?.file) {
+    return { file: successful.result.file, ok: true, taskId: successful.taskId };
+  }
+
+  const activeIds = snapshots
+    .filter((snapshot) => isActiveChatImageSlotStatus(snapshot.result?.status ?? ''))
+    .map((snapshot) => snapshot.taskId);
+  if (activeIds.length > 0) {
+    let winner:
+      { file: { height?: number; id: string; width?: number }; taskId: string } | undefined;
+    const stillOpen = () => invocationIsCurrent() && !winner;
+    const settled = await Promise.all(
+      activeIds.map(async (taskId) => {
+        try {
+          const recovered = await waitForChatImageTask(taskId, stillOpen, { immediate: true });
+          if (recovered.ok && recovered.file && !winner) {
+            winner = { file: recovered.file, taskId };
+          }
+          return { recovered, taskId };
+        } catch (error) {
+          return { error, taskId };
+        }
+      }),
+    );
+    if (winner) return { file: winner.file, ok: true, taskId: winner.taskId };
+    if (!invocationIsCurrent()) return { ok: false };
+    const terminal = settled.find((item) => isTerminalTaskStateError(item.error));
+    if (terminal?.error) return { error: terminal.error, ok: false };
+    return { ok: false };
+  }
+
+  const terminalSnapshot = snapshots.find(
+    (snapshot) =>
+      isTerminalTaskStateError(snapshot.error) ||
+      ['error', 'result_missing'].includes((snapshot.result?.status ?? '').toLowerCase()),
+  );
+  if (terminalSnapshot?.error) return { error: terminalSnapshot.error, ok: false };
+  if (terminalSnapshot?.result) {
+    const error = terminalSnapshot.result.error;
+    const status = terminalSnapshot.result.status;
+    return {
+      error: Object.assign(
+        new Error(error?.body?.detail || error?.name || `Image generation ${status}`),
+        {
+          name:
+            status === 'result_missing'
+              ? 'ImageResultMissing'
+              : (error?.name ?? 'ImageGenerationError'),
+          taskTerminal: true,
+        },
+      ),
+      ok: false,
+    };
+  }
+  return { ok: false };
 };
 
 type ChatImageRunOutcome =
@@ -1234,8 +1343,12 @@ export const dalleSlice: StateCreator<
               slotStatus !== 'not_found' &&
               invocationIsCurrent()
             ) {
-              const recovered = await waitForChatImageTask(slot.taskId, invocationIsCurrent, {
-                immediate: true,
+              const recovered = await recoverChatImageSlotAliases({
+                attempt: slot.taskAttempt,
+                index,
+                invocationIsCurrent,
+                messageId,
+                preferredTaskId: slot.taskId,
               });
               if (!invocationIsCurrent()) return;
               if (recovered.ok && recovered.file) {
@@ -1243,17 +1356,23 @@ export const dalleSlice: StateCreator<
                   messageId,
                   (draft) => {
                     if (draft[index]) {
-                      draft[index].imageId = recovered.file!.id;
+                      draft[index].imageId = recovered.file.id;
                       draft[index].previewUrl = undefined;
                       if (slot.taskAttempt !== undefined) {
                         draft[index].taskAttempt = slot.taskAttempt;
                       }
-                      draft[index].taskId = slot.taskId;
+                      draft[index].taskId = recovered.taskId;
                     }
                   },
                   conversationContext,
                 );
                 return;
+              }
+              if (recovered.error) {
+                hasError = true;
+                errorArray[index] = isChatImageStopTombstoneError(recovered.error)
+                  ? { errorType: CHAT_IMAGE_TASK_CANCELLED_ERROR }
+                  : serializePluginError(recovered.error);
               }
               return;
             }

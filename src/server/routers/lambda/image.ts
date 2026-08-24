@@ -17,14 +17,17 @@ import {
 } from '@/database/schemas';
 import { appEnv } from '@/envs/app';
 import {
+  ChatImageSlotTaskCandidate,
   ChatImageTaskCorrelationItem,
   classifyChatImageTaskIdScopeKind,
   decideChatImageTaskCorrelation,
+  isActiveChatImageSlotStatus,
   listChatImageTaskIdScopeAliases,
   listDerivedChatImageTaskIds,
   matchChatImageTaskIdScope,
   normalizeChatImageTaskAttempt,
   parseStoredChatImageSlotInt,
+  pickBestChatImageSlotTask,
   pickLatestChatImageSlotFile,
   resolveChatImageSlotAttempt,
 } from '@/helpers/chatImageTaskId';
@@ -54,6 +57,7 @@ import {
   AsyncTaskStatus,
   AsyncTaskType,
 } from '@/types/asyncTask';
+import { FileSource } from '@/types/files';
 import { generateUniqueSeeds } from '@/utils/number';
 
 import {
@@ -92,6 +96,9 @@ const chatImageTaskIdScopesForContext = (ctx: LambdaContext) =>
     rawAuthUserId: ctx.rawAuthUserId,
     userId: ctx.userId,
   });
+
+const isGeneratedChatImageFile = (file?: { source?: string | null } | null) =>
+  file?.source === FileSource.ImageGeneration;
 
 const chatImageFileResult = (
   file: {
@@ -1025,11 +1032,13 @@ export const imageRouter = router({
       // Task rows can be pruned while the Artifacts file remains. Look the
       // file up by the same user-scoped metadata key (`jsonb ->>` on
       // `metadata.chatImageTaskId`) before declaring the id missing — remount
-      // recovery needs the file, not the task row.
+      // recovery needs the file, not the task row. Ordinary uploads can forge
+      // that key; only `image_generation` rows are artifacts.
       // @see https://www.postgresql.org/docs/current/functions-json.html
+      // @see https://owasp.org/www-community/vulnerabilities/Unrestricted_File_Upload
       if (!task) {
         const orphaned = await fileModel.findByChatImageTaskId(input.taskId);
-        if (orphaned) return chatImageFileResult(orphaned);
+        if (orphaned && isGeneratedChatImageFile(orphaned)) return chatImageFileResult(orphaned);
         return { status: 'task_missing' as const };
       }
 
@@ -1041,11 +1050,11 @@ export const imageRouter = router({
       }
 
       const file = await fileModel.findByChatImageTaskId(input.taskId);
-      // the task SUCCEEDED but its correlated file row is gone — an
+      // the task SUCCEEDED but its correlated generated file row is gone — an
       // authoritative failure of this attempt: resubmitting the same id can
       // never work (the success row cannot be re-claimed), only an explicit
       // Retry advancing to the deterministic replacement id can.
-      if (!file) return { status: 'result_missing' as const };
+      if (!file || !isGeneratedChatImageFile(file)) return { status: 'result_missing' as const };
 
       return chatImageFileResult(file);
     }),
@@ -1061,6 +1070,24 @@ export const imageRouter = router({
         userScopes,
       };
 
+      const [ownedMessage] = await ctx.serverDB
+        .select({ content: messages.content })
+        .from(messages)
+        .where(and(eq(messages.id, input.messageId), eq(messages.userId, ctx.userId)))
+        .limit(1);
+      const correlatedItem = ownedMessage?.content
+        ? parseChatImageToolItems(ownedMessage.content)?.[input.index]
+        : undefined;
+      const correlatedTaskId =
+        typeof correlatedItem?.taskId === 'string' ? correlatedItem.taskId : undefined;
+      const correlatedAttempt = resolveChatImageSlotAttempt(
+        userScopes,
+        input.messageId,
+        input.index,
+        correlatedTaskId,
+        normalizeChatImageTaskAttempt(correlatedItem?.taskAttempt),
+      );
+
       const slotted = await fileModel.findLatestByChatImageSlot(input.messageId, input.index);
       const provenSlotted = slotted ? pickLatestChatImageSlotFile([slotted], slotInput) : undefined;
 
@@ -1069,63 +1096,102 @@ export const imageRouter = router({
         input.messageId,
         input.index,
       );
+      const lookupTaskIds = [...historicalTaskIds];
+      if (
+        correlatedTaskId &&
+        correlatedAttempt !== undefined &&
+        !lookupTaskIds.includes(correlatedTaskId)
+      ) {
+        lookupTaskIds.push(correlatedTaskId);
+      }
       const historicalFile = provenSlotted
         ? provenSlotted
         : pickLatestChatImageSlotFile(
-            await fileModel.findByChatImageTaskIds(historicalTaskIds),
+            await fileModel.findByChatImageTaskIds(lookupTaskIds),
             slotInput,
           );
 
       const tasks = await ctx.asyncTaskModel.findByIds(
-        historicalTaskIds,
+        lookupTaskIds,
         AsyncTaskType.ImageGeneration,
       );
-      let bestTask:
-        { attempt: number; error?: unknown; status: string; taskId: string } | undefined;
+      const resolvedTasks: ChatImageSlotTaskCandidate[] = [];
       for (const task of tasks) {
+        const storedAttempt =
+          correlatedTaskId === task.id && correlatedAttempt !== undefined
+            ? correlatedAttempt
+            : undefined;
         const attempt = resolveChatImageSlotAttempt(
           userScopes,
           input.messageId,
           input.index,
           task.id,
+          storedAttempt,
         );
         if (attempt === undefined) continue;
-        if (!bestTask || attempt > bestTask.attempt) {
-          bestTask = {
-            attempt,
-            error: task.error,
-            status: task.status as string,
-            taskId: task.id,
-          };
-        }
+        resolvedTasks.push({
+          attempt,
+          error: task.error,
+          status: task.status as string,
+          taskId: task.id,
+        });
       }
 
       const fileAttempt = historicalFile?.attempt ?? -1;
-      const taskAttempt = bestTask?.attempt ?? -1;
-      if (bestTask && taskAttempt > fileAttempt) {
-        if (bestTask.status === AsyncTaskStatus.Success) {
+      const highestTaskAttempt = resolvedTasks.reduce(
+        (highest, task) => (task.attempt > highest ? task.attempt : highest),
+        -1,
+      );
+      if (highestTaskAttempt > fileAttempt) {
+        const atHighest = resolvedTasks.filter((task) => task.attempt === highestTaskAttempt);
+        for (const successTask of atHighest.filter(
+          (task) => task.status.toLowerCase() === AsyncTaskStatus.Success,
+        )) {
           const file =
-            historicalFile?.taskId === bestTask.taskId
+            historicalFile?.taskId === successTask.taskId
               ? historicalFile.file
-              : await fileModel.findByChatImageTaskId(bestTask.taskId);
-          if (file) {
+              : await fileModel.findByChatImageTaskId(successTask.taskId);
+          const proven =
+            file && isGeneratedChatImageFile(file)
+              ? pickLatestChatImageSlotFile([file], slotInput)
+              : undefined;
+          if (file && isGeneratedChatImageFile(file) && proven) {
             return chatImageFileResult(file, {
-              taskAttempt: bestTask.attempt,
-              taskId: bestTask.taskId,
+              taskAttempt: successTask.attempt,
+              taskId: successTask.taskId,
             });
           }
+        }
+        const active = pickBestChatImageSlotTask(
+          atHighest.filter((task) => isActiveChatImageSlotStatus(task.status)),
+        );
+        if (active) {
           return {
-            status: 'result_missing' as const,
-            taskAttempt: bestTask.attempt,
-            taskId: bestTask.taskId,
+            error: active.error as { body?: { detail?: string }; name?: string } | null,
+            status: active.status,
+            taskAttempt: active.attempt,
+            taskId: active.taskId,
           };
         }
-        return {
-          error: bestTask.error as { body?: { detail?: string }; name?: string } | null,
-          status: bestTask.status,
-          taskAttempt: bestTask.attempt,
-          taskId: bestTask.taskId,
-        };
+        const successWithoutFile = atHighest.find(
+          (task) => task.status.toLowerCase() === AsyncTaskStatus.Success,
+        );
+        if (successWithoutFile) {
+          return {
+            status: 'result_missing' as const,
+            taskAttempt: successWithoutFile.attempt,
+            taskId: successWithoutFile.taskId,
+          };
+        }
+        const terminal = pickBestChatImageSlotTask(atHighest);
+        if (terminal) {
+          return {
+            error: terminal.error as { body?: { detail?: string }; name?: string } | null,
+            status: terminal.status,
+            taskAttempt: terminal.attempt,
+            taskId: terminal.taskId,
+          };
+        }
       }
 
       if (historicalFile) {

@@ -949,22 +949,29 @@ configurable model rather than a hard-coded one.
   tool-message `{ content, imageList }` instead of a one-shot parsed
   `content` prop, and re-runs `reconcileDallETasks` when tiles become
   prompt-only again ([useEffect](https://react.dev/reference/react/useEffect)
-  dependency fingerprint). `getChatImageResult` returns the Artifacts file
-  when the `async_tasks` row is gone. `getChatImageSlotResult` returns the
+  dependency fingerprint).   `getChatImageResult` returns the Artifacts file
+  when the `async_tasks` row is gone, but only for server-created
+  `image_generation` files — ordinary uploads cannot forge
+  `metadata.chatImageTaskId`. `getChatImageSlotResult` returns the
   latest **proven** file or in-flight task for one prompt slot (server-created
   `image_generation` rows whose `chatImageTaskId` re-derives for that
-  message/index/attempt). A pending Retry is polled until the file appears;
+  message/index/attempt). Same-attempt scope aliases prefer a live
+  pending/processing task over a terminal failure; the client one-shots every
+  alias at that attempt and polls the active ones until a file appears.
+  A pending Retry is polled until the file appears;
   lookup/transport failures surface Retry instead of falling through to
   attempt 0. Task correlation is one versioned tuple: a higher valid
   `taskAttempt` wins from either side, so a stale Stop snapshot cannot
   replace a newer Retry. The tool render's mount-time `reconcileDallETasks`
   adopts a finished or in-flight task, including prompt-only tiles whose
   `taskId` was wiped — it uses the 1:1 `imageList` link, then the slot
-  lookup (which may return a later pending attempt), then **attempt-0**
+  lookup (which may return a later pending attempt, including an attempt
+  stored on the owned message item with no Retry ceiling), then **attempt-0**
   scope-alias probes **independently** (one terminal legacy scope does not
   hide a successful file on another alias) and **does not auto-create** on
-  that path. Rows that store slot metadata have no Retry ceiling. Files and
-  tasks created **before** those keys can only be rediscovered for attempts
+  that path. Rows that store slot metadata, and message items that still
+  carry `taskId`/`taskAttempt`, have no Retry ceiling. Files and
+  tasks that lack both can only be rediscovered for attempts
   0–256. `retryDallEImages`
   adopts an existing task first and creates a replacement ONLY after the
   server reports an authoritative terminal `error` state with ownership

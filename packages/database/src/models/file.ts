@@ -435,11 +435,17 @@ export class FileModel {
    * table has no result column, so the async procedure links the created file
    * back to its task through `metadata.chatImageTaskId` (the same jsonb
    * metadata channel the workspace generation flow already uses).
+   *
+   * Ordinary uploads accept caller `metadata` (`z.any()`). Only server-created
+   * `image_generation` rows are eligible — jsonb equality is not provenance.
+   * @see https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html
+   * @see https://www.postgresql.org/docs/current/functions-json.html
    */
   findByChatImageTaskId = async (taskId: string) => {
     return this.db.query.files.findFirst({
       where: and(
         eq(files.userId, this.userId),
+        eq(files.source, FileSource.ImageGeneration),
         sql`${files.metadata}->>'chatImageTaskId' = ${taskId}`,
       ),
     });
