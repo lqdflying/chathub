@@ -949,7 +949,7 @@ configurable model rather than a hard-coded one.
   tool-message `{ content, imageList }` instead of a one-shot parsed
   `content` prop, and re-runs `reconcileDallETasks` when tiles become
   prompt-only again ([useEffect](https://react.dev/reference/react/useEffect)
-  dependency fingerprint).   `getChatImageResult` returns the Artifacts file
+  dependency fingerprint). `getChatImageResult` returns the Artifacts file
   when the `async_tasks` row is gone, but only for server-created
   `image_generation` files — ordinary uploads cannot forge
   `metadata.chatImageTaskId`. `getChatImageSlotResult` returns the

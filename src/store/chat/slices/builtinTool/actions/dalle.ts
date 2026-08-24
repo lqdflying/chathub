@@ -165,6 +165,12 @@ const isTransientPollError = (error: unknown) => {
 const isTerminalTaskStateError = (error: unknown) =>
   Boolean((error as { taskTerminal?: boolean })?.taskTerminal);
 
+const firstActionableAliasError = (items: { error?: unknown }[]): unknown | undefined => {
+  const terminal = items.find((item) => isTerminalTaskStateError(item.error));
+  if (terminal?.error) return terminal.error;
+  return items.find((item) => item.error)?.error;
+};
+
 // Wait for the async generation task to settle. The generation itself (which
 // can take 30–60 s) runs server-side — the browser only ever polls small
 // status payloads, never holds a long request open, and never receives image
@@ -304,8 +310,8 @@ const recoverChatImageSlotAliases = async ({
     );
     if (winner) return { file: winner.file, ok: true, taskId: winner.taskId };
     if (!invocationIsCurrent()) return { ok: false };
-    const terminal = settled.find((item) => isTerminalTaskStateError(item.error));
-    if (terminal?.error) return { error: terminal.error, ok: false };
+    const pollError = firstActionableAliasError(settled);
+    if (pollError) return { error: pollError, ok: false };
     return { ok: false };
   }
 
@@ -332,6 +338,8 @@ const recoverChatImageSlotAliases = async ({
       ok: false,
     };
   }
+  const lookupError = firstActionableAliasError(snapshots);
+  if (lookupError) return { error: lookupError, ok: false };
   return { ok: false };
 };
 

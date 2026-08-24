@@ -213,7 +213,7 @@ const applyStaleChatImageFetch = (content: string, messageId = 'message-id') => 
   ]);
 };
 
-const promptOnlyProbeIds = (index = 0, messageId = 'message-id') => {
+const probeIdsForAttempt = (attempt: number, index = 0, messageId = 'message-id') => {
   const userState = useUserStore.getState();
   return listChatImageTaskIdScopeAliases({
     authenticatedScope: authSelectors.currentUserScope(userState),
@@ -221,9 +221,11 @@ const promptOnlyProbeIds = (index = 0, messageId = 'message-id') => {
     userId: userState.user?.id,
   }).map((scope) => ({
     scope,
-    taskId: deriveChatImageTaskId(scope, messageId, index, 0),
+    taskId: deriveChatImageTaskId(scope, messageId, index, attempt),
   }));
 };
+const promptOnlyProbeIds = (index = 0, messageId = 'message-id') =>
+  probeIdsForAttempt(0, index, messageId);
 
 const CHAT_IMAGE_STOPPED_REGISTRY_KEY = 'chathub:chat-image:stopped-v1';
 
@@ -2057,19 +2059,15 @@ describe('chatToolSlice - dalle', () => {
       expect(parsed[0]?.imageId).toBeUndefined();
     });
 
-    it('does not attach a slot-missing ordinary file returned for a derived attempt-0 id', async () => {
-      const probes = promptOnlyProbeIds();
+    it('does not attach when every derived attempt-0 probe is task_missing', async () => {
       seedToolMessage(JSON.stringify([{ prompt: 'p1' }]));
       const stubs = installStoreStubs();
       const createTaskMock = vi.spyOn(imageGenerationService, 'createChatImageTask');
       vi.spyOn(imageGenerationService, 'getChatImageSlotResult').mockResolvedValue({
         status: 'task_missing',
       });
-      vi.spyOn(imageGenerationService, 'getChatImageResult').mockImplementation(async (taskId) => {
-        if (probes.some((probe) => probe.taskId === taskId)) {
-          return { status: 'task_missing' };
-        }
-        return { file: { id: 'ordinary-upload' }, status: 'success' };
+      vi.spyOn(imageGenerationService, 'getChatImageResult').mockResolvedValue({
+        status: 'task_missing',
       });
 
       await store().reconcileDallETasks('message-id');
@@ -2078,6 +2076,7 @@ describe('chatToolSlice - dalle', () => {
       expect(createTaskMock).not.toHaveBeenCalled();
       const parsed = JSON.parse(originContent()) as { imageId?: string }[];
       expect(parsed[0]?.imageId).toBeUndefined();
+      expect(stubs.pluginStateSpy).not.toHaveBeenCalled();
     });
 
     it.each([
@@ -2140,6 +2139,127 @@ describe('chatToolSlice - dalle', () => {
         expect(parsed[0]?.taskId).toBe(successId);
       },
     );
+
+    it('surfaces a 401 from every same-attempt alias so the tile keeps Retry', async () => {
+      const probes = probeIdsForAttempt(3);
+      expect(probes.length).toBeGreaterThanOrEqual(1);
+      seedToolMessage(JSON.stringify([{ prompt: 'p1' }]));
+      const stubs = installStoreStubs();
+      const createTaskMock = vi.spyOn(imageGenerationService, 'createChatImageTask');
+      vi.spyOn(imageGenerationService, 'getChatImageSlotResult').mockResolvedValue({
+        status: 'processing',
+        taskAttempt: 3,
+        taskId: probes[0]?.taskId,
+      });
+      vi.spyOn(imageGenerationService, 'getChatImageResult').mockRejectedValue(
+        Object.assign(new Error('UNAUTHORIZED'), { data: { httpStatus: 401 } }),
+      );
+
+      await store().reconcileDallETasks('message-id');
+      stubs.restore();
+
+      expect(createTaskMock).not.toHaveBeenCalled();
+      expect(originContent()).toBe(JSON.stringify([{ prompt: 'p1' }]));
+      const errorArg = stubs.pluginStateSpy.mock.calls[0]?.[1] as { error: unknown[] };
+      expect(errorArg.error[0]).toMatchObject({ message: 'UNAUTHORIZED', status: 401 });
+    });
+
+    it('surfaces a 503 from every same-attempt alias so the tile keeps Retry', async () => {
+      const probes = probeIdsForAttempt(3);
+      seedToolMessage(JSON.stringify([{ prompt: 'p1' }]));
+      const stubs = installStoreStubs();
+      const createTaskMock = vi.spyOn(imageGenerationService, 'createChatImageTask');
+      vi.spyOn(imageGenerationService, 'getChatImageSlotResult').mockResolvedValue({
+        status: 'processing',
+        taskAttempt: 3,
+        taskId: probes[0]?.taskId,
+      });
+      vi.spyOn(imageGenerationService, 'getChatImageResult').mockRejectedValue(
+        Object.assign(new Error('slot unavailable'), { data: { httpStatus: 503 } }),
+      );
+
+      await store().reconcileDallETasks('message-id');
+      stubs.restore();
+
+      expect(createTaskMock).not.toHaveBeenCalled();
+      const errorArg = stubs.pluginStateSpy.mock.calls[0]?.[1] as { error: unknown[] };
+      expect(errorArg.error[0]).toMatchObject({ message: 'slot unavailable', status: 503 });
+      const parsed = JSON.parse(originContent()) as { imageId?: string }[];
+      expect(parsed[0]?.imageId).toBeUndefined();
+    });
+
+    it('surfaces an active-alias poll timeout so the tile keeps Retry', async () => {
+      vi.useFakeTimers();
+      const probes = probeIdsForAttempt(3);
+      const liveId = probes[0]?.taskId as string;
+      seedToolMessage(JSON.stringify([{ prompt: 'p1' }]));
+      const stubs = installStoreStubs();
+      const createTaskMock = vi.spyOn(imageGenerationService, 'createChatImageTask');
+      vi.spyOn(imageGenerationService, 'getChatImageSlotResult').mockResolvedValue({
+        status: 'processing',
+        taskAttempt: 3,
+        taskId: liveId,
+      });
+      vi.spyOn(imageGenerationService, 'getChatImageResult').mockImplementation(async (taskId) => {
+        if (taskId === liveId) return { status: 'processing' };
+        return { status: 'task_missing' };
+      });
+
+      const run = store().reconcileDallETasks('message-id');
+      await vi.advanceTimersByTimeAsync(301_000);
+      await run;
+      stubs.restore();
+
+      expect(createTaskMock).not.toHaveBeenCalled();
+      const errorArg = stubs.pluginStateSpy.mock.calls[0]?.[1] as { error: unknown[] };
+      expect(errorArg.error[0]).toMatchObject({
+        message: 'Image generation timed out while waiting for the task result.',
+      });
+    });
+
+    it('attaches a delayed success over an early 401 on another same-attempt alias', async () => {
+      vi.useFakeTimers();
+      const probes = probeIdsForAttempt(3);
+      expect(probes.length).toBeGreaterThanOrEqual(2);
+      const unauthorizedId = probes[0]?.taskId as string;
+      const successId = probes[1]?.taskId as string;
+      seedToolMessage(JSON.stringify([{ prompt: 'p1' }]));
+      const stubs = installStoreStubs();
+      const createTaskMock = vi.spyOn(imageGenerationService, 'createChatImageTask');
+      vi.spyOn(imageGenerationService, 'getChatImageSlotResult').mockResolvedValue({
+        status: 'processing',
+        taskAttempt: 3,
+        taskId: unauthorizedId,
+      });
+      let successPolls = 0;
+      vi.spyOn(imageGenerationService, 'getChatImageResult').mockImplementation(async (taskId) => {
+        if (taskId === unauthorizedId) {
+          throw Object.assign(new Error('UNAUTHORIZED'), { data: { httpStatus: 401 } });
+        }
+        if (taskId === successId) {
+          successPolls += 1;
+          if (successPolls === 1) return { status: 'processing' };
+          return { file: { id: 'file-from-live-alias' }, status: 'success' };
+        }
+        return { status: 'task_missing' };
+      });
+
+      const run = store().reconcileDallETasks('message-id');
+      await vi.advanceTimersByTimeAsync(3000);
+      await run;
+      stubs.restore();
+
+      expect(createTaskMock).not.toHaveBeenCalled();
+      expect(stubs.pluginStateSpy).not.toHaveBeenCalled();
+      const parsed = JSON.parse(originContent()) as {
+        imageId?: string;
+        taskAttempt?: number;
+        taskId?: string;
+      }[];
+      expect(parsed[0]?.imageId).toBe('file-from-live-alias');
+      expect(parsed[0]?.taskAttempt).toBe(3);
+      expect(parsed[0]?.taskId).toBe(successId);
+    });
 
     it('adopts a messages_files link without probing when content is prompt-only', async () => {
       seedToolMessage(JSON.stringify([{ prompt: 'p1' }]), 'message-id', {
