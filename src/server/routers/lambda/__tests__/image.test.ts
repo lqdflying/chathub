@@ -121,8 +121,9 @@ describe('imageRouter', () => {
         .mockReturnValueOnce({ values: generationValues })
         .mockReturnValueOnce({ values: asyncTaskValues }),
       select: vi.fn().mockReturnValue({
+        for: vi.fn().mockResolvedValue([{ id: 'topic-id' }]),
         from: vi.fn().mockReturnThis(),
-        limit: vi.fn().mockResolvedValue([{ id: 'topic-id' }]),
+        limit: vi.fn().mockReturnThis(),
         where: vi.fn().mockReturnThis(),
       }),
       update: vi.fn().mockReturnValue({
@@ -281,8 +282,9 @@ describe('imageRouter', () => {
         .mockReturnValueOnce({ values: generationValues })
         .mockReturnValueOnce({ values: asyncTaskValues }),
       select: vi.fn().mockReturnValue({
+        for: vi.fn().mockResolvedValue([{ id: 'topic-id' }]),
         from: vi.fn().mockReturnThis(),
-        limit: vi.fn().mockResolvedValue([{ id: 'topic-id' }]),
+        limit: vi.fn().mockReturnThis(),
         where: vi.fn().mockReturnThis(),
       }),
       update: vi.fn().mockReturnValue({
@@ -379,8 +381,9 @@ describe('imageRouter', () => {
         .mockReturnValueOnce({ values: generationValues })
         .mockReturnValueOnce({ values: asyncTaskValues }),
       select: vi.fn().mockReturnValue({
+        for: vi.fn().mockResolvedValue([{ id: 'topic-id' }]),
         from: vi.fn().mockReturnThis(),
-        limit: vi.fn().mockResolvedValue([{ id: 'topic-id' }]),
+        limit: vi.fn().mockReturnThis(),
         where: vi.fn().mockReturnThis(),
       }),
       update: vi.fn().mockReturnValue({
@@ -581,8 +584,9 @@ describe('imageRouter', () => {
 
   it('rejects image creation when the topic belongs to another user', async () => {
     const topicOwnershipQuery = {
+      for: vi.fn().mockResolvedValue([]),
       from: vi.fn().mockReturnThis(),
-      limit: vi.fn().mockResolvedValue([]),
+      limit: vi.fn().mockReturnThis(),
       where: vi.fn().mockReturnThis(),
     };
     const transaction = {
@@ -662,8 +666,9 @@ describe('imageRouter', () => {
         .mockReturnValueOnce({ values: generationValues })
         .mockReturnValueOnce({ values: asyncTaskValues }),
       select: vi.fn().mockReturnValue({
+        for: vi.fn().mockResolvedValue([{ id: 'topic-id' }]),
         from: vi.fn().mockReturnThis(),
-        limit: vi.fn().mockResolvedValue([{ id: 'topic-id' }]),
+        limit: vi.fn().mockReturnThis(),
         where: vi.fn().mockReturnThis(),
       }),
       update: vi.fn().mockReturnValue({
@@ -1807,9 +1812,12 @@ describe('imageRouter', () => {
     });
 
     it('distinguishes a missing task row from a missing result (R14-1)', async () => {
-      // no task row at all → task_missing (recoverable by same-id resubmit)
+      // no task row and no file → task_missing (recoverable by same-id resubmit)
       vi.mocked(AsyncTaskModel).mockImplementation(
         () => ({ findById: vi.fn().mockResolvedValue(undefined) }) as never,
+      );
+      vi.mocked(FileModel).mockImplementation(
+        () => ({ findByChatImageTaskId: vi.fn().mockResolvedValue(undefined) }) as never,
       );
       vi.mocked(getServerDB).mockResolvedValue({} as never);
       vi.mocked(FileService).mockImplementation(() => ({}) as never);
@@ -1828,7 +1836,6 @@ describe('imageRouter', () => {
       vi.mocked(AsyncTaskModel).mockImplementation(
         () => ({ findById: vi.fn().mockResolvedValue({ status: 'success' }) }) as never,
       );
-      const { FileModel } = await import('@/database/models/file');
       vi.mocked(FileModel).mockImplementation(
         () => ({ findByChatImageTaskId: vi.fn().mockResolvedValue(undefined) }) as never,
       );
@@ -1836,6 +1843,30 @@ describe('imageRouter', () => {
       await expect(caller.getChatImageResult({ taskId: 'task-lost' })).resolves.toEqual({
         status: 'result_missing',
       });
+    });
+
+    it('returns the Artifacts file when the task row is gone', async () => {
+      vi.mocked(AsyncTaskModel).mockImplementation(
+        () => ({ findById: vi.fn().mockResolvedValue(undefined) }) as never,
+      );
+      const findByChatImageTaskId = vi.fn().mockResolvedValue({
+        id: 'file-orphan',
+        metadata: { chatImageTaskId: 'task-orphan', height: 1024, width: 1024 },
+      });
+      vi.mocked(FileModel).mockImplementation(() => ({ findByChatImageTaskId }) as never);
+      vi.mocked(getServerDB).mockResolvedValue({} as never);
+      vi.mocked(FileService).mockImplementation(() => ({}) as never);
+
+      const caller = createCallerFactory(imageRouter)({
+        authorizationHeader: 'test-authorization',
+        userId: 'account-a',
+      } as never);
+
+      await expect(caller.getChatImageResult({ taskId: 'task-orphan' })).resolves.toEqual({
+        file: { height: 1024, id: 'file-orphan', width: 1024 },
+        status: 'success',
+      });
+      expect(findByChatImageTaskId).toHaveBeenCalledWith('task-orphan');
     });
 
     it('returns the linked file (via metadata.chatImageTaskId) on success', async () => {

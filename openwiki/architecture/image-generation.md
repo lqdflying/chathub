@@ -932,12 +932,24 @@ configurable model rather than a hard-coded one.
   conversation. `useFetchMessages` / `replaceMessages` merge incoming
   prompt-only tool content with any in-memory `imageId`/`taskId` (SWR focus
   revalidate and overlapping `refreshMessages` can otherwise wipe the tiles
-  while Artifacts still list the files). Task correlation is one versioned
+  while Artifacts still list the files — SWR documents this refetch vs
+  mutation race; `mutate(..., { revalidate: false })` / skipRefresh is the
+  local write, and merge is the fetch-side repair;
+  [SWR Mutation](https://swr.vercel.app/docs/mutation)). Fetch rows that omit
+  `plugin` (LEFT JOIN `message_plugins`) still merge when `role === 'tool'`
+  and the JSON is a prompt array. Tile persist also writes `messages_files`
+  (`imageList`) so a later getMessages can fill the card without the JSON
+  `imageId`. The Image tool renderer subscribes to the live tool-message
+  `{ content, imageList }` instead of a one-shot parsed `content` prop, and
+  re-runs `reconcileDallETasks` when tiles become prompt-only again
+  ([useEffect](https://react.dev/reference/react/useEffect) dependency
+  fingerprint). `getChatImageResult` returns the Artifacts file when the
+  `async_tasks` row is gone. Task correlation is one versioned
   tuple: a higher valid `taskAttempt` wins from either side, so a stale Stop
   snapshot cannot replace a newer Retry. The tool render's
   mount-time `reconcileDallETasks` adopts a finished task's file, including
   prompt-only tiles whose `taskId` was wiped — it probes this request's
-  derived attempt-0 ids **independently** (one terminal legacy scope does not
+  derived attempt 0–2 ids **independently** (one terminal legacy scope does not
   hide a successful file on another alias) and **does not auto-create** on
   that path; `retryDallEImages`
   adopts an existing task first and creates a replacement ONLY after the

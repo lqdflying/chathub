@@ -143,22 +143,38 @@ export type ChatImageTaskCorrelationDecision =
 export type ChatImageToolMessageLike = {
   content?: string | null;
   id: string;
+  imageList?: { id?: string }[] | null;
   plugin?: { apiName?: string; identifier?: string } | null;
   role?: string;
 };
 
-export const isChatImageToolMessage = (message: ChatImageToolMessageLike): boolean =>
-  message.role === 'tool' &&
-  (message.plugin?.identifier === 'lobe-image-designer' ||
-    message.plugin?.apiName === 'text2image');
-
-const parseChatImageToolItems = (content: string): ChatImageTaskCorrelationItem[] | undefined => {
+export const parseChatImageToolItems = (
+  content: unknown,
+): ChatImageTaskCorrelationItem[] | undefined => {
+  if (Array.isArray(content)) return content as ChatImageTaskCorrelationItem[];
+  if (typeof content !== 'string' || !content) return undefined;
   try {
     const parsed = JSON.parse(content) as unknown;
     return Array.isArray(parsed) ? (parsed as ChatImageTaskCorrelationItem[]) : undefined;
   } catch {
     return undefined;
   }
+};
+
+export const looksLikeChatImageToolItems = (content?: string | null): boolean => {
+  const items = parseChatImageToolItems(content);
+  if (!items?.length) return false;
+  return items.every((item) => item && typeof (item as { prompt?: unknown }).prompt === 'string');
+};
+
+export const isChatImageToolMessage = (message: ChatImageToolMessageLike): boolean => {
+  const pluginMatch =
+    message.plugin?.identifier === 'lobe-image-designer' ||
+    message.plugin?.apiName === 'text2image';
+  if (pluginMatch) return true;
+  // Fetched tool rows can omit `plugin` on a left-join glitch. Still merge
+  // by the prompt-array shape so a stale getMessages cannot wipe imageId.
+  return message.role === 'tool' && looksLikeChatImageToolItems(message.content);
 };
 
 const copyChatImageTaskCorrelation = <T extends ChatImageTaskCorrelationItem>(
@@ -268,6 +284,21 @@ export const mergeChatImageToolContent = (
   return JSON.stringify(merged);
 };
 
+const mergeChatImageImageList = <T extends { id?: string }>(
+  incoming: T[] | null | undefined,
+  previous: T[] | null | undefined,
+): T[] | undefined => {
+  if (!previous?.length) return incoming ?? undefined;
+  if (!incoming?.length) return previous;
+  const length = Math.max(incoming.length, previous.length);
+  return Array.from({ length }, (_, index) => {
+    const next = incoming[index];
+    const prior = previous[index];
+    if (next?.id) return next;
+    return prior ?? next;
+  }).filter((item): item is T => Boolean(item));
+};
+
 export const preserveChatImageToolContentOnFetch = <T extends ChatImageToolMessageLike>(
   incoming: T[],
   existing: T[],
@@ -277,10 +308,20 @@ export const preserveChatImageToolContentOnFetch = <T extends ChatImageToolMessa
   return incoming.map((message) => {
     if (!isChatImageToolMessage(message)) return message;
     const previous = existingById.get(message.id);
-    if (!previous?.content) return message;
-    const merged = mergeChatImageToolContent(message.content ?? '', previous.content);
-    if (merged === (message.content ?? '')) return message;
-    return { ...message, content: merged };
+    if (!previous) return message;
+    const mergedContent = previous.content
+      ? mergeChatImageToolContent(message.content ?? '', previous.content)
+      : (message.content ?? '');
+    const mergedImageList = mergeChatImageImageList(message.imageList, previous.imageList);
+    const contentUnchanged = mergedContent === (message.content ?? '');
+    const imageListUnchanged =
+      JSON.stringify(mergedImageList ?? null) === JSON.stringify(message.imageList ?? null);
+    if (contentUnchanged && imageListUnchanged) return message;
+    return {
+      ...message,
+      content: mergedContent,
+      ...(mergedImageList ? { imageList: mergedImageList } : {}),
+    };
   });
 };
 

@@ -298,10 +298,14 @@ Copy-paste APL: **`.cursor/rules/debug-log-checks.mdc`**.
     `useFetchMessages` onSuccess used to replace the map with a fetch that
     started before persist (SWR mutation race / overlapping refresh). Merge
     file and task ids on fetch as one versioned attempt tuple (a stale Stop
-    snapshot must not replace a newer Retry); prompt-only remount adopts a
-    derived attempt-0 task file without auto-creating, settling each scope
-    alias independently so one terminal legacy id cannot hide a successful
-    file. `attachedCount=N` with Prompt-only cards is this wipe, not a failed
+    snapshot must not replace a newer Retry), including tool rows that omit
+    `plugin`. Prompt-only remount adopts a derived attempt 0–2 task file
+    (or the `messages_files` link, or an Artifacts file whose `async_tasks`
+    row is gone) without auto-creating, settling each scope alias
+    independently so one terminal legacy id cannot hide a successful file.
+    The Image tool renderer reads the live store rather than a stale parsed
+    `content` prop, and re-runs reconcile when tiles become prompt-only
+    again. `attachedCount=N` with Prompt-only cards is this wipe, not a failed
     generation.
 
 ## How to extend this without breaking it

@@ -89,6 +89,21 @@ const chatImageTaskIdScopesForContext = (ctx: LambdaContext) =>
     userId: ctx.userId,
   });
 
+const chatImageFileResult = (file: {
+  id: string;
+  metadata?: { height?: number; width?: number } | null;
+}) => {
+  const metadata = (file.metadata ?? {}) as { height?: number; width?: number };
+  return {
+    file: {
+      height: metadata.height,
+      id: file.id,
+      width: metadata.width,
+    },
+    status: AsyncTaskStatus.Success as string,
+  };
+};
+
 const rejectUncorrelatedChatImageTask = (input: {
   correlation: { index: number; messageId: string };
   outcome: 'uncorrelated' | 'unproven';
@@ -975,10 +990,17 @@ export const imageRouter = router({
     .input(z.object({ taskId: z.string() }))
     .query(async ({ input, ctx }) => {
       const task = await ctx.asyncTaskModel.findById(input.taskId);
-      // NO task row: the id was persisted write-first but its create never
-      // ran (navigation/tab close) — recoverable by idempotently submitting
-      // the SAME id. Must be distinguishable from result_missing below.
-      if (!task) return { status: 'task_missing' as const };
+      const fileModel = new FileModel(ctx.serverDB, ctx.userId);
+      // Task rows can be pruned while the Artifacts file remains. Look the
+      // file up by the same user-scoped metadata key (`jsonb ->>` on
+      // `metadata.chatImageTaskId`) before declaring the id missing — remount
+      // recovery needs the file, not the task row.
+      // @see https://www.postgresql.org/docs/current/functions-json.html
+      if (!task) {
+        const orphaned = await fileModel.findByChatImageTaskId(input.taskId);
+        if (orphaned) return chatImageFileResult(orphaned);
+        return { status: 'task_missing' as const };
+      }
 
       if (task.status !== AsyncTaskStatus.Success) {
         return {
@@ -987,7 +1009,6 @@ export const imageRouter = router({
         };
       }
 
-      const fileModel = new FileModel(ctx.serverDB, ctx.userId);
       const file = await fileModel.findByChatImageTaskId(input.taskId);
       // the task SUCCEEDED but its correlated file row is gone — an
       // authoritative failure of this attempt: resubmitting the same id can
@@ -995,15 +1016,7 @@ export const imageRouter = router({
       // Retry advancing to the deterministic replacement id can.
       if (!file) return { status: 'result_missing' as const };
 
-      const metadata = (file.metadata ?? {}) as { height?: number; width?: number };
-      return {
-        file: {
-          height: metadata.height,
-          id: file.id,
-          width: metadata.width,
-        },
-        status: AsyncTaskStatus.Success as string,
-      };
+      return chatImageFileResult(file);
     }),
 });
 

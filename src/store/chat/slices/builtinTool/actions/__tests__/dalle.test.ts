@@ -98,6 +98,7 @@ const installStoreStubs = (options?: {
           threadId?: string | null;
           topicId?: string | null;
         };
+        imageList?: UIChatMessage['imageList'];
       },
     ) => {
       const requestedClear =
@@ -134,7 +135,9 @@ const installStoreStubs = (options?: {
         messagesMap: {
           ...state.messagesMap,
           [hit.mapKey]: (state.messagesMap[hit.mapKey] ?? []).map((m) =>
-            m.id === id ? { ...m, content } : m,
+            m.id === id
+              ? { ...m, content, ...(extra?.imageList ? { imageList: extra.imageList } : {}) }
+              : m,
           ),
         },
       });
@@ -1937,6 +1940,54 @@ describe('chatToolSlice - dalle', () => {
       expect(parsed[0]?.taskId).toBe(recoveredId);
     });
 
+    it('adopts a finished Retry attempt when attempt 0 is missing', async () => {
+      const userState = useUserStore.getState();
+      const scope = listChatImageTaskIdScopeAliases({
+        authenticatedScope: authSelectors.currentUserScope(userState),
+        rawAuthUserId: userState.authUserId,
+        userId: userState.user?.id,
+      })[0];
+      const attempt1 = deriveChatImageTaskId(scope!, 'message-id', 0, 1);
+      seedToolMessage(JSON.stringify([{ prompt: 'p1' }]));
+      const stubs = installStoreStubs();
+      const createTaskMock = vi.spyOn(imageGenerationService, 'createChatImageTask');
+      vi.spyOn(imageGenerationService, 'getChatImageResult').mockImplementation(async (taskId) =>
+        taskId === attempt1
+          ? { file: { id: 'file-from-retry' }, status: 'success' }
+          : { status: 'task_missing' },
+      );
+
+      await store().reconcileDallETasks('message-id');
+      stubs.restore();
+
+      expect(createTaskMock).not.toHaveBeenCalled();
+      const parsed = JSON.parse(originContent()) as {
+        imageId?: string;
+        taskAttempt?: number;
+        taskId?: string;
+      }[];
+      expect(parsed[0]?.imageId).toBe('file-from-retry');
+      expect(parsed[0]?.taskAttempt).toBe(1);
+      expect(parsed[0]?.taskId).toBe(attempt1);
+    });
+
+    it('adopts a messages_files link without probing when content is prompt-only', async () => {
+      seedToolMessage(JSON.stringify([{ prompt: 'p1' }]), 'message-id', {
+        imageList: [{ alt: 'p1', id: 'file-linked', url: '' }],
+      });
+      const stubs = installStoreStubs();
+      const createTaskMock = vi.spyOn(imageGenerationService, 'createChatImageTask');
+      const pollMock = vi.spyOn(imageGenerationService, 'getChatImageResult');
+
+      await store().reconcileDallETasks('message-id');
+      stubs.restore();
+
+      expect(createTaskMock).not.toHaveBeenCalled();
+      expect(pollMock).not.toHaveBeenCalled();
+      const parsed = JSON.parse(originContent()) as { imageId?: string }[];
+      expect(parsed[0]?.imageId).toBe('file-linked');
+    });
+
     it('adopts a successful alias when an earlier legacy scope is terminal', async () => {
       const probes = promptOnlyProbeIds();
       expect(probes.length).toBeGreaterThanOrEqual(2);
@@ -2656,6 +2707,7 @@ describe('chatToolSlice - dalle', () => {
         JSON.stringify([{ imageId: 'new-id', previewUrl: 'new-url', prompt: 'test prompt' }]),
         expect.objectContaining({
           conversationContext: expect.objectContaining({ sessionId: ORIGIN_SESSION }),
+          imageList: [{ alt: 'test prompt', id: 'new-id', url: '' }],
           skipRefresh: true,
         }),
       );

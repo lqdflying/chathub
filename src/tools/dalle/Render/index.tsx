@@ -1,39 +1,46 @@
 import { BuiltinRenderProps } from '@lobechat/types';
 import { ActionIcon, PreviewGroup } from '@lobehub/ui';
+import isEqual from 'fast-deep-equal';
 import { Download } from 'lucide-react';
-import React, { memo, useEffect, useRef } from 'react';
+import React, { memo, useEffect, useMemo, useRef } from 'react';
 import { Flexbox } from 'react-layout-kit';
 
 import { fileService } from '@/services/file';
 import { useChatStore } from '@/store/chat';
+import { chatSelectors } from '@/store/chat/selectors';
 import { useImageStore } from '@/store/image';
 import { DallEImageItem } from '@/types/tool/dalle';
 
 import GalleyGrid from './GalleyGrid';
 import ImageItem from './Item';
+import { dalleMissingImageKey, resolveDalleRenderItems } from './resolveItems';
 
 const DallE = memo<BuiltinRenderProps<DallEImageItem[]>>(({ content, messageId }) => {
   const currentRef = useRef(0);
   const reconcileDallETasks = useChatStore((s) => s.reconcileDallETasks);
   const isImageConfigReady = useImageStore((s) => s.isInit);
+  const liveMessage = useChatStore((s) => {
+    const message = chatSelectors.getMessageById(messageId)(s);
+    if (!message) return undefined;
+    return { content: message.content, imageList: message.imageList };
+  }, isEqual);
+
+  const items = useMemo(
+    () => resolveDalleRenderItems(content, liveMessage, messageId),
+    [content, liveMessage, messageId],
+  );
+  const missingImageKey = dalleMissingImageKey(items);
 
   // A generation task can outlive the tab that started it (reload/navigation):
   // on mount, adopt finished results / resume pending ones for this message.
   // Also rerun when the owner's image config finishes hydrating — recovery
   // needs a resolved model, and hydration can settle after the bounded wait
-  // inside reconcile has already expired. While a waiter still owns the
-  // per-item key this rerun returns without doing anything; that is safe
-  // because the waiter itself re-checks readiness once more at its deadline
-  // (so a flip inside the final interval is consumed by the owner), and a
-  // flip after the key is released is picked up by this effect.
+  // inside reconcile has already expired. Re-run when tiles become prompt-only
+  // again (stale fetch wipe after attach); while a waiter still owns the
+  // per-item key this rerun returns without doing anything.
   useEffect(() => {
     reconcileDallETasks(messageId);
-  }, [messageId, reconcileDallETasks, isImageConfigReady]);
-
-  // While the tool call is still streaming/being transformed, `content` can be
-  // the raw arguments object (or undefined) rather than the item array — a
-  // bare .map would throw at render and take down the whole chat page.
-  const items = Array.isArray(content) ? content : [];
+  }, [messageId, reconcileDallETasks, isImageConfigReady, missingImageKey]);
 
   const handleDownload = async () => {
     // 1. Retrieve the blob URL of an image by its imageId
@@ -65,7 +72,7 @@ const DallE = memo<BuiltinRenderProps<DallEImageItem[]>>(({ content, messageId }
           } as any
         }
       >
-        <GalleyGrid items={items.map((c) => ({ ...c, messageId }))} renderItem={ImageItem} />
+        <GalleyGrid items={items} renderItem={ImageItem} />
       </PreviewGroup>
     </Flexbox>
   );

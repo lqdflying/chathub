@@ -1,4 +1,4 @@
-import { ToolDiagnosticTerminalOutcome, UIChatMessage } from '@lobechat/types';
+import { ChatImageItem, ToolDiagnosticTerminalOutcome, UIChatMessage } from '@lobechat/types';
 import { produce } from 'immer';
 import { omit } from 'lodash-es';
 import { RuntimeImageGenParams } from 'model-bank';
@@ -8,6 +8,7 @@ import { StateCreator } from 'zustand/vanilla';
 
 import {
   deriveChatImageTaskId,
+  isChatImageToolMessage,
   listChatImageTaskIdScopeAliases,
   matchChatImageTaskIdScope,
 } from '@/helpers/chatImageTaskId';
@@ -91,6 +92,10 @@ const resolveImageModel = ():
 const TASK_POLL_INTERVAL = 2500;
 const TASK_POLL_BUDGET = 300_000;
 const TERMINAL_TASK_STATUSES = new Set(['success', 'error']);
+// Prompt-only remount used to probe only attempt 0. A wiped Retry tile is
+// attempt 1+, so also probe 1 and 2. Scope order is unchanged (attempt 0
+// first) so alias-priority tests keep the same first two ids.
+const PROMPT_ONLY_RECOVERY_ATTEMPTS = [0, 1, 2];
 
 const sleep = (ms: number) =>
   new Promise<void>((resolve) => {
@@ -394,9 +399,6 @@ const isChatImageAutoCreateAuthorized = (
   if (live !== 0 && live !== item.taskFence) return false;
   return true;
 };
-
-const isChatImageToolMessage = (message: UIChatMessage) =>
-  message.plugin?.identifier === 'lobe-image-designer' || message.plugin?.apiName === 'text2image';
 
 type PreparedChatImageStop = {
   items: DallEImageItem[];
@@ -1162,20 +1164,38 @@ export const dalleSlice: StateCreator<
     }
     if (!Array.isArray(items)) return;
 
+    const needsWork = items.some((item) => item && !item.imageId);
     const errorArray: unknown[] = [];
     let hasError = false;
     await pMap(
       items,
       async (item, index) => {
         // Prompt-only tiles (stale fetch wiped `taskId`/`imageId`) still have
-        // a deterministic attempt-0 id. Adopt a finished file from that id;
-        // never auto-create — that would bill a generation the user already paid.
+        // a deterministic attempt id. Adopt a finished file from that id
+        // (attempts 0–2 × this-request scopes); never auto-create — that
+        // would bill a generation the user already paid.
         if (!item || item.imageId) return;
+        const linkedFileId =
+          origin.message.imageList?.[index]?.id ??
+          (items.length === 1 ? origin.message.imageList?.[0]?.id : undefined);
         const loadingKey = `${messageId}_${index}`;
         if (!claimTaskKey(loadingKey, reconcileToken)) return;
         get().toggleDallEImageLoading(loadingKey, true);
 
         try {
+          if (linkedFileId) {
+            await get().updateImageItem(
+              messageId,
+              (draft) => {
+                if (draft[index]) {
+                  draft[index].imageId = linkedFileId;
+                  draft[index].previewUrl = undefined;
+                }
+              },
+              conversationContext,
+            );
+            return;
+          }
           if (!item.taskId) {
             const reconcileUserState = useUserStore.getState();
             const reconcileScopes = listChatImageTaskIdScopeAliases({
@@ -1184,18 +1204,20 @@ export const dalleSlice: StateCreator<
               userId: reconcileUserState.user?.id,
             });
             const probes = await Promise.all(
-              reconcileScopes.map(async (scope) => {
-                const taskId = deriveChatImageTaskId(scope, messageId, index, 0);
-                try {
-                  const result = await waitForChatImageTask(taskId, invocationIsCurrent, {
-                    adoptProbe: true,
-                    immediate: true,
-                  });
-                  return { result, taskId };
-                } catch (error) {
-                  return { error, taskId };
-                }
-              }),
+              PROMPT_ONLY_RECOVERY_ATTEMPTS.flatMap((attempt) =>
+                reconcileScopes.map(async (scope) => {
+                  const taskId = deriveChatImageTaskId(scope, messageId, index, attempt);
+                  try {
+                    const result = await waitForChatImageTask(taskId, invocationIsCurrent, {
+                      adoptProbe: true,
+                      immediate: true,
+                    });
+                    return { attempt, result, taskId };
+                  } catch (error) {
+                    return { attempt, error, taskId };
+                  }
+                }),
+              ),
             );
             if (!invocationIsCurrent()) return;
             // Alias order is the recovery priority. Settle each probe so one
@@ -1208,7 +1230,7 @@ export const dalleSlice: StateCreator<
                   if (draft[index]) {
                     draft[index].imageId = recovered.result!.file!.id;
                     draft[index].previewUrl = undefined;
-                    draft[index].taskAttempt = 0;
+                    draft[index].taskAttempt = recovered.attempt;
                     draft[index].taskId = recovered.taskId;
                   }
                 },
@@ -1355,6 +1377,30 @@ export const dalleSlice: StateCreator<
     if (hasError && invocationIsCurrent()) {
       await get().updatePluginState(messageId, { error: errorArray });
     }
+    if (needsWork && invocationIsCurrent()) {
+      let attachedCount = 0;
+      try {
+        const latest = JSON.parse(
+          get().messagesMap[origin.mapKey]?.find((m) => m.id === messageId)?.content ?? '',
+        ) as DallEImageItem[];
+        attachedCount = Array.isArray(latest)
+          ? latest.filter((item) => Boolean(item?.imageId)).length
+          : 0;
+      } catch {
+        attachedCount = 0;
+      }
+      logChatImageGeneration(get(), 'chat_image_run_settled', {
+        assistantMessageId,
+        attachedCount,
+        itemCount: items.length,
+        kind: 'reconcile',
+        outcome: hasError ? 'partial' : attachedCount > 0 ? 'ok' : 'task_missing',
+        sessionId: conversationContext.sessionId,
+        threadId: conversationContext.threadId,
+        topicId: conversationContext.topicId,
+        ...(debugSpanId ? { spanId: debugSpanId } : {}),
+      });
+    }
   },
   retryDallEImages: async (messageId) => {
     const message = chatSelectors.getMessageById(messageId)(get());
@@ -1392,8 +1438,16 @@ export const dalleSlice: StateCreator<
       const data: DallEImageItem[] = JSON.parse(origin.message.content);
 
       const nextContent = produce(data, updater);
+      const imageList: ChatImageItem[] = nextContent
+        .filter((item) => Boolean(item?.imageId))
+        .map((item) => ({
+          alt: item.prompt,
+          id: item.imageId as string,
+          url: '',
+        }));
       await get().internal_updateMessageContent(id, JSON.stringify(nextContent), {
         conversationContext: conversationContext ?? origin.conversationContext,
+        ...(imageList.length > 0 ? { imageList } : {}),
         // Each tile persist used to revalidate the whole conversation. A fetch
         // that started before this write (or an overlapping send/focus
         // revalidate) can return prompt-only content and wipe `imageId` from

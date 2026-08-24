@@ -214,6 +214,50 @@ describe('chatImageTaskId', () => {
     expect(merged[2]?.content).toBe('summary');
   });
 
+  it('merges chat Image tool content when the fetch row omitted plugin', () => {
+    const existing = [
+      {
+        content: JSON.stringify([{ imageId: 'file-keep', prompt: 'p1', taskId: 'task-keep' }]),
+        id: 'tool-1',
+        plugin: { apiName: 'text2image', identifier: 'lobe-image-designer' },
+        role: 'tool',
+      },
+    ];
+    const incoming = [
+      {
+        content: JSON.stringify([{ prompt: 'p1' }]),
+        id: 'tool-1',
+        role: 'tool',
+      },
+    ];
+    const merged = preserveChatImageToolContentOnFetch(incoming, existing);
+    expect(JSON.parse(merged[0]?.content ?? '')[0]).toMatchObject({
+      imageId: 'file-keep',
+      prompt: 'p1',
+      taskId: 'task-keep',
+    });
+  });
+
+  it('keeps a previous imageList when the fetch row is prompt-only', () => {
+    const existing = [
+      {
+        content: JSON.stringify([{ prompt: 'p1' }]),
+        id: 'tool-1',
+        imageList: [{ id: 'file-linked' }],
+        role: 'tool',
+      },
+    ];
+    const incoming = [
+      {
+        content: JSON.stringify([{ prompt: 'p1' }]),
+        id: 'tool-1',
+        role: 'tool',
+      },
+    ];
+    const merged = preserveChatImageToolContentOnFetch(incoming, existing);
+    expect(merged[0]?.imageList).toEqual([{ id: 'file-linked' }]);
+  });
+
   it('authorizes attempt 0 and a later attempt when the derived id matches', () => {
     const attempt0 = deriveChatImageTaskId(scope, messageId, 0, 0);
     const attempt2 = deriveChatImageTaskId(scope, messageId, 0, 2);

@@ -1,8 +1,9 @@
 import { act, render } from '@testing-library/react';
 import React from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useChatStore } from '@/store/chat';
+import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { useImageStore } from '@/store/image';
 
 import DallE from './index';
@@ -22,7 +23,24 @@ vi.mock('./GalleyGrid', () => ({
 
 vi.mock('./Item', () => ({ default: () => null }));
 
+const inboxKey = messageMapKey('inbox', undefined);
+
 describe('DallE render', () => {
+  let previousReconcile = useChatStore.getState().reconcileDallETasks;
+
+  beforeEach(() => {
+    previousReconcile = useChatStore.getState().reconcileDallETasks;
+    useChatStore.setState({ reconcileDallETasks: vi.fn() });
+  });
+
+  afterEach(() => {
+    seenItems.length = 0;
+    useChatStore.setState({
+      messagesMap: {},
+      reconcileDallETasks: previousReconcile,
+    });
+  });
+
   it.each([
     ['raw arguments object', { prompts: ['a cat'] } as any],
     ['undefined content', undefined as any],
@@ -37,6 +55,51 @@ describe('DallE render', () => {
   it('renders the item array with messageId attached', () => {
     render(<DallE content={[{ prompt: 'a cat' }] as any} messageId="m2" />);
     expect(seenItems.at(-1)).toEqual([{ messageId: 'm2', prompt: 'a cat' }]);
+  });
+
+  it('prefers live store imageId over stale prompt-only props', () => {
+    useChatStore.setState({
+      activeId: 'inbox',
+      activeTopicId: undefined,
+      messagesMap: {
+        [inboxKey]: [
+          {
+            content: JSON.stringify([{ imageId: 'file-live', prompt: 'a cat' }]),
+            id: 'm-live',
+            meta: {},
+            role: 'tool',
+          } as never,
+        ],
+      },
+    });
+
+    render(<DallE content={[{ prompt: 'a cat' }] as any} messageId="m-live" />);
+    expect(seenItems.at(-1)).toEqual([
+      { imageId: 'file-live', messageId: 'm-live', prompt: 'a cat' },
+    ]);
+  });
+
+  it('fills imageId from message imageList when content is prompt-only', () => {
+    useChatStore.setState({
+      activeId: 'inbox',
+      activeTopicId: undefined,
+      messagesMap: {
+        [inboxKey]: [
+          {
+            content: JSON.stringify([{ prompt: 'a cat' }]),
+            id: 'm-linked',
+            imageList: [{ alt: 'a cat', id: 'file-linked', url: '' }],
+            meta: {},
+            role: 'tool',
+          } as never,
+        ],
+      },
+    });
+
+    render(<DallE content={[{ prompt: 'a cat' }] as any} messageId="m-linked" />);
+    expect(seenItems.at(-1)).toMatchObject([
+      { imageId: 'file-linked', messageId: 'm-linked', prompt: 'a cat' },
+    ]);
   });
 
   it('re-runs reconciliation when the image config finishes hydrating (R16-2)', () => {

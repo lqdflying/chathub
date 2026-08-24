@@ -1642,6 +1642,34 @@ describe('chatMessage actions', () => {
       expect(useChatStore.getState().messagesMap[chatKey][0].content).toContain('"taskId":"t-1"');
     });
 
+    it('keeps chat Image file ids when the fetch row omitted plugin', () => {
+      const chatKey = messageMapKey(mockState.activeId, mockState.activeTopicId);
+      useChatStore.setState({
+        messagesMap: {
+          [chatKey]: [
+            {
+              content: JSON.stringify([{ imageId: 'file-1', prompt: 'p', taskId: 't-1' }]),
+              id: 'tool-1',
+              plugin: { apiName: 'text2image', identifier: 'lobe-image-designer', type: 'builtin' },
+              role: 'tool',
+            } as UIChatMessage,
+          ],
+        },
+      });
+
+      useChatStore.getState().replaceMessages([
+        {
+          content: JSON.stringify([{ prompt: 'p' }]),
+          id: 'tool-1',
+          role: 'tool',
+        } as UIChatMessage,
+      ]);
+
+      expect(useChatStore.getState().messagesMap[chatKey][0].content).toContain(
+        '"imageId":"file-1"',
+      );
+    });
+
     it('keeps a newer Retry tuple when a fetched snapshot is a stale Stop', () => {
       const chatKey = messageMapKey(mockState.activeId, mockState.activeTopicId);
       useChatStore.setState({
