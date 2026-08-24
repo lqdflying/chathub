@@ -927,9 +927,15 @@ configurable model rather than a hard-coded one.
   index, and attempt — embedding another account's UUID in owned content
   cannot authorize insert. Neither an omitted field nor a delete/create race
   can insert work the conversation no longer contains. Item writes are serialized
-  per message (a promise queue in `updateImageItem`). The tool render's
-  mount-time `reconcileDallETasks` adopts a finished task's file, resumes
-  waiting on a pending one, or surfaces its failure; `retryDallEImages`
+  per message (a promise queue in `updateImageItem`). Tile persist uses
+  `skipRefresh` so each `imageId` write does not revalidate the whole
+  conversation. `useFetchMessages` / `replaceMessages` merge incoming
+  prompt-only tool content with any in-memory `imageId`/`taskId` (SWR focus
+  revalidate and overlapping `refreshMessages` can otherwise wipe the tiles
+  while Artifacts still list the files). The tool render's
+  mount-time `reconcileDallETasks` adopts a finished task's file, including
+  prompt-only tiles whose `taskId` was wiped — it probes this request's
+  derived attempt-0 ids and **does not auto-create** on that path; `retryDallEImages`
   adopts an existing task first and creates a replacement ONLY after the
   server reports an authoritative terminal `error` state with ownership
   re-checked after that await — lookup, transport and local-timeout failures

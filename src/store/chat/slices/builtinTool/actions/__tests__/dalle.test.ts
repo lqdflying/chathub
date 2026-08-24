@@ -1781,6 +1781,42 @@ describe('chatToolSlice - dalle', () => {
       expect(stubs.pluginStateSpy).not.toHaveBeenCalled();
     });
 
+    it('adopts a finished derived task when tile content is prompt-only (stale fetch wipe)', async () => {
+      const recoveredId = initialIdFor(0);
+      seedToolMessage(JSON.stringify([{ prompt: 'p1' }]));
+      const stubs = installStoreStubs();
+      const createTaskMock = vi.spyOn(imageGenerationService, 'createChatImageTask');
+      vi.spyOn(imageGenerationService, 'getChatImageResult').mockImplementation(async (taskId) =>
+        taskId === recoveredId
+          ? { file: { id: 'file-from-artifacts' }, status: 'success' }
+          : { status: 'task_missing' },
+      );
+
+      await store().reconcileDallETasks('message-id');
+      stubs.restore();
+
+      expect(createTaskMock).not.toHaveBeenCalled();
+      const parsed = JSON.parse(originContent()) as { imageId?: string; taskId?: string }[];
+      expect(parsed[0]?.imageId).toBe('file-from-artifacts');
+      expect(parsed[0]?.taskId).toBe(recoveredId);
+    });
+
+    it('does not auto-create when prompt-only tiles have no matching task row', async () => {
+      seedToolMessage(JSON.stringify([{ prompt: 'p1' }]));
+      const stubs = installStoreStubs();
+      const createTaskMock = vi.spyOn(imageGenerationService, 'createChatImageTask');
+      vi.spyOn(imageGenerationService, 'getChatImageResult').mockResolvedValue({
+        status: 'task_missing',
+      });
+
+      await store().reconcileDallETasks('message-id');
+      stubs.restore();
+
+      expect(createTaskMock).not.toHaveBeenCalled();
+      expect(originContent()).toBe(JSON.stringify([{ prompt: 'p1' }]));
+      expect(stubs.pluginStateSpy).not.toHaveBeenCalled();
+    });
+
     it('a restored/unproven task id surfaces for Retry instead of billing on view (R15-1)', async () => {
       // an arbitrary UUID that cannot be derived for this message/index
       seedToolMessage(
@@ -2372,6 +2408,7 @@ describe('chatToolSlice - dalle', () => {
         JSON.stringify([{ imageId: 'new-id', previewUrl: 'new-url', prompt: 'test prompt' }]),
         expect.objectContaining({
           conversationContext: expect.objectContaining({ sessionId: ORIGIN_SESSION }),
+          skipRefresh: true,
         }),
       );
     });

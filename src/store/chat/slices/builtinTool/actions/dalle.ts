@@ -1167,13 +1167,50 @@ export const dalleSlice: StateCreator<
     await pMap(
       items,
       async (item, index) => {
-        // only items whose task outlived this tab and never resolved
-        if (!item?.taskId || item.imageId) return;
+        // Prompt-only tiles (stale fetch wiped `taskId`/`imageId`) still have
+        // a deterministic attempt-0 id. Adopt a finished file from that id;
+        // never auto-create — that would bill a generation the user already paid.
+        if (!item || item.imageId) return;
         const loadingKey = `${messageId}_${index}`;
         if (!claimTaskKey(loadingKey, reconcileToken)) return;
         get().toggleDallEImageLoading(loadingKey, true);
 
         try {
+          if (!item.taskId) {
+            const reconcileUserState = useUserStore.getState();
+            const reconcileScopes = listChatImageTaskIdScopeAliases({
+              authenticatedScope: authSelectors.currentUserScope(reconcileUserState),
+              rawAuthUserId: reconcileUserState.authUserId,
+              userId: reconcileUserState.user?.id,
+            });
+            const probes = await Promise.all(
+              reconcileScopes.map(async (scope) => {
+                const taskId = deriveChatImageTaskId(scope, messageId, index, 0);
+                const result = await waitForChatImageTask(taskId, invocationIsCurrent, {
+                  adoptProbe: true,
+                  immediate: true,
+                });
+                return { result, taskId };
+              }),
+            );
+            if (!invocationIsCurrent()) return;
+            const recovered = probes.find((probe) => probe.result.ok && probe.result.file);
+            if (!recovered?.result.file) return;
+            await get().updateImageItem(
+              messageId,
+              (draft) => {
+                if (draft[index]) {
+                  draft[index].imageId = recovered.result.file!.id;
+                  draft[index].previewUrl = undefined;
+                  draft[index].taskAttempt = 0;
+                  draft[index].taskId = recovered.taskId;
+                }
+              },
+              conversationContext,
+            );
+            return;
+          }
+
           // adopt probe first: a persisted id whose task row is MISSING must
           // not be polled for the whole budget (that would hold this key and
           // silently dead-lock Retry) — it is recovered by idempotently
@@ -1333,6 +1370,12 @@ export const dalleSlice: StateCreator<
       const nextContent = produce(data, updater);
       await get().internal_updateMessageContent(id, JSON.stringify(nextContent), {
         conversationContext: conversationContext ?? origin.conversationContext,
+        // Each tile persist used to revalidate the whole conversation. A fetch
+        // that started before this write (or an overlapping send/focus
+        // revalidate) can return prompt-only content and wipe `imageId` from
+        // the visible map — Artifacts still have the file. Skip that refresh;
+        // `useFetchMessages` also merges file/task ids if a later fetch is stale.
+        skipRefresh: true,
       });
     });
     const settled = task.catch(() => {});

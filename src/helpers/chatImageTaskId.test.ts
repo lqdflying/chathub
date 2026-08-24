@@ -7,7 +7,10 @@ import {
   isChatImageTaskIdProvenanceValid,
   listChatImageTaskIdScopeAliases,
   matchChatImageTaskIdScope,
+  mergeChatImageToolContent,
+  mergeChatImageToolItems,
   normalizeChatImageTaskAttempt,
+  preserveChatImageToolContentOnFetch,
 } from './chatImageTaskId';
 
 describe('chatImageTaskId', () => {
@@ -114,6 +117,63 @@ describe('chatImageTaskId', () => {
         0,
       ),
     ).toBeUndefined();
+  });
+
+  it('keeps imageId and taskId when a later fetch returns prompt-only tiles', () => {
+    const incoming = mergeChatImageToolContent(
+      JSON.stringify([{ prompt: 'a watercolor apple' }]),
+      JSON.stringify([
+        {
+          imageId: 'file-1',
+          prompt: 'a watercolor apple',
+          taskId: '11111111-2222-4333-8444-555555555555',
+        },
+      ]),
+    );
+    expect(incoming).toContain('"imageId":"file-1"');
+    expect(incoming).toContain('"taskId":"11111111-2222-4333-8444-555555555555"');
+    expect(JSON.parse(incoming)[0].prompt).toBe('a watercolor apple');
+  });
+
+  it('does not restore a Stop mark onto a restamped Retry attempt', () => {
+    const stopped = deriveChatImageTaskId(scope, messageId, 0, 0);
+    const retried = deriveChatImageTaskId(scope, messageId, 0, 1);
+    const merged = mergeChatImageToolItems(
+      [{ prompt: 'p', taskAttempt: 1, taskId: retried }],
+      [{ prompt: 'p', taskCancelled: true, taskId: stopped }],
+    );
+    expect(merged[0]?.taskId).toBe(retried);
+    expect(merged[0]?.taskCancelled).toBeUndefined();
+  });
+
+  it('preserves chat Image tool content on fetch without touching other roles', () => {
+    const existing = [
+      {
+        content: JSON.stringify([{ imageId: 'file-keep', prompt: 'p1', taskId: 'task-keep' }]),
+        id: 'tool-1',
+        plugin: { apiName: 'text2image', identifier: 'lobe-image-designer' },
+        role: 'tool',
+      },
+      { content: 'hello', id: 'user-1', role: 'user' },
+    ];
+    const incoming = [
+      {
+        content: JSON.stringify([{ prompt: 'p1' }]),
+        id: 'tool-1',
+        plugin: { apiName: 'text2image', identifier: 'lobe-image-designer' },
+        role: 'tool',
+      },
+      { content: 'hello', id: 'user-1', role: 'user' },
+      { content: 'summary', id: 'asst-1', role: 'assistant' },
+    ];
+    const merged = preserveChatImageToolContentOnFetch(incoming, existing);
+    expect(JSON.parse(merged[0]?.content ?? '')[0]).toMatchObject({
+      imageId: 'file-keep',
+      prompt: 'p1',
+      taskId: 'task-keep',
+    });
+    expect(merged[1]?.content).toBe('hello');
+    expect(merged[2]?.content).toBe('summary');
   });
 
   it('authorizes attempt 0 and a later attempt when the derived id matches', () => {

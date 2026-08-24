@@ -129,13 +129,99 @@ export const classifyChatImageTaskIdScopeKind = (
 
 export type ChatImageTaskCorrelationItem = {
   imageId?: string;
+  spanId?: string;
   taskAttempt?: unknown;
   taskCancelled?: boolean;
+  taskFence?: number;
   taskId?: string;
 };
 
 export type ChatImageTaskCorrelationDecision =
   'authorized' | 'missing' | 'resolved' | 'stopped' | 'unproven';
+
+export type ChatImageToolMessageLike = {
+  content?: string | null;
+  id: string;
+  plugin?: { apiName?: string; identifier?: string } | null;
+  role?: string;
+};
+
+export const isChatImageToolMessage = (message: ChatImageToolMessageLike): boolean =>
+  message.role === 'tool' &&
+  (message.plugin?.identifier === 'lobe-image-designer' ||
+    message.plugin?.apiName === 'text2image');
+
+const parseChatImageToolItems = (content: string): ChatImageTaskCorrelationItem[] | undefined => {
+  try {
+    const parsed = JSON.parse(content) as unknown;
+    return Array.isArray(parsed) ? (parsed as ChatImageTaskCorrelationItem[]) : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+/**
+ * Keep durable chat-Image tile ids across a stale message fetch.
+ *
+ * `useFetchMessages` onSuccess replaces the whole conversation map with
+ * `getMessages`. A fetch that started before `imageId`/`taskId` landed (SWR
+ * focus revalidate, overlapping `refreshMessages`, a later send) can return
+ * the original prompt-only array and wipe the tiles while Artifacts still
+ * show the files. Prefer incoming prompts/length; never drop a file id or a
+ * Stop mark for the same attempt.
+ *
+ * @see https://swr.vercel.app/docs/mutation
+ */
+export const mergeChatImageToolItems = <T extends ChatImageTaskCorrelationItem>(
+  incoming: T[],
+  existing: T[] | undefined,
+): T[] => {
+  if (!existing?.length) return incoming;
+  return incoming.map((item, index) => {
+    const previous = existing[index];
+    if (!previous) return item;
+    const sameAttempt = !item.taskId || !previous.taskId || item.taskId === previous.taskId;
+    return {
+      ...item,
+      imageId: item.imageId || previous.imageId,
+      spanId: item.spanId || previous.spanId,
+      taskAttempt: item.taskAttempt ?? previous.taskAttempt,
+      taskCancelled: sameAttempt
+        ? item.taskCancelled || previous.taskCancelled
+        : item.taskCancelled,
+      taskFence: item.taskFence ?? previous.taskFence,
+      taskId: item.taskId || previous.taskId,
+    };
+  });
+};
+
+export const mergeChatImageToolContent = (
+  incomingContent: string,
+  existingContent?: string | null,
+): string => {
+  if (!existingContent) return incomingContent;
+  const incoming = parseChatImageToolItems(incomingContent);
+  const existing = parseChatImageToolItems(existingContent);
+  if (!incoming || !existing) return incomingContent;
+  const merged = mergeChatImageToolItems(incoming, existing);
+  return JSON.stringify(merged);
+};
+
+export const preserveChatImageToolContentOnFetch = <T extends ChatImageToolMessageLike>(
+  incoming: T[],
+  existing: T[],
+): T[] => {
+  if (existing.length === 0) return incoming;
+  const existingById = new Map(existing.map((message) => [message.id, message]));
+  return incoming.map((message) => {
+    if (!isChatImageToolMessage(message)) return message;
+    const previous = existingById.get(message.id);
+    if (!previous?.content) return message;
+    const merged = mergeChatImageToolContent(message.content ?? '', previous.content);
+    if (merged === (message.content ?? '')) return message;
+    return { ...message, content: merged };
+  });
+};
 
 export const decideChatImageTaskCorrelation = ({
   index,

@@ -293,6 +293,13 @@ Copy-paste APL: **`.cursor/rules/debug-log-checks.mdc`**.
    `chat_image_task_created`) on the send `spanId`. No `chat_image_run_started`
    after `webkit_load_failed` is the Safari-before-tools case;
    `persist_unproven` or missing `attached` after `visible=false` is persist.
+10. **Stale `getMessages` must not drop chat Image `imageId`.** Generation
+    writes the file to Artifacts independently of the tool-message JSON.
+    `useFetchMessages` onSuccess used to replace the map with a fetch that
+    started before persist (SWR mutation race / overlapping refresh). Merge
+    file and task ids on fetch; prompt-only remount adopts the derived
+    attempt-0 task file without auto-creating. `attachedCount=N` with
+    Prompt-only cards is this wipe, not a failed generation.
 
 ## How to extend this without breaking it
 

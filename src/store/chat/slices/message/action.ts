@@ -23,6 +23,7 @@ import isEqual from 'fast-deep-equal';
 import { SWRResponse, mutate } from 'swr';
 import { StateCreator } from 'zustand/vanilla';
 
+import { preserveChatImageToolContentOnFetch } from '@/helpers/chatImageTaskId';
 import { logDeferredGenerationLane } from '@/libs/logger/generationDebugClient';
 import { mutateAccountSWR, useClientDataSWR } from '@/libs/swr';
 import { findRPCResponseError } from '@/libs/trpc/client/toolsResponse';
@@ -740,9 +741,13 @@ export const chatMessage: StateCreator<
         onSuccess: (messages, key) => {
           if (authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope) return;
 
+          const mapKey = messageMapKey(messageContextId || '', activeTopicId);
           const nextMap = {
             ...get().messagesMap,
-            [messageMapKey(messageContextId || '', activeTopicId)]: messages,
+            [mapKey]: preserveChatImageToolContentOnFetch(
+              messages,
+              get().messagesMap[mapKey] || [],
+            ),
           };
 
           // no need to update map if the messages have been init and the map is the same
@@ -787,11 +792,12 @@ export const chatMessage: StateCreator<
     ]);
   },
   replaceMessages: (messages) => {
+    const mapKey = messageMapKey(get().activeId, get().activeTopicId);
     set(
       {
         messagesMap: {
           ...get().messagesMap,
-          [messageMapKey(get().activeId, get().activeTopicId)]: messages,
+          [mapKey]: preserveChatImageToolContentOnFetch(messages, get().messagesMap[mapKey] || []),
         },
       },
       false,
@@ -856,7 +862,10 @@ export const chatMessage: StateCreator<
         ? { sessionId: mapHit.sessionId, topicId: mapHit.topicId }
         : undefined;
 
-    get().internal_dispatchMessage({ id, type: 'updateMessage', value: { error } }, dispatchContext);
+    get().internal_dispatchMessage(
+      { id, type: 'updateMessage', value: { error } },
+      dispatchContext,
+    );
     await messageService.updateMessage(id, { error });
     if (isCurrentRequest()) {
       await get().refreshMessages(
@@ -910,7 +919,8 @@ export const chatMessage: StateCreator<
         const state = get();
         const sessionId =
           extra?.conversationContext?.sessionId ?? mapHit?.sessionId ?? state.activeId;
-        const topicId = extra?.conversationContext?.topicId ?? mapHit?.topicId ?? state.activeTopicId;
+        const topicId =
+          extra?.conversationContext?.topicId ?? mapHit?.topicId ?? state.activeTopicId;
         const assistantMessageId = mapHit?.message.parentId || id;
         const match =
           findDeferredBrowserGenerationLaneByAssistantId(
