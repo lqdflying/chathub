@@ -19,6 +19,7 @@ import { topicSelectors } from '@/store/chat/selectors';
 
 import ActionPopover from '../components/ActionPopover';
 import ContextExportControl from './ContextExportControl';
+import PromptCacheHitRate from './PromptCacheHitRate';
 import TokenProgress from './TokenProgress';
 
 interface TokenTagProps {
@@ -173,6 +174,7 @@ const Token = memo<TokenTagProps>(({ conversationSource }) => {
         showIcon
         showTotal={t('tokenDetails.total')}
       />
+      <PromptCacheHitRate conversationSource={conversationSource} />
       {conversationSource !== 'portal' && (
         <Button
           block

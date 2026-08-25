@@ -29,6 +29,7 @@ import { getUserStoreState } from '@/store/user/store';
 
 import ActionPopover from '../components/ActionPopover';
 import ContextExportControl from './ContextExportControl';
+import PromptCacheHitRate from './PromptCacheHitRate';
 import TokenProgress from './TokenProgress';
 
 interface TokenTagForGroupChatProps {
@@ -311,6 +312,7 @@ const TokenTagForGroupChat = memo<TokenTagForGroupChatProps>(({ total: messageSt
         showIcon
         showTotal={t('tokenDetails.total')}
       />
+      <PromptCacheHitRate />
       <ContextExportControl allocation={contextExportAllocation} />
     </Flexbox>
   );

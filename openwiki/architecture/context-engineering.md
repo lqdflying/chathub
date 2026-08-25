@@ -24,6 +24,8 @@ memory block stays in the stable prompt prefix (fixed memory changes only on use
 edits, dynamic memory at most daily), ahead of the more volatile inbox/tool/summary
 blocks, which preserves provider prompt-cache hit rates.
 
+The chat-input token popover **Last response cache** figure is not that live tokenizer estimate. It reads `inputCachedTokens` / `inputCacheMissTokens` / `inputWriteCacheTokens` from the latest assistant `message.metadata` in the current conversation (`src/features/ChatInput/ActionBar/Token/getPromptCacheHitRate.ts`). Streaming rows that only have totals are skipped until a provider reports cache fields.
+
 ## Chat Instruction composition
 
 The top-level `Chat Instruction` is persisted inside the existing user general settings JSON and is
