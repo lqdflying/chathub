@@ -129,7 +129,7 @@ describe('CHATHUB_COMPACTION_DEBUG emitter', () => {
       const record = JSON.parse(consoleLogSpy.mock.calls[0][1] as string);
       expect(record.model).toBe('gpt-5-mini');
       expect(record.provider).toBe('openai');
-      expect(record.sessionId).toMatchObject({ type: 'identifier' });
+      expect(record).not.toHaveProperty('sessionId');
       expect(consoleLogSpy.mock.calls[0][1]).not.toContain('sess-private-conversation');
     });
 
@@ -156,8 +156,8 @@ describe('CHATHUB_COMPACTION_DEBUG emitter', () => {
 
       const serialized = consoleLogSpy.mock.calls[0][1] as string;
       const record = JSON.parse(serialized);
-      expect(record.historySummary).not.toBe('PRIVATE_SUMMARY_TEXT');
-      expect(record.unexpectedFreeText).not.toBe('PRIVATE_MESSAGE_CONTENT');
+      expect(record).not.toHaveProperty('historySummary');
+      expect(record).not.toHaveProperty('unexpectedFreeText');
       expect(serialized).not.toContain('PRIVATE_SUMMARY_TEXT');
       expect(serialized).not.toContain('PRIVATE_MESSAGE_CONTENT');
     });
@@ -171,6 +171,65 @@ describe('CHATHUB_COMPACTION_DEBUG emitter', () => {
       const serializedRecord = consoleLogSpy.mock.calls[0][1] as string;
       expect(JSON.parse(serializedRecord)).not.toHaveProperty('apiKey');
       expect(serializedRecord).not.toContain('sk-super-secret');
+    });
+
+    it('strips untrusted labels and keeps canonical metadata after caller fields', () => {
+      logCompactionDebugSafe(
+        'watcher_armed',
+        {
+          debugLevel: 'verbose',
+          highWatermark: 0.8,
+          maxTokens: 1000,
+          path: 'PRIVATE_MESSAGE_TEXT',
+          provider: 'PRIVATE_MESSAGE_TEXT',
+          ratio: 0.9,
+          schemaVersion: 999,
+          side: 'client',
+          spanId: 'PRIVATE_MESSAGE_TEXT',
+          timestamp: 'PRIVATE_MESSAGE_TEXT',
+          totalToken: 900,
+          trigger: 'PRIVATE_MESSAGE_TEXT',
+        },
+        { side: 'client' },
+      );
+
+      const serialized = consoleLogSpy.mock.calls[0][1] as string;
+      const record = JSON.parse(serialized);
+      expect(serialized).not.toContain('PRIVATE_MESSAGE_TEXT');
+      expect(record).toMatchObject({
+        debugLevel: 'safe',
+        highWatermark: 0.8,
+        maxTokens: 1000,
+        ratio: 0.9,
+        schemaVersion: 1,
+        side: 'client',
+        totalToken: 900,
+      });
+      expect(record).not.toHaveProperty('path');
+      expect(record).not.toHaveProperty('provider');
+      expect(record).not.toHaveProperty('spanId');
+      expect(record).not.toHaveProperty('trigger');
+      expect(record.timestamp).toEqual(expect.any(String));
+      expect(record.timestamp).not.toBe('PRIVATE_MESSAGE_TEXT');
+    });
+
+    it('ignores caller-supplied side and reserved metadata without a trusted option', () => {
+      logCompactionDebugSafe('planner_settled', {
+        debugLevel: 'verbose',
+        path: 'pre_send',
+        schemaVersion: 999,
+        side: 'client',
+        trigger: 'token_threshold',
+      });
+
+      const record = JSON.parse(consoleLogSpy.mock.calls[0][1] as string);
+      expect(record).toMatchObject({
+        debugLevel: 'safe',
+        path: 'pre_send',
+        schemaVersion: 1,
+        side: 'server',
+        trigger: 'token_threshold',
+      });
     });
   });
 

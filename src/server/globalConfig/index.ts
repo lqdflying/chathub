@@ -36,14 +36,13 @@ export const getServerGlobalConfig = async () => {
 
       /* ↑ cloud slot ↑ */
     }),
+    compactionDebug: isCompactionDebugEnabled(),
     defaultAgent: {
       config: parseAgentConfig(DEFAULT_AGENT_CONFIG),
     },
     enableUploadFileToServer: !!fileEnv.S3_SECRET_ACCESS_KEY,
     enabledAccessCode: ACCESS_CODES?.length > 0,
     enabledMarkItDown: !!knowledgeEnv.MARKITDOWN_SERVICE_URL,
-
-    compactionDebug: isCompactionDebugEnabled(),
     enabledOAuthSSO: enableNextAuth,
     generationDebug: isGenerationDebugEnabled(),
     image: cleanObject({

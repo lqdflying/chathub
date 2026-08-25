@@ -3,7 +3,7 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import {
-  COMPACTION_DEBUG_CLIENT_EVENTS,
+  compactionDebugClientEventSchema,
   isCompactionDebugEnabled,
   logCompactionDebugSafe,
 } from '@/libs/logger/compactionDebug';
@@ -114,21 +114,13 @@ export const conversationGenerationRouter = router({
   reportCompactionDebug: authedProcedure
     .input(
       z.object({
-        events: z
-          .array(
-            z.object({
-              event: z.enum(COMPACTION_DEBUG_CLIENT_EVENTS),
-              fields: z.record(z.string(), z.unknown()).optional(),
-            }),
-          )
-          .min(1)
-          .max(50),
+        events: z.array(compactionDebugClientEventSchema).min(1).max(50),
       }),
     )
     .mutation(async ({ input }) => {
       if (!isCompactionDebugEnabled()) return { accepted: 0 };
       for (const { event, fields } of input.events) {
-        logCompactionDebugSafe(event, { ...fields, side: 'client' });
+        logCompactionDebugSafe(event, fields ?? {}, { side: 'client' });
       }
       return { accepted: input.events.length };
     }),

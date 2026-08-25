@@ -75,7 +75,11 @@ export const createCompactionDebugSpanId = (): string => {
     crypto.getRandomValues(bytes);
     return `cd_${[...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('')}`;
   } catch {
-    return `cd_${Date.now().toString(16)}${Math.floor(Math.random() * 0xffff_ffff).toString(16)}`;
+    const time = Date.now().toString(16).padStart(8, '0').slice(-8);
+    const random = Math.floor(Math.random() * 0xFF_FF_FF_FF)
+      .toString(16)
+      .padStart(8, '0');
+    return `cd_${time}${random}`;
   }
 };
 
@@ -91,10 +95,10 @@ export const hashCompactionDebugClientValue = async (value: string): Promise<str
       .join('')
       .slice(0, 16);
   } catch {
-    let hash = 0x811c_9dc5;
+    let hash = 0x81_1C_9D_C5;
     for (const character of value) {
       hash ^= character.codePointAt(0) || 0;
-      hash = Math.imul(hash, 0x0100_0193) >>> 0;
+      hash = Math.imul(hash, 0x01_00_01_93) >>> 0;
     }
     return `fnv${hash.toString(16).padStart(8, '0')}`.slice(0, 16);
   }
@@ -189,6 +193,7 @@ export const logCompactionWatcherArmed = async (input: {
   totalToken: number;
 }) => {
   try {
+    if (!isCompactionDebugClientEnabled()) return;
     const { sessionId, topicId, ...fields } = input;
     const [sessionHash, topicHash] = await Promise.all([
       hashOptionalDebugValue(sessionId),

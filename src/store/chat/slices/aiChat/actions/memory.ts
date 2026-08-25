@@ -25,6 +25,7 @@ import { getModelContextWindowTokens } from '@/helpers/modelContextWindowTokens'
 import {
   createCompactionDebugSpanId,
   hashCompactionDebugClientValue,
+  isCompactionDebugClientEnabled,
   logCompactionDebugClientSafe,
 } from '@/libs/logger/compactionDebugClient';
 import { chatService } from '@/services/chat';
@@ -217,7 +218,8 @@ async function runCompactionFromStore(
       'memory_compaction',
     );
 
-  const debugSpanId = createCompactionDebugSpanId();
+  const compactionDebugEnabled = isCompactionDebugClientEnabled();
+  const debugSpanId = compactionDebugEnabled ? createCompactionDebugSpanId() : undefined;
   const debug: {
     activeModel?: string;
     activeProvider?: string;
@@ -242,6 +244,7 @@ async function runCompactionFromStore(
     values: Omit<MemoryCompactionResult, 'status'> = {},
   ): Promise<MemoryCompactionResult> => {
     const result = compactionResult(status, values);
+    if (!compactionDebugEnabled) return result;
     try {
       const [sessionHash, topicHash] = await Promise.all([
         requestedSessionId ? hashCompactionDebugClientValue(requestedSessionId) : undefined,
@@ -470,7 +473,7 @@ async function runCompactionFromStore(
         config: {
           compaction: {
             candidateMessageIds: candidateMessages.map(({ id }) => id),
-            debugSpanId,
+            ...(debugSpanId ? { debugSpanId } : {}),
             enableUserMemoryArchive: chatConfig.enableUserMemoryArchive,
             estimatedTokensBefore: beforeEstimate.totalToken,
             expectedCursorId: topic.metadata?.historySummaryLastMessageId,
@@ -487,7 +490,7 @@ async function runCompactionFromStore(
           provider: chatProvider,
         },
         conversationVersion: expectedConversationVersion,
-        debugSpanId,
+        ...(debugSpanId ? { debugSpanId } : {}),
         expectedConversationVersion,
         idempotencyKey: compactionIdempotencyKey,
         kind: 'memory_compaction',

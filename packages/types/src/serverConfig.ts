@@ -24,6 +24,11 @@ export type ServerLanguageModel = Partial<Record<GlobalLLMProviderKey, ServerMod
 
 export interface GlobalServerConfig {
   aiProvider: ServerLanguageModel;
+  /**
+   * CHATHUB_COMPACTION_DEBUG is active on the server, so the client emitter
+   * should report planner/watcher diagnostics through reportCompactionDebug.
+   */
+  compactionDebug?: boolean;
   defaultAgent?: PartialDeep<UserDefaultAgent>;
   enableUploadFileToServer?: boolean;
   enabledAccessCode?: boolean;
@@ -36,11 +41,6 @@ export interface GlobalServerConfig {
    * @deprecated
    */
   enabledOAuthSSO?: boolean;
-  /**
-   * CHATHUB_COMPACTION_DEBUG is active on the server, so the client emitter
-   * should report planner/watcher diagnostics through reportCompactionDebug.
-   */
-  compactionDebug?: boolean;
   /**
    * CHATHUB_GENERATION_DEBUG is active on the server, so the client emitter
    * should report send-path diagnostics through reportClientDebug.

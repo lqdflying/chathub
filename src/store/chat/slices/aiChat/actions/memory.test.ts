@@ -210,6 +210,8 @@ describe('chat memory actions', () => {
       topicId: TOPIC_ID,
       userId: 'user-1',
     });
+    const hashSpy = vi.spyOn(compactionDebugClient, 'hashCompactionDebugClientValue');
+    const spanSpy = vi.spyOn(compactionDebugClient, 'createCompactionDebugSpanId');
     const attach = vi
       .spyOn(useChatStore.getState(), 'attachConversationGeneration')
       .mockImplementation(vi.fn());
@@ -233,14 +235,50 @@ describe('chat memory actions', () => {
         replaceActive: true,
       }),
     );
-    expect(vi.mocked(tryEnqueueConversationGeneration).mock.calls[0][0].debugSpanId).toMatch(
-      /^cd_/,
-    );
+    expect(vi.mocked(tryEnqueueConversationGeneration).mock.calls[0][0].debugSpanId).toBeUndefined();
     expect(
       vi.mocked(tryEnqueueConversationGeneration).mock.calls[0][0].config.compaction?.debugSpanId,
-    ).toMatch(/^cd_/);
+    ).toBeUndefined();
+    expect(hashSpy).not.toHaveBeenCalled();
+    expect(spanSpy).not.toHaveBeenCalled();
     expect(chatService.fetchPresetTaskResult).not.toHaveBeenCalled();
     expect(topicService.updateTopic).not.toHaveBeenCalled();
+  });
+
+  it('persists the same debug span on enqueue when compaction debug is enabled', async () => {
+    durableMocks.enabled = true;
+    vi.spyOn(compactionDebugClient, 'isCompactionDebugClientEnabled').mockReturnValue(true);
+    vi.spyOn(compactionDebugClient, 'createCompactionDebugSpanId').mockReturnValue(
+      'cd_0123456789abcdef',
+    );
+    const logSpy = vi.spyOn(compactionDebugClient, 'logCompactionDebugClientSafe');
+    vi.mocked(tryEnqueueConversationGeneration).mockResolvedValue({
+      attempt: 0,
+      config: { model: 'summary-model', provider: 'summary-provider' },
+      id: 'operation-1',
+      kind: 'memory_compaction',
+      lane: 'lane-1',
+      laneGeneration: 1,
+      revision: 0,
+      status: 'pending',
+      topicId: TOPIC_ID,
+      userId: 'user-1',
+    });
+    vi.spyOn(useChatStore.getState(), 'attachConversationGeneration').mockImplementation(vi.fn());
+
+    const result = await useChatStore.getState().triggerManualMemoryCompaction();
+
+    expect(result).toEqual({ reason: 'durable_enqueued', status: 'ineligible' });
+    const payload = vi.mocked(tryEnqueueConversationGeneration).mock.calls[0][0];
+    expect(payload.debugSpanId).toBe('cd_0123456789abcdef');
+    expect(payload.config.compaction?.debugSpanId).toBe('cd_0123456789abcdef');
+    expect(logSpy).toHaveBeenCalledWith(
+      'planner_settled',
+      expect.objectContaining({
+        path: 'durable_enqueued',
+        spanId: 'cd_0123456789abcdef',
+      }),
+    );
   });
 
   it('never enqueues when a destructive clear lands during the version lookup', async () => {
@@ -393,6 +431,7 @@ describe('chat memory actions', () => {
   });
 
   it('does not compact below the configured high watermark', async () => {
+    vi.spyOn(compactionDebugClient, 'isCompactionDebugClientEnabled').mockReturnValue(true);
     const logSpy = vi.spyOn(compactionDebugClient, 'logCompactionDebugClientSafe');
     vi.mocked(estimateContextUsageAsync).mockReset().mockResolvedValue({
       chatsToken: 6,
@@ -739,6 +778,7 @@ describe('chat memory actions', () => {
   });
 
   it('compacts on message_count even when the token ratio is below the high watermark', async () => {
+    vi.spyOn(compactionDebugClient, 'isCompactionDebugClientEnabled').mockReturnValue(true);
     const logSpy = vi.spyOn(compactionDebugClient, 'logCompactionDebugClientSafe');
     vi.mocked(estimateContextUsageAsync)
       .mockReset()
