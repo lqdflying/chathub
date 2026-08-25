@@ -1,5 +1,7 @@
 import type { ModelTokensUsage, UIChatMessage } from '@lobechat/types';
 
+import { LOADING_FLAT } from '@/const/message';
+
 export type PromptCacheHitStatus = 'hit' | 'miss' | 'reported';
 
 export interface PromptCacheHitRate {
@@ -9,7 +11,12 @@ export interface PromptCacheHitRate {
   status: PromptCacheHitStatus;
 }
 
-type PromptCacheMessage = Pick<UIChatMessage, 'metadata' | 'role'>;
+export interface PromptCacheUsageSource {
+  fromModel?: string;
+  usage: ModelTokensUsage;
+}
+
+type PromptCacheMessage = Pick<UIChatMessage, 'content' | 'extra' | 'metadata' | 'role'>;
 
 const isFiniteNumber = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value);
@@ -22,6 +29,10 @@ export const hasPromptCacheTelemetry = (
     isFiniteNumber(usage.inputCacheMissTokens) ||
     isFiniteNumber(usage.inputWriteCacheTokens));
 
+/**
+ * Hit rate is cached tokens divided by all provider-reported input.
+ * Do not switch the denominator when a zero Anthropic write counter was stripped.
+ */
 export const getPromptCacheHitRate = (
   usage?: ModelTokensUsage | null,
 ): PromptCacheHitRate | undefined => {
@@ -39,12 +50,12 @@ export const getPromptCacheHitRate = (
   }
 
   let cacheEligibleTokens: number | undefined;
-  if (hasWrite) {
-    cacheEligibleTokens = (cacheHitTokens ?? 0) + usage.inputWriteCacheTokens;
+  if (isFiniteNumber(usage.totalInputTokens) && usage.totalInputTokens > 0) {
+    cacheEligibleTokens = usage.totalInputTokens;
   } else if (hasMiss) {
     cacheEligibleTokens = (cacheHitTokens ?? 0) + usage.inputCacheMissTokens;
-  } else if (hasHit && isFiniteNumber(usage.totalInputTokens)) {
-    cacheEligibleTokens = usage.totalInputTokens;
+  } else if (hasWrite) {
+    cacheEligibleTokens = (cacheHitTokens ?? 0) + usage.inputWriteCacheTokens;
   }
 
   const cacheHitRate =
@@ -69,11 +80,19 @@ export const getPromptCacheHitRate = (
 
 export const findLatestPromptCacheUsage = (
   messages: PromptCacheMessage[],
-): ModelTokensUsage | undefined => {
+): PromptCacheUsageSource | undefined => {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
     if (message.role !== 'assistant') continue;
-    if (hasPromptCacheTelemetry(message.metadata)) return message.metadata;
+    // Skip in-flight placeholders; a completed totals-only reply is still skipped
+    // so the most recent *reported* cache remains visible.
+    if (message.content === LOADING_FLAT) continue;
+    if (hasPromptCacheTelemetry(message.metadata)) {
+      return {
+        fromModel: message.extra?.fromModel,
+        usage: message.metadata,
+      };
+    }
   }
 
   return undefined;

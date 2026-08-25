@@ -1,3 +1,4 @@
+import { LOADING_FLAT } from '@/const/message';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -44,7 +45,7 @@ describe('getPromptCacheHitRate', () => {
     });
   });
 
-  it('uses DeepSeek hit plus miss as eligible', () => {
+  it('uses DeepSeek hit plus miss as eligible when total input is absent', () => {
     const result = getPromptCacheHitRate({
       inputCachedTokens: 120,
       inputCacheMissTokens: 30,
@@ -58,42 +59,53 @@ describe('getPromptCacheHitRate', () => {
     });
   });
 
-  it('treats Anthropic write-only as a miss against creation tokens', () => {
-    const withZeroRead = getPromptCacheHitRate({
-      inputCachedTokens: 0,
-      inputWriteCacheTokens: 400,
-    });
-    const afterStrippedZeroRead = getPromptCacheHitRate({
+  it('uses total input for Anthropic write-only and later hit-only turns', () => {
+    const writeOnly = getPromptCacheHitRate({
       inputCacheMissTokens: 6,
       inputWriteCacheTokens: 400,
+      totalInputTokens: 406,
+    });
+    const readAndWrite = getPromptCacheHitRate({
+      inputCacheMissTokens: 900,
+      inputCachedTokens: 100,
+      inputWriteCacheTokens: 100,
+      totalInputTokens: 1100,
+    });
+    const readOnlyAfterZeroWriteStripped = getPromptCacheHitRate({
+      inputCacheMissTokens: 900,
+      inputCachedTokens: 100,
+      totalInputTokens: 1000,
     });
 
-    expect(withZeroRead).toEqual({
-      cacheEligibleTokens: 400,
+    expect(writeOnly).toEqual({
+      cacheEligibleTokens: 406,
       cacheHitRate: 0,
       cacheHitTokens: 0,
       status: 'miss',
     });
-    expect(afterStrippedZeroRead).toEqual({
-      cacheEligibleTokens: 400,
-      cacheHitRate: 0,
-      cacheHitTokens: 0,
-      status: 'miss',
-    });
+    expect(readAndWrite?.cacheEligibleTokens).toBe(1100);
+    expect(readAndWrite?.cacheHitRate).toBeCloseTo(100 / 1100);
+    expect(readOnlyAfterZeroWriteStripped?.cacheEligibleTokens).toBe(1000);
+    expect(readOnlyAfterZeroWriteStripped?.cacheHitRate).toBeCloseTo(100 / 1000);
   });
 
-  it('prefers Anthropic read plus write over miss when write is present', () => {
-    const result = getPromptCacheHitRate({
-      inputCacheMissTokens: 6,
-      inputCachedTokens: 17_918,
-      inputWriteCacheTokens: 457,
-      totalInputTokens: 18_381,
+  it('keeps the same all-input denominator after Anthropic strips a zero write counter', () => {
+    const withWrite = getPromptCacheHitRate({
+      inputCacheMissTokens: 900,
+      inputCachedTokens: 100,
+      inputWriteCacheTokens: 100,
+      totalInputTokens: 1100,
+    });
+    const writeStripped = getPromptCacheHitRate({
+      inputCacheMissTokens: 900,
+      inputCachedTokens: 100,
+      totalInputTokens: 1000,
     });
 
-    expect(result?.cacheHitTokens).toBe(17_918);
-    expect(result?.cacheEligibleTokens).toBe(18_375);
-    expect(result?.cacheHitRate).toBeCloseTo(17_918 / 18_375);
-    expect(result?.status).toBe('hit');
+    expect(withWrite?.cacheEligibleTokens).toBe(1100);
+    expect(writeStripped?.cacheEligibleTokens).toBe(1000);
+    expect(withWrite?.cacheEligibleTokens).not.toBe(200);
+    expect(writeStripped?.cacheEligibleTokens).not.toBe(100);
   });
 
   it('omits the rate when eligible tokens are missing or zero', () => {
@@ -127,21 +139,46 @@ describe('findLatestPromptCacheUsage', () => {
     expect(findLatestPromptCacheUsage([])).toBeUndefined();
     expect(
       findLatestPromptCacheUsage([
-        { metadata: { totalInputTokens: 10 }, role: 'user' },
-        { metadata: { totalInputTokens: 20, totalTokens: 30 }, role: 'assistant' },
+        { content: 'hi', metadata: { totalInputTokens: 10 }, role: 'user' },
+        {
+          content: 'done',
+          metadata: { totalInputTokens: 20, totalTokens: 30 },
+          role: 'assistant',
+        },
       ]),
     ).toBeUndefined();
   });
 
-  it('walks newest to oldest and skips totals-only assistant rows', () => {
+  it('keeps older reported cache while an in-flight assistant has no metadata', () => {
     const olderCache = { inputCachedTokens: 80, totalInputTokens: 100 };
-    const usage = findLatestPromptCacheUsage([
-      { metadata: olderCache, role: 'assistant' },
-      { metadata: undefined, role: 'user' },
-      { metadata: { totalInputTokens: 200, totalTokens: 250 }, role: 'assistant' },
+    const source = findLatestPromptCacheUsage([
+      {
+        content: 'cached',
+        extra: { fromModel: 'gpt-test' },
+        metadata: olderCache,
+        role: 'assistant',
+      },
+      { content: 'hi', metadata: undefined, role: 'user' },
+      { content: LOADING_FLAT, metadata: undefined, role: 'assistant' },
     ]);
 
-    expect(usage).toBe(olderCache);
+    expect(source?.usage).toBe(olderCache);
+    expect(source?.fromModel).toBe('gpt-test');
+  });
+
+  it('keeps older reported cache after a completed totals-only assistant', () => {
+    const olderCache = { inputCachedTokens: 80, totalInputTokens: 100 };
+    const source = findLatestPromptCacheUsage([
+      { content: 'cached', metadata: olderCache, role: 'assistant' },
+      { content: 'hi', metadata: undefined, role: 'user' },
+      {
+        content: 'no cache fields',
+        metadata: { totalInputTokens: 200, totalTokens: 250 },
+        role: 'assistant',
+      },
+    ]);
+
+    expect(source?.usage).toBe(olderCache);
   });
 
   it('uses the newest assistant that reported cache telemetry', () => {
@@ -149,10 +186,17 @@ describe('findLatestPromptCacheUsage', () => {
 
     expect(
       findLatestPromptCacheUsage([
-        { metadata: { inputCachedTokens: 10, totalInputTokens: 40 }, role: 'assistant' },
-        { metadata: undefined, role: 'user' },
-        { metadata: latestCache, role: 'assistant' },
+        {
+          content: 'older',
+          metadata: { inputCachedTokens: 10, totalInputTokens: 40 },
+          role: 'assistant',
+        },
+        { content: 'hi', metadata: undefined, role: 'user' },
+        { content: 'latest', extra: { fromModel: 'kimi' }, metadata: latestCache, role: 'assistant' },
       ]),
-    ).toBe(latestCache);
+    ).toEqual({
+      fromModel: 'kimi',
+      usage: latestCache,
+    });
   });
 });

@@ -21,7 +21,7 @@ const formatTokens = (value: number) => numeral(value).format('0,0');
 const PromptCacheHitRate = memo<PromptCacheHitRateProps>(({ conversationSource = 'main' }) => {
   const { t } = useTranslation('chat');
   const theme = useTheme();
-  const usage = useChatStore((s) => {
+  const source = useChatStore((s) => {
     const chats =
       conversationSource === 'portal'
         ? threadSelectors.portalAIChats(s)
@@ -29,7 +29,7 @@ const PromptCacheHitRate = memo<PromptCacheHitRateProps>(({ conversationSource =
 
     return findLatestPromptCacheUsage(chats);
   }, isEqual);
-  const result = getPromptCacheHitRate(usage);
+  const result = getPromptCacheHitRate(source?.usage);
 
   const statusLabel =
     result?.status === 'hit'
@@ -69,8 +69,13 @@ const PromptCacheHitRate = memo<PromptCacheHitRateProps>(({ conversationSource =
             <div style={{ color: theme.colorTextSecondary }}>
               {t('tokenDetails.cacheRatio', {
                 cached: formatTokens(result.cacheHitTokens),
-                eligible: formatTokens(result.cacheEligibleTokens),
+                input: formatTokens(result.cacheEligibleTokens),
               })}
+            </div>
+          )}
+          {source?.fromModel && (
+            <div style={{ color: theme.colorTextSecondary }}>
+              {t('tokenDetails.cacheSource', { model: source.fromModel })}
             </div>
           )}
           {showBar && (
