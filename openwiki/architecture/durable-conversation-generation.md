@@ -387,7 +387,15 @@ IDs, prior summary/cursor, fingerprint, watermarks, and expected conversation
 version. The worker batches that exact prefix and atomically verifies/persists
 the summary, cursor, archives, and bounded debug log. An edit, delete, clear, or
 other invalidation makes the operation `interrupted` instead of committing a
-stale summary.
+stale summary. `runSimpleCompletion` (title, translation, compaction) keeps the
+prompt/summary cap at 400 tokens but, for thinking models, raises the API
+`max_tokens` by 2048 and sends documented thinking-off / lowest-effort fields
+(OpenAI GPT-5 `reasoning_effort` via `resolveGPT5ReasoningEffort(model,
+'minimal')`; Anthropic `thinking: { type: 'disabled' }`). Visible text only is
+stored; reasoning SSE is dropped. An empty compaction summary throws
+`EmptyCompactionSummaryError` and finalizes `failed` once — it does **not**
+enter Graphile's 8-attempt loop. `TitleTranscriptEmptyError` still uses the
+delayed title retry, because that is a transcript-binding race.
 
 The tool continuation budget is checked before creating another assistant
 placeholder. Creating that placeholder and recording its id happen in one
@@ -529,10 +537,14 @@ Semantics that matter when reading the stream:
   mismatch proves a transcript/binding race — the worker answered a different
   user turn than intended. `transcriptCount=0` with `omitSessionFilter=true`
   is the empty-title load, not a missing job.
+- `execute_started` / `execute_retrying` / `execute_settled` include readable
+  `model` and `provider` labels (allowlisted; session/topic ids stay hashed).
 - `execute_retrying` fires when `markForRetry` succeeds. Graphile still owns
   that job; `errorClass` names the throw (for example
   `TitleTranscriptEmptyError`). `sweep_reenqueued` is a different path (null
-  `workerJobId` or stale-heartbeat recovery).
+  `workerJobId` or stale-heartbeat recovery). Empty compaction summaries do
+  **not** emit `execute_retrying`; they finalize `failed` with
+  `EmptyCompactionSummaryError` and numeric `contentChars` / `reasoningChars`.
 - `execute_settled` is terminal only (`succeeded` / `cancelled` / `failed` /
   `interrupted`); retries do not emit it.
 - Claude-like leave/return (browser-fallback turns): `deferred_lane_marked`
@@ -690,6 +702,30 @@ re-checks the transcript on each attempt and the topic eventually receives a
 title once message-to-topic binding lands. A transcript that is still empty
 after the final attempt finalizes the operation as `failed` with the
 transcript-empty error.
+
+### Empty memory-compaction summaries (thinking models)
+
+Symptom: `memory_compaction` operations fail with
+`Memory compaction returned an empty summary.`, often after Graphile retried
+the same job many times on older images. Generation-debug may show
+`kind=memory_compaction` with `contentChars=0` and a non-zero `reasoningChars`.
+The compaction model is **Settings → System Agent → History Compress**
+(default `gpt-5-mini` / `openai`), not the chat model.
+
+Root cause: `runSimpleCompletion` used to send `max_tokens: 400` and return
+only visible `content`. Reasoning/thinking tokens share that completion budget
+([OpenAI reasoning](https://platform.openai.com/docs/guides/reasoning);
+[Anthropic extended thinking](https://docs.anthropic.com/en/docs/about-claude/models/extended-thinking-models)).
+A thinking model can spend the cap on hidden reasoning; `consumeProtocolResponse`
+then yields empty text. A generic `Error` used to re-enter Graphile's 8-attempt
+loop with the identical payload.
+
+Fix: `buildSimpleCompletionSampling` (`src/helpers/contextCompaction.ts`)
+raises the API budget for reasoning cards and sends documented thinking-off /
+lowest-effort fields. Empty visible text throws `EmptyCompactionSummaryError`,
+which `executeConversationGeneration` finalizes as `failed` (or `interrupted`
+if the lane was already superseded) without `markForRetry`. Do not copy
+reasoning into `historySummary`.
 
 ### Browser-fallback reply lost after switching topics (empty bubble)
 

@@ -35,6 +35,7 @@ import { UserModel } from '@/database/models/user';
 import { idGenerator } from '@/database/utils/idGenerator';
 import {
   CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS,
+  buildSimpleCompletionSampling,
   createCompactionFingerprint,
   splitCompactionBatches,
 } from '@/helpers/contextCompaction';
@@ -151,12 +152,31 @@ const toError = (error: unknown): ConversationGenerationError => {
       type: 'GenerationError',
     };
   }
+  if (error instanceof EmptyCompactionSummaryError) {
+    return {
+      body: {
+        contentChars: error.contentChars,
+        name: error.name,
+        reasoningChars: error.reasoningChars,
+      },
+      message: error.message,
+      type: 'GenerationError',
+    };
+  }
   return {
     body: error instanceof Error ? { name: error.name } : undefined,
     message: error instanceof Error ? error.message : String(error),
     type:
       error instanceof ConversationWriteRejectedError ? 'ConversationCleared' : 'GenerationError',
   };
+};
+
+const readErrorBodyNumber = (error: ConversationGenerationError | undefined, key: string) => {
+  if (!error?.body || typeof error.body !== 'object' || Array.isArray(error.body)) {
+    return undefined;
+  }
+  const value = (error.body as Record<string, unknown>)[key];
+  return typeof value === 'number' ? value : undefined;
 };
 
 /**
@@ -189,6 +209,29 @@ export class TitleTranscriptEmptyError extends Error {
   constructor() {
     super('Topic transcript is empty; messages may still be binding to the topic.');
     this.name = 'TitleTranscriptEmptyError';
+  }
+}
+
+/**
+ * The summarizer returned no visible text. Retrying the same 400-token
+ * thinking-model request will not produce a summary; fail the compaction job
+ * once instead of Graphile's default 8-attempt loop.
+ */
+export class EmptyCompactionSummaryError extends Error {
+  readonly contentChars: number;
+  readonly reasoningChars: number;
+
+  constructor({
+    contentChars,
+    reasoningChars,
+  }: {
+    contentChars: number;
+    reasoningChars: number;
+  }) {
+    super('Memory compaction returned an empty summary.');
+    this.name = 'EmptyCompactionSummaryError';
+    this.contentChars = contentChars;
+    this.reasoningChars = reasoningChars;
   }
 }
 
@@ -261,7 +304,9 @@ export const executeConversationGeneration = async ({
     attempt: claimed.attempt,
     kind: claimed.kind,
     laneGeneration: claimed.laneGeneration,
+    model: claimed.config?.model,
     operationHash: hashGenerationDebugValue(claimed.id),
+    provider: claimed.config?.provider,
     queueAgeMs: claimed.createdAt
       ? Math.max(0, Date.now() - new Date(claimed.createdAt).getTime())
       : undefined,
@@ -345,6 +390,11 @@ export const executeConversationGeneration = async ({
       return;
     }
 
+    if (error instanceof EmptyCompactionSummaryError) {
+      await finalize(model, claimed, 'failed', normalizedError, db, latestAssistantId);
+      return;
+    }
+
     if (claimed.attempt < CONVERSATION_GENERATION_MAX_ATTEMPTS) {
       const pending = await model.markForRetry(claimed.id, normalizedError, claimed.attempt);
       if (pending) {
@@ -362,7 +412,9 @@ export const executeConversationGeneration = async ({
           attempt: claimed.attempt,
           errorClass: error instanceof Error ? error.name : 'Error',
           kind: claimed.kind,
+          model: claimed.config?.model,
           operationHash: hashGenerationDebugValue(claimed.id),
+          provider: claimed.config?.provider,
         });
         if (error instanceof TitleTranscriptEmptyError) {
           const delayMs = titleTranscriptRetryDelayMs(claimed.attempt);
@@ -434,10 +486,14 @@ const finalize = async (
 ) => {
   logGenerationDebugSafe('execute_settled', {
     attempt: operation.attempt,
+    contentChars: readErrorBodyNumber(error, 'contentChars'),
     errorType: error?.type,
     kind: operation.kind,
+    model: operation.config?.model,
     operationHash: hashGenerationDebugValue(operation.id),
     outcome: status,
+    provider: operation.config?.provider,
+    reasoningChars: readErrorBodyNumber(error, 'reasoningChars'),
   });
   if (db) {
     const updated = await finalizeOperationWithCleanup({
@@ -1286,8 +1342,18 @@ const runSimpleCompletion = async (
     userId: operation.userId,
   });
   const runtime = initModelRuntimeWithUserPayload(operation.config.provider, runtimePayload);
+  const requestedMaxTokens =
+    typeof payload.max_tokens === 'number'
+      ? payload.max_tokens
+      : CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS;
+  const sampling = buildSimpleCompletionSampling({
+    model: operation.config.model,
+    provider: operation.config.provider,
+    summaryMaxTokens: requestedMaxTokens,
+  });
   const chatPayload = {
     ...payload,
+    ...sampling,
     model: operation.config.model,
     stream: true,
   };
@@ -1306,7 +1372,10 @@ const runSimpleCompletion = async (
   if (result.error) {
     throw new UpstreamCompletionError(result.error);
   }
-  return result.content.trim();
+  return {
+    content: result.content.trim(),
+    reasoningChars: result.reasoning?.content?.length ?? 0,
+  };
 };
 
 /**
@@ -1488,7 +1557,7 @@ const executeTitle = async (
     throw new TitleTranscriptEmptyError();
   }
   const payload = chainSummaryTitle(messages, operation.config.locale || 'en-US');
-  const title = await runSimpleCompletion(db, operation, payload, options?.runSignal);
+  const { content: title } = await runSimpleCompletion(db, operation, payload, options?.runSignal);
   const stopAfter = await shouldStopGeneration(db, model, operation, options?.runSignal);
   if (stopAfter) {
     if (!options?.skipFinalize) await finalizeIfStopped(model, operation, stopAfter, db);
@@ -1544,8 +1613,8 @@ const executeTranslation = async (
       operation,
       chainLangDetect(message.content),
       options?.runSignal,
-    ));
-  const content = await runSimpleCompletion(
+    )).content;
+  const { content } = await runSimpleCompletion(
     db,
     operation,
     chainTranslate(message.content, translation.to),
@@ -1654,7 +1723,7 @@ const executeCompaction = async (
 
   let historySummary = operation.config.historySummary || '';
   for (const batch of splitCompactionBatches(candidateMessages)) {
-    historySummary = await runSimpleCompletion(
+    const { content, reasoningChars } = await runSimpleCompletion(
       db,
       operation,
       {
@@ -1664,9 +1733,13 @@ const executeCompaction = async (
       },
       options?.runSignal,
     );
-    if (!historySummary) {
-      throw new Error('Memory compaction returned an empty summary.');
+    if (!content) {
+      throw new EmptyCompactionSummaryError({
+        contentChars: 0,
+        reasoningChars,
+      });
     }
+    historySummary = content;
   }
 
   const compactedThroughMessageId = candidateMessages.at(-1)!.id;

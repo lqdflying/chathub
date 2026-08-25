@@ -10,6 +10,7 @@ import { StateCreator } from 'zustand/vanilla';
 
 import {
   CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS,
+  buildSimpleCompletionSampling,
   createCompactionFingerprint,
   getContextCompactionWatermarks,
   getSettledCompactionPrefixes,
@@ -147,7 +148,11 @@ const summarizeBatch = async ({
     },
     params: {
       ...chainSummaryHistory(messages, previousSummary || undefined),
-      max_tokens: CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS,
+      ...buildSimpleCompletionSampling({
+        model,
+        provider,
+        summaryMaxTokens: CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS,
+      }),
       model,
       provider,
       stream: false,

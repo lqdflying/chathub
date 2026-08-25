@@ -4,6 +4,7 @@ import { TRPCError } from '@trpc/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { UserModel } from '@/database/models/user';
+import { createCompactionFingerprint } from '@/helpers/contextCompaction';
 import {
   ConversationWriteRejectedError,
   getConversationVersion,
@@ -2137,6 +2138,109 @@ describe('executeConversationGeneration dangling assistant pointer', () => {
         message: 'Assistant message is missing after generation.',
       }),
       expect.anything(),
+    );
+  });
+});
+
+describe('executeConversationGeneration memory compaction', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    modelMocks.insertEvent.mockResolvedValue({ id: 1 });
+    modelMocks.isSupersededByLaneGeneration.mockResolvedValue(false);
+    modelMocks.touchHeartbeat.mockResolvedValue({ status: 'processing' });
+    modelMocks.finalizeActive.mockImplementation(async (id, status) => ({
+      id,
+      revision: 5,
+      status,
+    }));
+    runtimeMocks.chat.mockResolvedValue(new Response());
+  });
+
+  it('fails empty summaries once instead of Graphile-retrying a thinking-only reply', async () => {
+    const candidateMessages = [
+      { content: 'hello', id: 'u1', role: 'user', updatedAt: 1 },
+      { content: 'world', id: 'a1', role: 'assistant', updatedAt: 1 },
+    ];
+    const expectedHistorySummary = '';
+    const expectedFingerprint = createCompactionFingerprint({
+      messages: candidateMessages as any,
+      summary: expectedHistorySummary,
+    });
+    const row = {
+      attempt: 0,
+      config: {
+        compaction: {
+          candidateMessageIds: ['u1', 'a1'],
+          expectedFingerprint,
+          expectedHistorySummary,
+          trigger: 'manual',
+        },
+        model: 'gpt-5-mini',
+        provider: 'openai',
+      },
+      id: 'cgo_empty_compaction',
+      kind: 'memory_compaction',
+      lane: 'lane-1',
+      laneGeneration: 1,
+      revision: 0,
+      sessionId: 'session-1',
+      status: 'pending',
+      topicId: 'topic-1',
+      userId: 'user-1',
+    };
+    aiChatMocks.getMessagesAndTopics.mockResolvedValue({
+      messages: candidateMessages,
+      topics: [],
+    });
+    vi.mocked(consumeProtocolResponse).mockResolvedValue({
+      content: '   ',
+      reasoning: { content: 'hidden thoughts' },
+    });
+
+    await runOperation(row);
+
+    expect(runtimeMocks.chat).toHaveBeenCalledWith(
+      expect.objectContaining({
+        max_tokens: 2448,
+        model: 'gpt-5-mini',
+        reasoning_effort: 'minimal',
+        stream: true,
+      }),
+      expect.anything(),
+    );
+    expect(modelMocks.markForRetry).not.toHaveBeenCalled();
+    expect(modelMocks.finalizeActive).toHaveBeenCalledWith(
+      row.id,
+      'failed',
+      expect.objectContaining({
+        body: {
+          contentChars: 0,
+          name: 'EmptyCompactionSummaryError',
+          reasoningChars: 15,
+        },
+        message: 'Memory compaction returned an empty summary.',
+        type: 'GenerationError',
+      }),
+      expect.objectContaining({ attempt: 1, laneGeneration: 1 }),
+    );
+    expect(generationDebugMocks.logGenerationDebugSafe).toHaveBeenCalledWith(
+      'execute_started',
+      expect.objectContaining({
+        kind: 'memory_compaction',
+        model: 'gpt-5-mini',
+        provider: 'openai',
+      }),
+    );
+    expect(generationDebugMocks.logGenerationDebugSafe).toHaveBeenCalledWith(
+      'execute_settled',
+      expect.objectContaining({
+        contentChars: 0,
+        kind: 'memory_compaction',
+        model: 'gpt-5-mini',
+        outcome: 'failed',
+        provider: 'openai',
+        reasoningChars: 15,
+      }),
     );
   });
 });

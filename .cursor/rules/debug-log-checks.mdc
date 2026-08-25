@@ -162,13 +162,18 @@ Generation debug (durable send path):
   resumedTools=tobool(payload.resumedTools),
   transcriptCount=tolong(payload.transcriptCount),
   omitSessionFilter=tobool(payload.omitSessionFilter),
-  persistedSessionNull=tobool(payload.persistedSessionNull)
+  persistedSessionNull=tobool(payload.persistedSessionNull),
+  model=tostring(payload.model),
+  provider=tostring(payload.provider),
+  contentChars=tolong(payload.contentChars),
+  reasoningChars=tolong(payload.reasoningChars)
 | project _time, spanId, side, debug_event, kind, outcome, reason, trpcCode,
   errorClass, jobAdded, operationHash, queueAgeMs, deliveredCount, eventType,
   parentUserHash, lastTranscriptUserHash, toolName, topicHash, stillCurrent,
   classifiedAs, deferReason, errorKind,
   producerAlive, deferredLaneCount, resumedTools, transcriptCount,
-  omitSessionFilter, persistedSessionNull
+  omitSessionFilter, persistedSessionNull, model, provider, contentChars,
+  reasoningChars
 | sort by _time asc
 ```
 
@@ -347,8 +352,13 @@ Generation-debug semantics:
   20–50ms) and does **not** rethrow, so Graphile's default retry is not the
   backoff. Other retryable errors still rethrow so Graphile owns the job.
   `errorClass` names the throw (for example `TitleTranscriptEmptyError`). Do
-  not treat it as `sweep_reenqueued`.
+  not treat it as `sweep_reenqueued`. Empty compaction summaries are **not**
+  this path: they skip `markForRetry`, finalize `failed` with
+  `EmptyCompactionSummaryError`, and log readable `model` / `provider` plus
+  numeric `contentChars` / `reasoningChars` on `execute_settled`.
 - `execute_settled` is terminal only; retries do not emit it.
+  `execute_started` / `execute_retrying` / `execute_settled` keep `model` and
+  `provider` as readable labels (allowlisted). Session/topic ids stay hashed.
 - `regenerate_early_return` names the guard that made Regenerate a no-op
   (`reason=noAnchor|retrying|notCurrent`).
 - `sync_summary` reports per-sync counts plus `reason` (`topic_change` /

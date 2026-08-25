@@ -238,6 +238,25 @@ describe('structured tools debug logging', () => {
     expect(JSON.parse(json).userId).toMatchObject({ type: 'identifier' });
   });
 
+  it('keeps model and provider readable while still fingerprinting session ids', () => {
+    process.env.CHATHUB_TOOLS_DEBUG = '1';
+
+    logToolsDebugSafe('call_tool_complete', {
+      durationMs: 4,
+      model: 'gpt-5-mini',
+      provider: 'openai',
+      sessionId: 'sess-private-conversation',
+    });
+
+    const json = consoleLogSpy.mock.calls[0][1] as string;
+    expect(JSON.parse(json)).toMatchObject({
+      model: 'gpt-5-mini',
+      provider: 'openai',
+    });
+    expect(JSON.parse(json).sessionId).toMatchObject({ type: 'identifier' });
+    expect(json).not.toContain('sess-private-conversation');
+  });
+
   it('fingerprints values deterministically while excluding secret-keyed values', () => {
     expect(
       fingerprintToolsDebugValue({ apiKey: 'first-secret', name: 'connection' }),

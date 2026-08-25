@@ -157,12 +157,36 @@ describe('chat memory actions', () => {
         }),
       }),
     );
+    expect(vi.mocked(chatService.fetchPresetTaskResult).mock.calls[0][0].params).not.toHaveProperty(
+      'reasoning_effort',
+    );
     expect(topicService.updateTopic).toHaveBeenCalledTimes(1);
     expect(topicService.updateTopic).toHaveBeenCalledWith(
       TOPIC_ID,
       expect.objectContaining({
         historySummary: 'updated cumulative summary',
         metadata: expect.objectContaining({ historySummaryLastMessageId: 'a2' }),
+      }),
+    );
+  });
+
+  it('gives History Compress thinking models extra output budget and lowest GPT-5 effort', async () => {
+    vi.spyOn(systemAgentSelectors, 'historyCompress').mockReturnValue({
+      model: 'gpt-5-mini',
+      provider: 'openai',
+    });
+
+    const result = await useChatStore.getState().triggerManualMemoryCompaction();
+
+    expect(result).toMatchObject({ status: 'compacted' });
+    expect(chatService.fetchPresetTaskResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        params: expect.objectContaining({
+          max_tokens: 2448,
+          model: 'gpt-5-mini',
+          provider: 'openai',
+          reasoning_effort: 'minimal',
+        }),
       }),
     );
   });

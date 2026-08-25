@@ -16,8 +16,9 @@ import { fingerprintString, sanitizeSafeRecord } from './toolsDebug';
  *
  * Sanitization is identical to chathub-tools-debug: message content is never
  * emitted, identifiers are sha256-16 fingerprints, and only error classes,
- * tRPC codes, counts, and ages are recorded. Client-reported fields are
- * re-sanitized server-side because they arrive from an untrusted origin.
+ * tRPC codes, counts, ages, and allowlisted labels (`model`, `provider`,
+ * `kind`, …) are recorded. Client-reported fields are re-sanitized
+ * server-side because they arrive from an untrusted origin.
  */
 
 const GENERATION_DEBUG_MAX_RECORD_BYTES = 16 * 1024;

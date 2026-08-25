@@ -115,6 +115,21 @@ describe('CHATHUB_GENERATION_DEBUG emitter', () => {
       expect(record.timestamp).toEqual(expect.any(String));
     });
 
+    it('keeps model and provider readable while still fingerprinting session ids', () => {
+      logGenerationDebugSafe('execute_started', {
+        kind: 'memory_compaction',
+        model: 'gpt-5-mini',
+        provider: 'openai',
+        sessionId: 'sess-private-conversation',
+      });
+
+      const record = JSON.parse(consoleLogSpy.mock.calls[0][1] as string);
+      expect(record.model).toBe('gpt-5-mini');
+      expect(record.provider).toBe('openai');
+      expect(record.sessionId).toMatchObject({ type: 'identifier' });
+      expect(consoleLogSpy.mock.calls[0][1]).not.toContain('sess-private-conversation');
+    });
+
     it('keeps safe label and identifier fields, and fingerprints free-form strings', () => {
       logGenerationDebugSafe('enqueue_rejected', {
         kind: 'chat',

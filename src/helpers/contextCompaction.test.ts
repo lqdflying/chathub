@@ -2,6 +2,9 @@ import type { UIChatMessage } from '@lobechat/types';
 import { describe, expect, it } from 'vitest';
 
 import {
+  CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS,
+  CONTEXT_COMPACTION_REASONING_HEADROOM_TOKENS,
+  buildSimpleCompletionSampling,
   getContextCompactionWatermarks,
   getMessagesAfterHistorySummaryCursor,
   getSettledCompactionPrefixes,
@@ -96,5 +99,55 @@ describe('context compaction helpers', () => {
       ['u2', 'a2', 'u3', 'a3'],
       ['u4', 'a4', 'u5', 'a5'],
     ]);
+  });
+});
+
+describe('buildSimpleCompletionSampling', () => {
+  const summaryCap = CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS;
+  const reasoningBudget = summaryCap + CONTEXT_COMPACTION_REASONING_HEADROOM_TOKENS;
+
+  it('keeps the 400-token summary cap for non-reasoning models', () => {
+    expect(
+      buildSimpleCompletionSampling({
+        model: 'summary-model',
+        provider: 'summary-provider',
+      }),
+    ).toEqual({ max_tokens: summaryCap });
+  });
+
+  it('sends minimal GPT-5 effort and extra output budget for gpt-5-mini', () => {
+    expect(
+      buildSimpleCompletionSampling({
+        model: 'gpt-5-mini',
+        provider: 'openai',
+      }),
+    ).toEqual({
+      max_tokens: reasoningBudget,
+      reasoning_effort: 'minimal',
+    });
+  });
+
+  it('keeps the GPT-5.5 quality floor instead of lowering effort to minimal', () => {
+    expect(
+      buildSimpleCompletionSampling({
+        model: 'gpt-5.5',
+        provider: 'openai',
+      }),
+    ).toEqual({
+      max_tokens: reasoningBudget,
+      reasoning_effort: 'high',
+    });
+  });
+
+  it('disables Anthropic thinking and still adds reasoning headroom', () => {
+    expect(
+      buildSimpleCompletionSampling({
+        model: 'claude-sonnet-4-6',
+        provider: 'anthropic',
+      }),
+    ).toEqual({
+      max_tokens: reasoningBudget,
+      thinking: { budget_tokens: 0, type: 'disabled' },
+    });
   });
 });
