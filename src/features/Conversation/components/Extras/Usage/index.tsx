@@ -4,6 +4,8 @@ import { createStyles } from 'antd-style';
 import { memo } from 'react';
 import { Center, Flexbox } from 'react-layout-kit';
 
+import { resolveStoredMessageUsage } from '@/features/ChatInput/ActionBar/Token/getPromptCacheHitRate';
+
 import TokenDetail from './UsageDetail';
 
 export const useStyles = createStyles(({ token, css, cx }) => ({
@@ -21,6 +23,7 @@ interface UsageProps {
 
 const Usage = memo<UsageProps>(({ model, metadata, provider }) => {
   const { styles } = useStyles();
+  const usage = resolveStoredMessageUsage(metadata);
 
   return (
     <Flexbox
@@ -35,8 +38,8 @@ const Usage = memo<UsageProps>(({ model, metadata, provider }) => {
         {model}
       </Center>
 
-      {!!metadata.totalTokens && (
-        <TokenDetail meta={metadata} model={model as string} provider={provider} />
+      {!!usage?.totalTokens && (
+        <TokenDetail meta={usage} model={model as string} provider={provider} />
       )}
     </Flexbox>
   );

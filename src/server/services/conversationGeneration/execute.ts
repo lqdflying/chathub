@@ -987,7 +987,10 @@ const executeChat = async (
             content,
             reasoning: reasoning ?? undefined,
             ...(result.grounding ? { search: result.grounding as any } : {}),
-            ...(result.usage ? { metadata: { usage: result.usage } } : {}),
+            // Flatten ModelUsage onto MessageMetadata (same as browser
+            // generateAIChat onFinish). Nested `{ usage }` is unread by the
+            // token popover and per-bubble Usage extras.
+            ...(result.usage ? { metadata: result.usage } : {}),
           });
         }
 

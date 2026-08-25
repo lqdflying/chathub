@@ -10,11 +10,22 @@ import {
 /**
  * Split MessageMetadata into usage and performance
  */
+const unwrapNestedUsage = (metadata?: MessageMetadata | null): MessageMetadata | undefined => {
+  if (!metadata) return undefined;
+  const nested = (metadata as MessageMetadata & { usage?: ModelUsage }).usage;
+  if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+    const { usage: _nested, ...rest } = metadata as MessageMetadata & { usage?: ModelUsage };
+    return { ...rest, ...nested };
+  }
+  return metadata;
+};
+
 function splitMetadata(metadata?: MessageMetadata | null): {
   performance?: ModelPerformance;
   usage?: ModelUsage;
 } {
-  if (!metadata) return {};
+  const source = unwrapNestedUsage(metadata);
+  if (!source) return {};
 
   const usage: ModelUsage = {};
   const performance: ModelPerformance = {};
@@ -42,8 +53,8 @@ function splitMetadata(metadata?: MessageMetadata | null): {
 
   let hasUsage = false;
   usageFields.forEach((field) => {
-    if (metadata[field] !== undefined) {
-      usage[field] = metadata[field] as any;
+    if (source[field] !== undefined) {
+      usage[field] = source[field] as any;
       hasUsage = true;
     }
   });
@@ -52,8 +63,8 @@ function splitMetadata(metadata?: MessageMetadata | null): {
   const performanceFields = ['tps', 'ttft', 'duration', 'latency'] as const;
   let hasPerformance = false;
   performanceFields.forEach((field) => {
-    if (metadata[field] !== undefined) {
-      performance[field] = metadata[field];
+    if (source[field] !== undefined) {
+      performance[field] = source[field];
       hasPerformance = true;
     }
   });

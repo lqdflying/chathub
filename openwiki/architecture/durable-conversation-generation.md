@@ -74,7 +74,11 @@ A retry inspects the owned assistant before calling the model: tool-bearing
 rows resume tool execution, rows with an explicit
 `conversationGenerationTurnComplete` metadata marker skip a new model call,
 and an unmarked partial checkpoint is regenerated (never treated as a finished
-answer). The owned assistant is never sent back as history. Standalone portal
+answer). After a successful model stream, `execute.ts` writes converted
+`ModelUsage` **flat** onto the assistant `metadata` column (the same shape as
+browser `generateAIChat` `onFinish`: `inputCachedTokens`, `totalInputTokens`,
+…). Nested `{ usage: … }` is unread by the token popover and per-bubble Usage
+extras. The owned assistant is never sent back as history. Standalone portal
 threads send only the source message plus that thread’s children.
 
 Job payload is `{ operationId, userId }` only. Credentials are resolved from

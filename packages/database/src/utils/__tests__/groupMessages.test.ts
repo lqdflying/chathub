@@ -770,6 +770,43 @@ describe('groupAssistantMessages', () => {
       });
     });
 
+    it('should unwrap nested durable metadata.usage when grouping', () => {
+      const input: UIChatMessage[] = [
+        {
+          id: 'msg-1',
+          role: 'assistant',
+          content: 'Test',
+          tools: [
+            {
+              id: 'tool-1',
+              identifier: 'test',
+              apiName: 'test',
+              arguments: '{}',
+              type: 'default',
+            },
+          ],
+          metadata: {
+            usage: {
+              inputCachedTokens: 80,
+              totalInputTokens: 100,
+              totalTokens: 120,
+            },
+          } as any,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          meta: {},
+        } as UIChatMessage,
+      ];
+
+      const result = groupAssistantMessages(input);
+
+      expect(result[0].children![0].usage).toEqual({
+        inputCachedTokens: 80,
+        totalInputTokens: 100,
+        totalTokens: 120,
+      });
+    });
+
     it('should aggregate usage and performance from multiple children', () => {
       const input: UIChatMessage[] = [
         {

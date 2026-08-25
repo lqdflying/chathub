@@ -1,4 +1,4 @@
-import type { ModelTokensUsage, UIChatMessage } from '@lobechat/types';
+import type { MessageMetadata, ModelTokensUsage, UIChatMessage } from '@lobechat/types';
 
 import { LOADING_FLAT } from '@/const/message';
 
@@ -42,6 +42,31 @@ export const hasPromptCacheTelemetry = (
 const hasTotalInput = (usage?: ModelTokensUsage | null): usage is ModelTokensUsage =>
   !!usage && isFiniteNumber(usage.totalInputTokens) && usage.totalInputTokens > 0;
 
+const hasReportedTokens = (usage?: ModelTokensUsage | null): usage is ModelTokensUsage =>
+  hasPromptCacheTelemetry(usage) ||
+  hasTotalInput(usage) ||
+  (!!usage && isFiniteNumber(usage.totalTokens));
+
+type NestedUsageMetadata = MessageMetadata & { usage?: ModelTokensUsage };
+
+/**
+ * Durable generation used to persist `{ usage: ModelUsage }` on metadata.
+ * Browser onFinish writes the same fields flat. Accept both.
+ */
+export const resolveStoredMessageUsage = (
+  metadata?: MessageMetadata | null,
+): MessageMetadata | undefined => {
+  if (!metadata) return undefined;
+
+  const nested = (metadata as NestedUsageMetadata).usage;
+  if (nested && typeof nested === 'object' && !Array.isArray(nested) && hasReportedTokens(nested)) {
+    const { usage: _nested, ...rest } = metadata as NestedUsageMetadata;
+    return { ...rest, ...nested };
+  }
+
+  return metadata;
+};
+
 const collectUsageSources = (message: PromptCacheMessage): ModelTokensUsage[] => {
   const sources: ModelTokensUsage[] = [];
   const children = message.children;
@@ -52,7 +77,8 @@ const collectUsageSources = (message: PromptCacheMessage): ModelTokensUsage[] =>
     }
   }
   if (message.usage) sources.push(message.usage);
-  if (message.metadata) sources.push(message.metadata);
+  const resolvedMetadata = resolveStoredMessageUsage(message.metadata);
+  if (resolvedMetadata) sources.push(resolvedMetadata);
   return sources;
 };
 

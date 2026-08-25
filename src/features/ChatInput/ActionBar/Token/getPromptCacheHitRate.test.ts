@@ -5,6 +5,7 @@ import {
   findLatestPromptCacheUsage,
   getPromptCacheHitRate,
   hasPromptCacheTelemetry,
+  resolveStoredMessageUsage,
 } from './getPromptCacheHitRate';
 
 describe('hasPromptCacheTelemetry', () => {
@@ -246,6 +247,45 @@ describe('findLatestPromptCacheUsage', () => {
     ).toEqual({
       fromModel: 'kimi',
       usage,
+    });
+  });
+
+  it('unwraps nested durable metadata.usage for cache telemetry', () => {
+    const nested = { inputCachedTokens: 18_688, totalInputTokens: 18_788, totalTokens: 18_869 };
+    const source = findLatestPromptCacheUsage([
+      {
+        content: 'cached',
+        extra: { fromModel: 'deepseek-v4-flash' },
+        metadata: {
+          conversationGenerationTurnComplete: true,
+          usage: nested,
+        } as any,
+        role: 'assistant',
+      },
+    ]);
+
+    expect(source?.fromModel).toBe('deepseek-v4-flash');
+    expect(source?.usage).toMatchObject(nested);
+    expect(getPromptCacheHitRate(source?.usage)?.cacheHitRate).toBeCloseTo(18_688 / 18_788);
+  });
+});
+
+describe('resolveStoredMessageUsage', () => {
+  it('returns flat metadata unchanged', () => {
+    const flat = { inputCachedTokens: 10, totalInputTokens: 20, totalTokens: 25 };
+    expect(resolveStoredMessageUsage(flat)).toEqual(flat);
+  });
+
+  it('merges nested usage onto sibling metadata flags', () => {
+    const nested = { inputCachedTokens: 8, totalInputTokens: 10, totalTokens: 12 };
+    expect(
+      resolveStoredMessageUsage({
+        conversationGenerationTurnComplete: true,
+        usage: nested,
+      } as any),
+    ).toMatchObject({
+      conversationGenerationTurnComplete: true,
+      ...nested,
     });
   });
 });

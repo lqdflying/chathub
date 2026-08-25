@@ -952,6 +952,33 @@ describe('executeConversationGeneration chat resume', () => {
     );
   });
 
+  it('persists provider usage as flat message metadata', async () => {
+    const usage = {
+      inputCachedTokens: 18_688,
+      inputCacheMissTokens: 100,
+      totalInputTokens: 18_788,
+      totalTokens: 18_869,
+    };
+    vi.mocked(consumeProtocolResponse).mockResolvedValue({
+      content: 'cached answer',
+      usage,
+    });
+
+    await runOperation(buildOperation({ id: 'cgo_usage' }));
+
+    expect(messageMocks.update).toHaveBeenCalledWith(
+      assistant.id,
+      expect.objectContaining({ metadata: usage }),
+    );
+    expect(assistant.metadata).toEqual(
+      expect.objectContaining({
+        ...usage,
+        [CONVERSATION_GENERATION_TURN_COMPLETE]: true,
+      }),
+    );
+    expect(assistant.metadata).not.toHaveProperty('usage');
+  });
+
   it('hands off a failed inline title to a dedicated topic_title operation without failing the chat', async () => {
     const row = {
       assistantMessageId: assistant.id,
