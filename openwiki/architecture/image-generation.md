@@ -32,10 +32,17 @@ locale, device, and theme variant before App Router resolution.
 
 `/artifacts` is a separate, account-scoped gallery backed by `files.source =
 image_generation`. `FileModel.queryImageArtifacts` filters by the authenticated
-user and image MIME type, applies bounded search/sort/pagination, and returns
-UI-resolved URLs plus optional dimensions from file metadata. The route is
-read-only: generated originals are created by the existing generation ingestion
-transaction and remain durable after topic history is cleaned.
+user and image MIME type, applies bounded search/sort/pagination (client page
+size 20), and returns UI-resolved URLs plus optional dimensions from file
+metadata. Cards use those dimensions as CSS `aspect-ratio` (`width / height`,
+fallback `16 / 9`) with `align-items: start` so mixed portrait and landscape
+images keep their real shape. `file.removeImageArtifacts` /
+`FileModel.deleteImageArtifacts` delete only current-user `image_generation`
+rows, then reuse `deleteMany` plus object-storage cleanup. Deleting a `files`
+row also removes matching `generations` records (`fileId` `ON DELETE CASCADE`)
+and chat file attachments that point at the same id. Image Topics housekeeping
+still does not delete these originals; generated files remain durable until the
+gallery batch-deletes the current page's selection.
 
 Image history housekeeping is deliberately owned by the Image Topics surface,
 not by Artifacts. `GenerationTopicModel.previewHousekeeping` reports eligible

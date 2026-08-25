@@ -2,7 +2,15 @@
   "card": {
     "download": "下载图片",
     "downloadFailed": "图片下载失败",
-    "preview": "预览 {{name}}"
+    "preview": "预览 {{name}}",
+    "select": "选择图片"
+  },
+  "delete": {
+    "action": "删除",
+    "confirm": "将永久删除这些生成的原图（含存储文件）。对应的图像历史记录以及引用这些文件的对话配图也会一并移除，且无法恢复。",
+    "confirmTitle": "删除 {{count}} 张图片？",
+    "failed": "图片删除失败",
+    "success": "已删除 {{count}} 张图片"
   },
   "empty": "暂无作品",
   "loadFailed": "作品加载失败",
@@ -15,6 +23,10 @@
   "search": {
     "label": "搜索作品",
     "placeholder": "搜索作品"
+  },
+  "select": {
+    "page": "选择本页",
+    "selectedCount": "已选 {{count}} 项"
   },
   "sort": {
     "label": "排序作品",

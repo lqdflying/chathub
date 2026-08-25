@@ -2,7 +2,15 @@
   "card": {
     "download": "Download image",
     "downloadFailed": "Image download failed",
-    "preview": "Preview {{name}}"
+    "preview": "Preview {{name}}",
+    "select": "Select image"
+  },
+  "delete": {
+    "action": "Delete",
+    "confirm": "This permanently deletes the generated originals, including stored files. Matching Image history records and chat Image-tool attachments for these files are also removed. This cannot be undone.",
+    "confirmTitle": "Delete {{count}} images?",
+    "failed": "Could not delete images",
+    "success": "Deleted {{count}} images"
   },
   "empty": "No artifacts yet",
   "loadFailed": "Artifacts could not be loaded",
@@ -15,6 +23,10 @@
   "search": {
     "label": "Search artifacts",
     "placeholder": "Search artifacts"
+  },
+  "select": {
+    "page": "Select this page",
+    "selectedCount": "{{count}} selected"
   },
   "sort": {
     "label": "Sort artifacts",

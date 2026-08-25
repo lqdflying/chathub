@@ -59,6 +59,33 @@ beforeEach(async () => {
   ]);
 });
 
+describe('FileModel.deleteImageArtifacts', () => {
+  it('deletes only the current user image-generation files', async () => {
+    const removed = await fileModel.deleteImageArtifacts([
+      'artifact-old',
+      'uploaded-image',
+      'other-user-artifact',
+    ]);
+
+    expect(removed.map(({ id }) => id)).toEqual(['artifact-old']);
+
+    const remaining = await serverDB.select({ id: files.id }).from(files);
+    expect(remaining.map(({ id }) => id).sort()).toEqual([
+      'artifact-new',
+      'other-user-artifact',
+      'uploaded-image',
+    ]);
+  });
+
+  it('returns an empty list when ids are empty or not artifacts', async () => {
+    await expect(fileModel.deleteImageArtifacts([])).resolves.toEqual([]);
+    await expect(fileModel.deleteImageArtifacts(['uploaded-image'])).resolves.toEqual([]);
+
+    const remaining = await fileModel.queryImageArtifacts();
+    expect(remaining.total).toBe(2);
+  });
+});
+
 describe('FileModel.queryImageArtifacts', () => {
   it('returns only the current user image-generation files with dimensions', async () => {
     const result = await fileModel.queryImageArtifacts();

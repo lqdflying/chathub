@@ -2,7 +2,7 @@
 
 import type { ImageArtifactItem } from '@lobechat/types';
 import { ActionIcon } from '@lobehub/ui';
-import { App, Image, Typography } from 'antd';
+import { App, Checkbox, Image, Typography } from 'antd';
 import { createStyles } from 'antd-style';
 import { Download } from 'lucide-react';
 import { memo, useMemo } from 'react';
@@ -10,6 +10,8 @@ import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
 import { downloadFile } from '@/utils/client/downloadFile';
+
+import { getArtifactAspectRatio } from './getArtifactAspectRatio';
 
 const useStyles = createStyles(({ css, token }) => ({
   card: css`
@@ -27,6 +29,16 @@ const useStyles = createStyles(({ css, token }) => ({
       box-shadow: ${token.boxShadowTertiary};
     }
   `,
+  checkbox: css`
+    position: absolute;
+    z-index: 2;
+    inset-block-start: 8px;
+    inset-inline-start: 8px;
+    padding: 4px;
+    border: 1px solid ${token.colorBorderSecondary};
+    border-radius: 6px;
+    background: ${token.colorBgElevated};
+  `,
   imageAction: css`
     position: absolute;
     z-index: 1;
@@ -37,7 +49,6 @@ const useStyles = createStyles(({ css, token }) => ({
   `,
   imageFrame: css`
     position: relative;
-    aspect-ratio: 1;
     overflow: hidden;
     background: ${token.colorFillQuaternary};
 
@@ -61,6 +72,9 @@ const useStyles = createStyles(({ css, token }) => ({
     color: ${token.colorTextSecondary};
     font-size: 12px;
   `,
+  selected: css`
+    border-color: ${token.colorPrimary};
+  `,
 }));
 
 const formatBytes = (size: number) => {
@@ -72,12 +86,15 @@ const formatBytes = (size: number) => {
 interface ArtifactCardProps {
   artifact: ImageArtifactItem;
   locale: string;
+  onSelectedChange: (id: string, selected: boolean) => void;
+  selected: boolean;
 }
 
-const ArtifactCard = memo<ArtifactCardProps>(({ artifact, locale }) => {
-  const { styles } = useStyles();
+const ArtifactCard = memo<ArtifactCardProps>(({ artifact, locale, onSelectedChange, selected }) => {
+  const { styles, cx } = useStyles();
   const { message } = App.useApp();
   const { t } = useTranslation('artifacts');
+  const aspectRatio = getArtifactAspectRatio(artifact.width, artifact.height);
   const dimensions = useMemo(
     () =>
       artifact.width && artifact.height ? `${artifact.width} × ${artifact.height}` : undefined,
@@ -97,8 +114,8 @@ const ArtifactCard = memo<ArtifactCardProps>(({ artifact, locale }) => {
   };
 
   return (
-    <article className={styles.card} data-artifact-id={artifact.id}>
-      <div className={styles.imageFrame}>
+    <article className={cx(styles.card, selected && styles.selected)} data-artifact-id={artifact.id}>
+      <div className={styles.imageFrame} style={{ aspectRatio }}>
         <Image
           alt={artifact.name}
           height={'100%'}
@@ -108,6 +125,15 @@ const ArtifactCard = memo<ArtifactCardProps>(({ artifact, locale }) => {
           src={artifact.url}
           width={'100%'}
         />
+        <div
+          className={styles.checkbox}
+          onClick={(event) => {
+            event.stopPropagation();
+            onSelectedChange(artifact.id, !selected);
+          }}
+        >
+          <Checkbox aria-label={t('card.select')} checked={selected} />
+        </div>
         <ActionIcon
           aria-label={t('card.download')}
           className={styles.imageAction}

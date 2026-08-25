@@ -373,6 +373,19 @@ export const fileRouter = router({
       await ctx.fileService.deleteFiles(needToRemoveFileList.map((file) => file.url!));
     }),
 
+  removeImageArtifacts: fileProcedure
+    .input(z.object({ ids: z.array(z.string()).min(1).max(60) }))
+    .mutation(async ({ input, ctx }) => {
+      const needToRemoveFileList = await ctx.fileModel.deleteImageArtifacts(
+        input.ids,
+        serverDBEnv.REMOVE_GLOBAL_FILE,
+      );
+
+      if (!needToRemoveFileList || needToRemoveFileList.length === 0) return;
+
+      await ctx.fileService.deleteFiles(needToRemoveFileList.map((file) => file.url!));
+    }),
+
   resolvePublicUrl: fileProcedure
     .input(z.object({ url: z.string() }))
     .query(async ({ ctx, input }) => {

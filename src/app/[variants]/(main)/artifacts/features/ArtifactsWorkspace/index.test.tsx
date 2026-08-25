@@ -30,7 +30,7 @@ vi.mock('@/const/auth', async (importOriginal) => ({
 }));
 
 vi.mock('@/services/artifacts', () => ({
-  artifactService: { list: vi.fn() },
+  artifactService: { list: vi.fn(), remove: vi.fn() },
 }));
 
 vi.mock('@/hooks/useIsMobile', () => ({ useIsMobile: () => false }));
@@ -48,11 +48,32 @@ vi.mock('@lobehub/ui', () => ({
 }));
 
 vi.mock('antd', () => ({
-  Button: ({ children, onClick }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
-    <button onClick={onClick} type={'button'}>
+  App: {
+    useApp: () => ({
+      message: { error: vi.fn(), success: vi.fn() },
+      modal: {
+        confirm: ({ onOk }: { onOk?: () => void | Promise<void> }) => {
+          void onOk?.();
+        },
+      },
+    }),
+  },
+  Button: ({
+    children,
+    onClick,
+    'aria-label': ariaLabel,
+  }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
+    <button aria-label={ariaLabel} onClick={onClick} type={'button'}>
       {children}
     </button>
   ),
+  Checkbox: ({
+    'aria-label': ariaLabel,
+    checked,
+  }: {
+    'aria-label'?: string;
+    checked?: boolean;
+  }) => <input aria-label={ariaLabel} checked={!!checked} readOnly type={'checkbox'} />,
   Empty: ({ description }: { description: React.ReactNode }) => <div>{description}</div>,
   Image: Object.assign(() => null, {
     PreviewGroup: ({ children }: { children: React.ReactNode }) => <>{children}</>,
@@ -75,8 +96,8 @@ vi.mock('antd', () => ({
     pageSize: number;
     total: number;
   }) => (
-    <div data-current={current} data-testid={'pagination'}>
-      {Array.from({ length: Math.ceil(total / pageSize) }, (_, index) => (
+    <div data-current={current} data-page-size={pageSize} data-testid={'pagination'} data-total={total}>
+      {Array.from({ length: Math.max(1, Math.ceil(total / pageSize)) }, (_, index) => (
         <button
           aria-label={`page-${index + 1}`}
           key={index}
@@ -120,7 +141,17 @@ vi.mock('react-i18next', () => ({
 }));
 
 vi.mock('react-layout-kit', () => ({
-  Flexbox: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  Flexbox: ({
+    children,
+    onClick,
+  }: {
+    children: React.ReactNode;
+    onClick?: React.MouseEventHandler<HTMLDivElement>;
+  }) => (
+    <div onClick={onClick} role={onClick ? 'presentation' : undefined}>
+      {children}
+    </div>
+  ),
 }));
 
 vi.mock('./ArtifactCard', () => ({
@@ -147,6 +178,8 @@ const verifyAccountOwnership = () => {
 describe('ArtifactsWorkspace', () => {
   beforeEach(() => {
     vi.mocked(artifactService.list).mockReset();
+    vi.mocked(artifactService.remove).mockReset();
+    vi.mocked(artifactService.remove).mockResolvedValue();
     scrollIntoView.mockReset();
     useUserStore.setState({
       ...initialState,
@@ -164,7 +197,7 @@ describe('ArtifactsWorkspace', () => {
     vi.mocked(artifactService.list).mockResolvedValue({
       items: [artifact('image-a', 'verified-image.png')],
       page: 1,
-      pageSize: 40,
+      pageSize: 20,
       total: 1,
     });
 
@@ -178,10 +211,12 @@ describe('ArtifactsWorkspace', () => {
     expect(await screen.findByText('verified-image.png')).toBeTruthy();
     expect(artifactService.list).toHaveBeenCalledWith({
       page: 1,
-      pageSize: 40,
+      pageSize: 20,
       q: undefined,
       sort: 'newest',
     });
+    expect(screen.getByTestId('pagination').getAttribute('data-total')).toBe('1');
+    expect(screen.getByTestId('pagination').getAttribute('data-page-size')).toBe('20');
   });
 
   it('passes search, sort, and pagination to the artifact API', async () => {
@@ -189,8 +224,8 @@ describe('ArtifactsWorkspace', () => {
     vi.mocked(artifactService.list).mockImplementation(async ({ page = 1 }) => ({
       items: [artifact(`image-${page}`, `page-${page}.png`)],
       page,
-      pageSize: 40,
-      total: 41,
+      pageSize: 20,
+      total: 21,
     }));
 
     render(<ArtifactsWorkspace />);
@@ -206,7 +241,7 @@ describe('ArtifactsWorkspace', () => {
     await waitFor(() =>
       expect(artifactService.list).toHaveBeenLastCalledWith({
         page: 1,
-        pageSize: 40,
+        pageSize: 20,
         q: 'city',
         sort: 'oldest',
       }),
@@ -217,13 +252,93 @@ describe('ArtifactsWorkspace', () => {
     await waitFor(() =>
       expect(artifactService.list).toHaveBeenLastCalledWith({
         page: 2,
-        pageSize: 40,
+        pageSize: 20,
         q: 'city',
         sort: 'oldest',
       }),
     );
     expect(await screen.findByText('page-2.png')).toBeTruthy();
     expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' });
+  });
+
+  it('deletes the selected page and reloads the current page', async () => {
+    verifyAccountOwnership();
+    vi.mocked(artifactService.list).mockResolvedValue({
+      items: [artifact('image-a', 'keep.png'), artifact('image-b', 'drop.png')],
+      page: 1,
+      pageSize: 20,
+      total: 2,
+    });
+
+    render(<ArtifactsWorkspace />);
+    await screen.findByText('keep.png');
+
+    fireEvent.click(screen.getByLabelText('select.page'));
+    fireEvent.click(screen.getByRole('button', { name: 'delete.action' }));
+
+    await waitFor(() =>
+      expect(artifactService.remove).toHaveBeenCalledWith(['image-a', 'image-b']),
+    );
+    await waitFor(() =>
+      expect(artifactService.list).toHaveBeenLastCalledWith({
+        page: 1,
+        pageSize: 20,
+        q: undefined,
+        sort: 'newest',
+      }),
+    );
+  });
+
+  it('clears the current-page selection after search changes', async () => {
+    verifyAccountOwnership();
+    vi.mocked(artifactService.list).mockImplementation(async ({ page = 1, q }) => ({
+      items: [artifact(`image-${q || 'all'}`, `${q || 'all'}.png`)],
+      page,
+      pageSize: 20,
+      total: 1,
+    }));
+
+    render(<ArtifactsWorkspace />);
+    await screen.findByText('all.png');
+
+    fireEvent.click(screen.getByLabelText('select.page'));
+    expect(screen.getByRole('button', { name: 'delete.action' })).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText('search.label'), {
+      target: { value: 'city' },
+    });
+
+    await screen.findByText('city.png');
+    expect(screen.queryByRole('button', { name: 'delete.action' })).toBeNull();
+  });
+
+  it('clamps to the last remaining page after deleting the last page', async () => {
+    verifyAccountOwnership();
+    vi.mocked(artifactService.list).mockImplementation(async ({ page = 1 }) => ({
+      items: [artifact(`image-${page}`, `page-${page}.png`)],
+      page,
+      pageSize: 20,
+      total: 21,
+    }));
+
+    render(<ArtifactsWorkspace />);
+    await screen.findByText('page-1.png');
+
+    fireEvent.click(screen.getByLabelText('page-2'));
+    await screen.findByText('page-2.png');
+
+    fireEvent.click(screen.getByLabelText('select.page'));
+    fireEvent.click(screen.getByRole('button', { name: 'delete.action' }));
+
+    await waitFor(() => expect(artifactService.remove).toHaveBeenCalledWith(['image-2']));
+    await waitFor(() =>
+      expect(artifactService.list).toHaveBeenLastCalledWith({
+        page: 1,
+        pageSize: 20,
+        q: undefined,
+        sort: 'newest',
+      }),
+    );
   });
 
   it('ignores a stale page response after a filter resets pagination', async () => {
@@ -241,8 +356,8 @@ describe('ArtifactsWorkspace', () => {
       return {
         items: [artifact(`image-${name}`, name)],
         page,
-        pageSize: 40,
-        total: 41,
+        pageSize: 20,
+        total: 21,
       } as ImageArtifactListResult;
     });
 
@@ -253,7 +368,7 @@ describe('ArtifactsWorkspace', () => {
     await waitFor(() =>
       expect(artifactService.list).toHaveBeenLastCalledWith({
         page: 2,
-        pageSize: 40,
+        pageSize: 20,
         q: undefined,
         sort: 'newest',
       }),
@@ -275,8 +390,8 @@ describe('ArtifactsWorkspace', () => {
       resolvePageTwo?.({
         items: [artifact('stale-page-two', 'stale-page-2.png')],
         page: 2,
-        pageSize: 40,
-        total: 41,
+        pageSize: 20,
+        total: 21,
       });
     });
 

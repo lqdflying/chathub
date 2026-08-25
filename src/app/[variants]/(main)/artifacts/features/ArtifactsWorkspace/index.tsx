@@ -4,7 +4,9 @@ import type { ImageArtifactItem } from '@lobechat/types';
 import { ActionIcon } from '@lobehub/ui';
 import { useDebounce } from 'ahooks';
 import {
+  App,
   Button,
+  Checkbox,
   Empty,
   Image,
   Input,
@@ -29,13 +31,14 @@ import { useUserStore } from '@/store/user';
 
 import ArtifactCard from './ArtifactCard';
 
-const PAGE_SIZE = 40;
+const PAGE_SIZE = 20;
 
 const useStyles = createStyles(({ css }) => ({
   grid: css`
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr));
     gap: 16px;
+    align-items: start;
 
     @media (max-width: 767px) {
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -87,7 +90,7 @@ interface ArtifactsWorkspaceContentProps {
 
 const ArtifactSkeleton = memo(() => (
   <Flexbox gap={8}>
-    <Skeleton.Image active style={{ aspectRatio: 1, height: 'auto', width: '100%' }} />
+    <Skeleton.Image active style={{ aspectRatio: '16 / 9', height: 'auto', width: '100%' }} />
     <Skeleton active paragraph={{ rows: 1 }} title={false} />
   </Flexbox>
 ));
@@ -95,6 +98,7 @@ const ArtifactSkeleton = memo(() => (
 const ArtifactsWorkspaceContent = memo<ArtifactsWorkspaceContentProps>(({ requestedScope }) => {
   const { styles } = useStyles();
   const { t } = useTranslation('artifacts');
+  const { message, modal } = App.useApp();
   const locale = useGlobalStore(globalGeneralSelectors.currentLanguage);
   const isMobile = useIsMobile();
   const [items, setItems] = useState<ImageArtifactItem[]>([]);
@@ -104,12 +108,16 @@ const ArtifactsWorkspaceContent = memo<ArtifactsWorkspaceContentProps>(({ reques
   const [sort, setSort] = useState<'newest' | 'oldest'>('newest');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const debouncedQuery = useDebounce(query, { wait: 300 });
   const galleryRef = useRef<HTMLDivElement>(null);
   const filterKey = JSON.stringify([debouncedQuery, sort]);
   const appliedFilterKeyRef = useRef(filterKey);
   const requestIdRef = useRef(0);
   const effectivePage = appliedFilterKeyRef.current === filterKey ? page : 1;
+  const pageIds = useMemo(() => items.map((item) => item.id), [items]);
+  const selectedCount = selectedIds.length;
+  const allPageSelected = pageIds.length > 0 && pageIds.every((id) => selectedIds.includes(id));
 
   useEffect(() => {
     if (appliedFilterKeyRef.current === filterKey) return;
@@ -117,6 +125,10 @@ const ArtifactsWorkspaceContent = memo<ArtifactsWorkspaceContentProps>(({ reques
     appliedFilterKeyRef.current = filterKey;
     setPage(1);
   }, [filterKey]);
+
+  useEffect(() => {
+    setSelectedIds([]);
+  }, [filterKey, effectivePage]);
 
   const loadArtifacts = useCallback(async () => {
     const requestId = ++requestIdRef.current;
@@ -173,6 +185,44 @@ const ArtifactsWorkspaceContent = memo<ArtifactsWorkspaceContentProps>(({ reques
     [currentPage, totalPages],
   );
 
+  const handleSelectedChange = useCallback((id: string, selected: boolean) => {
+    setSelectedIds((current) => {
+      if (selected) return current.includes(id) ? current : [...current, id];
+      return current.filter((item) => item !== id);
+    });
+  }, []);
+
+  const toggleSelectPage = useCallback(() => {
+    setSelectedIds(allPageSelected ? [] : pageIds);
+  }, [allPageSelected, pageIds]);
+
+  const handleDeleteSelected = useCallback(() => {
+    if (selectedIds.length === 0) return;
+
+    modal.confirm({
+      content: t('delete.confirm'),
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          await artifactService.remove(selectedIds);
+          message.success(t('delete.success', { count: selectedIds.length }));
+          const remaining = Math.max(0, total - selectedIds.length);
+          const lastPage = Math.max(1, Math.ceil(remaining / PAGE_SIZE));
+          const nextPage = Math.min(currentPage, lastPage);
+          setSelectedIds([]);
+          if (nextPage !== currentPage) {
+            setPage(nextPage);
+            return;
+          }
+          await loadArtifacts();
+        } catch {
+          message.error(t('delete.failed'));
+        }
+      },
+      title: t('delete.confirmTitle', { count: selectedIds.length }),
+    });
+  }, [currentPage, loadArtifacts, message, modal, selectedIds, t, total]);
+
   const sortOptions = useMemo(
     () => [
       { label: t('sort.newest'), value: 'newest' },
@@ -206,6 +256,38 @@ const ArtifactsWorkspaceContent = memo<ArtifactsWorkspaceContentProps>(({ reques
             value={sort}
           />
         </Flexbox>
+        {!loading && !error && items.length > 0 && (
+          <Flexbox align={'center'} gap={12} horizontal wrap={'wrap'}>
+            <Flexbox
+              align={'center'}
+              gap={8}
+              horizontal
+              onClick={toggleSelectPage}
+              style={{ cursor: 'pointer' }}
+            >
+              <Checkbox
+                aria-label={t('select.page')}
+                checked={allPageSelected}
+                indeterminate={selectedCount > 0 && !allPageSelected}
+              />
+              <span>
+                {selectedCount > 0
+                  ? t('select.selectedCount', { count: selectedCount })
+                  : t('select.page')}
+              </span>
+            </Flexbox>
+            {selectedCount > 0 && (
+              <Button
+                aria-label={t('delete.action')}
+                danger
+                onClick={handleDeleteSelected}
+                type={'primary'}
+              >
+                {t('delete.action')}
+              </Button>
+            )}
+          </Flexbox>
+        )}
       </Flexbox>
 
       {error ? (
@@ -238,11 +320,17 @@ const ArtifactsWorkspaceContent = memo<ArtifactsWorkspaceContentProps>(({ reques
           <Image.PreviewGroup>
             <div className={styles.grid} ref={galleryRef}>
               {items.map((artifact) => (
-                <ArtifactCard artifact={artifact} key={artifact.id} locale={locale} />
+                <ArtifactCard
+                  artifact={artifact}
+                  key={artifact.id}
+                  locale={locale}
+                  onSelectedChange={handleSelectedChange}
+                  selected={selectedIds.includes(artifact.id)}
+                />
               ))}
             </div>
           </Image.PreviewGroup>
-          {total > PAGE_SIZE && (
+          {total >= 1 && (
             <Flexbox align={'center'} gap={8} horizontal justify={'center'} wrap={'wrap'}>
               <ActionIcon
                 aria-label={t('pagination.previous')}

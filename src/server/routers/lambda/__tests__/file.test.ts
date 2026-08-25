@@ -30,6 +30,7 @@ function createCallerWithCtx(partialCtx: any = {}) {
     queryImageArtifacts: vi.fn().mockResolvedValue({ items: [], page: 1, pageSize: 40, total: 0 }),
     delete: vi.fn().mockResolvedValue(undefined),
     deleteMany: vi.fn().mockResolvedValue([]),
+    deleteImageArtifacts: vi.fn().mockResolvedValue([]),
     clear: vi.fn().mockResolvedValue({} as any),
     findUrlCandidatesByKey: vi.fn().mockResolvedValue([]),
   };
@@ -107,6 +108,7 @@ vi.mock('@/database/models/file', () => ({
     repairGlobalFile: vi.fn(),
     delete: vi.fn(),
     deleteMany: vi.fn(),
+    deleteImageArtifacts: vi.fn(),
     findById: vi.fn(),
     query: vi.fn(),
     queryImageArtifacts: vi.fn(),
@@ -431,6 +433,27 @@ describe('fileRouter', () => {
       ctx.fileModel.deleteMany.mockResolvedValue([]);
 
       await caller.removeFiles({ ids: ['invalid-1', 'invalid-2'] });
+
+      expect(ctx.fileService.deleteFiles).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('removeImageArtifacts', () => {
+    it('deletes scoped artifacts and storage keys', async () => {
+      ctx.fileModel.deleteImageArtifacts.mockResolvedValue([
+        { url: 'generations/images/artifact.png' },
+      ]);
+
+      await caller.removeImageArtifacts({ ids: ['artifact-1'] });
+
+      expect(ctx.fileModel.deleteImageArtifacts).toHaveBeenCalledWith(['artifact-1'], false);
+      expect(ctx.fileService.deleteFiles).toHaveBeenCalledWith(['generations/images/artifact.png']);
+    });
+
+    it('does nothing when no image-generation files match', async () => {
+      ctx.fileModel.deleteImageArtifacts.mockResolvedValue([]);
+
+      await caller.removeImageArtifacts({ ids: ['uploaded-image'] });
 
       expect(ctx.fileService.deleteFiles).not.toHaveBeenCalled();
     });

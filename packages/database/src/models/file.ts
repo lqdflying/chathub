@@ -249,6 +249,26 @@ export class FileModel {
     });
   };
 
+  deleteImageArtifacts = async (ids: string[], removeGlobalFile: boolean = true) => {
+    if (ids.length === 0) return [];
+
+    const ownedArtifacts = await this.db
+      .select({ id: files.id })
+      .from(files)
+      .where(
+        and(
+          inArray(files.id, ids),
+          eq(files.userId, this.userId),
+          eq(files.source, FileSource.ImageGeneration),
+        ),
+      );
+
+    return this.deleteMany(
+      ownedArtifacts.map((file) => file.id),
+      removeGlobalFile,
+    );
+  };
+
   clear = async () => {
     return this.db.delete(files).where(eq(files.userId, this.userId));
   };
