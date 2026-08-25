@@ -25,10 +25,20 @@ describe('hasPromptCacheTelemetry', () => {
 });
 
 describe('getPromptCacheHitRate', () => {
-  it('returns undefined when there is no cache telemetry', () => {
+  it('returns undefined when there is no usage', () => {
     expect(getPromptCacheHitRate(undefined)).toBeUndefined();
     expect(getPromptCacheHitRate({})).toBeUndefined();
-    expect(getPromptCacheHitRate({ totalInputTokens: 2000, totalTokens: 2100 })).toBeUndefined();
+  });
+
+  it('treats totals-only usage as a reported zero hit against total input', () => {
+    expect(
+      getPromptCacheHitRate({ totalInputTokens: 2000, totalTokens: 2100 }),
+    ).toEqual({
+      cacheEligibleTokens: 2000,
+      cacheHitRate: 0,
+      cacheHitTokens: 0,
+      status: 'reported',
+    });
   });
 
   it('uses OpenAI prompt tokens as eligible when cached tokens are present', () => {
@@ -135,18 +145,26 @@ describe('getPromptCacheHitRate', () => {
 });
 
 describe('findLatestPromptCacheUsage', () => {
-  it('returns undefined when no assistant reported cache fields', () => {
+  it('returns undefined when no assistant reported usage', () => {
     expect(findLatestPromptCacheUsage([])).toBeUndefined();
     expect(
       findLatestPromptCacheUsage([
         { content: 'hi', metadata: { totalInputTokens: 10 }, role: 'user' },
-        {
-          content: 'done',
-          metadata: { totalInputTokens: 20, totalTokens: 30 },
-          role: 'assistant',
-        },
       ]),
     ).toBeUndefined();
+  });
+
+  it('falls back to totals-only usage when no cache counters exist', () => {
+    const totals = { totalInputTokens: 20, totalTokens: 30 };
+    expect(
+      findLatestPromptCacheUsage([
+        { content: 'hi', metadata: { totalInputTokens: 10 }, role: 'user' },
+        { content: 'done', extra: { fromModel: 'gpt-test' }, metadata: totals, role: 'assistant' },
+      ]),
+    ).toEqual({
+      fromModel: 'gpt-test',
+      usage: totals,
+    });
   });
 
   it('keeps older reported cache while an in-flight assistant has no metadata', () => {
@@ -197,6 +215,37 @@ describe('findLatestPromptCacheUsage', () => {
     ).toEqual({
       fromModel: 'kimi',
       usage: latestCache,
+    });
+  });
+
+  it('reads grouped tool-turn usage after metadata is split onto usage/children', () => {
+    const childUsage = { inputCachedTokens: 80, totalInputTokens: 100 };
+    const source = findLatestPromptCacheUsage([
+      {
+        children: [{ content: 'tool call', id: 'child-1', usage: childUsage }],
+        content: '',
+        extra: { fromModel: 'gpt-test' },
+        metadata: undefined,
+        role: 'group',
+        usage: { inputCachedTokens: 80, totalInputTokens: 100 },
+      },
+    ]);
+
+    expect(source).toEqual({
+      fromModel: 'gpt-test',
+      usage: childUsage,
+    });
+  });
+
+  it('reads assistant usage when metadata was not copied into the store message', () => {
+    const usage = { inputCachedTokens: 40, totalInputTokens: 80 };
+    expect(
+      findLatestPromptCacheUsage([
+        { content: 'reply', extra: { fromModel: 'kimi' }, role: 'assistant', usage },
+      ]),
+    ).toEqual({
+      fromModel: 'kimi',
+      usage,
     });
   });
 });

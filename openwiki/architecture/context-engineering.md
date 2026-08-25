@@ -24,7 +24,7 @@ memory block stays in the stable prompt prefix (fixed memory changes only on use
 edits, dynamic memory at most daily), ahead of the more volatile inbox/tool/summary
 blocks, which preserves provider prompt-cache hit rates.
 
-The chat-input token popover **Most recent reported cache** figure is not that live tokenizer estimate. It reads cache fields from the latest assistant `message.metadata` that reported them (`src/features/ChatInput/ActionBar/Token/getPromptCacheHitRate.ts`) and divides cached tokens by `totalInputTokens` when present. In-flight `LOADING_FLAT` rows are skipped; a later completed reply that only has totals keeps the previous reported rate. The rate definition does not change when Anthropic omits a zero write counter.
+The chat-input token popover **Most recent reported cache** figure is not that live tokenizer estimate. It reads cache fields from the latest assistant or grouped tool-turn `usage` / `metadata` / children (`src/features/ChatInput/ActionBar/Token/getPromptCacheHitRate.ts`) and divides cached tokens by `totalInputTokens` when present. In-flight `LOADING_FLAT` rows are skipped; a later completed reply that only has totals keeps a previous cache-bearing rate, or shows `0 / totalInput` with status `provider reported` when no cache counters exist in the topic. The rate definition does not change when Anthropic omits a zero write counter.
 
 ## Chat Instruction composition
 

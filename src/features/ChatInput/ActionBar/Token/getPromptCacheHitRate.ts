@@ -16,10 +16,20 @@ export interface PromptCacheUsageSource {
   usage: ModelTokensUsage;
 }
 
-type PromptCacheMessage = Pick<UIChatMessage, 'content' | 'extra' | 'metadata' | 'role'>;
+type PromptCacheMessage = Pick<
+  UIChatMessage,
+  'children' | 'content' | 'extra' | 'metadata' | 'role' | 'usage'
+>;
 
 const isFiniteNumber = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value);
+
+const isAssistantLike = (role: UIChatMessage['role']) =>
+  role === 'assistant' || role === 'group';
+
+const isInFlightMessage = (message: PromptCacheMessage) =>
+  message.content === LOADING_FLAT ||
+  !!message.children?.some((child) => child.content === LOADING_FLAT);
 
 export const hasPromptCacheTelemetry = (
   usage?: ModelTokensUsage | null,
@@ -29,14 +39,42 @@ export const hasPromptCacheTelemetry = (
     isFiniteNumber(usage.inputCacheMissTokens) ||
     isFiniteNumber(usage.inputWriteCacheTokens));
 
+const hasTotalInput = (usage?: ModelTokensUsage | null): usage is ModelTokensUsage =>
+  !!usage && isFiniteNumber(usage.totalInputTokens) && usage.totalInputTokens > 0;
+
+const collectUsageSources = (message: PromptCacheMessage): ModelTokensUsage[] => {
+  const sources: ModelTokensUsage[] = [];
+  const children = message.children;
+  if (children?.length) {
+    for (let index = children.length - 1; index >= 0; index -= 1) {
+      const childUsage = children[index].usage;
+      if (childUsage) sources.push(childUsage);
+    }
+  }
+  if (message.usage) sources.push(message.usage);
+  if (message.metadata) sources.push(message.metadata);
+  return sources;
+};
+
 /**
  * Hit rate is cached tokens divided by all provider-reported input.
  * Do not switch the denominator when a zero Anthropic write counter was stripped.
+ * Totals-only usage (no cache counters) is 0 / totalInput with status `reported`.
  */
 export const getPromptCacheHitRate = (
   usage?: ModelTokensUsage | null,
 ): PromptCacheHitRate | undefined => {
-  if (!hasPromptCacheTelemetry(usage)) return undefined;
+  if (!usage) return undefined;
+
+  if (!hasPromptCacheTelemetry(usage)) {
+    if (!hasTotalInput(usage)) return undefined;
+    return {
+      cacheEligibleTokens: usage.totalInputTokens,
+      cacheHitRate: 0,
+      cacheHitTokens: 0,
+      status: 'reported',
+    };
+  }
 
   const hasWrite = isFiniteNumber(usage.inputWriteCacheTokens);
   const hasMiss = isFiniteNumber(usage.inputCacheMissTokens);
@@ -81,19 +119,31 @@ export const getPromptCacheHitRate = (
 export const findLatestPromptCacheUsage = (
   messages: PromptCacheMessage[],
 ): PromptCacheUsageSource | undefined => {
+  let totalsFallback: PromptCacheUsageSource | undefined;
+
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
-    if (message.role !== 'assistant') continue;
-    // Skip in-flight placeholders; a completed totals-only reply is still skipped
-    // so the most recent *reported* cache remains visible.
-    if (message.content === LOADING_FLAT) continue;
-    if (hasPromptCacheTelemetry(message.metadata)) {
+    if (!isAssistantLike(message.role) || isInFlightMessage(message)) continue;
+
+    const sources = collectUsageSources(message);
+    const cacheUsage = sources.find(hasPromptCacheTelemetry);
+    if (cacheUsage) {
       return {
         fromModel: message.extra?.fromModel,
-        usage: message.metadata,
+        usage: cacheUsage,
       };
+    }
+
+    if (!totalsFallback) {
+      const totalsUsage = sources.find(hasTotalInput);
+      if (totalsUsage) {
+        totalsFallback = {
+          fromModel: message.extra?.fromModel,
+          usage: totalsUsage,
+        };
+      }
     }
   }
 
-  return undefined;
+  return totalsFallback;
 };
