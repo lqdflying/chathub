@@ -37,6 +37,11 @@ export interface GlobalServerConfig {
    */
   enabledOAuthSSO?: boolean;
   /**
+   * CHATHUB_COMPACTION_DEBUG is active on the server, so the client emitter
+   * should report planner/watcher diagnostics through reportCompactionDebug.
+   */
+  compactionDebug?: boolean;
+  /**
    * CHATHUB_GENERATION_DEBUG is active on the server, so the client emitter
    * should report send-path diagnostics through reportClientDebug.
    */

@@ -464,7 +464,8 @@ Debug env vars are process-wide; the Docker overlay does not strip them.
 | Switch                        | Worker wiring                                                                                                                                          |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `CHATHUB_DEBUG` / `LOG_LEVEL` | Pino level for tRPC. Worker lifecycle uses `[conversation-generation]` console logs.                                                                   |
-| `CHATHUB_GENERATION_DEBUG`    | Send-path diagnostics for this engine itself: client send/attach/sync decisions re-emitted via `reportClientDebug`, plus enqueue/sweep/execute events. |
+| `CHATHUB_GENERATION_DEBUG`    | Send-path diagnostics for this engine itself: client send/attach/sync decisions re-emitted via `reportClientDebug`, plus enqueue/sweep/execute events. Compaction jobs still emit `kind=memory_compaction` `execute_*` here. |
+| `CHATHUB_COMPACTION_DEBUG`    | Topic-compaction planner/watcher/worker diagnostics (`chathub-compaction-debug`): why compact ran or skipped, estimate parts, and the window used. Client events use `reportCompactionDebug`, not `reportClientDebug`. |
 | `CHATHUB_TOOLS_DEBUG`         | MCP HTTP tools log through `mcpService`. Chat tool turns emit `tool_batch_*` / `tool_completion_reported` from `toolDiagnostics.ts`.                   |
 | `DEBUG_*_CACHE`               | `createConversationRuntimeChatOptions` passes `cacheDiagnostics` and `trustedPromptCacheKey` into `runtime.chat`, matching `/webapi/chat/[provider]`.  |
 | `CHATHUB_KNOWLEDGE_DEBUG`     | `injectRag` emits retrieval / vector-search / prompt-injection events; embeddings still log in `RagEmbeddingService`.                                  |
@@ -539,7 +540,10 @@ Semantics that matter when reading the stream:
   logged. `event_applied_terminal` is the positive end-to-end proof that a
   terminal event reached and was applied by the browser.
 - `execute_transcript_loaded` is emitted from `loadScopedMessages` for chat,
-  title, compaction, and supervisor loads. It records `transcriptCount`,
+  title, and supervisor loads. Compaction does **not** use that helper; it
+  loads candidates through `AiChatService.getMessagesAndTopics` and has no
+  `execute_transcript_loaded` event. The transcript record includes
+  `transcriptCount`,
   `omitSessionFilter`, `persistedSessionNull`, `hasTopicId`, plus
   `parentUserHash` (content fingerprint of the triggering user message) and
   `lastTranscriptUserHash` (last user message actually loaded). A hash
@@ -554,6 +558,11 @@ Semantics that matter when reading the stream:
   `workerJobId` or stale-heartbeat recovery). Empty compaction summaries do
   **not** emit `execute_retrying`; they finalize `failed` with
   `EmptyCompactionSummaryError` and numeric `contentChars` / `reasoningChars`.
+- Topic compaction **planner** decisions (`not_needed`, `below_high_watermark`,
+  estimate parts, `maxTokens`) are **not** in this stream. Use
+  `CHATHUB_COMPACTION_DEBUG` (`chathub-compaction-debug`: `watcher_armed`,
+  `planner_settled`, `worker_settled`). Join worker records with generation-debug
+  using the planner `spanId` (`cd_...`) passed as `debugSpanId` on enqueue.
 - `execute_settled` is terminal only (`succeeded` / `cancelled` / `failed` /
   `interrupted`); retries do not emit it.
 - Claude-like leave/return (browser-fallback turns): `deferred_lane_marked`

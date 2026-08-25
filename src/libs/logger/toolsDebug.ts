@@ -18,8 +18,11 @@ const SECRET_KEY_PATTERN =
 const PRIVATE_IDENTIFIER_KEY_PATTERN =
   /^(?:id|(?:user|account|session|connection|request|client|tenant|topic)[_-]?id)$/i;
 const SAFE_SECRET_METADATA_KEY_PATTERN = /(?:configured|count|hash|length|present|state)$/i;
+/** Numeric token-usage fields. The key contains "token" but the value is a count, not a secret. */
+const SAFE_TOKEN_USAGE_KEY_PATTERN =
+  /^(?:chatsToken|historySummaryToken|inputToken|knowledgeBaseToken|maxTokens|memoryToken|systemRoleToken|toolsToken|totalToken)$/;
 const SAFE_LABEL_KEY_PATTERN =
-  /^(?:appVersion|architecture|authType|bodyKind|cacheStatus|classifiedAs|code|contentEncoding|debugLevel|deferReason|deploymentMode|endpoint|errorClass|errorCode|errorKind|errorType|failurePhase|firstCharacterClass|gatewayServer|htmlMarker|kind|lastCharacterClass|mediaType|method|nodeVersion|operation|outcome|phase|platform|procedure|provider|reason|resultKind|rpcEndpoint|runtime|runtimeType|server|serverName|serverVersion|side|status|timestamp|toolName|transport|trpcCode|type|via)$/;
+  /^(?:appVersion|architecture|authType|bodyKind|cacheStatus|classifiedAs|code|contentEncoding|debugLevel|deferReason|deploymentMode|endpoint|errorClass|errorCode|errorKind|errorType|failurePhase|firstCharacterClass|gatewayServer|htmlMarker|kind|lastCharacterClass|mediaType|method|nodeVersion|operation|outcome|path|phase|platform|procedure|provider|reason|resultKind|rpcEndpoint|runtime|runtimeType|server|serverName|serverVersion|side|status|timestamp|toolName|transport|trigger|trpcCode|type|via)$/;
 const SAFE_IDENTIFIER_KEY_PATTERN =
   /(?:batchId|continuationId|diagnosticId|spanId|Fingerprint|Hash|keyHashes)$/;
 const SAFE_ERROR_CODE_KEY_PATTERN = /^(?:code|errorCode|trpcCode)$/;
@@ -377,7 +380,13 @@ export const describeToolsDebugError = (error: unknown): ToolsDebugErrorMetadata
 
 export const sanitizeSafeRecord = (value: unknown, key = '', depth = 0): unknown => {
   if (value === null || value === undefined) return value;
-  if (SECRET_KEY_PATTERN.test(key) && !SAFE_SECRET_METADATA_KEY_PATTERN.test(key)) return undefined;
+  if (
+    SECRET_KEY_PATTERN.test(key) &&
+    !SAFE_SECRET_METADATA_KEY_PATTERN.test(key) &&
+    !SAFE_TOKEN_USAGE_KEY_PATTERN.test(key)
+  ) {
+    return undefined;
+  }
   if (PRIVATE_IDENTIFIER_KEY_PATTERN.test(key)) return fingerprintDebugIdentifier(value);
   if (typeof value === 'string') {
     if (SAFE_ERROR_CODE_KEY_PATTERN.test(key) && !SAFE_ERROR_CODE_VALUE_PATTERN.test(value)) {

@@ -7,6 +7,7 @@ import {
   getContextCompactionWatermarks,
 } from '@/helpers/contextCompaction';
 import { useEstimatedContextUsage } from '@/hooks/useEstimatedContextUsage';
+import { logCompactionWatcherArmed } from '@/libs/logger/compactionDebugClient';
 import { useAgentStore } from '@/store/agent';
 import { agentChatConfigSelectors } from '@/store/agent/selectors';
 import { useChatStore } from '@/store/chat';
@@ -17,7 +18,7 @@ import { isGroupSessionContext } from './isGroupSessionContext';
 const COMPACTION_DEBOUNCE_MS = 750;
 
 const ContextAutoCompactWatcher = () => {
-  const { maxTokens, ratio, totalToken } = useEstimatedContextUsage();
+  const { knowledgeBaseToken, maxTokens, ratio, totalToken } = useEstimatedContextUsage();
   const config = useAgentStore((state) => {
     const chatConfig = agentChatConfigSelectors.currentChatConfig(state);
     return {
@@ -78,11 +79,20 @@ const ContextAutoCompactWatcher = () => {
 
     const timer = window.setTimeout(() => {
       lastAttemptRef.current = attemptFingerprint;
+      void logCompactionWatcherArmed({
+        highWatermark: config.highWatermark,
+        knowledgeBaseToken,
+        maxTokens,
+        ratio,
+        sessionId: conversation.sessionId,
+        topicId: conversation.topicId,
+        totalToken,
+      });
       void useChatStore.getState().triggerTokenThresholdMemoryCompaction().catch(console.error);
     }, COMPACTION_DEBOUNCE_MS);
 
     return () => window.clearTimeout(timer);
-  }, [config, conversation, maxTokens, ratio, totalToken]);
+  }, [config, conversation, knowledgeBaseToken, maxTokens, ratio, totalToken]);
 
   return null;
 };

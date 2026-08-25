@@ -67,6 +67,11 @@ export type ConversationGenerationEventType = (typeof ConversationGenerationEven
  */
 export interface ConversationGenerationCompactionSnapshot {
   candidateMessageIds: string[];
+  /**
+   * Client planner span for CHATHUB_COMPACTION_DEBUG / generation-debug join.
+   * Diagnostics only; never message content.
+   */
+  debugSpanId?: string;
   enableUserMemoryArchive?: boolean;
   estimatedTokensBefore?: number;
   expectedCursorId?: string;
@@ -190,6 +195,7 @@ export const ConversationGenerationConfigSchema = z.object({
   compaction: z
     .object({
       candidateMessageIds: z.array(z.string()).min(1),
+      debugSpanId: z.string().min(4).max(64).optional(),
       enableUserMemoryArchive: z.boolean().optional(),
       estimatedTokensBefore: z.number().optional(),
       expectedCursorId: z.string().optional(),

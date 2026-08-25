@@ -48,7 +48,10 @@ export const estimateContextUsageAsync = async ({
   chatsToken: number;
   contextMessages: ReturnType<typeof chatSelectors.mainAIChats>;
   historySummaryToken: number;
+  inputToken: number;
   memoryToken: number;
+  systemRoleToken: number;
+  toolsToken: number;
   totalToken: number;
 }> => {
   const input = chatState.inputMessage || '';
@@ -136,7 +139,10 @@ export const estimateContextUsageAsync = async ({
     chatsToken,
     contextMessages: chats,
     historySummaryToken,
+    inputToken,
     memoryToken,
+    systemRoleToken,
+    toolsToken,
     totalToken:
       systemRoleToken + memoryToken + historySummaryToken + toolsToken + chatsToken + inputToken,
   };

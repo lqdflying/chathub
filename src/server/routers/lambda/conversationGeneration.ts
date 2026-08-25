@@ -3,6 +3,11 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import {
+  COMPACTION_DEBUG_CLIENT_EVENTS,
+  isCompactionDebugEnabled,
+  logCompactionDebugSafe,
+} from '@/libs/logger/compactionDebug';
+import {
   GENERATION_DEBUG_CLIENT_EVENTS,
   isGenerationDebugEnabled,
   logGenerationDebugSafe,
@@ -95,6 +100,35 @@ export const conversationGenerationRouter = router({
       if (!isGenerationDebugEnabled()) return { accepted: 0 };
       for (const { event, fields } of input.events) {
         logGenerationDebugSafe(event, { ...fields, side: 'client' });
+      }
+      return { accepted: input.events.length };
+    }),
+
+  /**
+   * Receives sanitized CHATHUB_COMPACTION_DEBUG events captured on the client
+   * and re-emits them server-side so they reach the same Axiom stream as the
+   * worker events. Gated by the server env switch; client fields are treated
+   * as untrusted and re-sanitized by the emitter before logging. Do not mix
+   * this allowlist into reportClientDebug.
+   */
+  reportCompactionDebug: authedProcedure
+    .input(
+      z.object({
+        events: z
+          .array(
+            z.object({
+              event: z.enum(COMPACTION_DEBUG_CLIENT_EVENTS),
+              fields: z.record(z.string(), z.unknown()).optional(),
+            }),
+          )
+          .min(1)
+          .max(50),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      if (!isCompactionDebugEnabled()) return { accepted: 0 };
+      for (const { event, fields } of input.events) {
+        logCompactionDebugSafe(event, { ...fields, side: 'client' });
       }
       return { accepted: input.events.length };
     }),

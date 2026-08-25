@@ -22,6 +22,11 @@ import { conversationGenerationIdempotencyKey } from '@/helpers/conversationGene
 import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableConversationGeneration';
 import { estimateContextUsageAsync } from '@/helpers/estimateContextUsageAsync';
 import { getModelContextWindowTokens } from '@/helpers/modelContextWindowTokens';
+import {
+  createCompactionDebugSpanId,
+  hashCompactionDebugClientValue,
+  logCompactionDebugClientSafe,
+} from '@/libs/logger/compactionDebugClient';
 import { chatService } from '@/services/chat';
 import {
   asConversationGenerationOperation,
@@ -212,30 +217,112 @@ async function runCompactionFromStore(
       'memory_compaction',
     );
 
+  const debugSpanId = createCompactionDebugSpanId();
+  const debug: {
+    activeModel?: string;
+    activeProvider?: string;
+    beforeEstimate?: Awaited<ReturnType<typeof estimateContextUsageAsync>>;
+    candidateCount?: number;
+    enableCompressHistory?: boolean;
+    enableHistoryCount?: boolean;
+    enableTokenThresholdAutoCompact?: boolean;
+    enableUserMemoryArchive?: boolean;
+    highWatermark?: number;
+    historyCount?: number;
+    lowWatermark?: number;
+    maxTokens?: number;
+    slicedMessageCount?: number;
+    targetReachable?: boolean;
+    topicMessageCount?: number;
+    truncatedForPreSend?: boolean;
+  } = {};
+
+  const finish = async (
+    status: MemoryCompactionResult['status'],
+    values: Omit<MemoryCompactionResult, 'status'> = {},
+  ): Promise<MemoryCompactionResult> => {
+    const result = compactionResult(status, values);
+    try {
+      const [sessionHash, topicHash] = await Promise.all([
+        requestedSessionId ? hashCompactionDebugClientValue(requestedSessionId) : undefined,
+        requestedTopicId ? hashCompactionDebugClientValue(requestedTopicId) : undefined,
+      ]);
+      const totalToken = debug.beforeEstimate?.totalToken ?? result.estimatedTokensBefore;
+      const maxTokens = debug.maxTokens;
+      logCompactionDebugClientSafe('planner_settled', {
+        candidateCount: debug.candidateCount,
+        chatsToken: debug.beforeEstimate?.chatsToken,
+        enableCompressHistory: debug.enableCompressHistory,
+        enableHistoryCount: debug.enableHistoryCount,
+        enableTokenThresholdAutoCompact: debug.enableTokenThresholdAutoCompact,
+        enableUserMemoryArchive: debug.enableUserMemoryArchive,
+        highWatermark: debug.highWatermark ?? result.highWatermark,
+        historyCount: debug.historyCount,
+        historySummaryToken: debug.beforeEstimate?.historySummaryToken,
+        inputToken: debug.beforeEstimate?.inputToken,
+        lowWatermark: debug.lowWatermark ?? result.lowWatermark,
+        maxTokens,
+        memoryToken: debug.beforeEstimate?.memoryToken,
+        model: debug.activeModel,
+        path: abortController
+          ? 'pre_send'
+          : result.reason === 'durable_enqueued'
+            ? 'durable_enqueued'
+            : 'client_inline',
+        provider: debug.activeProvider,
+        ratio:
+          typeof maxTokens === 'number' && maxTokens > 0 && typeof totalToken === 'number'
+            ? totalToken / maxTokens
+            : undefined,
+        reason: result.reason,
+        sessionHash,
+        slicedMessageCount: debug.slicedMessageCount,
+        spanId: debugSpanId,
+        status: result.status,
+        systemRoleToken: debug.beforeEstimate?.systemRoleToken,
+        targetReachable: debug.targetReachable,
+        toolsToken: debug.beforeEstimate?.toolsToken,
+        topicHash,
+        topicMessageCount: debug.topicMessageCount,
+        totalToken,
+        trigger,
+        truncatedForPreSend: debug.truncatedForPreSend,
+      });
+    } catch {
+      // Diagnostics must never interrupt compaction.
+    }
+    return result;
+  };
+
   if (!requestedSessionId || !requestedTopicId || !isCurrentRequest()) {
-    return compactionResult('ineligible', { reason: 'no_active_topic' });
+    return finish('ineligible', { reason: 'no_active_topic' });
   }
   if (!isRegularTopicCompaction(state)) {
-    return compactionResult('ineligible', { reason: 'threads_and_groups_are_not_supported' });
+    return finish('ineligible', { reason: 'threads_and_groups_are_not_supported' });
   }
   if (chatSelectors.isAIGenerating(state)) {
-    return compactionResult('ineligible', { reason: 'generation_in_progress' });
+    return finish('ineligible', { reason: 'generation_in_progress' });
   }
 
   const agentState = getAgentStoreState();
   const chatConfig = agentChatConfigSelectors.currentChatConfig(agentState);
   const enableHistoryCount = agentChatConfigSelectors.enableHistoryCount(agentState);
   const historyCount = agentChatConfigSelectors.historyCount(agentState);
+  debug.enableCompressHistory = !!chatConfig.enableCompressHistory;
+  debug.enableHistoryCount = !!enableHistoryCount;
+  debug.enableTokenThresholdAutoCompact = !!chatConfig.enableTokenThresholdAutoCompact;
+  debug.enableUserMemoryArchive = !!chatConfig.enableUserMemoryArchive;
+  debug.historyCount = historyCount;
 
   if (!enableHistoryCount || !chatConfig.enableCompressHistory) {
-    return compactionResult('ineligible', { reason: 'history_compaction_is_disabled' });
+    return finish('ineligible', { reason: 'history_compaction_is_disabled' });
   }
   if (trigger === 'token_threshold' && !chatConfig.enableTokenThresholdAutoCompact) {
-    return compactionResult('ineligible', { reason: 'token_auto_compaction_is_disabled' });
+    return finish('ineligible', { reason: 'token_auto_compaction_is_disabled' });
   }
 
   const topic = topicSelectors.currentActiveTopic(state);
-  if (!topic) return compactionResult('ineligible', { reason: 'topic_not_loaded' });
+  if (!topic) return finish('ineligible', { reason: 'topic_not_loaded' });
 
   const mainMessages = chatSelectors.mainTopicAIChats(state);
   const pending = resolvePendingCompactionHistory({
@@ -244,6 +331,9 @@ async function runCompactionFromStore(
     messages: mainMessages,
   });
   const { high, low } = getContextCompactionWatermarks(chatConfig.contextCompactThreshold);
+  debug.highWatermark = high;
+  debug.lowWatermark = low;
+  debug.topicMessageCount = mainMessages.length;
   let candidateMessages: UIChatMessage[] = [];
   let targetReachable = true;
 
@@ -257,7 +347,8 @@ async function runCompactionFromStore(
       candidateMessages = getSettledCompactionPrefixes(pending.pendingMessages).at(-1) ?? [];
     }
     if (!candidateMessages.length) {
-      return compactionResult('not_needed', {
+      debug.candidateCount = 0;
+      return finish('not_needed', {
         highWatermark: high,
         lowWatermark: low,
         reason: 'no_settled_turn_available',
@@ -266,11 +357,13 @@ async function runCompactionFromStore(
   }
 
   const beforeEstimate = await estimateContextUsageAsync({ agentState, chatState: state });
+  debug.beforeEstimate = beforeEstimate;
+  debug.slicedMessageCount = beforeEstimate.contextMessages.length;
   if (abortController?.signal.aborted) {
-    return compactionResult('ineligible', { reason: 'aborted' });
+    return finish('ineligible', { reason: 'aborted' });
   }
   if (!isCurrentRequest())
-    return compactionResult('ineligible', { reason: 'conversation_changed' });
+    return finish('ineligible', { reason: 'conversation_changed' });
 
   const { model: chatModel, provider: chatProvider } =
     // The history compression model is used only for the summarizer; the active model owns watermarks.
@@ -278,13 +371,16 @@ async function runCompactionFromStore(
   const { model: activeModel, provider: activeProvider } =
     agentSelectors.currentAgentConfig(agentState);
   const maxTokens = getModelContextWindowTokens(activeModel, activeProvider);
+  debug.activeModel = activeModel;
+  debug.activeProvider = activeProvider;
+  debug.maxTokens = maxTokens || undefined;
 
   if (trigger === 'token_threshold') {
     if (!maxTokens) {
-      return compactionResult('ineligible', { reason: 'unknown_context_window' });
+      return finish('ineligible', { reason: 'unknown_context_window' });
     }
     if (beforeEstimate.totalToken / maxTokens < high) {
-      return compactionResult('not_needed', {
+      return finish('not_needed', {
         estimatedTokensBefore: beforeEstimate.totalToken,
         highWatermark: high,
         lowWatermark: low,
@@ -303,7 +399,7 @@ async function runCompactionFromStore(
       targetRatio: low,
     });
     if (abortController?.signal.aborted) {
-      return compactionResult('ineligible', { reason: 'aborted' });
+      return finish('ineligible', { reason: 'aborted' });
     }
     candidateMessages = selected.messages;
     targetReachable = selected.targetReachable;
@@ -313,8 +409,11 @@ async function runCompactionFromStore(
     candidateMessages = getSettledCompactionPrefixes(pending.pendingMessages).at(-1) ?? [];
   }
 
+  debug.candidateCount = candidateMessages.length;
+  debug.targetReachable = targetReachable;
+
   if (!candidateMessages.length) {
-    return compactionResult(trigger === 'token_threshold' ? 'target_unreachable' : 'not_needed', {
+    return finish(trigger === 'token_threshold' ? 'target_unreachable' : 'not_needed', {
       estimatedTokensBefore: beforeEstimate.totalToken,
       highWatermark: high,
       lowWatermark: low,
@@ -330,6 +429,7 @@ async function runCompactionFromStore(
   // pre-send runs may process fewer batches than eligible; the cursor and stats below must
   // only cover what was actually summarized, or the skipped batches are lost forever
   const truncatedForPreSend = processedBatches.length < batches.length;
+  debug.truncatedForPreSend = truncatedForPreSend;
 
   if (
     isClientDurableConversationGenerationEnabled() &&
@@ -342,7 +442,7 @@ async function runCompactionFromStore(
     // version lookup was pending — bail before registering the in-flight key so
     // the enqueue never happens after the fence snapshot.
     if (!isCurrentRequest()) {
-      return compactionResult('ineligible', { reason: 'stale_request' });
+      return finish('ineligible', { reason: 'stale_request' });
     }
     const compactionFingerprint = createCompactionFingerprint({
       cursorId: topic.metadata?.historySummaryLastMessageId,
@@ -370,6 +470,7 @@ async function runCompactionFromStore(
         config: {
           compaction: {
             candidateMessageIds: candidateMessages.map(({ id }) => id),
+            debugSpanId,
             enableUserMemoryArchive: chatConfig.enableUserMemoryArchive,
             estimatedTokensBefore: beforeEstimate.totalToken,
             expectedCursorId: topic.metadata?.historySummaryLastMessageId,
@@ -386,6 +487,7 @@ async function runCompactionFromStore(
           provider: chatProvider,
         },
         conversationVersion: expectedConversationVersion,
+        debugSpanId,
         expectedConversationVersion,
         idempotencyKey: compactionIdempotencyKey,
         kind: 'memory_compaction',
@@ -408,7 +510,7 @@ async function runCompactionFromStore(
       if (operation) {
         await conversationGenerationService.cancel(operation.id).catch(() => undefined);
       }
-      return compactionResult('ineligible', { reason: 'stale_request' });
+      return finish('ineligible', { reason: 'stale_request' });
     }
     if (operation) {
       get().attachConversationGeneration({
@@ -424,13 +526,13 @@ async function runCompactionFromStore(
         topicId: requestedTopicId,
         userScope: accountMutationSnapshot.scope,
       });
-      return compactionResult('ineligible', { reason: 'durable_enqueued' });
+      return finish('ineligible', { reason: 'durable_enqueued' });
     }
   }
 
   for (const batch of processedBatches) {
     if (abortController?.signal.aborted) {
-      return compactionResult('ineligible', { reason: 'aborted' });
+      return finish('ineligible', { reason: 'aborted' });
     }
     const nextSummary = await summarizeBatch({
       abortController,
@@ -442,18 +544,18 @@ async function runCompactionFromStore(
       topicId: requestedTopicId,
     });
     if (abortController?.signal.aborted) {
-      return compactionResult('ineligible', { reason: 'aborted' });
+      return finish('ineligible', { reason: 'aborted' });
     }
     if (!isCurrentRequest()) {
-      return compactionResult('ineligible', { reason: 'conversation_changed' });
+      return finish('ineligible', { reason: 'conversation_changed' });
     }
     if (!nextSummary) {
       // fetchPresetTaskResult resolves without onFinish/onError when the request is
       // aborted — a user Stop is not a summarizer failure
       if (abortController?.signal.aborted) {
-        return compactionResult('ineligible', { reason: 'aborted' });
+        return finish('ineligible', { reason: 'aborted' });
       }
-      return compactionResult('failed', {
+      return finish('failed', {
         estimatedTokensBefore: beforeEstimate.totalToken,
         highWatermark: high,
         lowWatermark: low,
@@ -489,10 +591,10 @@ async function runCompactionFromStore(
     },
   });
   if (abortController?.signal.aborted) {
-    return compactionResult('ineligible', { reason: 'aborted' });
+    return finish('ineligible', { reason: 'aborted' });
   }
   if (!isCurrentRequest())
-    return compactionResult('ineligible', { reason: 'conversation_changed' });
+    return finish('ineligible', { reason: 'conversation_changed' });
 
   const lastEligibleMessageId = getSettledCompactionPrefixes(pending.pendingMessages)
     .at(-1)
@@ -538,10 +640,10 @@ async function runCompactionFromStore(
   // Re-check right before the write to shrink the window where an invalidation
   // (e.g. the user edited/deleted an included message) races this persist.
   if (abortController?.signal.aborted) {
-    return compactionResult('ineligible', { reason: 'aborted' });
+    return finish('ineligible', { reason: 'aborted' });
   }
   if (!isCurrentRequest())
-    return compactionResult('ineligible', { reason: 'conversation_changed' });
+    return finish('ineligible', { reason: 'conversation_changed' });
 
   await topicService.updateTopic(requestedTopicId, {
     historySummary,
@@ -566,7 +668,7 @@ async function runCompactionFromStore(
         })
         .catch(console.error);
     }
-    return compactionResult('ineligible', { reason: 'conversation_changed' });
+    return finish('ineligible', { reason: 'conversation_changed' });
   }
 
   if (abortController?.signal.aborted) {
@@ -578,7 +680,7 @@ async function runCompactionFromStore(
         })
         .catch(console.error);
     }
-    return compactionResult('ineligible', { reason: 'aborted' });
+    return finish('ineligible', { reason: 'aborted' });
   }
 
   if (isCurrentRequest()) {
@@ -592,7 +694,7 @@ async function runCompactionFromStore(
     );
   }
 
-  return compactionResult(status, {
+  return finish(status, {
     estimatedTokensAfter: afterEstimate.totalToken,
     estimatedTokensBefore: beforeEstimate.totalToken,
     highWatermark: high,

@@ -6,12 +6,14 @@ import {
   TOOLS_VERBOSE_NS,
   bootstrapDebug,
   getPinoLevel,
+  parseCompactionDebugLevel,
   parseImageDebugLevel,
   parseKnowledgeDebugLevel,
   parseToolsDebugLevel,
 } from '../bootstrap';
 
 const clearDebugEnv = () => {
+  delete process.env.CHATHUB_COMPACTION_DEBUG;
   delete process.env.CHATHUB_DEBUG;
   delete process.env.CHATHUB_IMAGE_DEBUG;
   delete process.env.CHATHUB_KNOWLEDGE_DEBUG;
@@ -81,6 +83,20 @@ describe('parseKnowledgeDebugLevel', () => {
     ['unexpected', 'off'],
   ])('parses %s as %s', (value, expected) => {
     expect(parseKnowledgeDebugLevel(value)).toBe(expected);
+  });
+});
+
+describe('parseCompactionDebugLevel', () => {
+  it.each([
+    [undefined, 'off'],
+    ['0', 'off'],
+    ['1', 'safe'],
+    [' safe ', 'safe'],
+    ['2', 'verbose'],
+    [' VERBOSE ', 'verbose'],
+    ['unexpected', 'off'],
+  ])('parses %s as %s', (value, expected) => {
+    expect(parseCompactionDebugLevel(value)).toBe(expected);
   });
 });
 
@@ -197,6 +213,25 @@ describe('bootstrapDebug', () => {
     expect(logSpy).toHaveBeenCalledTimes(1);
     const [prefix, json] = logSpy.mock.calls[0];
     expect(prefix).toBe('[chathub-knowledge-debug:config_warning]');
+    expect(JSON.parse(json)).toMatchObject({
+      outcome: 'warning',
+      reason: 'unrecognized_debug_value',
+      schemaVersion: 1,
+      valueLength: 'private-invalid-value'.length,
+    });
+    expect(json).not.toContain('private-invalid-value');
+  });
+
+  it('should emit a structured compaction warning for unrecognized CHATHUB_COMPACTION_DEBUG', () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    process.env.CHATHUB_COMPACTION_DEBUG = 'private-invalid-value';
+
+    bootstrapDebug();
+
+    expect(enableSpy).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    const [prefix, json] = logSpy.mock.calls[0];
+    expect(prefix).toBe('[chathub-compaction-debug:config_warning]');
     expect(JSON.parse(json)).toMatchObject({
       outcome: 'warning',
       reason: 'unrecognized_debug_value',

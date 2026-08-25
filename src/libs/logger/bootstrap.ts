@@ -25,6 +25,7 @@ export type StructuredDebugLevel = 'off' | 'safe' | 'verbose';
 export type ToolsDebugLevel = StructuredDebugLevel;
 export type ImageDebugLevel = StructuredDebugLevel;
 export type KnowledgeDebugLevel = StructuredDebugLevel;
+export type CompactionDebugLevel = StructuredDebugLevel;
 
 /**
  * Legacy safe namespace, retained as an explicit DEBUG fallback when the
@@ -40,6 +41,7 @@ const SAFE_VALUES = new Set(['1', 'true', 'on', 'safe']);
 const VERBOSE_VALUES = new Set(['2', 'verbose']);
 let imageDebugConfigWarningLogged = false;
 let knowledgeDebugConfigWarningLogged = false;
+let compactionDebugConfigWarningLogged = false;
 
 const parseStructuredDebugLevel = (raw: string | undefined): StructuredDebugLevel => {
   const v = (raw ?? '').trim().toLowerCase();
@@ -73,9 +75,14 @@ export const parseImageDebugLevel = (raw: string | undefined): ImageDebugLevel =
 export const parseKnowledgeDebugLevel = (raw: string | undefined): KnowledgeDebugLevel =>
   parseStructuredDebugLevel(raw);
 
+/** Parse CHATHUB_COMPACTION_DEBUG into a level. Case-insensitive and trimmed. */
+export const parseCompactionDebugLevel = (raw: string | undefined): CompactionDebugLevel =>
+  parseStructuredDebugLevel(raw);
+
 const isRecognizedToolsDebugValue = isRecognizedStructuredDebugValue;
 const isRecognizedImageDebugValue = isRecognizedStructuredDebugValue;
 const isRecognizedKnowledgeDebugValue = isRecognizedStructuredDebugValue;
+const isRecognizedCompactionDebugValue = isRecognizedStructuredDebugValue;
 
 const writeImageDebugConfigWarning = () => {
   if (imageDebugConfigWarningLogged) return;
@@ -123,6 +130,29 @@ const writeKnowledgeDebugConfigWarning = () => {
   }
 };
 
+const writeCompactionDebugConfigWarning = () => {
+  if (compactionDebugConfigWarningLogged) return;
+  compactionDebugConfigWarningLogged = true;
+
+  try {
+    // eslint-disable-next-line no-console
+    console.log(
+      '[chathub-compaction-debug:config_warning]',
+      JSON.stringify({
+        debugLevel: 'safe',
+        outcome: 'warning',
+        phase: 'configuration',
+        reason: 'unrecognized_debug_value',
+        schemaVersion: 1,
+        timestamp: new Date().toISOString(),
+        valueLength: process.env.CHATHUB_COMPACTION_DEBUG?.length ?? 0,
+      }),
+    );
+  } catch {
+    // Diagnostics must never interrupt app startup.
+  }
+};
+
 /**
  * Build the explicitly-set DEBUG namespace list, deduped. Tool namespaces are
  * no longer added from CHATHUB_TOOLS_DEBUG because that switch emits JSON.
@@ -153,6 +183,10 @@ export function bootstrapDebug() {
 
   if (!isRecognizedKnowledgeDebugValue(process.env.CHATHUB_KNOWLEDGE_DEBUG)) {
     writeKnowledgeDebugConfigWarning();
+  }
+
+  if (!isRecognizedCompactionDebugValue(process.env.CHATHUB_COMPACTION_DEBUG)) {
+    writeCompactionDebugConfigWarning();
   }
 
   const namespaces = buildNamespaceList();

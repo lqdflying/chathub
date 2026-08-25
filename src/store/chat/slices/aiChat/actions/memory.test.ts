@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { estimateContextUsageAsync } from '@/helpers/estimateContextUsageAsync';
 import { getModelContextWindowTokens } from '@/helpers/modelContextWindowTokens';
+import * as compactionDebugClient from '@/libs/logger/compactionDebugClient';
 import { chatService } from '@/services/chat';
 import {
   conversationGenerationService,
@@ -121,12 +122,20 @@ describe('chat memory actions', () => {
         chatsToken: 6,
         contextMessages: messages,
         historySummaryToken: 0,
+        inputToken: 0,
+        memoryToken: 0,
+        systemRoleToken: 0,
+        toolsToken: 0,
         totalToken: 800,
       })
       .mockResolvedValueOnce({
         chatsToken: 4,
         contextMessages: messages.slice(2),
         historySummaryToken: 2,
+        inputToken: 0,
+        memoryToken: 0,
+        systemRoleToken: 0,
+        toolsToken: 0,
         totalToken: 600,
       });
     vi.mocked(chatService.fetchPresetTaskResult).mockImplementation(async ({ onFinish }) => {
@@ -221,8 +230,15 @@ describe('chat memory actions', () => {
         conversationVersion: 7,
         expectedConversationVersion: 7,
         kind: 'memory_compaction',
+        replaceActive: true,
       }),
     );
+    expect(vi.mocked(tryEnqueueConversationGeneration).mock.calls[0][0].debugSpanId).toMatch(
+      /^cd_/,
+    );
+    expect(
+      vi.mocked(tryEnqueueConversationGeneration).mock.calls[0][0].config.compaction?.debugSpanId,
+    ).toMatch(/^cd_/);
     expect(chatService.fetchPresetTaskResult).not.toHaveBeenCalled();
     expect(topicService.updateTopic).not.toHaveBeenCalled();
   });
@@ -377,10 +393,15 @@ describe('chat memory actions', () => {
   });
 
   it('does not compact below the configured high watermark', async () => {
+    const logSpy = vi.spyOn(compactionDebugClient, 'logCompactionDebugClientSafe');
     vi.mocked(estimateContextUsageAsync).mockReset().mockResolvedValue({
       chatsToken: 6,
       contextMessages: messages,
       historySummaryToken: 0,
+      inputToken: 1,
+      memoryToken: 2,
+      systemRoleToken: 3,
+      toolsToken: 4,
       totalToken: 799,
     });
 
@@ -395,6 +416,25 @@ describe('chat memory actions', () => {
     });
     expect(getModelContextWindowTokens).toHaveBeenCalledWith('active-model', 'active-provider');
     expect(chatService.fetchPresetTaskResult).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(
+      'planner_settled',
+      expect.objectContaining({
+        chatsToken: 6,
+        inputToken: 1,
+        maxTokens: 1000,
+        memoryToken: 2,
+        model: 'active-model',
+        path: 'client_inline',
+        provider: 'active-provider',
+        ratio: 0.799,
+        reason: 'below_high_watermark',
+        status: 'not_needed',
+        systemRoleToken: 3,
+        toolsToken: 4,
+        totalToken: 799,
+        trigger: 'token_threshold',
+      }),
+    );
   });
 
   it('reports when protected context cannot reach the low watermark', async () => {
@@ -696,6 +736,47 @@ describe('chat memory actions', () => {
     expect(result.status).toBe('not_needed');
     expect(estimateContextUsageAsync).not.toHaveBeenCalled();
     expect(chatService.fetchPresetTaskResult).not.toHaveBeenCalled();
+  });
+
+  it('compacts on message_count even when the token ratio is below the high watermark', async () => {
+    const logSpy = vi.spyOn(compactionDebugClient, 'logCompactionDebugClientSafe');
+    vi.mocked(estimateContextUsageAsync)
+      .mockReset()
+      .mockResolvedValueOnce({
+        chatsToken: 6,
+        contextMessages: messages,
+        historySummaryToken: 0,
+        inputToken: 0,
+        memoryToken: 0,
+        systemRoleToken: 0,
+        toolsToken: 0,
+        totalToken: 200,
+      })
+      .mockResolvedValueOnce({
+        chatsToken: 4,
+        contextMessages: messages.slice(2),
+        historySummaryToken: 2,
+        inputToken: 0,
+        memoryToken: 0,
+        systemRoleToken: 0,
+        toolsToken: 0,
+        totalToken: 150,
+      });
+
+    const result = await useChatStore.getState().triggerMessageCountMemoryCompaction();
+
+    expect(result.status).toBe('compacted');
+    expect(chatService.fetchPresetTaskResult).toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(
+      'planner_settled',
+      expect.objectContaining({
+        path: 'client_inline',
+        ratio: 0.2,
+        status: 'compacted',
+        totalToken: 200,
+        trigger: 'message_count',
+      }),
+    );
   });
 
   it('suppresses compaction in group and thread contexts', async () => {

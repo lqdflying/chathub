@@ -45,6 +45,7 @@ import {
   parseSupervisorTodosFromMessages,
   shouldAvoidSupervisorDecision,
 } from '@/helpers/supervisorTodos';
+import { logCompactionDebugSafe } from '@/libs/logger/compactionDebug';
 import { hashGenerationDebugValue, logGenerationDebugSafe } from '@/libs/logger/generationDebug';
 import {
   createKnowledgeDiagnosticId,
@@ -495,6 +496,18 @@ const finalize = async (
     provider: operation.config?.provider,
     reasoningChars: readErrorBodyNumber(error, 'reasoningChars'),
   });
+  if (operation.kind === 'memory_compaction') {
+    logCompactionDebugSafe('worker_settled', {
+      candidateCount: operation.config.compaction?.candidateMessageIds?.length,
+      contentChars: readErrorBodyNumber(error, 'contentChars'),
+      model: operation.config?.model,
+      outcome: status,
+      provider: operation.config?.provider,
+      reasoningChars: readErrorBodyNumber(error, 'reasoningChars'),
+      spanId: operation.config.compaction?.debugSpanId,
+      trigger: operation.config.compaction?.trigger,
+    });
+  }
   if (db) {
     const updated = await finalizeOperationWithCleanup({
       annotateMessageId,

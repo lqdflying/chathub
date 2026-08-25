@@ -5,6 +5,7 @@ import { fileEnv } from '@/envs/file';
 import { imageEnv } from '@/envs/image';
 import { knowledgeEnv } from '@/envs/knowledge';
 import { langfuseEnv } from '@/envs/langfuse';
+import { isCompactionDebugEnabled } from '@/libs/logger/compactionDebug';
 import { isGenerationDebugEnabled } from '@/libs/logger/generationDebug';
 import { parseAuthProviders } from '@/libs/next-auth/parseAuthProviders';
 import { parseSystemAgent } from '@/server/globalConfig/parseSystemAgent';
@@ -42,6 +43,7 @@ export const getServerGlobalConfig = async () => {
     enabledAccessCode: ACCESS_CODES?.length > 0,
     enabledMarkItDown: !!knowledgeEnv.MARKITDOWN_SERVICE_URL,
 
+    compactionDebug: isCompactionDebugEnabled(),
     enabledOAuthSSO: enableNextAuth,
     generationDebug: isGenerationDebugEnabled(),
     image: cleanObject({

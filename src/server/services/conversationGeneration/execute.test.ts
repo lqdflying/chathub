@@ -86,10 +86,16 @@ const generationDebugMocks = vi.hoisted(() => ({
   hashGenerationDebugValue: vi.fn((value: string) => `hash:${value}`),
   logGenerationDebugSafe: vi.fn(),
 }));
+const compactionDebugMocks = vi.hoisted(() => ({
+  logCompactionDebugSafe: vi.fn(),
+}));
 
 vi.mock('@/libs/logger/generationDebug', () => ({
   hashGenerationDebugValue: generationDebugMocks.hashGenerationDebugValue,
   logGenerationDebugSafe: generationDebugMocks.logGenerationDebugSafe,
+}));
+vi.mock('@/libs/logger/compactionDebug', () => ({
+  logCompactionDebugSafe: compactionDebugMocks.logCompactionDebugSafe,
 }));
 vi.mock('./service', () => ({
   ConversationGenerationService: class {
@@ -2173,6 +2179,7 @@ describe('executeConversationGeneration memory compaction', () => {
       config: {
         compaction: {
           candidateMessageIds: ['u1', 'a1'],
+          debugSpanId: 'cd_0123456789abcdef',
           expectedFingerprint,
           expectedHistorySummary,
           trigger: 'manual',
@@ -2242,6 +2249,19 @@ describe('executeConversationGeneration memory compaction', () => {
         outcome: 'failed',
         provider: 'openai',
         reasoningChars: 15,
+      }),
+    );
+    expect(compactionDebugMocks.logCompactionDebugSafe).toHaveBeenCalledWith(
+      'worker_settled',
+      expect.objectContaining({
+        candidateCount: 2,
+        contentChars: 0,
+        model: 'gpt-5-mini',
+        outcome: 'failed',
+        provider: 'openai',
+        reasoningChars: 15,
+        spanId: 'cd_0123456789abcdef',
+        trigger: 'manual',
       }),
     );
   });

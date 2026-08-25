@@ -171,6 +171,15 @@ results instead of the oldest tail entries.
 
 The configurable compact threshold is the high watermark. It is clamped to 50%-99% and defaults to
 80%. The low watermark is derived 20 percentage points below it, so the default target is 60%.
+The 80% gate lives only on `trigger=token_threshold`. It compares
+`estimateContextUsageAsync` (system role + tools + assistant memory + history summary +
+`selectMessagesForContext` + input) to `enabledAiModels[].contextWindowTokens` for the
+**active chat model** (including user overrides; OpenAI-compatible cards are forced to 258k).
+It does not compare full-topic size to the vendor's advertised window. `message_count`,
+`scheduled`, and `manual` ignore that gate. The token-badge watcher ratio can include
+in-flight Knowledge Base tokens that the planner estimate does not. Operators diagnose
+those mismatches with `CHATHUB_COMPACTION_DEBUG` (`chathub-compaction-debug`); that switch
+does not change watermarks or when compact runs.
 Token compaction chooses the oldest complete turns needed to reach the low watermark. It never
 summarizes the latest user turn or an unresolved assistant/tool tail. If fixed prompt content and the
 protected turn already exceed the target, the action reports `target_unreachable` instead of retrying
