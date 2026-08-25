@@ -376,14 +376,28 @@ export const fileRouter = router({
   removeImageArtifacts: fileProcedure
     .input(z.object({ ids: z.array(z.string()).min(1).max(60) }))
     .mutation(async ({ input, ctx }) => {
-      const needToRemoveFileList = await ctx.fileModel.deleteImageArtifacts(
+      const result = await ctx.fileModel.deleteImageArtifacts(
         input.ids,
         serverDBEnv.REMOVE_GLOBAL_FILE,
       );
 
-      if (!needToRemoveFileList || needToRemoveFileList.length === 0) return;
+      if (result.deletedIds.length === 0) {
+        return { cleanupFailed: false, deletedIds: [] };
+      }
 
-      await ctx.fileService.deleteFiles(needToRemoveFileList.map((file) => file.url!));
+      if (result.storageKeys.length === 0) {
+        return { cleanupFailed: false, deletedIds: result.deletedIds };
+      }
+
+      try {
+        await ctx.fileService.deleteFiles(result.storageKeys);
+        return { cleanupFailed: false, deletedIds: result.deletedIds };
+      } catch (error) {
+        // Match Image history / generation-batch cleanup: the database commit is
+        // authoritative. Storage deletion is best-effort after that commit.
+        console.error('Failed to delete artifact files from S3:', error);
+        return { cleanupFailed: true, deletedIds: result.deletedIds };
+      }
     }),
 
   resolvePublicUrl: fileProcedure

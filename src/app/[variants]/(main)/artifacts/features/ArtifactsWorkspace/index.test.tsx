@@ -10,6 +10,11 @@ import { initialState } from '@/store/user/initialState';
 import ArtifactsWorkspace from './index';
 
 const scrollIntoView = vi.hoisted(() => vi.fn());
+const messageApi = vi.hoisted(() => ({
+  error: vi.fn(),
+  success: vi.fn(),
+  warning: vi.fn(),
+}));
 
 vi.stubGlobal('React', React);
 vi.stubGlobal(
@@ -50,7 +55,7 @@ vi.mock('@lobehub/ui', () => ({
 vi.mock('antd', () => ({
   App: {
     useApp: () => ({
-      message: { error: vi.fn(), success: vi.fn() },
+      message: messageApi,
       modal: {
         confirm: ({ onOk }: { onOk?: () => void | Promise<void> }) => {
           void onOk?.();
@@ -179,7 +184,13 @@ describe('ArtifactsWorkspace', () => {
   beforeEach(() => {
     vi.mocked(artifactService.list).mockReset();
     vi.mocked(artifactService.remove).mockReset();
-    vi.mocked(artifactService.remove).mockResolvedValue();
+    vi.mocked(artifactService.remove).mockImplementation(async (ids) => ({
+      cleanupFailed: false,
+      deletedIds: ids,
+    }));
+    messageApi.error.mockReset();
+    messageApi.success.mockReset();
+    messageApi.warning.mockReset();
     scrollIntoView.mockReset();
     useUserStore.setState({
       ...initialState,
@@ -279,6 +290,39 @@ describe('ArtifactsWorkspace', () => {
     await waitFor(() =>
       expect(artifactService.remove).toHaveBeenCalledWith(['image-a', 'image-b']),
     );
+    await waitFor(() =>
+      expect(artifactService.list).toHaveBeenLastCalledWith({
+        page: 1,
+        pageSize: 20,
+        q: undefined,
+        sort: 'newest',
+      }),
+    );
+  });
+
+  it('reloads after a committed delete even when storage cleanup fails', async () => {
+    verifyAccountOwnership();
+    vi.mocked(artifactService.list).mockResolvedValue({
+      items: [artifact('image-a', 'keep.png')],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    vi.mocked(artifactService.remove).mockResolvedValue({
+      cleanupFailed: true,
+      deletedIds: ['image-a'],
+    });
+
+    render(<ArtifactsWorkspace />);
+    await screen.findByText('keep.png');
+
+    fireEvent.click(screen.getByLabelText('select.page'));
+    fireEvent.click(screen.getByRole('button', { name: 'delete.action' }));
+
+    await waitFor(() => expect(artifactService.remove).toHaveBeenCalledWith(['image-a']));
+    await waitFor(() => expect(messageApi.success).toHaveBeenCalledWith('delete.success'));
+    expect(messageApi.warning).toHaveBeenCalledWith('delete.cleanupFailed');
+    expect(messageApi.error).not.toHaveBeenCalled();
     await waitFor(() =>
       expect(artifactService.list).toHaveBeenLastCalledWith({
         page: 1,

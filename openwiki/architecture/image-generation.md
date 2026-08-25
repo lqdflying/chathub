@@ -38,11 +38,19 @@ metadata. Cards use those dimensions as CSS `aspect-ratio` (`width / height`,
 fallback `16 / 9`) with `align-items: start` so mixed portrait and landscape
 images keep their real shape. `file.removeImageArtifacts` /
 `FileModel.deleteImageArtifacts` delete only current-user `image_generation`
-rows, then reuse `deleteMany` plus object-storage cleanup. Deleting a `files`
-row also removes matching `generations` records (`fileId` `ON DELETE CASCADE`)
-and chat file attachments that point at the same id. Image Topics housekeeping
-still does not delete these originals; generated files remain durable until the
-gallery batch-deletes the current page's selection.
+rows. Before the file-row cascade removes matching `generations` records
+(`fileId` `ON DELETE CASCADE`), the transaction collects distinct
+`asset.thumbnailUrl` object keys that are not the durable `files.url` and are
+not an external `asset.originalUrl`. After `deleteMany`, leftover thumbnail
+keys are filtered with the same `files` / `global_files` protection used by
+`GenerationTopicModel.excludeDurableFiles`. Object-storage deletion is
+best-effort after the database commit, matching Image history housekeeping and
+generation-batch thumbnail cleanup: a storage error is logged, the mutation
+returns `{ deletedIds, cleanupFailed: true }`, and the gallery still reloads.
+Chat file attachments that point at the same id cascade with the `files` row.
+Image Topics housekeeping still does not delete these originals; generated
+files remain durable until the gallery batch-deletes the current page's
+selection.
 
 Image history housekeeping is deliberately owned by the Image Topics surface,
 not by Artifacts. `GenerationTopicModel.previewHousekeeping` reports eligible

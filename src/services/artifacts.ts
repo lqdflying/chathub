@@ -1,4 +1,8 @@
-import { ImageArtifactListInput, ImageArtifactListResult } from '@lobechat/types';
+import {
+  ImageArtifactListInput,
+  ImageArtifactListResult,
+  ImageArtifactRemoveResult,
+} from '@lobechat/types';
 
 import { lambdaClient } from '@/libs/trpc/client';
 
@@ -7,8 +11,8 @@ class ArtifactService {
     return lambdaClient.file.getImageArtifacts.query(input);
   };
 
-  remove = async (ids: string[]): Promise<void> => {
-    await lambdaClient.file.removeImageArtifacts.mutate({ ids });
+  remove = async (ids: string[]): Promise<ImageArtifactRemoveResult> => {
+    return lambdaClient.file.removeImageArtifacts.mutate({ ids });
   };
 }
 

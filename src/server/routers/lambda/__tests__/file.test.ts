@@ -30,7 +30,7 @@ function createCallerWithCtx(partialCtx: any = {}) {
     queryImageArtifacts: vi.fn().mockResolvedValue({ items: [], page: 1, pageSize: 40, total: 0 }),
     delete: vi.fn().mockResolvedValue(undefined),
     deleteMany: vi.fn().mockResolvedValue([]),
-    deleteImageArtifacts: vi.fn().mockResolvedValue([]),
+    deleteImageArtifacts: vi.fn().mockResolvedValue({ deletedIds: [], storageKeys: [] }),
     clear: vi.fn().mockResolvedValue({} as any),
     findUrlCandidatesByKey: vi.fn().mockResolvedValue([]),
   };
@@ -439,23 +439,47 @@ describe('fileRouter', () => {
   });
 
   describe('removeImageArtifacts', () => {
-    it('deletes scoped artifacts and storage keys', async () => {
-      ctx.fileModel.deleteImageArtifacts.mockResolvedValue([
-        { url: 'generations/images/artifact.png' },
-      ]);
+    it('deletes scoped artifacts including workspace thumbnail keys', async () => {
+      ctx.fileModel.deleteImageArtifacts.mockResolvedValue({
+        deletedIds: ['artifact-1'],
+        storageKeys: ['generations/images/artifact.png', 'generations/thumbnails/artifact.webp'],
+      });
 
-      await caller.removeImageArtifacts({ ids: ['artifact-1'] });
+      const result = await caller.removeImageArtifacts({ ids: ['artifact-1'] });
 
       expect(ctx.fileModel.deleteImageArtifacts).toHaveBeenCalledWith(['artifact-1'], false);
-      expect(ctx.fileService.deleteFiles).toHaveBeenCalledWith(['generations/images/artifact.png']);
+      expect(ctx.fileService.deleteFiles).toHaveBeenCalledWith([
+        'generations/images/artifact.png',
+        'generations/thumbnails/artifact.webp',
+      ]);
+      expect(result).toEqual({ cleanupFailed: false, deletedIds: ['artifact-1'] });
     });
 
     it('does nothing when no image-generation files match', async () => {
-      ctx.fileModel.deleteImageArtifacts.mockResolvedValue([]);
+      ctx.fileModel.deleteImageArtifacts.mockResolvedValue({ deletedIds: [], storageKeys: [] });
 
-      await caller.removeImageArtifacts({ ids: ['uploaded-image'] });
+      await expect(caller.removeImageArtifacts({ ids: ['uploaded-image'] })).resolves.toEqual({
+        cleanupFailed: false,
+        deletedIds: [],
+      });
 
       expect(ctx.fileService.deleteFiles).not.toHaveBeenCalled();
+    });
+
+    it('treats storage cleanup failure as committed success with a warning flag', async () => {
+      ctx.fileModel.deleteImageArtifacts.mockResolvedValue({
+        deletedIds: ['artifact-1'],
+        storageKeys: ['generations/images/artifact.png'],
+      });
+      ctx.fileService.deleteFiles.mockRejectedValue(new Error('s3 unavailable'));
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+      await expect(caller.removeImageArtifacts({ ids: ['artifact-1'] })).resolves.toEqual({
+        cleanupFailed: true,
+        deletedIds: ['artifact-1'],
+      });
+      expect(consoleError).toHaveBeenCalled();
+      consoleError.mockRestore();
     });
   });
 

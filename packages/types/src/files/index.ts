@@ -37,6 +37,16 @@ export interface ImageArtifactListResult {
   total: number;
 }
 
+export interface ImageArtifactDeleteResult {
+  deletedIds: string[];
+  storageKeys: string[];
+}
+
+export interface ImageArtifactRemoveResult {
+  cleanupFailed: boolean;
+  deletedIds: string[];
+}
+
 export interface FileItem {
   createdAt: Date;
   enabled?: boolean;

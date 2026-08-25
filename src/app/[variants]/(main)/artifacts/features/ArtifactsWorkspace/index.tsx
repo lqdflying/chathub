@@ -204,9 +204,15 @@ const ArtifactsWorkspaceContent = memo<ArtifactsWorkspaceContentProps>(({ reques
       okButtonProps: { danger: true },
       onOk: async () => {
         try {
-          await artifactService.remove(selectedIds);
-          message.success(t('delete.success', { count: selectedIds.length }));
-          const remaining = Math.max(0, total - selectedIds.length);
+          const result = await artifactService.remove(selectedIds);
+          const deletedCount = result.deletedIds.length;
+          if (deletedCount > 0) {
+            message.success(t('delete.success', { count: deletedCount }));
+            if (result.cleanupFailed) {
+              message.warning(t('delete.cleanupFailed'));
+            }
+          }
+          const remaining = Math.max(0, total - deletedCount);
           const lastPage = Math.max(1, Math.ceil(remaining / PAGE_SIZE));
           const nextPage = Math.min(currentPage, lastPage);
           setSelectedIds([]);

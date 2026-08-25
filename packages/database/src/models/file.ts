@@ -1,8 +1,10 @@
 import {
   FileSource,
   FilesTabs,
+  ImageArtifactDeleteResult,
   ImageArtifactListInput,
   ImageArtifactListResult,
+  ImageGenerationAsset,
   QueryFileListParams,
   SortType,
 } from '@lobechat/types';
@@ -36,6 +38,7 @@ import {
   embeddings,
   fileChunks,
   files,
+  generations,
   globalFiles,
   knowledgeBaseFiles,
   knowledgeBases,
@@ -193,10 +196,10 @@ export class FileModel {
     return parseInt(result[0].totalSize!) || 0;
   };
 
-  deleteMany = async (ids: string[], removeGlobalFile: boolean = true) => {
+  deleteMany = async (ids: string[], removeGlobalFile: boolean = true, trx?: Transaction) => {
     if (ids.length === 0) return [];
 
-    return await this.db.transaction(async (trx) => {
+    const run = async (trx: Transaction) => {
       // 1. 先获取文件列表，以便返回删除的文件
       const fileList = await trx.query.files.findMany({
         where: and(inArray(files.id, ids), eq(files.userId, this.userId)),
@@ -246,27 +249,60 @@ export class FileModel {
 
       // 仅返回真正失去最后引用的对象，每个哈希最多一个清理候选项
       return [...unhashedFiles, ...hashesToDelete.map((hash) => cleanupCandidateByHash.get(hash)!)];
-    });
+    };
+
+    return trx ? run(trx) : this.db.transaction(run);
   };
 
-  deleteImageArtifacts = async (ids: string[], removeGlobalFile: boolean = true) => {
-    if (ids.length === 0) return [];
+  deleteImageArtifacts = async (
+    ids: string[],
+    removeGlobalFile: boolean = true,
+  ): Promise<ImageArtifactDeleteResult> => {
+    if (ids.length === 0) return { deletedIds: [], storageKeys: [] };
 
-    const ownedArtifacts = await this.db
-      .select({ id: files.id })
-      .from(files)
-      .where(
-        and(
-          inArray(files.id, ids),
-          eq(files.userId, this.userId),
-          eq(files.source, FileSource.ImageGeneration),
+    return this.db.transaction(async (trx) => {
+      const ownedArtifacts = await trx
+        .select({ id: files.id, url: files.url })
+        .from(files)
+        .where(
+          and(
+            inArray(files.id, ids),
+            eq(files.userId, this.userId),
+            eq(files.source, FileSource.ImageGeneration),
+          ),
+        );
+
+      if (ownedArtifacts.length === 0) return { deletedIds: [], storageKeys: [] };
+
+      const ownedIds = ownedArtifacts.map((file) => file.id);
+      const originalUrls = new Set(ownedArtifacts.map((file) => file.url).filter(Boolean));
+      const generationRows = await trx
+        .select({ asset: generations.asset })
+        .from(generations)
+        .where(and(eq(generations.userId, this.userId), inArray(generations.fileId, ownedIds)));
+
+      const thumbnailCandidates = [
+        ...new Set(
+          generationRows.flatMap((row) => {
+            const thumbnailUrl = (row.asset as ImageGenerationAsset | null)?.thumbnailUrl;
+            if (!thumbnailUrl || originalUrls.has(thumbnailUrl)) return [];
+            if (!this.isStoredObjectKey(thumbnailUrl)) return [];
+            return [thumbnailUrl];
+          }),
         ),
-      );
+      ];
 
-    return this.deleteMany(
-      ownedArtifacts.map((file) => file.id),
-      removeGlobalFile,
-    );
+      const removedFiles = await this.deleteMany(ownedIds, removeGlobalFile, trx);
+      const disposableThumbnails = await this.excludeReferencedStorageKeys(trx, thumbnailCandidates);
+      const storageKeys = [
+        ...new Set([
+          ...removedFiles.flatMap((file) => (file.url ? [file.url] : [])),
+          ...disposableThumbnails,
+        ]),
+      ];
+
+      return { deletedIds: ownedIds, storageKeys };
+    });
   };
 
   clear = async () => {
@@ -535,6 +571,34 @@ export class FileModel {
       .update(files)
       .set({ ...value, updatedAt: new Date() })
       .where(and(eq(files.id, id), eq(files.userId, this.userId)));
+
+  /**
+   * Skip provider CDN URLs (`asset.originalUrl`) and empty values. Stored
+   * generation keys are bare object paths, matching housekeeping cleanup.
+   */
+  private isStoredObjectKey = (value: string) => value.length > 0 && !/^https?:\/\//i.test(value);
+
+  /**
+   * Same protection as `GenerationTopicModel.excludeDurableFiles`: do not
+   * delete a key that is still referenced by a `files` or `global_files` row.
+   */
+  private excludeReferencedStorageKeys = async (trx: Transaction, candidates: string[]) => {
+    if (candidates.length === 0) return [];
+
+    const fileReferences = await trx
+      .select({ url: files.url })
+      .from(files)
+      .where(inArray(files.url, candidates));
+    const globalFileReferences = await trx
+      .select({ url: globalFiles.url })
+      .from(globalFiles)
+      .where(inArray(globalFiles.url, candidates));
+    const protectedUrls = new Set(
+      [...fileReferences, ...globalFileReferences].map(({ url }) => url),
+    );
+
+    return candidates.filter((candidate) => !protectedUrls.has(candidate));
+  };
 
   /**
    * get the corresponding file type prefix according to FilesTabs

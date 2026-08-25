@@ -2,7 +2,7 @@
 import { FileSource } from '@lobechat/types';
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { files, users } from '../../schemas';
+import { files, generationBatches, generationTopics, generations, users } from '../../schemas';
 import { LobeChatDatabase } from '../../type';
 import { FileModel } from '../file';
 import { getTestDB } from './_util';
@@ -59,6 +59,43 @@ beforeEach(async () => {
   ]);
 });
 
+const insertWorkspaceGeneration = async ({
+  fileId,
+  generationId,
+  thumbnailUrl,
+  url,
+}: {
+  fileId: string;
+  generationId: string;
+  thumbnailUrl?: string;
+  url?: string;
+}) => {
+  await serverDB.insert(generationTopics).values({
+    id: `topic-${generationId}`,
+    userId,
+  });
+  await serverDB.insert(generationBatches).values({
+    generationTopicId: `topic-${generationId}`,
+    id: `batch-${generationId}`,
+    model: 'model',
+    prompt: 'prompt',
+    provider: 'provider',
+    userId,
+  });
+  await serverDB.insert(generations).values({
+    asset: {
+      originalUrl: 'https://provider.example/original.png',
+      thumbnailUrl,
+      type: 'image',
+      url,
+    },
+    fileId,
+    generationBatchId: `batch-${generationId}`,
+    id: generationId,
+    userId,
+  });
+};
+
 describe('FileModel.deleteImageArtifacts', () => {
   it('deletes only the current user image-generation files', async () => {
     const removed = await fileModel.deleteImageArtifacts([
@@ -67,7 +104,10 @@ describe('FileModel.deleteImageArtifacts', () => {
       'other-user-artifact',
     ]);
 
-    expect(removed.map(({ id }) => id)).toEqual(['artifact-old']);
+    expect(removed).toEqual({
+      deletedIds: ['artifact-old'],
+      storageKeys: ['generations/images/sunrise.png'],
+    });
 
     const remaining = await serverDB.select({ id: files.id }).from(files);
     expect(remaining.map(({ id }) => id).sort()).toEqual([
@@ -78,11 +118,78 @@ describe('FileModel.deleteImageArtifacts', () => {
   });
 
   it('returns an empty list when ids are empty or not artifacts', async () => {
-    await expect(fileModel.deleteImageArtifacts([])).resolves.toEqual([]);
-    await expect(fileModel.deleteImageArtifacts(['uploaded-image'])).resolves.toEqual([]);
+    await expect(fileModel.deleteImageArtifacts([])).resolves.toEqual({
+      deletedIds: [],
+      storageKeys: [],
+    });
+    await expect(fileModel.deleteImageArtifacts(['uploaded-image'])).resolves.toEqual({
+      deletedIds: [],
+      storageKeys: [],
+    });
 
     const remaining = await fileModel.queryImageArtifacts();
     expect(remaining.total).toBe(2);
+  });
+
+  it('returns distinct original and thumbnail keys for a workspace generation', async () => {
+    await insertWorkspaceGeneration({
+      fileId: 'artifact-old',
+      generationId: 'gen-distinct-thumb',
+      thumbnailUrl: 'generations/thumbnails/sunrise.webp',
+      url: 'generations/images/sunrise.png',
+    });
+
+    const removed = await fileModel.deleteImageArtifacts(['artifact-old']);
+
+    expect(removed.deletedIds).toEqual(['artifact-old']);
+    expect(removed.storageKeys.sort()).toEqual([
+      'generations/images/sunrise.png',
+      'generations/thumbnails/sunrise.webp',
+    ]);
+    await expect(
+      serverDB.select({ id: generations.id }).from(generations),
+    ).resolves.toEqual([]);
+  });
+
+  it('deletes a same-key original/thumbnail once and skips provider originalUrl', async () => {
+    await insertWorkspaceGeneration({
+      fileId: 'artifact-old',
+      generationId: 'gen-same-thumb',
+      thumbnailUrl: 'generations/images/sunrise.png',
+      url: 'generations/images/sunrise.png',
+    });
+
+    const removed = await fileModel.deleteImageArtifacts(['artifact-old']);
+
+    expect(removed).toEqual({
+      deletedIds: ['artifact-old'],
+      storageKeys: ['generations/images/sunrise.png'],
+    });
+  });
+
+  it('does not delete a thumbnail still used as another file url', async () => {
+    await serverDB.insert(files).values({
+      fileType: 'image/webp',
+      id: 'shared-thumb-file',
+      name: 'Shared.webp',
+      size: 10,
+      source: FileSource.ImageGeneration,
+      url: 'generations/thumbnails/shared.webp',
+      userId: otherUserId,
+    });
+    await insertWorkspaceGeneration({
+      fileId: 'artifact-old',
+      generationId: 'gen-shared-thumb',
+      thumbnailUrl: 'generations/thumbnails/shared.webp',
+      url: 'generations/images/sunrise.png',
+    });
+
+    const removed = await fileModel.deleteImageArtifacts(['artifact-old']);
+
+    expect(removed.storageKeys.sort()).toEqual(['generations/images/sunrise.png']);
+    const remainingIds = (await serverDB.select({ id: files.id }).from(files)).map(({ id }) => id);
+    expect(remainingIds).toContain('shared-thumb-file');
+    expect(remainingIds).not.toContain('artifact-old');
   });
 });
 
