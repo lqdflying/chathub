@@ -90,6 +90,29 @@ describe('conversationGenerationRouter.reportCompactionDebug', () => {
     expect(record.timestamp).not.toBe('PRIVATE_MESSAGE_TEXT');
   });
 
+  it('fingerprints a valid-looking unknown provider slug from the client report', async () => {
+    vi.stubEnv('CHATHUB_COMPACTION_DEBUG', '1');
+
+    await caller().reportCompactionDebug({
+      events: [
+        {
+          event: 'planner_settled',
+          fields: {
+            provider: 'private-customer-acme',
+            trigger: 'token_threshold',
+          },
+        },
+      ],
+    });
+
+    const serialized = consoleLogSpy.mock.calls[0][1] as string;
+    const record = JSON.parse(serialized);
+    expect(serialized).not.toContain('private-customer-acme');
+    expect(record.provider).toMatchObject({ type: 'string' });
+    expect(record.trigger).toBe('token_threshold');
+    expect(record.side).toBe('client');
+  });
+
   it('keeps the real planner_settled shape readable', async () => {
     vi.stubEnv('CHATHUB_COMPACTION_DEBUG', '1');
 

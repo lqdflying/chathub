@@ -1,3 +1,4 @@
+import { ModelProvider } from 'model-bank';
 import { z } from 'zod';
 
 import { parseCompactionDebugLevel } from './bootstrap';
@@ -19,14 +20,17 @@ import { fingerprintString, sanitizeSafeRecord } from './toolsDebug';
  *
  * Sanitization is identical to chathub-tools-debug for shared keys: summary
  * text and message content are never emitted, identifiers are sha256-16
- * fingerprints, and only counts, ratios, built-in model-bank IDs, and
- * validated compaction enums stay readable. Custom or unlisted model IDs are
- * fingerprinted. Compaction-only labels (`path`, `trigger`) are NOT added to
- * the global safe-label list; they are overlaid after `sanitizeSafeRecord`
- * from event-specific Zod enums. Client-reported fields are re-parsed and
- * re-sanitized server-side because they arrive from an untrusted origin.
- * Canonical `debugLevel`, `schemaVersion`, `side`, and `timestamp` are always
- * written by the emitter and cannot be overridden by caller fields.
+ * fingerprints, and only counts, ratios, built-in model-bank IDs, trusted
+ * `ModelProvider` ids, and validated compaction enums stay readable. Custom
+ * or unlisted model IDs and unknown provider slugs are fingerprinted.
+ * Compaction-only labels (`path`, `trigger`) are NOT added to the global
+ * safe-label list; they are overlaid after `sanitizeSafeRecord` from
+ * event-specific Zod enums. `provider` is also overlaid from the built-in
+ * provider allowlist rather than the global readable-label regex. Client
+ * fields are re-parsed and re-sanitized server-side because they arrive from
+ * an untrusted origin. Canonical `debugLevel`, `schemaVersion`, `side`, and
+ * `timestamp` are always written by the emitter and cannot be overridden by
+ * caller fields.
  */
 
 const COMPACTION_DEBUG_MAX_RECORD_BYTES = 16 * 1024;
@@ -48,6 +52,8 @@ const COMPACTION_DEBUG_RESERVED_KEYS = new Set([
 ]);
 
 const COMPACTION_DEBUG_ENUM_KEYS = ['outcome', 'path', 'reason', 'status', 'trigger'] as const;
+
+const TRUSTED_COMPACTION_PROVIDERS = new Set<string>(Object.values(ModelProvider));
 
 export const COMPACTION_DEBUG_CLIENT_EVENTS = ['planner_settled', 'watcher_armed'] as const;
 
@@ -256,6 +262,18 @@ const splitCompactionEnumFields = (fields: Record<string, unknown>) => {
   return { enums, rest };
 };
 
+const sanitizeCompactionProviderField = (provider: unknown): Record<string, unknown> => {
+  if (typeof provider !== 'string' || provider.length === 0) return {};
+  if (TRUSTED_COMPACTION_PROVIDERS.has(provider)) return { provider };
+  return {
+    provider: {
+      hash: fingerprintString(provider),
+      length: provider.length,
+      type: 'string',
+    },
+  };
+};
+
 export const logCompactionDebugSafe = (
   event: CompactionDebugEvent,
   fields: Record<string, unknown> = {},
@@ -270,9 +288,11 @@ export const logCompactionDebugSafe = (
     const { enums, rest } = splitCompactionEnumFields(
       omitVerboseOnlyFields(parseCompactionDebugFields(event, fields), debugLevel),
     );
+    const { provider, ...restWithoutProvider } = rest;
     record = {
-      ...(sanitizeSafeRecord(rest) as Record<string, unknown>),
+      ...(sanitizeSafeRecord(restWithoutProvider) as Record<string, unknown>),
       ...enums,
+      ...sanitizeCompactionProviderField(provider),
       debugLevel,
       schemaVersion: 1,
       side,

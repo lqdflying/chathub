@@ -133,6 +133,25 @@ describe('CHATHUB_COMPACTION_DEBUG emitter', () => {
       expect(consoleLogSpy.mock.calls[0][1]).not.toContain('sess-private-conversation');
     });
 
+    it('fingerprints unknown provider slugs while keeping trusted ModelProvider ids readable', () => {
+      logCompactionDebugSafe('planner_settled', {
+        provider: 'private-customer-acme',
+        trigger: 'token_threshold',
+      });
+
+      const serialized = consoleLogSpy.mock.calls[0][1] as string;
+      const record = JSON.parse(serialized);
+      expect(record.provider).toMatchObject({ type: 'string' });
+      expect(serialized).not.toContain('private-customer-acme');
+
+      consoleLogSpy.mockClear();
+      logCompactionDebugSafe('planner_settled', {
+        provider: 'openai',
+        trigger: 'token_threshold',
+      });
+      expect(JSON.parse(consoleLogSpy.mock.calls[0][1] as string).provider).toBe('openai');
+    });
+
     it('fingerprints arbitrary custom model identifiers in safe compaction logs', () => {
       logCompactionDebugSafe('planner_settled', {
         model: 'customer-acme-private-deployment',
