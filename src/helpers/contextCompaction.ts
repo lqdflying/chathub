@@ -283,4 +283,3 @@ export const createCompactionFingerprint = ({
         `${id}:${role}:${updatedAt ? new Date(updatedAt).toISOString() : ''}:${content.length}`,
     ),
   ].join('|');
-
