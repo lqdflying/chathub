@@ -1,4 +1,5 @@
 import debug from 'debug';
+import { LOBE_DEFAULT_MODEL_LIST } from 'model-bank';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, randomUUID } from 'node:crypto';
 
@@ -18,7 +19,7 @@ const PRIVATE_IDENTIFIER_KEY_PATTERN =
   /^(?:id|(?:user|account|session|connection|request|client|tenant|topic)[_-]?id)$/i;
 const SAFE_SECRET_METADATA_KEY_PATTERN = /(?:configured|count|hash|length|present|state)$/i;
 const SAFE_LABEL_KEY_PATTERN =
-  /^(?:appVersion|architecture|authType|bodyKind|cacheStatus|classifiedAs|code|contentEncoding|debugLevel|deferReason|deploymentMode|endpoint|errorClass|errorCode|errorKind|errorType|failurePhase|firstCharacterClass|gatewayServer|htmlMarker|kind|lastCharacterClass|mediaType|method|model|nodeVersion|operation|outcome|phase|platform|procedure|provider|reason|resultKind|rpcEndpoint|runtime|runtimeType|server|serverName|serverVersion|side|status|timestamp|toolName|transport|trpcCode|type|via)$/;
+  /^(?:appVersion|architecture|authType|bodyKind|cacheStatus|classifiedAs|code|contentEncoding|debugLevel|deferReason|deploymentMode|endpoint|errorClass|errorCode|errorKind|errorType|failurePhase|firstCharacterClass|gatewayServer|htmlMarker|kind|lastCharacterClass|mediaType|method|nodeVersion|operation|outcome|phase|platform|procedure|provider|reason|resultKind|rpcEndpoint|runtime|runtimeType|server|serverName|serverVersion|side|status|timestamp|toolName|transport|trpcCode|type|via)$/;
 const SAFE_IDENTIFIER_KEY_PATTERN =
   /(?:batchId|continuationId|diagnosticId|spanId|Fingerprint|Hash|keyHashes)$/;
 const SAFE_ERROR_CODE_KEY_PATTERN = /^(?:code|errorCode|trpcCode)$/;
@@ -209,6 +210,13 @@ export const isToolsDebugEnabled = (
   return !!(structuredEnabled || legacyEnabled);
 };
 
+let trustedBuiltInModelIds: Set<string> | undefined;
+
+const isTrustedBuiltInModelId = (modelId: string) => {
+  trustedBuiltInModelIds ??= new Set(LOBE_DEFAULT_MODEL_LIST.map((item) => item.id));
+  return trustedBuiltInModelIds.has(modelId);
+};
+
 const sanitizeDebugLabel = (value: string): string | { hash: string; length: number } => {
   const normalized = replaceControlCharacters(value).trim().slice(0, 160);
   if (!normalized || CREDENTIAL_SHAPED_VALUE_PATTERN.test(normalized)) {
@@ -374,6 +382,11 @@ export const sanitizeSafeRecord = (value: unknown, key = '', depth = 0): unknown
   if (typeof value === 'string') {
     if (SAFE_ERROR_CODE_KEY_PATTERN.test(key) && !SAFE_ERROR_CODE_VALUE_PATTERN.test(value)) {
       return fingerprintDebugString(value);
+    }
+    if (key === 'model') {
+      return isTrustedBuiltInModelId(value)
+        ? sanitizeDebugLabel(value)
+        : fingerprintDebugString(value);
     }
     if (SAFE_LABEL_KEY_PATTERN.test(key) || SAFE_IDENTIFIER_KEY_PATTERN.test(key)) {
       return sanitizeDebugLabel(value);

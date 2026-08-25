@@ -115,7 +115,7 @@ describe('CHATHUB_GENERATION_DEBUG emitter', () => {
       expect(record.timestamp).toEqual(expect.any(String));
     });
 
-    it('keeps model and provider readable while still fingerprinting session ids', () => {
+    it('keeps built-in model ids readable while fingerprinting custom model ids', () => {
       logGenerationDebugSafe('execute_started', {
         kind: 'memory_compaction',
         model: 'gpt-5-mini',
@@ -128,6 +128,20 @@ describe('CHATHUB_GENERATION_DEBUG emitter', () => {
       expect(record.provider).toBe('openai');
       expect(record.sessionId).toMatchObject({ type: 'identifier' });
       expect(consoleLogSpy.mock.calls[0][1]).not.toContain('sess-private-conversation');
+    });
+
+    it('fingerprints arbitrary custom model identifiers in safe generation logs', () => {
+      logGenerationDebugSafe('execute_started', {
+        kind: 'memory_compaction',
+        model: 'customer-acme-private-deployment',
+        provider: 'openai',
+      });
+
+      const serialized = consoleLogSpy.mock.calls[0][1] as string;
+      const record = JSON.parse(serialized);
+      expect(record.provider).toBe('openai');
+      expect(record.model).toMatchObject({ type: 'string' });
+      expect(serialized).not.toContain('customer-acme-private-deployment');
     });
 
     it('keeps safe label and identifier fields, and fingerprints free-form strings', () => {

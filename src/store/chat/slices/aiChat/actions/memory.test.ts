@@ -148,18 +148,14 @@ describe('chat memory actions', () => {
       status: 'compacted',
     });
     expect(chatService.fetchPresetTaskResult).toHaveBeenCalledTimes(1);
-    expect(chatService.fetchPresetTaskResult).toHaveBeenCalledWith(
-      expect.objectContaining({
-        params: expect.objectContaining({
-          max_tokens: 400,
-          model: 'summary-model',
-          provider: 'summary-provider',
-        }),
-      }),
-    );
     expect(vi.mocked(chatService.fetchPresetTaskResult).mock.calls[0][0].params).not.toHaveProperty(
       'reasoning_effort',
     );
+    expect(vi.mocked(chatService.fetchPresetTaskResult).mock.calls[0][0].params).toMatchObject({
+      max_tokens: 2448,
+      model: 'summary-model',
+      provider: 'summary-provider',
+    });
     expect(topicService.updateTopic).toHaveBeenCalledTimes(1);
     expect(topicService.updateTopic).toHaveBeenCalledWith(
       TOPIC_ID,

@@ -1342,14 +1342,11 @@ const runSimpleCompletion = async (
     userId: operation.userId,
   });
   const runtime = initModelRuntimeWithUserPayload(operation.config.provider, runtimePayload);
-  const requestedMaxTokens =
-    typeof payload.max_tokens === 'number'
-      ? payload.max_tokens
-      : CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS;
   const sampling = buildSimpleCompletionSampling({
     model: operation.config.model,
     provider: operation.config.provider,
-    summaryMaxTokens: requestedMaxTokens,
+    summaryMaxTokens:
+      typeof payload.max_tokens === 'number' ? payload.max_tokens : undefined,
   });
   const chatPayload = {
     ...payload,

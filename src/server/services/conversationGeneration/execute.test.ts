@@ -50,6 +50,7 @@ const messageMocks = vi.hoisted(() => ({
   findToolMessageByCall: vi.fn(),
   update: vi.fn(),
   updateMetadata: vi.fn(),
+  updateTranslate: vi.fn(),
 }));
 
 const agentMocks = vi.hoisted(() => ({
@@ -137,6 +138,7 @@ vi.mock('@/database/models/message', () => ({
     findToolMessageByCall = messageMocks.findToolMessageByCall;
     update = messageMocks.update;
     updateMetadata = messageMocks.updateMetadata;
+    updateTranslate = messageMocks.updateTranslate;
   },
 }));
 vi.mock('@/database/models/thread', () => ({
@@ -2241,6 +2243,59 @@ describe('executeConversationGeneration memory compaction', () => {
         provider: 'openai',
         reasoningChars: 15,
       }),
+    );
+  });
+});
+
+describe('executeConversationGeneration translation', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    modelMocks.insertEvent.mockResolvedValue({ id: 1 });
+    modelMocks.isSupersededByLaneGeneration.mockResolvedValue(false);
+    modelMocks.touchHeartbeat.mockResolvedValue({ status: 'processing' });
+    modelMocks.finalizeActive.mockImplementation(async (id, status) => ({
+      id,
+      revision: 5,
+      status,
+    }));
+    runtimeMocks.chat.mockResolvedValue(new Response());
+  });
+
+  it('does not cap durable translations at the compaction summary budget', async () => {
+    const translated = 'translated-output '.repeat(40);
+    const row = {
+      attempt: 0,
+      config: {
+        model: 'customer-translator',
+        provider: 'ollama',
+        translation: { from: 'en', messageId: 'msg-1', to: 'zh-CN' },
+      },
+      id: 'cgo_translation_uncapped',
+      kind: 'translation',
+      lane: 'lane-1',
+      laneGeneration: 1,
+      revision: 0,
+      status: 'pending',
+      userId: 'user-1',
+    };
+    messageMocks.findById.mockResolvedValue({ content: 'source text', id: 'msg-1' });
+    messageMocks.updateTranslate.mockResolvedValue(undefined);
+    vi.mocked(consumeProtocolResponse).mockResolvedValue({ content: translated });
+
+    await runOperation(row);
+
+    expect(runtimeMocks.chat).toHaveBeenCalledTimes(1);
+    expect(runtimeMocks.chat.mock.calls[0][0]).not.toHaveProperty('max_tokens');
+    expect(messageMocks.updateTranslate).toHaveBeenCalledWith('msg-1', {
+      content: translated.trim(),
+      from: 'en',
+      to: 'zh-CN',
+    });
+    expect(modelMocks.finalizeActive).toHaveBeenCalledWith(
+      row.id,
+      'succeeded',
+      undefined,
+      expect.objectContaining({ attempt: 1, laneGeneration: 1 }),
     );
   });
 });

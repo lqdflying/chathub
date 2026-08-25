@@ -373,6 +373,22 @@ describe('LobeOpenAI', () => {
       expect(createCall).not.toHaveProperty('provider');
     });
 
+    it('maps Chat Completions max_tokens to Responses max_output_tokens for gpt-5.5', async () => {
+      await instance.chat({
+        max_tokens: 2448,
+        messages: [{ content: 'Hello', role: 'user' as const }],
+        model: 'gpt-5.5',
+        reasoning_effort: 'high',
+      });
+
+      expect(instance['client'].responses.create).toHaveBeenCalled();
+      const createCall = (instance['client'].responses.create as Mock).mock.calls[0][0];
+      expect(createCall.max_output_tokens).toBe(2448);
+      expect(createCall.reasoning).toEqual(expect.objectContaining({ effort: 'high' }));
+      expect(createCall).not.toHaveProperty('max_tokens');
+      expect(createCall).not.toHaveProperty('reasoning_effort');
+    });
+
     it('should use responses API when enabledSearch is true', async () => {
       const payload = {
         enabledSearch: true,

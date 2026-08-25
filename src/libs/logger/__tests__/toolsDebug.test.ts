@@ -238,7 +238,7 @@ describe('structured tools debug logging', () => {
     expect(JSON.parse(json).userId).toMatchObject({ type: 'identifier' });
   });
 
-  it('keeps model and provider readable while still fingerprinting session ids', () => {
+  it('keeps built-in model ids readable while fingerprinting custom model ids', () => {
     process.env.CHATHUB_TOOLS_DEBUG = '1';
 
     logToolsDebugSafe('call_tool_complete', {
@@ -255,6 +255,21 @@ describe('structured tools debug logging', () => {
     });
     expect(JSON.parse(json).sessionId).toMatchObject({ type: 'identifier' });
     expect(json).not.toContain('sess-private-conversation');
+  });
+
+  it('fingerprints arbitrary custom model identifiers in safe tools logs', () => {
+    process.env.CHATHUB_TOOLS_DEBUG = '1';
+
+    logToolsDebugSafe('call_tool_complete', {
+      durationMs: 4,
+      model: 'customer-acme-private-deployment',
+      provider: 'openai',
+    });
+
+    const json = consoleLogSpy.mock.calls[0][1] as string;
+    expect(JSON.parse(json).provider).toBe('openai');
+    expect(JSON.parse(json).model).toMatchObject({ type: 'string' });
+    expect(json).not.toContain('customer-acme-private-deployment');
   });
 
   it('fingerprints values deterministically while excluding secret-keyed values', () => {

@@ -1,6 +1,7 @@
 import type { UIChatMessage } from '@lobechat/types';
 import { describe, expect, it } from 'vitest';
 
+import { buildDeepSeekPayload } from '../../packages/model-runtime/src/providers/deepseek';
 import {
   CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS,
   CONTEXT_COMPACTION_REASONING_HEADROOM_TOKENS,
@@ -106,13 +107,49 @@ describe('buildSimpleCompletionSampling', () => {
   const summaryCap = CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS;
   const reasoningBudget = summaryCap + CONTEXT_COMPACTION_REASONING_HEADROOM_TOKENS;
 
-  it('keeps the 400-token summary cap for non-reasoning models', () => {
+  it('omits max_tokens unless the caller opts into a summary cap', () => {
     expect(
       buildSimpleCompletionSampling({
-        model: 'summary-model',
-        provider: 'summary-provider',
+        model: 'gpt-4o',
+        provider: 'openai',
+      }),
+    ).toEqual({});
+    expect(
+      buildSimpleCompletionSampling({
+        model: 'gpt-5-mini',
+        provider: 'openai',
+      }),
+    ).toEqual({ reasoning_effort: 'minimal' });
+  });
+
+  it('keeps the 400-token summary cap for listed non-reasoning models', () => {
+    expect(
+      buildSimpleCompletionSampling({
+        model: 'gpt-4o',
+        provider: 'openai',
+        summaryMaxTokens: summaryCap,
       }),
     ).toEqual({ max_tokens: summaryCap });
+  });
+
+  it('gives unlisted models conservative reasoning headroom without inventing thinking fields', () => {
+    expect(
+      buildSimpleCompletionSampling({
+        model: 'deepseek-r1:70b',
+        provider: 'ollama',
+        summaryMaxTokens: summaryCap,
+      }),
+    ).toEqual({ max_tokens: reasoningBudget });
+  });
+
+  it('does not inherit a foreign provider card for the same model id', () => {
+    expect(
+      buildSimpleCompletionSampling({
+        model: 'deepseek-v4-pro',
+        provider: 'ollama',
+        summaryMaxTokens: summaryCap,
+      }),
+    ).toEqual({ max_tokens: reasoningBudget });
   });
 
   it('sends minimal GPT-5 effort and extra output budget for gpt-5-mini', () => {
@@ -120,6 +157,7 @@ describe('buildSimpleCompletionSampling', () => {
       buildSimpleCompletionSampling({
         model: 'gpt-5-mini',
         provider: 'openai',
+        summaryMaxTokens: summaryCap,
       }),
     ).toEqual({
       max_tokens: reasoningBudget,
@@ -132,6 +170,7 @@ describe('buildSimpleCompletionSampling', () => {
       buildSimpleCompletionSampling({
         model: 'gpt-5.5',
         provider: 'openai',
+        summaryMaxTokens: summaryCap,
       }),
     ).toEqual({
       max_tokens: reasoningBudget,
@@ -144,10 +183,38 @@ describe('buildSimpleCompletionSampling', () => {
       buildSimpleCompletionSampling({
         model: 'claude-sonnet-4-6',
         provider: 'anthropic',
+        summaryMaxTokens: summaryCap,
       }),
     ).toEqual({
       max_tokens: reasoningBudget,
       thinking: { budget_tokens: 0, type: 'disabled' },
     });
   });
+
+  it.each(['deepseek-v4-pro', 'deepseek-v4-flash'] as const)(
+    'disables default-on DeepSeek thinking for %s',
+    (model) => {
+      const sampling = buildSimpleCompletionSampling({
+        model,
+        provider: 'deepseek',
+        summaryMaxTokens: summaryCap,
+      });
+
+      expect(sampling).toEqual({
+        max_tokens: reasoningBudget,
+        thinking: { budget_tokens: 0, type: 'disabled' },
+      });
+
+      const upstream = buildDeepSeekPayload({
+        max_tokens: sampling.max_tokens,
+        messages: [{ content: 'Hello', role: 'user' }],
+        model,
+        thinking: sampling.thinking,
+      } as any);
+
+      expect(upstream.max_tokens).toBe(reasoningBudget);
+      expect(upstream.thinking).toEqual({ type: 'disabled' });
+      expect(upstream).not.toHaveProperty('reasoning_effort');
+    },
+  );
 });

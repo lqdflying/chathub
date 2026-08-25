@@ -74,6 +74,18 @@ describe('buildDeepSeekPayload', () => {
     expect(payload.tools).toEqual(tools);
   });
 
+  it('maps simple-completion thinking-off to type disabled without reasoning_effort', () => {
+    const payload = buildDeepSeekPayload({
+      ...basePayload,
+      max_tokens: 2448,
+      thinking: { budget_tokens: 0, type: 'disabled' },
+    });
+
+    expect(payload.max_tokens).toBe(2448);
+    expect(payload.thinking).toEqual({ type: 'disabled' });
+    expect(payload).not.toHaveProperty('reasoning_effort');
+  });
+
   it('should preserve the sanitized cached prefix when tool results extend a turn', () => {
     const baseMessages = [
       { content: 'Cached question', role: 'user' },

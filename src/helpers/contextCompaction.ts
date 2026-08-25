@@ -14,17 +14,20 @@ export const CONTEXT_COMPACTION_REASONING_HEADROOM_TOKENS = 2048;
 export const CONTEXT_COMPACTION_MAX_BATCH_MESSAGES = 40;
 
 export interface SimpleCompletionSampling {
-  max_tokens: number;
+  max_tokens?: number;
   reasoning_effort?: GPT5ReasoningEffort;
   thinking?: { budget_tokens: number; type: 'disabled' };
 }
 
+/**
+ * Only the exact provider+id card. A matching id on another provider is not
+ * used — custom gateways must not inherit DeepSeek/OpenAI thinking fields.
+ */
 const findSimpleCompletionModelCard = (model: string, provider?: string) => {
   if (provider) {
-    const exact = LOBE_DEFAULT_MODEL_LIST.find(
+    return LOBE_DEFAULT_MODEL_LIST.find(
       (item) => item.id === model && item.providerId === provider,
     );
-    if (exact) return exact;
   }
 
   return LOBE_DEFAULT_MODEL_LIST.find((item) => item.id === model);
@@ -33,15 +36,37 @@ const findSimpleCompletionModelCard = (model: string, provider?: string) => {
 const isGpt5ReasoningModelId = (model: string) =>
   model.startsWith('gpt-5') && !model.includes('chat');
 
+const usesDocumentedThinkingTypeOff = ({
+  cardUsesThinkingType,
+  provider,
+}: {
+  cardUsesThinkingType: boolean;
+  provider?: string;
+}) => {
+  if (provider === ModelProvider.Anthropic || provider === ModelProvider.AnthropicCompatible) {
+    return true;
+  }
+
+  // Only listed cards: unknown DeepSeek/Moonshot/Zhipu IDs must not invent `thinking`.
+  return (
+    cardUsesThinkingType &&
+    (provider === ModelProvider.DeepSeek ||
+      provider === ModelProvider.Moonshot ||
+      provider === ModelProvider.Zhipu)
+  );
+};
+
 /**
  * Sampling for title / translation / history-summary completions.
- * The prompt still asks for a ~400-token summary; the API budget must also
- * cover thinking tokens that share `max_tokens` on reasoning models.
+ * Pass `summaryMaxTokens` only when the caller wants an output cap
+ * (compaction). Translation must omit it so long messages are not truncated.
+ * The prompt may still ask for a ~400-token summary; the API budget must also
+ * cover thinking tokens that share the completion cap on reasoning models.
  */
 export const buildSimpleCompletionSampling = ({
   model,
   provider,
-  summaryMaxTokens = CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS,
+  summaryMaxTokens,
 }: {
   model: string;
   provider?: string;
@@ -49,29 +74,33 @@ export const buildSimpleCompletionSampling = ({
 }): SimpleCompletionSampling => {
   const card = findSimpleCompletionModelCard(model, provider);
   const extendParams = card?.settings?.extendParams ?? [];
-  const isAnthropic =
-    provider === ModelProvider.Anthropic || provider === ModelProvider.AnthropicCompatible;
+  const cardUsesThinkingType =
+    Boolean(card?.abilities?.reasoning) ||
+    extendParams.includes('thinking') ||
+    extendParams.includes('enableReasoning');
   const sendGpt5Effort =
     extendParams.includes('gpt5ReasoningEffort') || (!card && isGpt5ReasoningModelId(model));
+  const sendThinkingDisabled = usesDocumentedThinkingTypeOff({ cardUsesThinkingType, provider });
   const needsReasoningBudget =
-    Boolean(card?.abilities?.reasoning) ||
+    cardUsesThinkingType ||
     sendGpt5Effort ||
-    isAnthropic ||
-    extendParams.includes('thinking') ||
-    extendParams.includes('enableReasoning') ||
-    extendParams.includes('reasoningEffort');
+    sendThinkingDisabled ||
+    extendParams.includes('reasoningEffort') ||
+    !card;
 
-  const sampling: SimpleCompletionSampling = {
-    max_tokens: needsReasoningBudget
+  const sampling: SimpleCompletionSampling = {};
+
+  if (typeof summaryMaxTokens === 'number') {
+    sampling.max_tokens = needsReasoningBudget
       ? summaryMaxTokens + CONTEXT_COMPACTION_REASONING_HEADROOM_TOKENS
-      : summaryMaxTokens,
-  };
+      : summaryMaxTokens;
+  }
 
   if (sendGpt5Effort) {
     sampling.reasoning_effort = resolveGPT5ReasoningEffort(model, 'minimal').effort;
   }
 
-  if (isAnthropic) {
+  if (sendThinkingDisabled) {
     sampling.thinking = { budget_tokens: 0, type: 'disabled' };
   }
 
@@ -254,3 +283,4 @@ export const createCompactionFingerprint = ({
         `${id}:${role}:${updatedAt ? new Date(updatedAt).toISOString() : ''}:${content.length}`,
     ),
   ].join('|');
+

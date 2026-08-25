@@ -387,12 +387,21 @@ IDs, prior summary/cursor, fingerprint, watermarks, and expected conversation
 version. The worker batches that exact prefix and atomically verifies/persists
 the summary, cursor, archives, and bounded debug log. An edit, delete, clear, or
 other invalidation makes the operation `interrupted` instead of committing a
-stale summary. `runSimpleCompletion` (title, translation, compaction) keeps the
-prompt/summary cap at 400 tokens but, for thinking models, raises the API
-`max_tokens` by 2048 and sends documented thinking-off / lowest-effort fields
-(OpenAI GPT-5 `reasoning_effort` via `resolveGPT5ReasoningEffort(model,
-'minimal')`; Anthropic `thinking: { type: 'disabled' }`). Visible text only is
-stored; reasoning SSE is dropped. An empty compaction summary throws
+stale summary. Compaction (`memory_compaction` and the client pre-send
+summarizer) keeps the prompt/summary cap at 400 tokens but, for thinking
+models, raises the API `max_tokens` by 2048 and sends documented thinking-off /
+lowest-effort fields. Title, language-detect, and translation share
+`runSimpleCompletion` sampling (thinking-off / GPT-5 effort) but **do not**
+inherit that 400-token output cap — `chainTranslate` has no `max_tokens`.
+Native OpenAI Responses (for example `gpt-5.5`) maps the generic budget to
+`max_output_tokens`. Thinking-off is sent only where the vendor documents it
+(Anthropic `thinking: { type: 'disabled' }`; DeepSeek V4
+`thinking: { type: 'disabled' }`; Moonshot/Zhipu thinking-type APIs). Unlisted
+custom History Compress models get the extra budget without inheriting a
+foreign card's thinking fields. GPT-5 uses `resolveGPT5ReasoningEffort(model,
+'minimal')` (`gpt-5-mini` → `minimal`; `gpt-5.5` / `gpt-5.6-sol` stay at the
+quality floor `high`). Visible text only is stored; reasoning SSE is dropped.
+An empty compaction summary throws
 `EmptyCompactionSummaryError` and finalizes `failed` once — it does **not**
 enter Graphile's 8-attempt loop. `TitleTranscriptEmptyError` still uses the
 delayed title retry, because that is a transcript-binding race.
@@ -721,8 +730,12 @@ then yields empty text. A generic `Error` used to re-enter Graphile's 8-attempt
 loop with the identical payload.
 
 Fix: `buildSimpleCompletionSampling` (`src/helpers/contextCompaction.ts`)
-raises the API budget for reasoning cards and sends documented thinking-off /
-lowest-effort fields. Empty visible text throws `EmptyCompactionSummaryError`,
+raises the API budget for listed reasoning cards and unknown/custom model IDs,
+and sends documented thinking-off / lowest-effort fields only for known
+providers (Anthropic, DeepSeek V4, Moonshot/Zhipu thinking-type APIs; GPT-5
+effort). Compaction passes an explicit 400-token summary cap; translation and
+title omit `max_tokens`. Native OpenAI Responses remaps that budget to
+`max_output_tokens`. Empty visible text throws `EmptyCompactionSummaryError`,
 which `executeConversationGeneration` finalizes as `failed` (or `interrupted`
 if the lane was already superseded) without `markForRetry`. Do not copy
 reasoning into `historySummary`.
