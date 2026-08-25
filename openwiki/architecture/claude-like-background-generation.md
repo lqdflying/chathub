@@ -23,6 +23,12 @@ Claude.ai’s useful behavior is not “the UI stays open.” It is:
    finish.
 4. Coming back shows progress or a finished reply — not an empty bubble.
 
+The visual map of this fork, the two producers, and the Leave / Stop / close-tab fences:
+
+![ChatHub Claude-like background generation](claude-like-background-generation.png)
+
+Editable source: [`claude-like-background-generation.excalidraw`](claude-like-background-generation.excalidraw).
+
 ChatHub splits that into **two producers**, because some installed tools cannot
 run inside Graphile Worker:
 
