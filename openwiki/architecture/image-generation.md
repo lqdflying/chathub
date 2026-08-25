@@ -40,9 +40,17 @@ images keep their real shape. `file.removeImageArtifacts` /
 `FileModel.deleteImageArtifacts` delete only current-user `image_generation`
 rows. Before the file-row cascade removes matching `generations` records
 (`fileId` `ON DELETE CASCADE`), the transaction collects distinct
-`asset.thumbnailUrl` object keys that are not the durable `files.url` and are
-not an external `asset.originalUrl`. After `deleteMany`, leftover thumbnail
-keys are filtered with the same `files` / `global_files` protection used by
+`asset.thumbnailUrl` object keys. Legacy rows may store a full storage URL
+instead of a bare key
+([lobe-chat#8994](https://github.com/lobehub/lobe-chat/issues/8994)); those
+values are canonicalized to the object key before cleanup, using the same
+trailing-path prefixes as `findUrlCandidatesByKey` (`generations/`, `files/`,
+`covers/`). Scheme alone is not used to drop a thumbnail, so a historical
+`https://…/generations/thumbnails/…` URL is cleaned with the original.
+`asset.originalUrl` is a separate provider CDN field and is never collected.
+After `deleteMany`, leftover thumbnail keys are compared canonically against
+remaining `files.url` / `global_files.url` values (bare key or full URL) with
+the same durable-object protection idea as
 `GenerationTopicModel.excludeDurableFiles`. Object-storage deletion is
 best-effort after the database commit, matching Image history housekeeping and
 generation-batch thumbnail cleanup: a storage error is logged, the mutation

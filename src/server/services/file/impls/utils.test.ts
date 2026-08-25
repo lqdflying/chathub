@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { extractKeyFromUrlOrReturnOriginal } from './utils';
+import { canonicalStorageKey, extractKeyFromUrlOrReturnOriginal } from './utils';
 
 describe('extractKeyFromUrlOrReturnOriginal', () => {
   const mockGetKeyFromFullUrl = vi.fn();
@@ -150,5 +150,39 @@ describe('extractKeyFromUrlOrReturnOriginal', () => {
       expect(mockGetKeyFromFullUrl).toHaveBeenCalledWith(localUrl);
       expect(result).toBe(expectedKey);
     });
+  });
+});
+
+describe('canonicalStorageKey', () => {
+  it('passes bare object keys through', () => {
+    expect(canonicalStorageKey('generations/thumbnails/sunrise.webp')).toBe(
+      'generations/thumbnails/sunrise.webp',
+    );
+  });
+
+  it('normalizes a path-style legacy full storage URL to the object key', () => {
+    expect(
+      canonicalStorageKey('https://s3.example.com/bucket/generations/thumbnails/sunrise.webp'),
+    ).toBe('generations/thumbnails/sunrise.webp');
+  });
+
+  it('strips a presigned query string from a legacy storage URL', () => {
+    expect(
+      canonicalStorageKey(
+        'https://s3.example.com/bucket/files/466737/abc.png?X-Amz-Signature=xyz',
+      ),
+    ).toBe('files/466737/abc.png');
+  });
+
+  it('treats mixed bare-key and full-URL representations as the same object', () => {
+    const fullUrl = 'https://s3.example.com/bucket/generations/thumbnails/shared.webp';
+    const bareKey = 'generations/thumbnails/shared.webp';
+
+    expect(canonicalStorageKey(fullUrl)).toBe(bareKey);
+    expect(canonicalStorageKey(bareKey)).toBe(bareKey);
+  });
+
+  it('does not invent an app storage key for a provider CDN URL', () => {
+    expect(canonicalStorageKey('https://provider.example/original.png')).toBe('original.png');
   });
 });

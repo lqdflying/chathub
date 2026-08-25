@@ -29,6 +29,8 @@ import {
 } from 'drizzle-orm';
 import type { PgTransaction } from 'drizzle-orm/pg-core';
 
+import { canonicalStorageKey } from '@/server/services/file/impls/utils';
+
 import {
   FileItem,
   NewFile,
@@ -275,7 +277,12 @@ export class FileModel {
       if (ownedArtifacts.length === 0) return { deletedIds: [], storageKeys: [] };
 
       const ownedIds = ownedArtifacts.map((file) => file.id);
-      const originalUrls = new Set(ownedArtifacts.map((file) => file.url).filter(Boolean));
+      const originalKeys = new Set(
+        ownedArtifacts.flatMap((file) => {
+          const key = canonicalStorageKey(file.url);
+          return key ? [key] : [];
+        }),
+      );
       const generationRows = await trx
         .select({ asset: generations.asset })
         .from(generations)
@@ -284,10 +291,15 @@ export class FileModel {
       const thumbnailCandidates = [
         ...new Set(
           generationRows.flatMap((row) => {
-            const thumbnailUrl = (row.asset as ImageGenerationAsset | null)?.thumbnailUrl;
-            if (!thumbnailUrl || originalUrls.has(thumbnailUrl)) return [];
-            if (!this.isStoredObjectKey(thumbnailUrl)) return [];
-            return [thumbnailUrl];
+            const asset = row.asset as ImageGenerationAsset | null;
+            const thumbnailUrl = asset?.thumbnailUrl;
+            if (!thumbnailUrl) return [];
+            // Provider CDNs live on originalUrl and are never collected. Skip
+            // only when thumbnailUrl is that same external URL.
+            if (asset.originalUrl && thumbnailUrl === asset.originalUrl) return [];
+            const thumbnailKey = canonicalStorageKey(thumbnailUrl);
+            if (!thumbnailKey || originalKeys.has(thumbnailKey)) return [];
+            return [thumbnailKey];
           }),
         ),
       ];
@@ -296,7 +308,10 @@ export class FileModel {
       const disposableThumbnails = await this.excludeReferencedStorageKeys(trx, thumbnailCandidates);
       const storageKeys = [
         ...new Set([
-          ...removedFiles.flatMap((file) => (file.url ? [file.url] : [])),
+          ...removedFiles.flatMap((file) => {
+            const key = file.url ? canonicalStorageKey(file.url) : '';
+            return key ? [key] : [];
+          }),
           ...disposableThumbnails,
         ]),
       ];
@@ -573,31 +588,55 @@ export class FileModel {
       .where(and(eq(files.id, id), eq(files.userId, this.userId)));
 
   /**
-   * Skip provider CDN URLs (`asset.originalUrl`) and empty values. Stored
-   * generation keys are bare object paths, matching housekeeping cleanup.
-   */
-  private isStoredObjectKey = (value: string) => value.length > 0 && !/^https?:\/\//i.test(value);
-
-  /**
-   * Same protection as `GenerationTopicModel.excludeDurableFiles`: do not
-   * delete a key that is still referenced by a `files` or `global_files` row.
+   * Do not delete a key that is still referenced by a `files` or `global_files`
+   * row. Compare canonical keys so a remaining bare key protects a legacy full
+   * storage URL candidate, and the inverse.
    */
   private excludeReferencedStorageKeys = async (trx: Transaction, candidates: string[]) => {
-    if (candidates.length === 0) return [];
+    const keys = [
+      ...new Set(
+        candidates.flatMap((candidate) => {
+          const key = canonicalStorageKey(candidate);
+          return key ? [key] : [];
+        }),
+      ),
+    ];
+    if (keys.length === 0) return [];
+
+    const referencedUrls = await this.findUrlsReferencingStorageKeys(trx, keys);
+    const protectedKeys = new Set(
+      referencedUrls.flatMap((url) => {
+        const key = canonicalStorageKey(url);
+        return key ? [key] : [];
+      }),
+    );
+
+    return keys.filter((key) => !protectedKeys.has(key));
+  };
+
+  private findUrlsReferencingStorageKeys = async (trx: Transaction, keys: string[]) => {
+    const matchColumn = (column: typeof files.url) =>
+      or(
+        ...keys.flatMap((key) => {
+          const escapedKey = key.replaceAll(/([%\\_])/g, String.raw`\$1`);
+          return [
+            eq(column, key),
+            like(column, `%/${escapedKey}`),
+            like(column, `%/${escapedKey}?%`),
+          ];
+        }),
+      );
 
     const fileReferences = await trx
       .select({ url: files.url })
       .from(files)
-      .where(inArray(files.url, candidates));
+      .where(matchColumn(files.url));
     const globalFileReferences = await trx
       .select({ url: globalFiles.url })
       .from(globalFiles)
-      .where(inArray(globalFiles.url, candidates));
-    const protectedUrls = new Set(
-      [...fileReferences, ...globalFileReferences].map(({ url }) => url),
-    );
+      .where(matchColumn(globalFiles.url));
 
-    return candidates.filter((candidate) => !protectedUrls.has(candidate));
+    return [...fileReferences, ...globalFileReferences].flatMap(({ url }) => (url ? [url] : []));
   };
 
   /**

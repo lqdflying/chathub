@@ -481,6 +481,23 @@ describe('fileRouter', () => {
       expect(consoleError).toHaveBeenCalled();
       consoleError.mockRestore();
     });
+
+    it('normalizes legacy full storage thumbnail URLs before cleanup', async () => {
+      ctx.fileModel.deleteImageArtifacts.mockResolvedValue({
+        deletedIds: ['artifact-1'],
+        storageKeys: [
+          'generations/images/artifact.png',
+          'https://s3.example.com/bucket/generations/thumbnails/artifact.webp',
+        ],
+      });
+
+      await caller.removeImageArtifacts({ ids: ['artifact-1'] });
+
+      expect(ctx.fileService.deleteFiles).toHaveBeenCalledWith([
+        'generations/images/artifact.png',
+        'generations/thumbnails/artifact.webp',
+      ]);
+    });
   });
 
   describe('removeFileAsyncTask', () => {

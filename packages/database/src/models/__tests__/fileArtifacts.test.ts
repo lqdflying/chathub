@@ -2,7 +2,7 @@
 import { FileSource } from '@lobechat/types';
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { files, generationBatches, generationTopics, generations, users } from '../../schemas';
+import { files, generationBatches, generationTopics, generations, globalFiles, users } from '../../schemas';
 import { LobeChatDatabase } from '../../type';
 import { FileModel } from '../file';
 import { getTestDB } from './_util';
@@ -167,6 +167,22 @@ describe('FileModel.deleteImageArtifacts', () => {
     });
   });
 
+  it('deduplicates a same-key original when the thumbnail is a legacy full URL', async () => {
+    await insertWorkspaceGeneration({
+      fileId: 'artifact-old',
+      generationId: 'gen-legacy-same-thumb',
+      thumbnailUrl: 'https://s3.example.com/bucket/generations/images/sunrise.png',
+      url: 'generations/images/sunrise.png',
+    });
+
+    const removed = await fileModel.deleteImageArtifacts(['artifact-old']);
+
+    expect(removed).toEqual({
+      deletedIds: ['artifact-old'],
+      storageKeys: ['generations/images/sunrise.png'],
+    });
+  });
+
   it('does not delete a thumbnail still used as another file url', async () => {
     await serverDB.insert(files).values({
       fileType: 'image/webp',
@@ -190,6 +206,91 @@ describe('FileModel.deleteImageArtifacts', () => {
     const remainingIds = (await serverDB.select({ id: files.id }).from(files)).map(({ id }) => id);
     expect(remainingIds).toContain('shared-thumb-file');
     expect(remainingIds).not.toContain('artifact-old');
+  });
+
+  it('returns a normalized thumbnail key for a legacy full storage URL', async () => {
+    await insertWorkspaceGeneration({
+      fileId: 'artifact-old',
+      generationId: 'gen-legacy-thumb',
+      thumbnailUrl: 'https://s3.example.com/bucket/generations/thumbnails/sunrise.webp',
+      url: 'generations/images/sunrise.png',
+    });
+
+    const removed = await fileModel.deleteImageArtifacts(['artifact-old']);
+
+    expect(removed.deletedIds).toEqual(['artifact-old']);
+    expect(removed.storageKeys.sort()).toEqual([
+      'generations/images/sunrise.png',
+      'generations/thumbnails/sunrise.webp',
+    ]);
+  });
+
+  it('protects a remaining bare-key file when the thumbnail is a full storage URL', async () => {
+    await serverDB.insert(files).values({
+      fileType: 'image/webp',
+      id: 'shared-legacy-thumb-file',
+      name: 'Shared.webp',
+      size: 10,
+      source: FileSource.ImageGeneration,
+      url: 'generations/thumbnails/shared-legacy.webp',
+      userId: otherUserId,
+    });
+    await insertWorkspaceGeneration({
+      fileId: 'artifact-old',
+      generationId: 'gen-legacy-shared-thumb',
+      thumbnailUrl: 'https://s3.example.com/bucket/generations/thumbnails/shared-legacy.webp',
+      url: 'generations/images/sunrise.png',
+    });
+
+    const removed = await fileModel.deleteImageArtifacts(['artifact-old']);
+
+    expect(removed.storageKeys.sort()).toEqual(['generations/images/sunrise.png']);
+    const remainingIds = (await serverDB.select({ id: files.id }).from(files)).map(({ id }) => id);
+    expect(remainingIds).toContain('shared-legacy-thumb-file');
+  });
+
+  it('protects a remaining full-URL file when the thumbnail is a bare key', async () => {
+    await serverDB.insert(files).values({
+      fileType: 'image/webp',
+      id: 'shared-full-url-thumb-file',
+      name: 'Shared.webp',
+      size: 10,
+      source: FileSource.ImageGeneration,
+      url: 'https://s3.example.com/bucket/generations/thumbnails/shared-full.webp',
+      userId: otherUserId,
+    });
+    await insertWorkspaceGeneration({
+      fileId: 'artifact-old',
+      generationId: 'gen-bare-shared-thumb',
+      thumbnailUrl: 'generations/thumbnails/shared-full.webp',
+      url: 'generations/images/sunrise.png',
+    });
+
+    const removed = await fileModel.deleteImageArtifacts(['artifact-old']);
+
+    expect(removed.storageKeys.sort()).toEqual(['generations/images/sunrise.png']);
+    const remainingIds = (await serverDB.select({ id: files.id }).from(files)).map(({ id }) => id);
+    expect(remainingIds).toContain('shared-full-url-thumb-file');
+  });
+
+  it('protects a remaining global_files bare key against a full-URL thumbnail', async () => {
+    await serverDB.insert(globalFiles).values({
+      creator: otherUserId,
+      fileType: 'image/webp',
+      hashId: 'shared-global-thumb-hash',
+      size: 10,
+      url: 'generations/thumbnails/shared-global.webp',
+    });
+    await insertWorkspaceGeneration({
+      fileId: 'artifact-old',
+      generationId: 'gen-global-shared-thumb',
+      thumbnailUrl: 'https://s3.example.com/bucket/generations/thumbnails/shared-global.webp',
+      url: 'generations/images/sunrise.png',
+    });
+
+    const removed = await fileModel.deleteImageArtifacts(['artifact-old']);
+
+    expect(removed.storageKeys.sort()).toEqual(['generations/images/sunrise.png']);
   });
 });
 

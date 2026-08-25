@@ -19,6 +19,7 @@ import { authedProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { FileService } from '@/server/services/file';
 import { extractKeyFromAppFileProxyUrl } from '@/server/services/file/fileReference';
+import { canonicalStorageKey } from '@/server/services/file/impls/utils';
 import { isUserUploadKey } from '@/server/services/file/uploadTarget';
 import { resolveRagEmbeddingConfig } from '@/server/services/rag';
 import { AsyncTaskStatus, AsyncTaskType } from '@/types/asyncTask';
@@ -385,12 +386,21 @@ export const fileRouter = router({
         return { cleanupFailed: false, deletedIds: [] };
       }
 
-      if (result.storageKeys.length === 0) {
+      const storageKeys = [
+        ...new Set(
+          result.storageKeys.flatMap((key) => {
+            const canonicalKey = canonicalStorageKey(key);
+            return canonicalKey ? [canonicalKey] : [];
+          }),
+        ),
+      ];
+
+      if (storageKeys.length === 0) {
         return { cleanupFailed: false, deletedIds: result.deletedIds };
       }
 
       try {
-        await ctx.fileService.deleteFiles(result.storageKeys);
+        await ctx.fileService.deleteFiles(storageKeys);
         return { cleanupFailed: false, deletedIds: result.deletedIds };
       } catch (error) {
         // Match Image history / generation-batch cleanup: the database commit is
