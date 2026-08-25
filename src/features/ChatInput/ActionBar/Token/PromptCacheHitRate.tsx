@@ -5,6 +5,7 @@ import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
+import InfoTooltip from '@/components/InfoTooltip';
 import { EstimatedContextConversationSource } from '@/hooks/useEstimatedContextUsage';
 import { useChatStore } from '@/store/chat';
 import { chatSelectors, threadSelectors } from '@/store/chat/selectors';
@@ -45,41 +46,44 @@ const PromptCacheHitRate = memo<PromptCacheHitRateProps>(({ conversationSource =
       ? Math.max(0, result.cacheEligibleTokens - result.cacheHitTokens)
       : 0;
   const showBar = (result?.cacheHitTokens ?? 0) + remainder > 0;
+  const summaryParts = result
+    ? [
+        result.cacheHitRate !== undefined
+          ? t('tokenDetails.cacheHitRate', {
+              percent: (result.cacheHitRate * 100).toFixed(1),
+            })
+          : statusLabel,
+        result.cacheHitRate !== undefined ? statusLabel : undefined,
+        result.cacheHitTokens !== undefined && result.cacheEligibleTokens !== undefined
+          ? t('tokenDetails.cacheRatio', {
+              cached: formatTokens(result.cacheHitTokens),
+              input: formatTokens(result.cacheEligibleTokens),
+            })
+          : undefined,
+        source?.fromModel
+          ? t('tokenDetails.cacheSource', { model: source.fromModel })
+          : undefined,
+      ].filter(Boolean)
+    : [];
 
   return (
-    <Flexbox gap={8} width={'100%'}>
-      <div style={{ color: theme.colorTextDescription }}>{t('tokenDetails.cacheTitle')}</div>
+    <Flexbox gap={4} width={'100%'}>
+      <Flexbox align={'center'} gap={4} horizontal>
+        <div style={{ color: theme.colorTextDescription }}>{t('tokenDetails.cacheTitle')}</div>
+        <InfoTooltip size={'small'} title={t('tokenDetails.cacheCaption')} />
+      </Flexbox>
       {!result ? (
-        <div style={{ color: theme.colorTextSecondary }}>{t('tokenDetails.cacheEmpty')}</div>
+        <div style={{ color: theme.colorTextSecondary, fontSize: 12, lineHeight: 1.35 }}>
+          {t('tokenDetails.cacheEmpty')}
+        </div>
       ) : (
         <>
-          <Flexbox align={'baseline'} gap={8} horizontal justify={'space-between'}>
-            <div style={{ fontWeight: 500 }}>
-              {result.cacheHitRate !== undefined
-                ? t('tokenDetails.cacheHitRate', {
-                    percent: (result.cacheHitRate * 100).toFixed(1),
-                  })
-                : statusLabel}
-            </div>
-            {result.cacheHitRate !== undefined && (
-              <div style={{ color: theme.colorTextSecondary }}>{statusLabel}</div>
-            )}
-          </Flexbox>
-          {result.cacheHitTokens !== undefined && result.cacheEligibleTokens !== undefined && (
-            <div style={{ color: theme.colorTextSecondary }}>
-              {t('tokenDetails.cacheRatio', {
-                cached: formatTokens(result.cacheHitTokens),
-                input: formatTokens(result.cacheEligibleTokens),
-              })}
-            </div>
-          )}
-          {source?.fromModel && (
-            <div style={{ color: theme.colorTextSecondary }}>
-              {t('tokenDetails.cacheSource', { model: source.fromModel })}
-            </div>
-          )}
+          <div style={{ fontSize: 12, fontWeight: 500, lineHeight: 1.35 }}>
+            {summaryParts.join(' · ')}
+          </div>
           {showBar && (
             <TokenProgress
+              compact
               data={[
                 {
                   color: theme.orange,
@@ -94,14 +98,11 @@ const PromptCacheHitRate = memo<PromptCacheHitRateProps>(({ conversationSource =
                   value: remainder,
                 },
               ]}
-              showIcon
+              hideLegend
             />
           )}
         </>
       )}
-      <div style={{ color: theme.colorTextTertiary, fontSize: 12 }}>
-        {t('tokenDetails.cacheCaption')}
-      </div>
     </Flexbox>
   );
 });

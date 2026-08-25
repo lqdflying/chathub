@@ -224,7 +224,7 @@ const TokenTagForGroupChat = memo<TokenTagForGroupChatProps>(({ total: messageSt
   );
 
   const content = (
-    <Flexbox gap={12} style={{ minWidth: 200 }}>
+    <Flexbox gap={8} style={{ minWidth: 200 }}>
       <Flexbox align={'center'} gap={4} horizontal justify={'space-between'} width={'100%'}>
         <div style={{ color: theme.colorTextDescription }}>{t('tokenDetails.title')}</div>
         <Tooltip
@@ -250,6 +250,7 @@ const TokenTagForGroupChat = memo<TokenTagForGroupChatProps>(({ total: messageSt
         </Tooltip>
       </Flexbox>
       <TokenProgress
+        compact
         data={[
           {
             color: theme.magenta,
@@ -295,6 +296,7 @@ const TokenTagForGroupChat = memo<TokenTagForGroupChatProps>(({ total: messageSt
         showIcon
       />
       <TokenProgress
+        compact
         data={[
           {
             color: theme.colorSuccess,
@@ -318,7 +320,7 @@ const TokenTagForGroupChat = memo<TokenTagForGroupChatProps>(({ total: messageSt
   );
 
   return (
-    <ActionPopover content={content}>
+    <ActionPopover compact content={content}>
       <TokenTag
         maxValue={maxTokens}
         mode={'used'}
