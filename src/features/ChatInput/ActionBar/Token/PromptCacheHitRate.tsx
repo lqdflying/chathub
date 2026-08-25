@@ -46,6 +46,9 @@ const PromptCacheHitRate = memo<PromptCacheHitRateProps>(({ conversationSource =
       ? Math.max(0, result.cacheEligibleTokens - result.cacheHitTokens)
       : 0;
   const showBar = (result?.cacheHitTokens ?? 0) + remainder > 0;
+  const tooltipTitle = source?.fromModel
+    ? `${t('tokenDetails.cacheCaption')} (${t('tokenDetails.cacheSource', { model: source.fromModel })})`
+    : t('tokenDetails.cacheCaption');
   const summaryParts = result
     ? [
         result.cacheHitRate !== undefined
@@ -60,9 +63,6 @@ const PromptCacheHitRate = memo<PromptCacheHitRateProps>(({ conversationSource =
               input: formatTokens(result.cacheEligibleTokens),
             })
           : undefined,
-        source?.fromModel
-          ? t('tokenDetails.cacheSource', { model: source.fromModel })
-          : undefined,
       ].filter(Boolean)
     : [];
 
@@ -70,7 +70,7 @@ const PromptCacheHitRate = memo<PromptCacheHitRateProps>(({ conversationSource =
     <Flexbox gap={4} width={'100%'}>
       <Flexbox align={'center'} gap={4} horizontal>
         <div style={{ color: theme.colorTextDescription }}>{t('tokenDetails.cacheTitle')}</div>
-        <InfoTooltip size={'small'} title={t('tokenDetails.cacheCaption')} />
+        <InfoTooltip size={'small'} title={tooltipTitle} />
       </Flexbox>
       {!result ? (
         <div style={{ color: theme.colorTextSecondary, fontSize: 12, lineHeight: 1.35 }}>
