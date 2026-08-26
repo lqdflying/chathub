@@ -1,6 +1,10 @@
 import { SendMessageParams } from '@lobechat/types';
 import { useCallback, useMemo, useState } from 'react';
 
+import {
+  clearPendingPastedTexts,
+  joinInputWithPendingPastedTexts,
+} from '@/features/ChatInput/pastedText';
 import { useGeminiChineseWarning } from '@/hooks/useGeminiChineseWarning';
 import { getAgentStoreState } from '@/store/agent';
 import { agentSelectors } from '@/store/agent/slices/chat';
@@ -44,7 +48,7 @@ export const useSendThreadMessage = () => {
       return;
     }
 
-    const inputMessage = threadInputEditor.getMarkdownContent();
+    const inputMessage = joinInputWithPendingPastedTexts(threadInputEditor.getMarkdownContent());
 
     // if there is no message and no image, then we should not send the message
     if (!inputMessage) return;
@@ -67,6 +71,7 @@ export const useSendThreadMessage = () => {
     });
 
     updateInputMessage('');
+    clearPendingPastedTexts();
     threadInputEditor.clearContent();
     threadInputEditor.focus();
   };

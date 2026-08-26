@@ -20,6 +20,7 @@ vi.mock('@lobehub/editor', () => ({
   ReactListPlugin: {},
   ReactMathPlugin: {},
   ReactTablePlugin: {},
+  useLexicalEditor: () => {},
 }));
 
 vi.mock('@lobehub/editor/react', () => {

@@ -19,7 +19,9 @@
   "availableAgents": "Available assistants",
   "backToBottom": "Back to bottom",
   "chatList": {
-    "longMessageDetail": "View Details"
+    "longMessageDetail": "View Details",
+    "pasted": "PASTED",
+    "pastedAria": "Open pasted text"
   },
   "clearCurrentMessages": "Clear current session messages",
   "confirmClearCurrentMessages": "You are about to clear the current session messages. Once cleared, they cannot be retrieved. Please confirm your action.",

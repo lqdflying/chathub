@@ -6,6 +6,7 @@ describe('accountScopeReset module initialization', () => {
 
     const accountScopeResetModule = await import('./accountScopeReset');
     const { useSkillStore } = await import('./skill');
+    const { usePastedTextStore } = await import('@/features/ChatInput/pastedText/store');
 
     expect(accountScopeResetModule.resetAccountScopedStores).toBeTypeOf('function');
     useSkillStore.setState({
@@ -23,11 +24,13 @@ describe('accountScopeReset module initialization', () => {
       isLoading: false,
       selectedSkillIdsByConversation: { 'session:topic:main': ['account-a-skill'] },
     });
+    usePastedTextStore.getState().addPastedText('account dump');
 
     accountScopeResetModule.resetAccountScopedStores('Account changed');
 
     expect(useSkillStore.getState().installedSkills).toEqual([]);
     expect(useSkillStore.getState().selectedSkillIdsByConversation).toEqual({});
     expect(useSkillStore.getState().isLoading).toBe(true);
+    expect(usePastedTextStore.getState().items).toEqual([]);
   }, 30_000);
 });

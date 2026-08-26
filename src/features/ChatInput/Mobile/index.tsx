@@ -6,6 +6,8 @@ import dynamic from 'next/dynamic';
 import { memo } from 'react';
 import { Flexbox } from 'react-layout-kit';
 
+import PastedTextList from '@/features/ChatInput/pastedText/PastedTextList';
+import { useClearPastedTextsOnChatChange } from '@/features/ChatInput/pastedText/useClearOnChatChange';
 import { useChatInputStore } from '@/features/ChatInput/store';
 
 import ActionBar from '../ActionBar';
@@ -35,11 +37,18 @@ const DesktopChatInput = memo(() => {
 
   const { styles, cx } = useStyles();
 
-  const fileNode = leftActions.flat().includes('fileUpload') && <FilePreview />;
+  useClearPastedTextsOnChatChange();
+
+  const extraNode = (
+    <>
+      {leftActions.flat().includes('fileUpload') && <FilePreview />}
+      <PastedTextList />
+    </>
+  );
 
   return (
     <>
-      {!expand && fileNode}
+      {!expand && extraNode}
       <Flexbox
         className={cx(styles.container, expand && styles.fullscreen)}
         paddingBlock={'0 12px'}
@@ -59,7 +68,7 @@ const DesktopChatInput = memo(() => {
           header={<ChatInputActionBar left={<ActionBar />} />}
           slashMenuRef={slashMenuRef}
         >
-          {expand && fileNode}
+          {expand && extraNode}
           <InputEditor defaultRows={1} />
         </ChatInput>
       </Flexbox>

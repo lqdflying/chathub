@@ -1,3 +1,4 @@
+import { usePastedTextStore } from '@/features/ChatInput/pastedText/store';
 import { clearAccountCache } from '@/libs/swr/accountCache';
 import { useAgentStore } from '@/store/agent';
 import { initialState as initialAgentState } from '@/store/agent/initialState';
@@ -32,6 +33,7 @@ const abortControllers = (
 
 export const resetAccountScopedStores = (reason: string): void => {
   void clearAccountCache();
+  usePastedTextStore.getState().clearPastedTexts();
 
   const userState = useUserStore.getState();
   abortControllers(

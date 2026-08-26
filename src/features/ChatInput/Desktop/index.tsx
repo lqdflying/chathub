@@ -7,6 +7,8 @@ import { memo, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Center, Flexbox } from 'react-layout-kit';
 
+import PastedTextList from '@/features/ChatInput/pastedText/PastedTextList';
+import { useClearPastedTextsOnChatChange } from '@/features/ChatInput/pastedText/useClearOnChatChange';
 import { useChatInputStore } from '@/features/ChatInput/store';
 import { useChatStore } from '@/store/chat';
 import { chatSelectors } from '@/store/chat/selectors';
@@ -88,16 +90,22 @@ const DesktopChatInput = memo<{ showFootnote?: boolean }>(({ showFootnote }) => 
   const { styles, cx } = useStyles();
 
   const chatKey = useChatStore(chatSelectors.currentChatKey);
+  useClearPastedTextsOnChatChange();
 
   useEffect(() => {
     if (editor) editor.focus();
   }, [chatKey, editor]);
 
-  const fileNode = leftActions.flat().includes('fileUpload') && <FilePreview />;
+  const extraNode = (
+    <>
+      {leftActions.flat().includes('fileUpload') && <FilePreview />}
+      <PastedTextList />
+    </>
+  );
 
   return (
     <>
-      {!expand && fileNode}
+      {!expand && extraNode}
       <Flexbox
         className={cx(styles.container, expand && styles.fullscreen)}
         gap={8}
@@ -126,7 +134,7 @@ const DesktopChatInput = memo<{ showFootnote?: boolean }>(({ showFootnote }) => 
             resize={true}
             slashMenuRef={slashMenuRef}
           >
-            {expand && fileNode}
+            {expand && extraNode}
             <InputEditor />
           </ChatInput>
         </Flexbox>

@@ -2,6 +2,10 @@ import { SendMessageParams } from '@lobechat/types';
 import { useAnalytics } from '@lobehub/analytics/react';
 import { useCallback, useMemo } from 'react';
 
+import {
+  clearPendingPastedTexts,
+  joinInputWithPendingPastedTexts,
+} from '@/features/ChatInput/pastedText';
 import { useGeminiChineseWarning } from '@/hooks/useGeminiChineseWarning';
 import { getAgentStoreState } from '@/store/agent';
 import { agentSelectors } from '@/store/agent/selectors';
@@ -46,7 +50,7 @@ export const useSendMessage = () => {
       const canSend = !isUploadingFiles && !isSendButtonDisabledByMessage;
       if (!canSend) return;
 
-      const inputMessage = store.inputMessage;
+      const inputMessage = joinInputWithPendingPastedTexts(store.inputMessage);
       const selectionKey = getSkillSelectionKey({
         sessionId: store.activeId,
         threadId: store.activeThreadId,
@@ -98,6 +102,7 @@ export const useSendMessage = () => {
 
       updateInputMessage('');
       clearChatUploadFileList();
+      clearPendingPastedTexts();
 
       // 获取分析数据
       const userStore = getUserStoreState();

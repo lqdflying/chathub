@@ -8,6 +8,7 @@ import { Flexbox } from 'react-layout-kit';
 
 import { ActionKeys } from '@/features/ChatInput/ActionBar/config';
 import { MOBILE_CHAT_LEFT_ACTIONS } from '@/features/ChatInput/ActionBar/presets';
+import { useClearPastedTextsOnChatChange } from '@/features/ChatInput/pastedText';
 import { useInitAgentConfig } from '@/hooks/useInitAgentConfig';
 import { useChatStore } from '@/store/chat';
 import { aiChatSelectors, chatSelectors } from '@/store/chat/selectors';
@@ -26,6 +27,7 @@ const MobileChatInput = memo(() => {
   const [expand, setExpand] = useState<boolean>(false);
   const { send: sendMessage, canSend } = useSendMessage();
   const { isLoading } = useInitAgentConfig();
+  useClearPastedTextsOnChatChange();
 
   const [loading, value, onInput, onStop] = useChatStore((s) => [
     // pre-send compaction is stoppable too, so surface it as loading

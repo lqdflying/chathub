@@ -22,6 +22,7 @@ import { useTranslation } from 'react-i18next';
 import { useUserStore } from '@/store/user';
 import { preferenceSelectors, settingsSelectors } from '@/store/user/selectors';
 
+import PastedTextPlugin from '../pastedText/PastedTextPlugin';
 import { useChatInputStore, useStoreApi } from '../store';
 import Placeholder from './Placeholder';
 import ReplacementTextPlugin from './ReplacementTextPlugin';
@@ -203,6 +204,7 @@ const InputEditor = memo<{ defaultRows?: number }>(({ defaultRows = 2 }) => {
       type={'text'}
       variant={'chat'}
     >
+      <PastedTextPlugin />
       <ReplacementTextPlugin />
     </Editor>
   );

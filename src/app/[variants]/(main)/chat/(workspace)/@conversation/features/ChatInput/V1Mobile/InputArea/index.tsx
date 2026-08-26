@@ -9,6 +9,8 @@ import { CSSProperties, ReactNode, forwardRef, useEffect, useRef, useState } fro
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
+import { captureLargePlainPaste } from '@/features/ChatInput/pastedText';
+
 import InnerContainer from './Container';
 
 const useStyles = createStyles(({ css, token }) => {
@@ -137,6 +139,9 @@ const MobileChatInputArea = forwardRef<TextAreaRef, MobileChatInputAreaProps>(
                 isChineseInput.current = true;
               }}
               onFocus={() => setIsFocused(true)}
+              onPaste={(event) => {
+                captureLargePlainPaste(event);
+              }}
               onPressEnter={(e) => {
                 if (!loading && !isChineseInput.current && e.shiftKey) {
                   e.preventDefault();

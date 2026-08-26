@@ -175,6 +175,11 @@ export const useStyles = createStyles(
 
           ${responsive.mobile} {
             width: 100%;
+
+            &:has([data-pasted-text-card]) {
+              width: fit-content;
+              max-width: 100%;
+            }
           }
         `,
       ),

@@ -21,6 +21,8 @@ export default {
   backToBottom: '跳转至当前',
   chatList: {
     longMessageDetail: '查看详情',
+    pasted: '已粘贴',
+    pastedAria: '查看粘贴的全文',
   },
   clearCurrentMessages: '清空当前会话消息',
   confirmClearCurrentMessages: '即将清空当前会话消息，清空后将无法找回，请确认你的操作',

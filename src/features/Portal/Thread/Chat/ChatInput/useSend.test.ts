@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { usePastedTextStore } from '@/features/ChatInput/pastedText/store';
 import { useChatStore } from '@/store/chat';
 
 import { useSendThreadMessage } from './useSend';
@@ -22,6 +23,7 @@ describe('useSendThreadMessage', () => {
       messageRAGLoadingIds: [],
       threadInputEditor: undefined,
     });
+    usePastedTextStore.getState().clearPastedTexts();
   });
 
   it('stops the portal thread rather than the workspace thread', () => {
@@ -66,5 +68,31 @@ describe('useSendThreadMessage', () => {
     await waitFor(() => {
       expect(consoleSpy).toHaveBeenCalledWith('Failed to send thread message', sendError);
     });
+  });
+
+  it('sends chips only when the thread editor is empty', async () => {
+    const sendThreadMessage = vi.fn().mockResolvedValue(undefined);
+    const clearContent = vi.fn();
+    const focus = vi.fn();
+    checkGeminiChineseWarning.mockResolvedValue(true);
+    usePastedTextStore.getState().addPastedText('thread dump');
+    useChatStore.setState({
+      sendThreadMessage,
+      threadInputEditor: {
+        clearContent,
+        focus,
+        getMarkdownContent: () => '',
+      } as any,
+    });
+
+    const { result } = renderHook(() => useSendThreadMessage());
+
+    await act(async () => {
+      await result.current.send();
+    });
+
+    expect(sendThreadMessage).toHaveBeenCalledWith({ message: 'thread dump' });
+    expect(usePastedTextStore.getState().items).toEqual([]);
+    expect(clearContent).toHaveBeenCalled();
   });
 });

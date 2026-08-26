@@ -1,13 +1,23 @@
 import { Flexbox } from 'react-layout-kit';
 
-import { MarkdownCustomRender } from '../../../types';
-import ContentPreview from './ContentPreview';
+import PastedTextCard from '@/features/ChatInput/pastedText/PastedTextCard';
+import { shouldCollapsePastedText } from '@/features/ChatInput/pastedText/helpers';
+import { useChatStore } from '@/store/chat';
 
-export const MarkdownRender: MarkdownCustomRender = ({ text, dom, id, displayMode }) => {
-  if (text.length > 30_000)
+import { MarkdownCustomRender } from '../../../types';
+
+export const MarkdownRender: MarkdownCustomRender = ({ text, dom, id }) => {
+  const openMessageDetail = useChatStore((s) => s.openMessageDetail);
+
+  if (shouldCollapsePastedText(text))
     return (
       <Flexbox>
-        <ContentPreview content={text} displayMode={displayMode} id={id} />
+        <PastedTextCard
+          content={text}
+          onOpen={() => {
+            openMessageDetail(id);
+          }}
+        />
       </Flexbox>
     );
 

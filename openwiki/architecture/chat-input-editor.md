@@ -159,3 +159,34 @@ Run the suite with:
 ```bash
 bunx vitest run --silent='passed-only' 'src/features/ChatInput/InputEditor/ReplacementTextPlugin.test.ts'
 ```
+
+## Large plain-text pastes
+
+Huge dumps (logs, JSON, terminal output) must not fill the composer or the
+topic bubble. ChatHub collapses them in the UI only; the model still receives
+the full text as ordinary `message.content`. This follows Claude Code's chip
+model ([paste large content](https://code.claude.com/docs/en/terminal-config#paste-large-content)):
+collapse in the prompt, send the original body. It is **not** converted to a
+file attachment, because ChatHub file `content` is filled only after document
+parse and a send-before-parse can drop the dump.
+
+Threshold (`src/features/ChatInput/pastedText/helpers.ts`): collapse when the
+paste has **10+ lines** or **1000+ characters** (either gate). `Ctrl+Shift+V` /
+`Cmd+Shift+V` (`event.shiftKey`) bypasses the composer chip and pastes inline;
+the topic still collapses after send if the result is huge. Clipboard **files**
+are ignored so image paste stays on the existing upload path.
+
+Pending chips live in a dedicated Zustand store
+(`src/features/ChatInput/pastedText/store.ts`), not `ChatInputProvider`, because
+mobile topic input is still V1Mobile `TextArea` and has no provider. Clear on
+successful send, `chatKey` (session + topic) change, and
+`resetAccountScopedStores`. Desktop / thread intercept uses a Lexical capture-
+phase `paste` listener (`PastedTextPlugin`); V1Mobile uses `TextArea` `onPaste`.
+All send paths (`useSend`, group send, V1Mobile, thread) join typed prompt first,
+then each paste body, with blank lines.
+
+The topic card replaces the old 30,000-character `ContentPreview` in
+`User/MarkdownRender`. Click opens the existing message-detail portal.
+`EditableMessage` still shows full text when editing. Do not collapse assistant
+messages.
+

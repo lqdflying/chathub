@@ -1,6 +1,8 @@
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { usePastedTextStore } from '@/features/ChatInput/pastedText/store';
+
 import { useSendMessage } from './useSend';
 
 const mocks = vi.hoisted(() => {
@@ -103,6 +105,7 @@ describe('V1 mobile skill-aware send hook', () => {
       { identifier: 'group-reviewer' },
     ];
     mocks.skillState.selectedSkillIds = [];
+    usePastedTextStore.getState().clearPastedTexts();
   });
 
   it('sends slash-like input literally without activating a skill', async () => {
@@ -161,6 +164,31 @@ describe('V1 mobile skill-aware send hook', () => {
 
     expect(mocks.chatState.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({ activatedSkillIds: ['reviewer'], message: 'Review this' }),
+    );
+  });
+
+  it('sends chips only and clears them after send', async () => {
+    mocks.chatState.inputMessage = '';
+    usePastedTextStore.getState().addPastedText('mobile dump');
+    const { result } = renderHook(() => useSendMessage());
+
+    await act(() => result.current.send());
+
+    expect(mocks.chatState.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'mobile dump' }),
+    );
+    expect(usePastedTextStore.getState().items).toEqual([]);
+  });
+
+  it('joins the typed prompt before pasted dumps', async () => {
+    mocks.chatState.inputMessage = 'explain this';
+    usePastedTextStore.getState().addPastedText('LOG DUMP');
+    const { result } = renderHook(() => useSendMessage());
+
+    await act(() => result.current.send());
+
+    expect(mocks.chatState.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'explain this\n\nLOG DUMP' }),
     );
   });
 });
