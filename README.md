@@ -4,27 +4,37 @@
 
 > A self-hosted, production-ready AI chat platform — built on [LobeChat](https://github.com/lobehub/lobe-chat), significantly extended for real-world self-hosted deployments.
 
-ChatHub diverged from LobeChat at v3.0.0 and is maintained independently as ChatHub. It ships as a single Docker image targeting PostgreSQL deployments, adds built-in authentication that requires no external OAuth service, ships a broader model bank, and includes utility tools not present upstream.
+**Current GA is ChatHub 2.0.** ChatHub diverged from LobeChat at upstream v3.0.0 and is maintained independently. It ships as a single Docker image targeting PostgreSQL deployments, adds built-in authentication that requires no external OAuth service, ships a broader model bank, and includes tools and sidecars not present upstream.
 
 ChatHub does not ship an Electron/desktop runtime or a browser-local database
 edition. Browsers and installed PWAs use the server APIs, while durable account
 data is stored in PostgreSQL. Legacy ChatHub/LobeChat JSON exports remain
-importable through **Settings -> Storage**.
+importable through **Settings → Storage**.
+
+Full user and operator guides: [GitHub Wiki](https://github.com/lqdflying/chathub/wiki).
 
 ---
 
 ## What's Different from Upstream LobeChat
 
-| Area                      | Upstream LobeChat         | ChatHub                                                                                                                |
-| ------------------------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| Deployment target         | Vercel / Docker / Desktop | Docker + PostgreSQL only                                                                                               |
-| Versioning                | v1.x                      | v1.x (ChatHub)                                                                                                         |
-| Browser login (no OAuth)  | Not supported             | Username/password or token login page built-in                                                                         |
-| Model bank                | Upstream releases         | Extended: Claude 4.x, GPT-5.x, Gemini 3.x, Kimi K2.x/K3, MiniMax, DeepSeek                                             |
-| Tools Hub                 | Not present               | Built-in (Picbed, API Tester + extensible sidebar)                                                                     |
-| Memory / context          | Basic rolling summary     | Assistance presets, token auto-compact, manual compact, daily opt-in, assistant-level memory with cross-session rollup |
-| MCP authentication        | API keys only             | OAuth 2.1 auto-discovery (RFC 9728 + RFC 8414) with server-side token storage                                          |
-| Model gear (extendParams) | Single generic form       | Per-provider panels (Moonshot, MiniMax, Anthropic, OpenAI, DeepSeek)                                                   |
+| Area                      | Upstream LobeChat                     | ChatHub                                                                                                                          |
+| ------------------------- | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Deployment target         | Vercel / Docker / Desktop             | Docker + PostgreSQL only                                                                                                         |
+| Versioning                | v1.x                                  | v2.x (ChatHub; unrelated to upstream)                                                                                            |
+| Browser login (no OAuth)  | Not supported                         | Username/password or token login page built-in                                                                                   |
+| Chat generation           | In-tab request; closing the tab cancels | Background worker in PostgreSQL; closing the tab does not cancel                                                               |
+| Knowledge Base RAG        | Implicit provider defaults            | Dedicated external embeddings, pgvector HNSW, readiness banner, document-only ingestion                                          |
+| Code Interpreter          | Not a first-class sidecar             | Optional DifySandbox sibling for Python that survives tab close                                                                  |
+| Agent Skills              | Marketplace / different contract      | Globally installed `SKILL.md` bundles with lazy `load_skill`                                                                     |
+| Artifacts gallery         | Image workspace only                  | Account-scoped gallery of generated images, including in-chat Image tool output                                                  |
+| Document conversion       | In-process loaders                    | Optional MarkItDown sidecar for structured Markdown before chunking                                                              |
+| Huge pastes               | Full-bleed composer and topic         | Compact **PASTED** chips in the composer and matching topic cards                                                                |
+| Model bank                | Upstream releases                     | Extended: Claude 4.x, GPT-5.x, Gemini 3.x, Kimi K2.x/K3, MiniMax, DeepSeek, Zhipu GLM                                            |
+| Compatible gateways       | Generic OpenAI-compat                 | OpenAI-compatible and Anthropic-compatible with documented cache / auth matrices                                                 |
+| Tools Hub                 | Not present                           | Built-in (Picbed, API Tester, Password Generator + extensible sidebar)                                                           |
+| Memory / context          | Basic rolling summary                 | Assistance presets, token auto-compact, manual compact, daily opt-in, assistant-level memory with cross-session rollup           |
+| MCP authentication        | API keys only                         | OAuth 2.1 auto-discovery (RFC 9728 + RFC 8414) with server-side token storage                                                    |
+| Model gear (extendParams) | Single generic form                   | Per-provider panels (Moonshot, MiniMax, Anthropic, OpenAI, DeepSeek)                                                             |
 
 ---
 
@@ -59,6 +69,10 @@ services:
       # ANTHROPICCOMPATIBLE_API_KEY=...
       # ANTHROPICCOMPATIBLE_PROXY_URL=https://your-host/ai
       # ANTHROPICCOMPATIBLE_AUTH_MODE=bearer  # or 'api-key' (default)
+      # Optional: disable background conversation generation
+      # FEATURE_FLAGS=-durable_conversation_generation
+      # CONVERSATION_WORKER_CONCURRENCY=4
+      # DISABLE_CONVERSATION_WORKER=1
       # Dedicated Knowledge Base embedding provider (all three are required):
       # RAG_EMBEDDING_PROVIDER=openai
       # RAG_EMBEDDING_MODEL=text-embedding-3-small
@@ -107,7 +121,7 @@ services:
     # No host port — ChatHub reaches it on the Compose network only.
 ```
 
-Database migrations run automatically on container startup. For upgrade procedures, volume management, and migration troubleshooting, see the [Docker deployment wiki](https://github.com/lqdflying/chathub/wiki/Docker-Deployment-and-Upgrades). Code Interpreter Python runs in the `code-interpreter` sibling ([wiki](https://github.com/lqdflying/chathub/wiki/Code-Interpreter-Sandbox)); omit that service, the `chathub` `depends_on` entry, and the `SANDBOX_PROVIDER` / `CODE_INTERPRETER_*` variables if you do not need it.
+Database migrations run automatically on container startup. For upgrade procedures, volume management, and migration troubleshooting, see [Docker Deployment and Upgrades](https://github.com/lqdflying/chathub/wiki/Docker-Deployment-and-Upgrades). Code Interpreter Python runs in the `code-interpreter` sibling ([wiki](https://github.com/lqdflying/chathub/wiki/Code-Interpreter-Sandbox)); omit that service, the `chathub` `depends_on` entry, and the `SANDBOX_PROVIDER` / `CODE_INTERPRETER_*` variables if you do not need it.
 
 ---
 
@@ -129,7 +143,54 @@ AUTH_CREDENTIALS_PASSWORD=your-strong-password
 
 Combine credentials with OAuth providers: `NEXT_AUTH_SSO_PROVIDERS=credentials,github`.
 
-Full details (NextAuth, OIDC, Clerk, session config, credentials login flow): [wiki — Authentication](https://github.com/lqdflying/chathub/wiki/Authentication).
+Full details (NextAuth, OIDC, Clerk, session config, credentials login flow): [Authentication](https://github.com/lqdflying/chathub/wiki/Authentication).
+
+---
+
+## What's in ChatHub 2.0
+
+One- or two-line summaries. Procedures live in the wiki.
+
+### Chat
+
+- **Background conversation generation** — Replies, server-capable tool turns (web browsing, Code Interpreter, Memory, HTTP MCP), group supervisor decisions, topic titles, translation, and guarded memory compaction continue after you close the tab. **Stop** and destructive history actions cancel matching work. Browser-only keys and image/non-HTTP MCP tools stay on the open tab. Requires a server-reachable provider API key (`FEATURE_FLAGS=-durable_conversation_generation` to disable). [Details](https://github.com/lqdflying/chathub/wiki/Background-Conversation-Generation)
+- **Pasted text cards** — Large dumps collapse to a compact **PASTED** chip in the composer and a matching card in the topic. The model still receives the full text. [Details](https://github.com/lqdflying/chathub/wiki/Pasted-Text)
+- **Context Export** — Capture the context prepared for the next model request (instructions, messages, tools, token allocation). [Details](https://github.com/lqdflying/chathub/wiki/Context-Export)
+- **Memory and context compaction** — Topic-level auto/manual compaction, daily notes, archives, and assistant-level cross-session memory with periodic LLM rollup. [Details](https://github.com/lqdflying/chathub/wiki/Memory-and-Context-Compaction)
+- **Chat Instruction** — Standing user instruction applied across chats for that account.
+
+### Knowledge
+
+- **Knowledge Base vector RAG** — Dedicated OpenAI, Cohere, or Voyage embeddings (chat API keys are never an implicit fallback), pgvector HNSW search, document-only ingestion, and an explicit readiness banner. [Details](https://github.com/lqdflying/chathub/wiki/Knowledge-Base-and-RAG)
+- **MarkItDown sidecar** — Optional companion that converts uploads to structured Markdown before chunking. [Details](https://github.com/lqdflying/chathub/wiki/MarkItDown-Sidecar)
+
+### Tools
+
+- **Tools Hub** — Desktop Tools sidebar / mobile More → Tools: Picbed (S3 image and video hosting), API Tester, Password Generator. [Details](https://github.com/lqdflying/chathub/wiki/Tools-Hub)
+- **Code Interpreter sandbox** — Python the assistant writes runs on a `langgenius/dify-sandbox:0.2.15` sibling, not in the ChatHub image. [Details](https://github.com/lqdflying/chathub/wiki/Code-Interpreter-Sandbox)
+- **MCP OAuth 2.1** — Paste a Streamable HTTP MCP URL; auto-discovery, popup authorize, server-side tokens. [Details](https://github.com/lqdflying/chathub/wiki/MCP-OAuth)
+- **MCP library** — Settings page for installed HTTP MCP plugins (list + detail). [Details](https://github.com/lqdflying/chathub/wiki/MCP-Management)
+- **Agent Skills** — Globally installed `SKILL.md` bundles; lazy `load_skill` in chat. [Details](https://github.com/lqdflying/chathub/wiki/Skills)
+
+### Media
+
+- **Image generation** — DALL-E, GPT-Image, Gemini Image, and in-chat Image tool. [Details](https://github.com/lqdflying/chathub/wiki/Image-Generation)
+- **Artifacts gallery** — Account-scoped gallery of generated images at `/artifacts`. [Details](https://github.com/lqdflying/chathub/wiki/Artifacts)
+- **Inline SVG diagrams** — Themed SVG artifacts plus rendered HTML / SVG / Mermaid code blocks. [Details](https://github.com/lqdflying/chathub/wiki/Inline-SVG-Diagrams)
+
+### Providers
+
+- **Extended model bank** — Latest Claude, GPT-5.x, Gemini 3.x, Kimi K2.x/K3, MiniMax, DeepSeek, Zhipu GLM, plus OpenAI-compatible and Anthropic-compatible gateways. [Details](https://github.com/lqdflying/chathub/wiki/Model-Providers)
+- **Model extension options** — Per-provider gear popovers from the model bank; MiniMax context trimming before API calls. [Details](https://github.com/lqdflying/chathub/wiki/Model-Extension-Options)
+- **OpenAI-compatible prompt cache** — Provider-settings matrix (not a model gear option). [Details](https://github.com/lqdflying/chathub/wiki/OpenAI-Compatible-Cache-Matrix)
+- **Moonshot Kimi K3** — Catalogue model with a 1M-token window and forced `reasoning_effort: "max"`; it does not replace the global initial model (`gpt-5-mini`). Built-in Moonshot route is `https://api.moonshot.cn/v1`; use `MOONSHOT_PROXY_URL` for `api.moonshot.ai`. [Model Providers](https://github.com/lqdflying/chathub/wiki/Model-Providers)
+
+### Ops
+
+- **Built-in credentials login** — Username/password or token page; no external OAuth required. [Authentication](https://github.com/lqdflying/chathub/wiki/Authentication)
+- **JSON backup and restore** — Versioned account export/import under Settings → Storage (files and object storage excluded). [Details](https://github.com/lqdflying/chathub/wiki/Data-Backup-and-Restore)
+- **PWA** — Installable app; icons use separate `any` (transparent corners) and `maskable` (full-bleed) assets.
+- **Debug switches** — Privacy-safe diagnostics for knowledge, tools, generation, compaction, and cache. [Details](https://github.com/lqdflying/chathub/wiki/Debug-and-Diagnostics)
 
 ---
 
@@ -155,34 +216,11 @@ Knowledge Base indexing and retrieval require a dedicated external embedding
 provider. Chat/LLM provider credentials are never used as an implicit fallback.
 Configure OpenAI, Cohere, or Voyage with `RAG_EMBEDDING_PROVIDER`,
 `RAG_EMBEDDING_MODEL`, and `RAG_EMBEDDING_API_KEY`, or save an encrypted
-per-account override under **Settings -> RAG Provider**. PostgreSQL must include
+per-account override under **Settings → RAG Provider**. PostgreSQL must include
 the `pgvector` extension; the Compose example uses the pgvector image for this
-reason. Retrieved context is injected only into the active initial model request:
-the regular token popover reports it as **Knowledge Base**, and **Context Export
-Next Request** records its token allocation plus bounded retrieval statistics.
-It is not consolidated into saved chat history or carried into tool
-continuations. For privacy-safe JSON lifecycle logs, set
-`CHATHUB_KNOWLEDGE_DEBUG=1` (or temporarily `verbose`). See
-[Knowledge Base and RAG](https://github.com/lqdflying/chathub/wiki/Knowledge-Base-and-RAG).
-
-### Moonshot Kimi K3
-
-`kimi-k3` is enabled in ChatHub's Moonshot model catalogue; it does not replace the global initial model, which remains `gpt-5-mini` from OpenAI. K3 provides a 1M-token context window, native vision and video input, function calling, structured output, and forced reasoning.
-
-K3 always sends `reasoning_effort: "max"`. ChatHub omits the K2.x `thinking` object and unsupported mutable sampling parameters, and preserves the complete assistant message—including `reasoning_content` and `tool_calls`—when continuing tool calls. The provider-specific Moonshot `$web_search` tool is not added for K3 because the current K3 documentation does not recommend that capability for near-term production use.
-
-ChatHub's built-in Moonshot route is `https://api.moonshot.cn/v1`. The global Kimi API documents `https://api.moonshot.ai/v1`; use `MOONSHOT_PROXY_URL` or a provider/request base URL when targeting that deployment instead of changing ChatHub's default endpoint.
-
----
-
-## Key Features
-
-- **Tools Hub** — Picbed (S3-backed image and video hosting), API Tester (browser-based REST client), Password Generator, extensible sidebar
-- **Model extension options (gear menu)** — Per-provider compact popovers wired from the model bank; MiniMax context trimming before API calls to avoid overflow errors. [Details →](https://github.com/lqdflying/chathub/wiki/Model-Extension-Options)
-- **Memory and context compaction** — Topic-level auto/manual compaction, assistant-level cross-session memory with periodic LLM rollup. [Details →](https://github.com/lqdflying/chathub/wiki/Memory-and-Context-Compaction)
-- **Knowledge Base vector RAG** — Dedicated external embeddings, pgvector HNSW search, document-only ingestion, and explicit provider readiness. [Details →](https://github.com/lqdflying/chathub/wiki/Knowledge-Base-and-RAG)
-- **MCP OAuth** — Auto-discovery via RFC 9728 / RFC 8414. Paste a server URL, authorize, done. Tokens stored server-side. [Details →](https://github.com/lqdflying/chathub/wiki/MCP-OAuth)
-- **Background conversation generation** — Chat replies, server-capable tool turns (web browsing, Code Interpreter on the DifySandbox sidecar, fixed Memory, HTTP MCP), group supervisor decisions, topic titles, translation, and guarded background memory compaction continue after you close the tab or navigate elsewhere. **Stop** and destructive history actions cancel matching work. Browser-only provider keys and image/non-HTTP MCP tools fall back to the connected-tab runtime for that send. Armed Context Export also uses the browser path so the capture still records. Requires a server-reachable provider API key for true background work (`FEATURE_FLAGS=-durable_conversation_generation` to disable). [Wiki →](https://github.com/lqdflying/chathub/wiki/Background-Conversation-Generation)
+reason. Retrieved context is injected only into the active initial model request.
+For privacy-safe JSON lifecycle logs, set `CHATHUB_KNOWLEDGE_DEBUG=1` (or
+temporarily `verbose`). See [Knowledge Base and RAG](https://github.com/lqdflying/chathub/wiki/Knowledge-Base-and-RAG).
 
 ---
 
@@ -204,14 +242,15 @@ Adding a new tool or feature? See the [Architecture Overview](https://github.com
 
 ## Docker Release
 
-GitHub Actions builds `docker.io/lqdflying/chathub` on version tags:
+GitHub Actions builds `docker.io/lqdflying/chathub` on version tags. Current GA
+is **v2.0.0** (`:latest`).
 
 ```bash
 # Bump version, commit, tag, push
 git tag vX.Y.Z && git push origin vX.Y.Z
 ```
 
-GA tags (`v*.*.*`) update `:latest`. Canary tags (`v*.*.*-canary.*`) push pre-release images only. [Full release workflow →](https://github.com/lqdflying/chathub/wiki/Release-Workflow)
+GA tags (`v*.*.*`) update `:latest`. Canary tags (`v*.*.*-canary.*`) push pre-release images only. After 2.0.0, the next canary is `v2.0.1-canary.N`. [Full release workflow](https://github.com/lqdflying/chathub/wiki/Release-Workflow).
 
 ---
 

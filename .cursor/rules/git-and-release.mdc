@@ -158,7 +158,7 @@ Docker builds run **only on tag pushes**, not on commits to `main`.
 - `v*.*.*` → pushes `lqdflying/chathub:X.Y.Z` **and** `:latest` (GA only)
 - `v*.*.*-canary.*` → pushes `lqdflying/chathub:X.Y.Z-canary.N` (does **not** touch `:latest`)
 
-Version scheme: `v1.x.x` (ChatHub independent versioning, unrelated to upstream v1.x).
+Version scheme: `v2.x.x` (ChatHub independent versioning, unrelated to upstream v1.x).
 
 **Docker build reliability:** `.github/workflows/docker-release.yml` frees unused runner disk (preinstalled SDK trees, `docker system prune`) before `docker build` so large Next.js images are less likely to hit **"No space left on device"** on `ubuntu-latest`.
 
