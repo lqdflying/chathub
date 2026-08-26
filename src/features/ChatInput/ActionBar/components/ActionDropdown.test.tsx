@@ -76,7 +76,7 @@ describe('ActionDropdown mobile overlay width', () => {
     expect(String(lastDropdownProps?.overlayClassName)).toContain('mobileRoot');
   });
 
-  it('lets caller overlayStyle override the mobile gutter pin', () => {
+  it('forwards non-positional overlayStyle and keeps the non-overridable gutter class', () => {
     useIsMobile.mockReturnValue(true);
 
     render(
@@ -85,11 +85,8 @@ describe('ActionDropdown mobile overlay width', () => {
       </ActionDropdown>,
     );
 
-    expect(lastDropdownProps?.overlayStyle).toMatchObject({
-      left: 8,
-      right: 16,
-      width: 'auto',
-      zIndex: 42,
-    });
+    expect(lastDropdownProps?.overlayStyle).toMatchObject({ zIndex: 42 });
+    expect(String(lastDropdownProps?.overlayClassName)).toContain(MOBILE_ACTION_OVERLAY_ROOT_CLASS);
+    expect(String(lastDropdownProps?.overlayClassName)).toContain('mobileRoot');
   });
 });

@@ -93,7 +93,7 @@ describe('ActionPopover mobile overlay width', () => {
     expect((lastPopoverProps?.classNames as { root?: string })?.root).toContain('mobileRoot');
   });
 
-  it('lets caller root styles override the mobile gutter pin', () => {
+  it('forwards non-positional caller root styles and keeps the non-overridable gutter class', () => {
     useIsMobile.mockReturnValue(true);
 
     render(
@@ -108,6 +108,10 @@ describe('ActionPopover mobile overlay width', () => {
 
     const styles = lastPopoverProps?.styles as { root?: Record<string, unknown> };
 
-    expect(styles.root).toMatchObject({ left: 8, right: 16, width: 'auto', zIndex: 42 });
+    expect(styles.root).toMatchObject({ zIndex: 42 });
+    expect((lastPopoverProps?.classNames as { root?: string })?.root).toContain(
+      MOBILE_ACTION_OVERLAY_ROOT_CLASS,
+    );
+    expect((lastPopoverProps?.classNames as { root?: string })?.root).toContain('mobileRoot');
   });
 });

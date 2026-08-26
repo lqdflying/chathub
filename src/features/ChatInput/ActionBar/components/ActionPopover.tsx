@@ -24,6 +24,7 @@ const useStyles = createStyles(({ css, prefixCls }) => ({
   /**
    * Beat rc-trigger's post-commit `element.style.left/right` writes.
    * Stylesheet `!important` wins over inline offsets without `!important`.
+   * Callers cannot opt out of the 16px gutters via `styles.root` left/width.
    */
   mobileRoot: css`
     left: ${MOBILE_ACTION_OVERLAY_GUTTER_PX}px !important;
@@ -43,6 +44,10 @@ const useStyles = createStyles(({ css, prefixCls }) => ({
   `,
 }));
 
+/**
+ * On mobile, 16px viewport gutters are pinned with `!important` and cannot be
+ * overridden through `styles.root` left/right/width. Other root styles still merge.
+ */
 export interface ActionPopoverProps extends Omit<PopoverProps, 'title' | 'content'> {
   compact?: boolean;
   content?: ReactNode;

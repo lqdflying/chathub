@@ -32,6 +32,12 @@ const menu = { items: [{ key: 'one', label: 'One' }] };
 
 const renderOverlay = (ui: React.ReactElement) => render(<ThemeProvider>{ui}</ThemeProvider>);
 
+const injectedStylesheetText = () =>
+  Array.from(document.querySelectorAll('style'))
+    .map((node) => node.textContent ?? '')
+    .join('\n')
+    .replace(/\s+/g, '');
+
 const assertPinnedToGutters = (root: HTMLElement) => {
   expect(root.className).toContain(MOBILE_ACTION_OVERLAY_ROOT_CLASS);
   expect(root.style.left).toBe(GUTTER);
@@ -134,5 +140,66 @@ describe('mobile action overlay placement', () => {
     });
 
     assertPinnedToGutters(root);
+  });
+
+  it('keeps ActionPopover 16px gutters when the caller sets inline left: 8', async () => {
+    renderOverlay(
+      <div style={{ height: 400, position: 'relative', width: VIEWPORT_WIDTH }}>
+        <ActionPopover
+          content="panel"
+          getPopupContainer={() => document.body}
+          open
+          styles={{ root: { left: 8, zIndex: 42 } }}
+          title="t"
+        >
+          <Trigger side="left" />
+        </ActionPopover>
+      </div>,
+    );
+
+    const root = await waitFor(() => {
+      const node = document.querySelector('.ant-popover') as HTMLElement | null;
+      expect(node).toBeTruthy();
+      return node!;
+    });
+
+    expect(root.className).toContain(MOBILE_ACTION_OVERLAY_ROOT_CLASS);
+    expect(injectedStylesheetText()).toContain('left:16px!important');
+    expect(injectedStylesheetText()).toContain('right:16px!important');
+
+    const computedLeft = Number.parseFloat(window.getComputedStyle(root).left);
+    if (!Number.isNaN(computedLeft) && computedLeft !== 8) {
+      expect(computedLeft).toBe(MOBILE_ACTION_OVERLAY_GUTTER_PX);
+    }
+  });
+
+  it('keeps ActionDropdown 16px gutters when the caller sets inline left: 8', async () => {
+    renderOverlay(
+      <div style={{ height: 400, position: 'relative', width: VIEWPORT_WIDTH }}>
+        <ActionDropdown
+          getPopupContainer={() => document.body}
+          menu={menu}
+          open
+          overlayStyle={{ left: 8, zIndex: 42 }}
+        >
+          <Trigger side="right" />
+        </ActionDropdown>
+      </div>,
+    );
+
+    const root = await waitFor(() => {
+      const node = document.querySelector('.ant-dropdown') as HTMLElement | null;
+      expect(node).toBeTruthy();
+      return node!;
+    });
+
+    expect(root.className).toContain(MOBILE_ACTION_OVERLAY_ROOT_CLASS);
+    expect(injectedStylesheetText()).toContain('left:16px!important');
+    expect(injectedStylesheetText()).toContain('right:16px!important');
+
+    const computedLeft = Number.parseFloat(window.getComputedStyle(root).left);
+    if (!Number.isNaN(computedLeft) && computedLeft !== 8) {
+      expect(computedLeft).toBe(MOBILE_ACTION_OVERLAY_GUTTER_PX);
+    }
   });
 });

@@ -15,6 +15,10 @@ export const MOBILE_ACTION_OVERLAY_ROOT_CLASS = 'chathub-mobile-action-overlay';
  * edge, leftover gutter on the other). A stylesheet `!important` class on
  * {@link MOBILE_ACTION_OVERLAY_ROOT_CLASS} beats those inline offsets.
  *
+ * Mobile gutters are non-overridable: caller `left` / `right` / `width` /
+ * `maxWidth` cannot win the cascade. Non-positional styles such as `zIndex`
+ * still merge.
+ *
  * `width: 'auto'` beats Ant Design Popover's `width: max-content`; otherwise
  * left+right stay over-constrained and the used width stays content-sized.
  *

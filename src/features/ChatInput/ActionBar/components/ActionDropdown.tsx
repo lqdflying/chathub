@@ -29,6 +29,10 @@ const useStyles = createStyles(({ css, prefixCls }) => ({
     width: 100% !important;
     max-width: 100% !important;
   `,
+  /**
+   * Mobile gutters are non-overridable. Caller `overlayStyle` left/width
+   * cannot beat these rules; non-positional styles such as zIndex still merge.
+   */
   mobileRoot: css`
     left: ${MOBILE_ACTION_OVERLAY_GUTTER_PX}px !important;
     right: ${MOBILE_ACTION_OVERLAY_GUTTER_PX}px !important;
@@ -37,6 +41,10 @@ const useStyles = createStyles(({ css, prefixCls }) => ({
   `,
 }));
 
+/**
+ * On mobile, 16px viewport gutters are pinned with `!important` and cannot be
+ * overridden through `overlayStyle` left/right/width. Other overlay styles still merge.
+ */
 export interface ActionDropdownProps extends DropdownProps {
   maxHeight?: number | string;
   maxWidth?: number | string;
