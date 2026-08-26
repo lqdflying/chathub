@@ -55,6 +55,7 @@ the user-facing GitHub Wiki, both, or neither need updates, with target pages an
 a reason. User-facing workflows, settings, controls, deployment, configuration,
 diagnostics, and troubleshooting changes require a GitHub Wiki update when the
 wiki is available. OpenWiki does not replace user-facing documentation.
+Root README and GitHub Releases follow **`.cursor/rules/release-writing.mdc`**.
 
 ## Branding / fork cleanup — when clearing values or rebranding
 

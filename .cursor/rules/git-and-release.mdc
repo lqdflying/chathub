@@ -51,7 +51,7 @@ Once a feature or fix branch has been merged into `main`, delete that branch loc
 
 ## Planning (Plan mode / implementation plans)
 
-When producing or updating an **implementation plan** (e.g. Cursor Plan mode / `CreatePlan`), include a short **Git workflow** subsection aligned with *Before first code edit* above: if currently on `main`, `git checkout -b` a `feat/<slug>` or `fix/<slug>` before edits; if already on a non-`main` branch, continue there by default even when the target changes, using distinct commits for each phase. Never plan work as if it will land directly on `main`. Note that completed fixes/features are committed locally in every affected Git repository after verification, including the separate `wiki/` repository when it changed, while **push / tag / release** actions require an explicit in-turn user instruction (*Agent commit policy* below).
+When producing or updating an **implementation plan** (e.g. Cursor Plan mode / `CreatePlan`), include a short **Git workflow** subsection aligned with *Before first code edit* above: if currently on `main`, `git checkout -b` a `feat/<slug>` or `fix/<slug>` before edits; if already on a non-`main` branch, continue there by default even when the target changes, using distinct commits for each phase. Never plan work as if it will land directly on `main`. Note that completed fixes/features are committed locally in every affected Git repository after verification, including the separate `wiki/` repository when it changed, while **push / tag / release** actions require an explicit in-turn user instruction (*Agent commit policy* below). README and GitHub Release copy in a plan must follow **`.cursor/rules/release-writing.mdc`**.
 
 ## Agent commit policy (STRICT)
 
@@ -271,39 +271,53 @@ This is the **only** flow allowed to push a non-canary `v*.*.*` tag and update `
 
 ### GitHub Release (MANDATORY — part of GA)
 
-Every GA tag **must** be accompanied by a `gh release create`. The release description must summarize all changes since the previous GA release.
+Every GA tag **must** be accompanied by a `gh release create`. Cover the
+**substance** of `vPREV...vNEW` (understand, then summarize). Writing style is
+**`.cursor/rules/release-writing.mdc`** — Highlights as one-liners, then
+Added/Changed/Removed or Fixed as short bullets. Do **not** paste prior
+release bodies, dump `git log`, or write essays.
 
 1. Find the **previous GA tag**:
    ```bash
    gh release list -R lqdflying/chathub --limit 5
    # or: git tag -l 'v*' --sort=-v:refname | grep -v 'canary' | head -2
    ```
-2. Generate the **release notes** by reviewing all commits between the previous GA and the new tag:
+2. Review commits for **substance** (not as the published notes):
    ```bash
    git log --oneline vPREV..vNEW
    ```
-3. Create the release:
-   ```bash
-   gh release create vX.Y.Z -R lqdflying/chathub \
-     --title "vX.Y.Z — <short summary>" \
-     --notes "$(cat <<'EOF'
+3. Create the release (`--notes-file` is fine). Skeleton:
+
+   ```markdown
+   <2–3 sentence opener>
+
    ## Highlights
+   - one line per item
 
-   - summarized from git log between previous GA and this tag
-   - group by category (Bug Fix, Feature, etc.)
+   ## Upgrade
+   - image, migrations, gotchas
 
-   ## What's Changed
+   ## Added
+   - …
 
-   (details...)
+   ## Changed
+   - …
+
+   ## Fixed
+   - …
+
+   ## Docs
+   - wiki links
 
    ---
 
    Full diff: https://github.com/lqdflying/chathub/compare/vPREV...vNEW
-   EOF
-   )"
    ```
 
-Do **not** create the release before pushing the tag — the tag push triggers the Docker build. Create the release after the tag push.
+   Title: `vX.Y.Z — <short summary>`. On a patch, skip empty Added/Changed
+   sections. Canon: [v2.0.0](https://github.com/lqdflying/chathub/releases/tag/v2.0.0).
+
+Do **not** create the release before pushing the tag — the tag push triggers the Docker build. Create the release after the tag push. Use `gh release edit` to fix notes; do not retag.
 
 ### After GA: clean up merged branches (MANDATORY)
 

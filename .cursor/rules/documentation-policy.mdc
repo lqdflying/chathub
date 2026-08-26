@@ -35,6 +35,11 @@ If documentation is required, include explicit documentation tasks in the plan.
 
 Do not treat an OpenWiki update as a substitute for user-facing documentation.
 
+Root `README.md` and GitHub Release bodies follow
+**`.cursor/rules/release-writing.mdc`**: highlights and short bullets, never
+essays, wiki indexes, or concatenated prior-release dumps. Wiki Home stays a
+short story plus procedure index. Feature procedures stay on wiki pages.
+
 ## GitHub Wiki handling
 
 - If `wiki/` exists, verify `git -C wiki branch -avv` before editing; it must be

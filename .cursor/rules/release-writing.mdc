@@ -1,0 +1,72 @@
+---
+description: README and GitHub Release writing — highlights and short bullets, never essays or changelog dumps
+alwaysApply: true
+---
+
+# README and GitHub Release writing
+
+Canon (accepted style): root `README.md` and
+[v2.0.0](https://github.com/lqdflying/chathub/releases/tag/v2.0.0).
+If unsure, skim a current **Immich** major (Highlights one-liners first) and
+[Keep a Changelog](https://keepachangelog.com/) — do not invent an essay.
+
+## Surfaces
+
+| Surface | Job |
+| --- | --- |
+| Root `README.md` | Product landing: what this GA *is*, not a wiki index |
+| GitHub Release | Scannable announcement for **one** tag |
+| Wiki Home | Short story + small table, then **procedure index** |
+| Wiki feature pages | How to configure / operate |
+| OpenWiki | Maintainer internals — not a marketing landing |
+
+Do not copy one surface onto another.
+
+## Never
+
+- Concatenate prior GitHub Release bodies or list GAs one by one
+- Dump `git log` / PR titles as the notes
+- Huge paragraphs or thematic essays
+- A 16-row comparison table or a bullet for every feature
+- Sell v1.0.0 table-stakes (credentials login, Tools Hub, MCP OAuth, gear) as if they were new
+
+Cover the **substance** of the range (`vPREV...vNEW`). Understand, then summarize.
+
+## README (major)
+
+1. Two–four sentence opener: this GA vs last first-GA, upgrade path
+2. **Five or fewer** highlights: `**Claim.**` + one short paragraph + wiki link
+3. Comparison table: **≤5 rows**, only deltas vs upstream / previous contract
+4. Operator Quick Start (Compose / auth / env) stays here
+5. Catalog and procedures stay on the wiki
+
+Patch README edits: one short paragraph or a few bullets — do not rewrite the landing.
+
+## GitHub Release
+
+```markdown
+<2–3 sentence opener: what this tag is, upgrade in one line, versioning gotchas>
+
+## Highlights
+- one line per item (scan this first)
+
+## Upgrade
+- image tag, migrations, sidecar/env gotchas
+- wiki link
+
+## Added / Changed / Removed   (or ## Fixed on a patch)
+- one-line bullets, grouped by area (Chat, Knowledge, Tools, …)
+
+## Docs
+- wiki links, not explanations
+
+Full diff: https://github.com/lqdflying/chathub/compare/vPREV...vNEW
+```
+
+- **Major:** Highlights = product contract change. Keep a Changelog sections for the rest.
+- **Patch:** Highlights + Fixed. Skip a 2.0-style landing.
+- One `> [!NOTE]` or `> [!WARNING]` max unless upgrade truly needs two.
+- `gh release edit` to fix notes; do not retag.
+
+Style: [git-and-release.mdc](git-and-release.mdc) (when to create the release).
+GFM: GitHub Markdown skill (alerts, tables, no wiki footnotes).

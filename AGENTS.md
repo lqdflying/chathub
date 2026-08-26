@@ -28,6 +28,7 @@ When writing or updating an **implementation plan** (e.g. Cursor Plan mode / `Cr
 Overview, stack, naming, wiki workflow: **`.cursor/rules/project.mdc`**. Per-model API toggles (extendParams): **`.cursor/rules/provider-model-options.mdc`**. Commands and test constraints: **`.cursor/rules/commands.mdc`**. MCP management UI patterns: **`.cursor/rules/mcp-management-ui.mdc`**. Claude-like leave-and-keep-going generation: **`.cursor/rules/durable-background-generation.mdc`**. Code Interpreter product prompt vs assistant/sidecar packages: **`.cursor/rules/code-interpreter-prompt.mdc`**. Code Interpreter / DifySandbox jail changes: reproduce on a local sidecar image first (**`.cursor/rules/code-interpreter-sandbox-repro.mdc`**).
 
 Every non-trivial change must follow **`.cursor/rules/documentation-policy.mdc`**.
+Root README and GitHub Release notes follow **`.cursor/rules/release-writing.mdc`**.
 User-facing workflows, settings, controls, deployment, configuration, diagnostics,
 and troubleshooting changes require a GitHub Wiki evaluation and update when
 applicable. Internal architecture and maintainer behavior require OpenWiki when
