@@ -1,0 +1,91 @@
+import { render } from '@testing-library/react';
+import React from 'react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import ActionDropdown from './ActionDropdown';
+import {
+  getMobileActionOverlayInnerStyle,
+  getMobileActionOverlayRootStyle,
+} from './mobileOverlayWidth';
+
+vi.stubGlobal('React', React);
+
+const { useIsMobile } = vi.hoisted(() => ({
+  useIsMobile: vi.fn(() => false),
+}));
+
+let lastDropdownProps: Record<string, unknown> | undefined;
+
+vi.mock('@/hooks/useIsMobile', () => ({
+  useIsMobile,
+}));
+
+vi.mock('antd-style', () => ({
+  createStyles: () => () => ({
+    cx: (...args: Array<string | undefined>) => args.filter(Boolean).join(' '),
+    styles: { dropdownMenu: 'dropdownMenu' },
+  }),
+}));
+
+vi.mock('@lobehub/ui', () => ({
+  Dropdown: (props: Record<string, unknown>) => {
+    lastDropdownProps = props;
+    return <div>{props.children as never}</div>;
+  },
+}));
+
+const menu = { items: [{ key: 'one', label: 'One' }] };
+
+describe('ActionDropdown mobile overlay width', () => {
+  beforeEach(() => {
+    lastDropdownProps = undefined;
+    useIsMobile.mockReturnValue(false);
+  });
+
+  it('keeps desktop minWidth and maxWidth on the menu and does not pin overlayStyle', () => {
+    render(
+      <ActionDropdown maxWidth={360} menu={menu} minWidth={240}>
+        trigger
+      </ActionDropdown>,
+    );
+
+    const menuProps = lastDropdownProps?.menu as { style?: Record<string, unknown> };
+
+    expect(menuProps.style).toMatchObject({ maxWidth: 360, minWidth: 240 });
+    expect(menuProps.style?.width).toBeUndefined();
+    expect(lastDropdownProps?.overlayStyle).toBeUndefined();
+  });
+
+  it('pins the dropdown root through overlayStyle and fills the menu on mobile', () => {
+    useIsMobile.mockReturnValue(true);
+
+    render(
+      <ActionDropdown maxWidth={360} menu={menu} minWidth={240}>
+        trigger
+      </ActionDropdown>,
+    );
+
+    const menuProps = lastDropdownProps?.menu as { style?: Record<string, unknown> };
+
+    expect(lastDropdownProps?.overlayStyle).toMatchObject(getMobileActionOverlayRootStyle());
+    expect(menuProps.style).toMatchObject(getMobileActionOverlayInnerStyle());
+    expect(menuProps.style?.width).not.toBe('100vw');
+  });
+
+  it('lets caller overlayStyle override the mobile gutter pin', () => {
+    useIsMobile.mockReturnValue(true);
+
+    render(
+      <ActionDropdown menu={menu} overlayStyle={{ left: 8, zIndex: 42 }}>
+        trigger
+      </ActionDropdown>,
+    );
+
+    expect(lastDropdownProps?.overlayStyle).toMatchObject({
+      left: 8,
+      right: 16,
+      width: 'auto',
+      zIndex: 42,
+    });
+  });
+});

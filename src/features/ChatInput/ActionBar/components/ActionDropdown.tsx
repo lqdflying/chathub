@@ -6,7 +6,10 @@ import { memo } from 'react';
 
 import { useIsMobile } from '@/hooks/useIsMobile';
 
-import { getMobileActionOverlayBoxStyle } from './mobileOverlayWidth';
+import {
+  getMobileActionOverlayInnerStyle,
+  getMobileActionOverlayRootStyle,
+} from './mobileOverlayWidth';
 
 const useStyles = createStyles(({ css, prefixCls }) => ({
   dropdownMenu: css`
@@ -42,6 +45,7 @@ const ActionDropdown = memo<ActionDropdownProps>(
     prefetch = false,
     destroyOnHidden,
     forceRender,
+    overlayStyle,
     ...rest
   }) => {
     const { cx, styles } = useStyles();
@@ -67,7 +71,7 @@ const ActionDropdown = memo<ActionDropdownProps>(
             overflowX: 'hidden',
             overflowY: 'scroll',
             ...(isMobile
-              ? getMobileActionOverlayBoxStyle()
+              ? getMobileActionOverlayInnerStyle()
               : {
                   maxWidth,
                   minWidth,
@@ -75,6 +79,14 @@ const ActionDropdown = memo<ActionDropdownProps>(
             ...menu.style,
           },
         }}
+        overlayStyle={
+          isMobile || overlayStyle
+            ? {
+                ...(isMobile ? getMobileActionOverlayRootStyle() : undefined),
+                ...overlayStyle,
+              }
+            : overlayStyle
+        }
         placement={isMobile ? 'top' : placement}
         {...rest}
       >

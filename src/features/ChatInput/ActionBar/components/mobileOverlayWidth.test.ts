@@ -2,25 +2,28 @@ import { describe, expect, it } from 'vitest';
 
 import {
   MOBILE_ACTION_OVERLAY_GUTTER_PX,
-  getMobileActionOverlayBoxStyle,
-  getMobileActionOverlayMaxWidth,
+  getMobileActionOverlayInnerStyle,
+  getMobileActionOverlayRootStyle,
 } from './mobileOverlayWidth';
 
-describe('getMobileActionOverlayMaxWidth', () => {
-  it('leaves 16px gutters on both sides of 100vw', () => {
+describe('getMobileActionOverlayRootStyle', () => {
+  it('pins both physical edges to the 16px gutter and lets the root stretch', () => {
     expect(MOBILE_ACTION_OVERLAY_GUTTER_PX).toBe(16);
-    expect(getMobileActionOverlayMaxWidth()).toBe('calc(100vw - 32px)');
+    expect(getMobileActionOverlayRootStyle()).toEqual({
+      boxSizing: 'border-box',
+      left: 16,
+      right: 16,
+      width: 'auto',
+    });
   });
 });
 
-describe('getMobileActionOverlayBoxStyle', () => {
-  it('caps width inside the gutter and includes padding in the box', () => {
-    const maxWidth = getMobileActionOverlayMaxWidth();
-
-    expect(getMobileActionOverlayBoxStyle()).toEqual({
+describe('getMobileActionOverlayInnerStyle', () => {
+  it('fills the pinned root without overflowing it', () => {
+    expect(getMobileActionOverlayInnerStyle()).toEqual({
       boxSizing: 'border-box',
-      maxWidth,
-      width: maxWidth,
+      maxWidth: '100%',
+      width: '100%',
     });
   });
 });

@@ -3,7 +3,10 @@ import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import ActionPopover from './ActionPopover';
-import { getMobileActionOverlayBoxStyle, getMobileActionOverlayMaxWidth } from './mobileOverlayWidth';
+import {
+  getMobileActionOverlayInnerStyle,
+  getMobileActionOverlayRootStyle,
+} from './mobileOverlayWidth';
 
 vi.stubGlobal('React', React);
 
@@ -42,7 +45,7 @@ describe('ActionPopover mobile overlay width', () => {
     useIsMobile.mockReturnValue(false);
   });
 
-  it('keeps desktop minWidth and maxWidth and does not force 100vw', () => {
+  it('keeps desktop minWidth and maxWidth and does not pin the root', () => {
     render(
       <ActionPopover content="body" maxWidth={360} minWidth={240} title="desktop">
         trigger
@@ -51,15 +54,16 @@ describe('ActionPopover mobile overlay width', () => {
 
     const styles = lastPopoverProps?.styles as {
       body?: { maxWidth?: number; minWidth?: number; width?: string };
-      root?: { maxWidth?: string };
+      root?: { left?: number; maxWidth?: string; width?: string };
     };
 
     expect(styles.body).toMatchObject({ maxWidth: 360, minWidth: 240 });
     expect(styles.body?.width).toBeUndefined();
-    expect(styles.root?.maxWidth).toBeUndefined();
+    expect(styles.root?.left).toBeUndefined();
+    expect(styles.root?.width).toBeUndefined();
   });
 
-  it('caps the overlay to the viewport minus 16px gutters on mobile', () => {
+  it('pins the mobile overlay root to 16px gutters instead of only shrinking it', () => {
     useIsMobile.mockReturnValue(true);
 
     render(
@@ -70,13 +74,32 @@ describe('ActionPopover mobile overlay width', () => {
 
     const styles = lastPopoverProps?.styles as {
       body?: Record<string, unknown>;
-      root?: { maxWidth?: string };
+      root?: Record<string, unknown>;
     };
 
-    expect(styles.body).toMatchObject(getMobileActionOverlayBoxStyle());
+    expect(styles.root).toMatchObject(getMobileActionOverlayRootStyle());
+    expect(styles.body).toMatchObject(getMobileActionOverlayInnerStyle());
     expect(styles.body?.minWidth).toBeUndefined();
-    expect(styles.body?.width).toBe(getMobileActionOverlayMaxWidth());
+    expect(styles.body?.width).toBe('100%');
     expect(styles.body?.width).not.toBe('100vw');
-    expect(styles.root?.maxWidth).toBe(getMobileActionOverlayMaxWidth());
+    expect(styles.root?.width).toBe('auto');
+  });
+
+  it('lets caller root styles override the mobile gutter pin', () => {
+    useIsMobile.mockReturnValue(true);
+
+    render(
+      <ActionPopover
+        content="body"
+        styles={{ root: { left: 8, zIndex: 42 } }}
+        title="override"
+      >
+        trigger
+      </ActionPopover>,
+    );
+
+    const styles = lastPopoverProps?.styles as { root?: Record<string, unknown> };
+
+    expect(styles.root).toMatchObject({ left: 8, right: 16, width: 'auto', zIndex: 42 });
   });
 });

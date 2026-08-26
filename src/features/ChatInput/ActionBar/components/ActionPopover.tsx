@@ -9,8 +9,8 @@ import UpdateLoading from '@/components/Loading/UpdateLoading';
 import { useIsMobile } from '@/hooks/useIsMobile';
 
 import {
-  getMobileActionOverlayBoxStyle,
-  getMobileActionOverlayMaxWidth,
+  getMobileActionOverlayInnerStyle,
+  getMobileActionOverlayRootStyle,
 } from './mobileOverlayWidth';
 
 const useStyles = createStyles(({ css, prefixCls }) => ({
@@ -67,7 +67,7 @@ const ActionPopover = memo<ActionPopoverProps>(
           body: {
             maxHeight,
             ...(isMobile
-              ? getMobileActionOverlayBoxStyle()
+              ? getMobileActionOverlayInnerStyle()
               : {
                   maxWidth,
                   minWidth,
@@ -75,7 +75,7 @@ const ActionPopover = memo<ActionPopoverProps>(
             ...customStyles?.body,
           },
           root: {
-            ...(isMobile ? { maxWidth: getMobileActionOverlayMaxWidth() } : undefined),
+            ...(isMobile ? getMobileActionOverlayRootStyle() : undefined),
             ...customStyles?.root,
           },
         }}
