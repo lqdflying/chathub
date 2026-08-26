@@ -8,6 +8,11 @@ import { Flexbox } from 'react-layout-kit';
 import UpdateLoading from '@/components/Loading/UpdateLoading';
 import { useIsMobile } from '@/hooks/useIsMobile';
 
+import {
+  getMobileActionOverlayBoxStyle,
+  getMobileActionOverlayMaxWidth,
+} from './mobileOverlayWidth';
+
 const useStyles = createStyles(({ css, prefixCls }) => ({
   popoverContent: css`
     .${prefixCls}-form {
@@ -61,10 +66,17 @@ const ActionPopover = memo<ActionPopoverProps>(
           ...customStyles,
           body: {
             maxHeight,
-            maxWidth: isMobile ? undefined : maxWidth,
-            minWidth: isMobile ? undefined : minWidth,
-            width: isMobile ? '100vw' : undefined,
+            ...(isMobile
+              ? getMobileActionOverlayBoxStyle()
+              : {
+                  maxWidth,
+                  minWidth,
+                }),
             ...customStyles?.body,
+          },
+          root: {
+            ...(isMobile ? { maxWidth: getMobileActionOverlayMaxWidth() } : undefined),
+            ...customStyles?.root,
           },
         }}
         title={

@@ -6,6 +6,8 @@ import { memo } from 'react';
 
 import { useIsMobile } from '@/hooks/useIsMobile';
 
+import { getMobileActionOverlayBoxStyle } from './mobileOverlayWidth';
+
 const useStyles = createStyles(({ css, prefixCls }) => ({
   dropdownMenu: css`
     &.${prefixCls}-dropdown-menu {
@@ -62,11 +64,14 @@ const ActionDropdown = memo<ActionDropdownProps>(
           },
           style: {
             maxHeight,
-            maxWidth: isMobile ? undefined : maxWidth,
-            minWidth: isMobile ? undefined : minWidth,
             overflowX: 'hidden',
             overflowY: 'scroll',
-            width: isMobile ? '100vw' : undefined,
+            ...(isMobile
+              ? getMobileActionOverlayBoxStyle()
+              : {
+                  maxWidth,
+                  minWidth,
+                }),
             ...menu.style,
           },
         }}
