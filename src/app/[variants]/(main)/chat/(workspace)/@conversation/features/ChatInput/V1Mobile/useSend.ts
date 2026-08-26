@@ -3,6 +3,7 @@ import { useAnalytics } from '@lobehub/analytics/react';
 import { useCallback, useMemo } from 'react';
 
 import {
+  MAIN_PASTED_TEXT_SCOPE,
   clearPendingPastedTexts,
   joinInputWithPendingPastedTexts,
 } from '@/features/ChatInput/pastedText';
@@ -50,7 +51,10 @@ export const useSendMessage = () => {
       const canSend = !isUploadingFiles && !isSendButtonDisabledByMessage;
       if (!canSend) return;
 
-      const inputMessage = joinInputWithPendingPastedTexts(store.inputMessage);
+      const inputMessage = joinInputWithPendingPastedTexts(
+        store.inputMessage,
+        MAIN_PASTED_TEXT_SCOPE,
+      );
       const selectionKey = getSkillSelectionKey({
         sessionId: store.activeId,
         threadId: store.activeThreadId,
@@ -102,7 +106,7 @@ export const useSendMessage = () => {
 
       updateInputMessage('');
       clearChatUploadFileList();
-      clearPendingPastedTexts();
+      clearPendingPastedTexts(MAIN_PASTED_TEXT_SCOPE);
 
       // 获取分析数据
       const userStore = getUserStoreState();

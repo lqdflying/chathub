@@ -7,6 +7,11 @@ import { Trans } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
 import { type ActionKeys, ChatInputProvider, DesktopChatInput } from '@/features/ChatInput';
+import {
+  PastedTextScopeProvider,
+  getThreadPastedTextScope,
+  useClearPastedTextsOnScopeChange,
+} from '@/features/ChatInput/pastedText';
 import WideScreenContainer from '@/features/Conversation/components/WideScreenContainer';
 import { useChatStore } from '@/store/chat';
 import { useGlobalStore } from '@/store/global';
@@ -23,6 +28,9 @@ const Desktop = memo(() => {
   ]);
 
   const { send, disabled, generating, stop } = useSendThreadMessage();
+  const portalThreadId = useChatStore((s) => s.portalThreadId);
+  const pastedTextScope = getThreadPastedTextScope(portalThreadId);
+  useClearPastedTextsOnScopeChange(pastedTextScope);
 
   return (
     <WideScreenContainer>
@@ -49,24 +57,26 @@ const Desktop = memo(() => {
         </Flexbox>
       )}
 
-      <ChatInputProvider
-        chatInputEditorRef={(instance) => {
-          if (!instance) return;
-          useChatStore.setState({ threadInputEditor: instance });
-        }}
-        leftActions={threadActions}
-        onSend={() => {
-          send();
-        }}
-        sendButtonProps={{
-          disabled,
-          generating,
-          onStop: stop,
-          shape: 'round',
-        }}
-      >
-        <DesktopChatInput />
-      </ChatInputProvider>
+      <PastedTextScopeProvider scope={pastedTextScope}>
+        <ChatInputProvider
+          chatInputEditorRef={(instance) => {
+            if (!instance) return;
+            useChatStore.setState({ threadInputEditor: instance });
+          }}
+          leftActions={threadActions}
+          onSend={() => {
+            send();
+          }}
+          sendButtonProps={{
+            disabled,
+            generating,
+            onStop: stop,
+            shape: 'round',
+          }}
+        >
+          <DesktopChatInput />
+        </ChatInputProvider>
+      </PastedTextScopeProvider>
     </WideScreenContainer>
   );
 });

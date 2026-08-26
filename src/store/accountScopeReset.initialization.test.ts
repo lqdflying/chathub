@@ -6,6 +6,7 @@ describe('accountScopeReset module initialization', () => {
 
     const accountScopeResetModule = await import('./accountScopeReset');
     const { useSkillStore } = await import('./skill');
+    const { MAIN_PASTED_TEXT_SCOPE } = await import('@/features/ChatInput/pastedText/scope');
     const { usePastedTextStore } = await import('@/features/ChatInput/pastedText/store');
 
     expect(accountScopeResetModule.resetAccountScopedStores).toBeTypeOf('function');
@@ -24,13 +25,13 @@ describe('accountScopeReset module initialization', () => {
       isLoading: false,
       selectedSkillIdsByConversation: { 'session:topic:main': ['account-a-skill'] },
     });
-    usePastedTextStore.getState().addPastedText('account dump');
+    usePastedTextStore.getState().addPastedText(MAIN_PASTED_TEXT_SCOPE, 'account dump');
 
     accountScopeResetModule.resetAccountScopedStores('Account changed');
 
     expect(useSkillStore.getState().installedSkills).toEqual([]);
     expect(useSkillStore.getState().selectedSkillIdsByConversation).toEqual({});
     expect(useSkillStore.getState().isLoading).toBe(true);
-    expect(usePastedTextStore.getState().items).toEqual([]);
+    expect(usePastedTextStore.getState().itemsByScope).toEqual({});
   }, 30_000);
 });

@@ -7,30 +7,57 @@ export interface PastedTextItem {
   id: string;
 }
 
+const EMPTY_ITEMS: PastedTextItem[] = [];
+
 interface PastedTextState {
-  addPastedText: (content: string) => string;
-  clearPastedTexts: () => void;
-  items: PastedTextItem[];
-  removePastedText: (id: string) => void;
+  addPastedText: (scope: string, content: string) => string;
+  clearAllPastedTexts: () => void;
+  clearPastedTexts: (scope: string) => void;
+  itemsByScope: Record<string, PastedTextItem[]>;
+  removePastedText: (scope: string, id: string) => void;
 }
+
+export const selectPastedTextItems = (scope: string) => (state: PastedTextState) =>
+  state.itemsByScope[scope] ?? EMPTY_ITEMS;
+
+export const selectPastedTextCount = (scope: string) => (state: PastedTextState) =>
+  state.itemsByScope[scope]?.length ?? 0;
 
 export const usePastedTextStore = createWithEqualityFn<PastedTextState>()(
   (set) => ({
-    addPastedText: (content) => {
+    addPastedText: (scope, content) => {
       const id = nanoid();
       set((state) => ({
-        items: [...state.items, { content, id }],
+        itemsByScope: {
+          ...state.itemsByScope,
+          [scope]: [...(state.itemsByScope[scope] ?? []), { content, id }],
+        },
       }));
       return id;
     },
-    clearPastedTexts: () => {
-      set({ items: [] });
+    clearAllPastedTexts: () => {
+      set({ itemsByScope: {} });
     },
-    items: [],
-    removePastedText: (id) => {
-      set((state) => ({
-        items: state.items.filter((item) => item.id !== id),
-      }));
+    clearPastedTexts: (scope) => {
+      set((state) => {
+        if (!(scope in state.itemsByScope)) return state;
+        const itemsByScope = { ...state.itemsByScope };
+        delete itemsByScope[scope];
+        return { itemsByScope };
+      });
+    },
+    itemsByScope: {},
+    removePastedText: (scope, id) => {
+      set((state) => {
+        const items = state.itemsByScope[scope];
+        if (!items) return state;
+        return {
+          itemsByScope: {
+            ...state.itemsByScope,
+            [scope]: items.filter((item) => item.id !== id),
+          },
+        };
+      });
     },
   }),
   shallow,

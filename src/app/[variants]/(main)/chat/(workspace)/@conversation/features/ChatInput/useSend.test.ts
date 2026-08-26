@@ -1,7 +1,8 @@
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { usePastedTextStore } from '@/features/ChatInput/pastedText/store';
+import { MAIN_PASTED_TEXT_SCOPE } from '@/features/ChatInput/pastedText/scope';
+import { selectPastedTextItems, usePastedTextStore } from '@/features/ChatInput/pastedText/store';
 
 import { useSend, useSendGroupMessage } from './useSend';
 
@@ -132,7 +133,7 @@ describe('workspace skill-aware send hooks', () => {
     mocks.fileState.files = [];
     mocks.skillState.installedSkills = [{ identifier: 'reviewer' }];
     mocks.skillState.selectedSkillIds = ['reviewer'];
-    usePastedTextStore.getState().clearPastedTexts();
+    usePastedTextStore.getState().clearAllPastedTexts();
   });
 
   it('sends slash-like text literally and retains the composer selection', async () => {
@@ -177,7 +178,7 @@ describe('workspace skill-aware send hooks', () => {
 
   it('sends chips only and clears them after send', async () => {
     mocks.chatState.inputMessage = '';
-    usePastedTextStore.getState().addPastedText('pasted dump');
+    usePastedTextStore.getState().addPastedText(MAIN_PASTED_TEXT_SCOPE, 'pasted dump');
     const { result } = renderHook(() => useSend());
 
     expect(result.current.disabled).toBe(false);
@@ -187,12 +188,12 @@ describe('workspace skill-aware send hooks', () => {
     expect(mocks.chatState.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({ message: 'pasted dump' }),
     );
-    expect(usePastedTextStore.getState().items).toEqual([]);
+    expect(selectPastedTextItems(MAIN_PASTED_TEXT_SCOPE)(usePastedTextStore.getState())).toEqual([]);
   });
 
   it('joins the typed prompt before pasted dumps', async () => {
     mocks.chatState.inputMessage = 'explain this';
-    usePastedTextStore.getState().addPastedText('LOG DUMP');
+    usePastedTextStore.getState().addPastedText(MAIN_PASTED_TEXT_SCOPE, 'LOG DUMP');
     const { result } = renderHook(() => useSend());
 
     await act(() => result.current.send());

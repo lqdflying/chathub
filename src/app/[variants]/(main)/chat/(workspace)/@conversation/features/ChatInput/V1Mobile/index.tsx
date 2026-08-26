@@ -9,6 +9,7 @@ import { Flexbox } from 'react-layout-kit';
 import { ActionKeys } from '@/features/ChatInput/ActionBar/config';
 import { MOBILE_CHAT_LEFT_ACTIONS } from '@/features/ChatInput/ActionBar/presets';
 import { useClearPastedTextsOnChatChange } from '@/features/ChatInput/pastedText';
+import PastedTextList from '@/features/ChatInput/pastedText/PastedTextList';
 import { useInitAgentConfig } from '@/hooks/useInitAgentConfig';
 import { useChatStore } from '@/store/chat';
 import { aiChatSelectors, chatSelectors } from '@/store/chat/selectors';
@@ -46,6 +47,7 @@ const MobileChatInput = memo(() => {
 
         sendMessage();
       }}
+      pastedAddons={<PastedTextList />}
       ref={ref}
       setExpand={setExpand}
       style={{

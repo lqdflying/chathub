@@ -9,7 +9,11 @@ import { CSSProperties, ReactNode, forwardRef, useEffect, useRef, useState } fro
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
-import { captureLargePlainPaste } from '@/features/ChatInput/pastedText';
+import {
+  MAIN_PASTED_TEXT_SCOPE,
+  captureLargePlainPaste,
+  createShiftPasteBypassTracker,
+} from '@/features/ChatInput/pastedText';
 
 import InnerContainer from './Container';
 
@@ -50,6 +54,7 @@ export interface MobileChatInputAreaProps {
   loading?: boolean;
   onInput?: (value: string) => void;
   onSend?: () => void;
+  pastedAddons?: ReactNode;
   safeArea?: boolean;
   setExpand?: (expand: boolean) => void;
   style?: CSSProperties;
@@ -73,6 +78,7 @@ const MobileChatInputArea = forwardRef<TextAreaRef, MobileChatInputAreaProps>(
       onSend,
       onInput,
       loading,
+      pastedAddons,
       value,
       safeArea,
     },
@@ -80,6 +86,7 @@ const MobileChatInputArea = forwardRef<TextAreaRef, MobileChatInputAreaProps>(
   ) => {
     const { t } = useTranslation('chat');
     const isChineseInput = useRef(false);
+    const pasteBypassTracker = useRef(createShiftPasteBypassTracker());
     const containerRef = useRef<HTMLDivElement>(null);
     const { cx, styles } = useStyles();
     const size = useSize(containerRef);
@@ -100,6 +107,7 @@ const MobileChatInputArea = forwardRef<TextAreaRef, MobileChatInputAreaProps>(
         style={style}
       >
         {topAddons && <Flexbox style={showAddons ? {} : { display: 'none' }}>{topAddons}</Flexbox>}
+        {pastedAddons}
         <Flexbox
           className={cx(expand && styles.expand)}
           ref={containerRef}
@@ -126,6 +134,7 @@ const MobileChatInputArea = forwardRef<TextAreaRef, MobileChatInputAreaProps>(
               autoSize={expand ? false : { maxRows: 6, minRows: 0 }}
               className={styles.textarea}
               onBlur={(e) => {
+                pasteBypassTracker.current.reset();
                 onInput?.(e.target.value);
                 setIsFocused(false);
               }}
@@ -139,8 +148,17 @@ const MobileChatInputArea = forwardRef<TextAreaRef, MobileChatInputAreaProps>(
                 isChineseInput.current = true;
               }}
               onFocus={() => setIsFocused(true)}
+              onKeyDown={(event) => {
+                pasteBypassTracker.current.onKeyDown(event.nativeEvent);
+              }}
+              onKeyUp={(event) => {
+                pasteBypassTracker.current.onKeyUp(event.nativeEvent);
+              }}
               onPaste={(event) => {
-                captureLargePlainPaste(event);
+                captureLargePlainPaste(event, {
+                  bypass: pasteBypassTracker.current.consumeBypass(),
+                  scope: MAIN_PASTED_TEXT_SCOPE,
+                });
               }}
               onPressEnter={(e) => {
                 if (!loading && !isChineseInput.current && e.shiftKey) {

@@ -1,7 +1,8 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { usePastedTextStore } from '@/features/ChatInput/pastedText/store';
+import { MAIN_PASTED_TEXT_SCOPE, getThreadPastedTextScope } from '@/features/ChatInput/pastedText/scope';
+import { selectPastedTextItems, usePastedTextStore } from '@/features/ChatInput/pastedText/store';
 import { useChatStore } from '@/store/chat';
 
 import { useSendThreadMessage } from './useSend';
@@ -23,7 +24,7 @@ describe('useSendThreadMessage', () => {
       messageRAGLoadingIds: [],
       threadInputEditor: undefined,
     });
-    usePastedTextStore.getState().clearPastedTexts();
+    usePastedTextStore.getState().clearAllPastedTexts();
   });
 
   it('stops the portal thread rather than the workspace thread', () => {
@@ -75,8 +76,12 @@ describe('useSendThreadMessage', () => {
     const clearContent = vi.fn();
     const focus = vi.fn();
     checkGeminiChineseWarning.mockResolvedValue(true);
-    usePastedTextStore.getState().addPastedText('thread dump');
+    usePastedTextStore.getState().addPastedText(MAIN_PASTED_TEXT_SCOPE, 'main dump');
+    usePastedTextStore
+      .getState()
+      .addPastedText(getThreadPastedTextScope('portal-thread'), 'thread dump');
     useChatStore.setState({
+      portalThreadId: 'portal-thread',
       sendThreadMessage,
       threadInputEditor: {
         clearContent,
@@ -92,7 +97,14 @@ describe('useSendThreadMessage', () => {
     });
 
     expect(sendThreadMessage).toHaveBeenCalledWith({ message: 'thread dump' });
-    expect(usePastedTextStore.getState().items).toEqual([]);
+    expect(
+      selectPastedTextItems(getThreadPastedTextScope('portal-thread'))(usePastedTextStore.getState()),
+    ).toEqual([]);
+    expect(
+      selectPastedTextItems(MAIN_PASTED_TEXT_SCOPE)(usePastedTextStore.getState()).map(
+        (item) => item.content,
+      ),
+    ).toEqual(['main dump']);
     expect(clearContent).toHaveBeenCalled();
   });
 });

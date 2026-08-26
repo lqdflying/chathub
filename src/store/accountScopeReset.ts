@@ -33,7 +33,7 @@ const abortControllers = (
 
 export const resetAccountScopedStores = (reason: string): void => {
   void clearAccountCache();
-  usePastedTextStore.getState().clearPastedTexts();
+  usePastedTextStore.getState().clearAllPastedTexts();
 
   const userState = useUserStore.getState();
   abortControllers(

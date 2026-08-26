@@ -3,6 +3,7 @@ import { useCallback, useMemo, useState } from 'react';
 
 import {
   clearPendingPastedTexts,
+  getThreadPastedTextScope,
   joinInputWithPendingPastedTexts,
 } from '@/features/ChatInput/pastedText';
 import { useGeminiChineseWarning } from '@/hooks/useGeminiChineseWarning';
@@ -48,7 +49,11 @@ export const useSendThreadMessage = () => {
       return;
     }
 
-    const inputMessage = joinInputWithPendingPastedTexts(threadInputEditor.getMarkdownContent());
+    const pastedTextScope = getThreadPastedTextScope(store.portalThreadId);
+    const inputMessage = joinInputWithPendingPastedTexts(
+      threadInputEditor.getMarkdownContent(),
+      pastedTextScope,
+    );
 
     // if there is no message and no image, then we should not send the message
     if (!inputMessage) return;
@@ -71,7 +76,7 @@ export const useSendThreadMessage = () => {
     });
 
     updateInputMessage('');
-    clearPendingPastedTexts();
+    clearPendingPastedTexts(pastedTextScope);
     threadInputEditor.clearContent();
     threadInputEditor.focus();
   };

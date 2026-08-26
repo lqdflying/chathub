@@ -1,11 +1,13 @@
 import { joinPromptWithPastedText } from './helpers';
-import { usePastedTextStore } from './store';
+import { selectPastedTextItems, usePastedTextStore } from './store';
 
-export const joinInputWithPendingPastedTexts = (prompt: string) => {
-  const pastes = usePastedTextStore.getState().items.map((item) => item.content);
+export const joinInputWithPendingPastedTexts = (prompt: string, scope: string) => {
+  const pastes = selectPastedTextItems(scope)(usePastedTextStore.getState()).map(
+    (item) => item.content,
+  );
   return joinPromptWithPastedText(prompt, pastes);
 };
 
-export const clearPendingPastedTexts = () => {
-  usePastedTextStore.getState().clearPastedTexts();
+export const clearPendingPastedTexts = (scope: string) => {
+  usePastedTextStore.getState().clearPastedTexts(scope);
 };

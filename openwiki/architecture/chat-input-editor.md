@@ -172,21 +172,28 @@ parse and a send-before-parse can drop the dump.
 
 Threshold (`src/features/ChatInput/pastedText/helpers.ts`): collapse when the
 paste has **10+ lines** or **1000+ characters** (either gate). `Ctrl+Shift+V` /
-`Cmd+Shift+V` (`event.shiftKey`) bypasses the composer chip and pastes inline;
-the topic still collapses after send if the result is huge. Clipboard **files**
-are ignored so image paste stays on the existing upload path.
+`Cmd+Shift+V` is tracked from `keydown` (`createShiftPasteBypassTracker`); paste
+events do not expose `shiftKey` in the DOM or React types. The topic still
+collapses after send if the result is huge. Clipboard **files** are ignored so
+image paste stays on the existing upload path.
 
-Pending chips live in a dedicated Zustand store
-(`src/features/ChatInput/pastedText/store.ts`), not `ChatInputProvider`, because
-mobile topic input is still V1Mobile `TextArea` and has no provider. Clear on
-successful send, `chatKey` (session + topic) change, and
-`resetAccountScopedStores`. Desktop / thread intercept uses a Lexical capture-
-phase `paste` listener (`PastedTextPlugin`); V1Mobile uses `TextArea` `onPaste`.
-All send paths (`useSend`, group send, V1Mobile, thread) join typed prompt first,
-then each paste body, with blank lines.
+Pending chips are keyed by composer scope in
+`src/features/ChatInput/pastedText/store.ts` (`main` vs `thread:<portalThreadId>`),
+not `ChatInputProvider`, because mobile topic input is still V1Mobile `TextArea`
+and has no provider. The portal thread wraps `DesktopChatInput` in
+`PastedTextScopeProvider`. Clear the active scope on successful send, all scopes
+on `chatKey` (session + topic) change, the previous thread scope when
+`portalThreadId` changes, and everything in `resetAccountScopedStores`. Desktop /
+thread intercept uses a Lexical capture-phase `paste` listener plus the shortcut
+tracker (`PastedTextPlugin`); V1Mobile uses `TextArea` `onPaste` and keeps chips
+in `pastedAddons` so they stay visible while the textarea is focused. All send
+paths (`useSend`, group send, V1Mobile, thread) join typed prompt first, then
+each paste body from that composer only, with blank lines. Join uses trim only
+to skip blank segments; the original prompt and paste bytes are preserved.
 
 The topic card replaces the old 30,000-character `ContentPreview` in
-`User/MarkdownRender`. Click opens the existing message-detail portal.
-`EditableMessage` still shows full text when editing. Do not collapse assistant
-messages.
+`User/MarkdownRender`. Classification is size-based for any user message over
+the threshold (including Shift-inline pastes), not paste-origin metadata. Click
+opens the existing message-detail portal. `EditableMessage` still shows full
+text when editing. Do not collapse assistant messages.
 

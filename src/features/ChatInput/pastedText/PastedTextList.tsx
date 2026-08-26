@@ -4,10 +4,12 @@ import { memo } from 'react';
 import { Flexbox } from 'react-layout-kit';
 
 import PastedTextCard from './PastedTextCard';
-import { usePastedTextStore } from './store';
+import { usePastedTextScope } from './PastedTextScopeContext';
+import { selectPastedTextItems, usePastedTextStore } from './store';
 
 const PastedTextList = memo(() => {
-  const items = usePastedTextStore((s) => s.items);
+  const scope = usePastedTextScope();
+  const items = usePastedTextStore(selectPastedTextItems(scope));
   const removePastedText = usePastedTextStore((s) => s.removePastedText);
 
   if (items.length === 0) return null;
@@ -19,7 +21,7 @@ const PastedTextList = memo(() => {
           content={item.content}
           key={item.id}
           onRemove={() => {
-            removePastedText(item.id);
+            removePastedText(scope, item.id);
           }}
         />
       ))}

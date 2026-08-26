@@ -12,6 +12,17 @@ export const useClearPastedTextsOnChatChange = () => {
   useEffect(() => {
     if (previousChatKey.current === chatKey) return;
     previousChatKey.current = chatKey;
-    usePastedTextStore.getState().clearPastedTexts();
+    usePastedTextStore.getState().clearAllPastedTexts();
   }, [chatKey]);
+};
+
+export const useClearPastedTextsOnScopeChange = (scope: string) => {
+  const previousScope = useRef(scope);
+
+  useEffect(() => {
+    if (previousScope.current === scope) return;
+    const staleScope = previousScope.current;
+    previousScope.current = scope;
+    usePastedTextStore.getState().clearPastedTexts(staleScope);
+  }, [scope]);
 };

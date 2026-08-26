@@ -25,10 +25,12 @@ export const getPastedTextPreview = (text: string) => {
   return truncated ? `${body}…` : body;
 };
 
-export const joinPromptWithPastedText = (prompt: string, pastes: string[]) =>
-  [prompt.trim(), ...pastes.map((item) => item.replace(/\s+$/u, '')).filter(Boolean)]
-    .filter(Boolean)
-    .join('\n\n');
+export const joinPromptWithPastedText = (prompt: string, pastes: string[]) => {
+  const nonEmptyPastes = pastes.filter((item) => item.trim().length > 0);
+  if (nonEmptyPastes.length === 0) return prompt;
+
+  return (prompt.trim().length > 0 ? [prompt, ...nonEmptyPastes] : nonEmptyPastes).join('\n\n');
+};
 
 export const hasClipboardFiles = (data: DataTransfer | null | undefined) => {
   if (!data) return false;
@@ -39,7 +41,11 @@ export const hasClipboardFiles = (data: DataTransfer | null | undefined) => {
 export interface PasteLikeEvent {
   clipboardData: DataTransfer | null;
   preventDefault: () => void;
-  shiftKey: boolean;
   stopImmediatePropagation?: () => void;
   stopPropagation: () => void;
+}
+
+export interface CaptureLargePlainPasteOptions {
+  bypass?: boolean;
+  scope: string;
 }

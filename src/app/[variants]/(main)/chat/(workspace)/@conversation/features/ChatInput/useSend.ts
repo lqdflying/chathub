@@ -2,8 +2,10 @@ import { useAnalytics } from '@lobehub/analytics/react';
 import { useCallback, useMemo } from 'react';
 
 import {
+  MAIN_PASTED_TEXT_SCOPE,
   clearPendingPastedTexts,
   joinInputWithPendingPastedTexts,
+  selectPastedTextCount,
   usePastedTextStore,
 } from '@/features/ChatInput/pastedText';
 import { useGeminiChineseWarning } from '@/hooks/useGeminiChineseWarning';
@@ -60,7 +62,7 @@ export const useSend = () => {
     s.clearChatUploadFileList,
   ]);
 
-  const pastedCount = usePastedTextStore((s) => s.items.length);
+  const pastedCount = usePastedTextStore(selectPastedTextCount(MAIN_PASTED_TEXT_SCOPE));
   const isInputEmpty = isContentEmpty && reactiveFileList.length === 0 && pastedCount === 0;
 
   const canNotSend =
@@ -92,7 +94,7 @@ export const useSend = () => {
     const activatedSkillIds = skillSelectors
       .selectedSkillIds(selectionKey)(skillState)
       .filter((id) => installedSkillIds.has(id));
-    const messageToSend = joinInputWithPendingPastedTexts(inputMessage);
+    const messageToSend = joinInputWithPendingPastedTexts(inputMessage, MAIN_PASTED_TEXT_SCOPE);
     // 发送时再取一次最新的文件列表，防止闭包拿到旧值
     const fileList = fileChatSelectors.chatUploadFileList(useFileStore.getState());
 
@@ -117,7 +119,7 @@ export const useSend = () => {
     }
 
     clearChatUploadFileList();
-    clearPendingPastedTexts();
+    clearPendingPastedTexts(MAIN_PASTED_TEXT_SCOPE);
     mainInputEditor.setExpand(false);
     mainInputEditor.clearContent();
     mainInputEditor.focus();
@@ -205,7 +207,7 @@ export const useSendGroupMessage = () => {
     s.clearChatUploadFileList,
   ]);
 
-  const pastedCount = usePastedTextStore((s) => s.items.length);
+  const pastedCount = usePastedTextStore(selectPastedTextCount(MAIN_PASTED_TEXT_SCOPE));
   const isInputEmpty = isContentEmpty && fileList.length === 0 && pastedCount === 0;
 
   const canNotSend =
@@ -234,7 +236,10 @@ export const useSendGroupMessage = () => {
       )
         return;
 
-      const inputMessage = joinInputWithPendingPastedTexts(store.inputMessage);
+      const inputMessage = joinInputWithPendingPastedTexts(
+        store.inputMessage,
+        MAIN_PASTED_TEXT_SCOPE,
+      );
       const selectionKey = getSkillSelectionKey({
         sessionId: store.activeId,
         threadId: store.activeThreadId,
@@ -287,7 +292,7 @@ export const useSendGroupMessage = () => {
       });
 
       clearChatUploadFileList();
-      clearPendingPastedTexts();
+      clearPendingPastedTexts(MAIN_PASTED_TEXT_SCOPE);
       mainInputEditor.setExpand(false);
       mainInputEditor.clearContent();
       mainInputEditor.focus();

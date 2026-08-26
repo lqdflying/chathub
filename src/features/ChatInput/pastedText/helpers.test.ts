@@ -51,6 +51,15 @@ describe('pasted text helpers', () => {
     );
     expect(joinPromptWithPastedText('  ', ['dump'])).toBe('dump');
     expect(joinPromptWithPastedText('prompt', [])).toBe('prompt');
+    expect(joinPromptWithPastedText('keep', ['  '])).toBe('keep');
+  });
+
+  it('preserves original prompt and paste whitespace', () => {
+    expect(joinPromptWithPastedText('    indented prompt  ', [])).toBe('    indented prompt  ');
+    expect(joinPromptWithPastedText('keep trailing\n', [])).toBe('keep trailing\n');
+    expect(joinPromptWithPastedText('    indented prompt  ', ['dump body  \n'])).toBe(
+      '    indented prompt  \n\ndump body  \n',
+    );
   });
 
   it('detects clipboard files without treating plain text as a file', () => {
