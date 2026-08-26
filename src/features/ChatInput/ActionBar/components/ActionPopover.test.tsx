@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import ActionPopover from './ActionPopover';
 import {
+  MOBILE_ACTION_OVERLAY_ROOT_CLASS,
   getMobileActionOverlayInnerStyle,
   getMobileActionOverlayRootStyle,
 } from './mobileOverlayWidth';
@@ -27,7 +28,7 @@ vi.mock('@/components/Loading/UpdateLoading', () => ({
 vi.mock('antd-style', () => ({
   createStyles: () => () => ({
     cx: (...args: Array<string | undefined>) => args.filter(Boolean).join(' '),
-    styles: { popoverContent: 'popoverContent' },
+    styles: { mobileInner: 'mobileInner', mobileRoot: 'mobileRoot', popoverContent: 'popoverContent' },
     theme: { colorTextSecondary: '#888' },
   }),
 }));
@@ -61,6 +62,9 @@ describe('ActionPopover mobile overlay width', () => {
     expect(styles.body?.width).toBeUndefined();
     expect(styles.root?.left).toBeUndefined();
     expect(styles.root?.width).toBeUndefined();
+    expect(String((lastPopoverProps?.classNames as { root?: string })?.root ?? '')).not.toContain(
+      MOBILE_ACTION_OVERLAY_ROOT_CLASS,
+    );
   });
 
   it('pins the mobile overlay root to 16px gutters instead of only shrinking it', () => {
@@ -83,6 +87,10 @@ describe('ActionPopover mobile overlay width', () => {
     expect(styles.body?.width).toBe('100%');
     expect(styles.body?.width).not.toBe('100vw');
     expect(styles.root?.width).toBe('auto');
+    expect((lastPopoverProps?.classNames as { root?: string })?.root).toContain(
+      MOBILE_ACTION_OVERLAY_ROOT_CLASS,
+    );
+    expect((lastPopoverProps?.classNames as { root?: string })?.root).toContain('mobileRoot');
   });
 
   it('lets caller root styles override the mobile gutter pin', () => {

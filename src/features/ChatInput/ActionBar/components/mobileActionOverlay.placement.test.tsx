@@ -6,7 +6,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import ActionDropdown from './ActionDropdown';
 import ActionPopover from './ActionPopover';
-import { MOBILE_ACTION_OVERLAY_GUTTER_PX } from './mobileOverlayWidth';
+import {
+  MOBILE_ACTION_OVERLAY_GUTTER_PX,
+  MOBILE_ACTION_OVERLAY_ROOT_CLASS,
+} from './mobileOverlayWidth';
 
 vi.stubGlobal('React', React);
 
@@ -30,9 +33,19 @@ const menu = { items: [{ key: 'one', label: 'One' }] };
 const renderOverlay = (ui: React.ReactElement) => render(<ThemeProvider>{ui}</ThemeProvider>);
 
 const assertPinnedToGutters = (root: HTMLElement) => {
+  expect(root.className).toContain(MOBILE_ACTION_OVERLAY_ROOT_CLASS);
   expect(root.style.left).toBe(GUTTER);
   expect(root.style.right).toBe(GUTTER);
   expect(root.style.width).toBe('auto');
+
+  // rc-trigger useAlign writes these inline after React commit.
+  root.style.left = '0px';
+  root.style.right = 'auto';
+
+  const computed = window.getComputedStyle(root);
+  if (computed.left && computed.left !== 'auto') {
+    expect(Number.parseFloat(computed.left)).toBeGreaterThanOrEqual(MOBILE_ACTION_OVERLAY_GUTTER_PX);
+  }
 
   const rect = root.getBoundingClientRect();
   if (rect.width > 0) {

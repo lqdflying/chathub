@@ -9,11 +9,28 @@ import UpdateLoading from '@/components/Loading/UpdateLoading';
 import { useIsMobile } from '@/hooks/useIsMobile';
 
 import {
+  MOBILE_ACTION_OVERLAY_GUTTER_PX,
+  MOBILE_ACTION_OVERLAY_ROOT_CLASS,
   getMobileActionOverlayInnerStyle,
   getMobileActionOverlayRootStyle,
 } from './mobileOverlayWidth';
 
 const useStyles = createStyles(({ css, prefixCls }) => ({
+  mobileInner: css`
+    box-sizing: border-box;
+    width: 100% !important;
+    max-width: 100% !important;
+  `,
+  /**
+   * Beat rc-trigger's post-commit `element.style.left/right` writes.
+   * Stylesheet `!important` wins over inline offsets without `!important`.
+   */
+  mobileRoot: css`
+    left: ${MOBILE_ACTION_OVERLAY_GUTTER_PX}px !important;
+    right: ${MOBILE_ACTION_OVERLAY_GUTTER_PX}px !important;
+    width: auto !important;
+    max-width: none !important;
+  `,
   popoverContent: css`
     .${prefixCls}-form {
       .${prefixCls}-form-item:first-child {
@@ -59,7 +76,12 @@ const ActionPopover = memo<ActionPopoverProps>(
         arrow={false}
         classNames={{
           ...classNames,
-          body: cx(styles.popoverContent, classNames?.body),
+          body: cx(styles.popoverContent, isMobile && styles.mobileInner, classNames?.body),
+          root: cx(
+            isMobile && styles.mobileRoot,
+            isMobile && MOBILE_ACTION_OVERLAY_ROOT_CLASS,
+            classNames?.root,
+          ),
         }}
         placement={isMobile ? 'top' : placement}
         styles={{

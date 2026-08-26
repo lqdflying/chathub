@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import ActionDropdown from './ActionDropdown';
 import {
+  MOBILE_ACTION_OVERLAY_ROOT_CLASS,
   getMobileActionOverlayInnerStyle,
   getMobileActionOverlayRootStyle,
 } from './mobileOverlayWidth';
@@ -23,7 +24,7 @@ vi.mock('@/hooks/useIsMobile', () => ({
 vi.mock('antd-style', () => ({
   createStyles: () => () => ({
     cx: (...args: Array<string | undefined>) => args.filter(Boolean).join(' '),
-    styles: { dropdownMenu: 'dropdownMenu' },
+    styles: { dropdownMenu: 'dropdownMenu', mobileInner: 'mobileInner', mobileRoot: 'mobileRoot' },
   }),
 }));
 
@@ -54,6 +55,7 @@ describe('ActionDropdown mobile overlay width', () => {
     expect(menuProps.style).toMatchObject({ maxWidth: 360, minWidth: 240 });
     expect(menuProps.style?.width).toBeUndefined();
     expect(lastDropdownProps?.overlayStyle).toBeUndefined();
+    expect(lastDropdownProps?.overlayClassName).toBeFalsy();
   });
 
   it('pins the dropdown root through overlayStyle and fills the menu on mobile', () => {
@@ -70,6 +72,8 @@ describe('ActionDropdown mobile overlay width', () => {
     expect(lastDropdownProps?.overlayStyle).toMatchObject(getMobileActionOverlayRootStyle());
     expect(menuProps.style).toMatchObject(getMobileActionOverlayInnerStyle());
     expect(menuProps.style?.width).not.toBe('100vw');
+    expect(String(lastDropdownProps?.overlayClassName)).toContain(MOBILE_ACTION_OVERLAY_ROOT_CLASS);
+    expect(String(lastDropdownProps?.overlayClassName)).toContain('mobileRoot');
   });
 
   it('lets caller overlayStyle override the mobile gutter pin', () => {

@@ -7,6 +7,8 @@ import { memo } from 'react';
 import { useIsMobile } from '@/hooks/useIsMobile';
 
 import {
+  MOBILE_ACTION_OVERLAY_GUTTER_PX,
+  MOBILE_ACTION_OVERLAY_ROOT_CLASS,
   getMobileActionOverlayInnerStyle,
   getMobileActionOverlayRootStyle,
 } from './mobileOverlayWidth';
@@ -21,6 +23,17 @@ const useStyles = createStyles(({ css, prefixCls }) => ({
         margin-inline-end: var(--ant-margin-xs);
       }
     }
+  `,
+  mobileInner: css`
+    box-sizing: border-box;
+    width: 100% !important;
+    max-width: 100% !important;
+  `,
+  mobileRoot: css`
+    left: ${MOBILE_ACTION_OVERLAY_GUTTER_PX}px !important;
+    right: ${MOBILE_ACTION_OVERLAY_GUTTER_PX}px !important;
+    width: auto !important;
+    max-width: none !important;
   `,
 }));
 
@@ -45,6 +58,7 @@ const ActionDropdown = memo<ActionDropdownProps>(
     prefetch = false,
     destroyOnHidden,
     forceRender,
+    overlayClassName,
     overlayStyle,
     ...rest
   }) => {
@@ -61,7 +75,11 @@ const ActionDropdown = memo<ActionDropdownProps>(
         forceRender={dropdownForceRender}
         menu={{
           ...menu,
-          className: cx(styles.dropdownMenu, menu.className),
+          className: cx(
+            styles.dropdownMenu,
+            isMobile && styles.mobileInner,
+            menu.className,
+          ),
           onClick: (e) => {
             e.domEvent.preventDefault();
             menu.onClick?.(e);
@@ -79,6 +97,11 @@ const ActionDropdown = memo<ActionDropdownProps>(
             ...menu.style,
           },
         }}
+        overlayClassName={cx(
+          isMobile && styles.mobileRoot,
+          isMobile && MOBILE_ACTION_OVERLAY_ROOT_CLASS,
+          overlayClassName,
+        )}
         overlayStyle={
           isMobile || overlayStyle
             ? {
