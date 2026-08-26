@@ -7,10 +7,8 @@ import { memo } from 'react';
 import { useIsMobile } from '@/hooks/useIsMobile';
 
 import {
-  MOBILE_ACTION_OVERLAY_GUTTER_PX,
-  MOBILE_ACTION_OVERLAY_MAX_VAR,
   MOBILE_ACTION_OVERLAY_ROOT_CLASS,
-  getMobileActionOverlayInnerStyle,
+  getMobileActionOverlayMaxWidth,
   getMobileActionOverlayRootStyle,
 } from './mobileOverlayWidth';
 
@@ -30,28 +28,20 @@ const useStyles = createStyles(({ css, prefixCls }) => ({
     width: auto;
     max-width: 100%;
   `,
-  /**
-   * Content-sized card, capped to the viewport minus 16px gutters, then
-   * centered with `translate` so Ant slide motion can still animate `transform`.
-   * Caller maxWidth is applied via --chathub-mobile-overlay-max.
-   */
+  /** Center with `translate`; cap via --chathub-mobile-overlay-max. */
   mobileRoot: css`
+    box-sizing: border-box;
     left: 50% !important;
     right: auto !important;
     width: max-content !important;
-    max-width: min(
-      var(${MOBILE_ACTION_OVERLAY_MAX_VAR}, 100vw),
-      calc(100vw - ${MOBILE_ACTION_OVERLAY_GUTTER_PX * 2}px)
-    ) !important;
+    max-width: ${getMobileActionOverlayMaxWidth()} !important;
     translate: -50% 0;
   `,
 }));
 
 /**
- * On mobile the overlay is content-sized, capped to the viewport minus 16px
- * gutters, and centered with CSS `translate`. Callers cannot override
- * left/right/width. `maxWidth` caps the menu through a CSS variable on the
- * root. Other overlay styles still merge.
+ * Mobile overlays are content-sized, gutter-capped, and centered. `maxWidth`
+ * is applied via a CSS variable on the root; left/width cannot be overridden.
  */
 export interface ActionDropdownProps extends DropdownProps {
   maxHeight?: number | string;
@@ -105,10 +95,7 @@ const ActionDropdown = memo<ActionDropdownProps>(
             overflowX: 'hidden',
             overflowY: 'scroll',
             ...(isMobile
-              ? {
-                  ...getMobileActionOverlayInnerStyle(),
-                  ...(maxWidth === undefined ? undefined : { maxWidth }),
-                }
+              ? undefined
               : {
                   maxWidth,
                   minWidth,
@@ -122,9 +109,9 @@ const ActionDropdown = memo<ActionDropdownProps>(
           overlayClassName,
         )}
         overlayStyle={
-          isMobile || overlayStyle
+          isMobile
             ? {
-                ...(isMobile ? getMobileActionOverlayRootStyle(maxWidth) : undefined),
+                ...getMobileActionOverlayRootStyle(maxWidth),
                 ...overlayStyle,
               }
             : overlayStyle

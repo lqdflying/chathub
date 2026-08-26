@@ -5,7 +5,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ActionDropdown from './ActionDropdown';
 import {
   MOBILE_ACTION_OVERLAY_ROOT_CLASS,
-  getMobileActionOverlayInnerStyle,
   getMobileActionOverlayRootStyle,
 } from './mobileOverlayWidth';
 
@@ -58,7 +57,7 @@ describe('ActionDropdown mobile overlay width', () => {
     expect(lastDropdownProps?.overlayClassName).toBeFalsy();
   });
 
-  it('pins the dropdown root through overlayStyle and fills the menu on mobile', () => {
+  it('caps the mobile dropdown root via CSS variable and keeps the gutter class', () => {
     useIsMobile.mockReturnValue(true);
 
     render(
@@ -69,12 +68,13 @@ describe('ActionDropdown mobile overlay width', () => {
 
     const menuProps = lastDropdownProps?.menu as { style?: Record<string, unknown> };
 
-    expect(lastDropdownProps?.overlayStyle).toMatchObject(getMobileActionOverlayRootStyle(360));
-    expect(menuProps.style).toMatchObject({
-      ...getMobileActionOverlayInnerStyle(),
-      maxWidth: 360,
-    });
-    expect(menuProps.style?.width).not.toBe('100vw');
+    expect(lastDropdownProps?.overlayStyle).toEqual(getMobileActionOverlayRootStyle(360));
+    expect(menuProps.style?.maxWidth).toBeUndefined();
+    expect(menuProps.style?.minWidth).toBeUndefined();
+    expect(menuProps.style?.width).toBeUndefined();
+    expect(String((lastDropdownProps?.menu as { className?: string })?.className)).toContain(
+      'mobileInner',
+    );
     expect(String(lastDropdownProps?.overlayClassName)).toContain(MOBILE_ACTION_OVERLAY_ROOT_CLASS);
     expect(String(lastDropdownProps?.overlayClassName)).toContain('mobileRoot');
   });

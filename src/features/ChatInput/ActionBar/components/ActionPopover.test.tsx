@@ -5,7 +5,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ActionPopover from './ActionPopover';
 import {
   MOBILE_ACTION_OVERLAY_ROOT_CLASS,
-  getMobileActionOverlayInnerStyle,
   getMobileActionOverlayRootStyle,
 } from './mobileOverlayWidth';
 
@@ -81,15 +80,13 @@ describe('ActionPopover mobile overlay width', () => {
       root?: Record<string, unknown>;
     };
 
-    expect(styles.root).toMatchObject(getMobileActionOverlayRootStyle(360));
-    expect(styles.body).toMatchObject({
-      ...getMobileActionOverlayInnerStyle(),
-      maxWidth: 360,
-    });
+    expect(styles.root).toEqual(getMobileActionOverlayRootStyle(360));
+    expect(styles.body?.maxWidth).toBeUndefined();
     expect(styles.body?.minWidth).toBeUndefined();
-    expect(styles.body?.width).toBe('auto');
-    expect(styles.body?.width).not.toBe('100vw');
-    expect(styles.root?.width).toBe('max-content');
+    expect(styles.body?.width).toBeUndefined();
+    expect((lastPopoverProps?.classNames as { body?: string; root?: string })?.body).toContain(
+      'mobileInner',
+    );
     expect((lastPopoverProps?.classNames as { root?: string })?.root).toContain(
       MOBILE_ACTION_OVERLAY_ROOT_CLASS,
     );

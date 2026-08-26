@@ -5,46 +5,31 @@ import {
   MOBILE_ACTION_OVERLAY_GUTTER_PX,
   MOBILE_ACTION_OVERLAY_MAX_VAR,
   MOBILE_ACTION_OVERLAY_ROOT_CLASS,
-  getMobileActionOverlayInnerStyle,
   getMobileActionOverlayMaxWidth,
   getMobileActionOverlayRootStyle,
-  getMobileActionOverlayViewportMaxWidth,
 } from './mobileOverlayWidth';
 
-describe('getMobileActionOverlayRootStyle', () => {
-  it('sizes the overlay to max-content, caps it to 16px gutters, and centers with translate', () => {
+describe('mobile overlay width helpers', () => {
+  it('exposes the compact card constants and gutter-capped max-width formula', () => {
     expect(MOBILE_ACTION_OVERLAY_GUTTER_PX).toBe(16);
     expect(MOBILE_ACTION_OVERLAY_COMPACT_MAX_PX).toBe(320);
     expect(MOBILE_ACTION_OVERLAY_ROOT_CLASS).toBe('chathub-mobile-action-overlay');
-    expect(getMobileActionOverlayViewportMaxWidth()).toBe('calc(100vw - 32px)');
+    expect(MOBILE_ACTION_OVERLAY_MAX_VAR).toBe('--chathub-mobile-overlay-max');
     expect(getMobileActionOverlayMaxWidth()).toBe(
       `min(var(${MOBILE_ACTION_OVERLAY_MAX_VAR}, 100vw), calc(100vw - 32px))`,
     );
-    expect(getMobileActionOverlayRootStyle()).toEqual({
-      boxSizing: 'border-box',
-      left: '50%',
-      maxWidth: getMobileActionOverlayMaxWidth(),
-      right: 'auto',
-      translate: '-50% 0',
-      width: 'max-content',
-    });
-    expect(getMobileActionOverlayRootStyle()).not.toHaveProperty('transform');
   });
 
-  it('exposes caller maxWidth on the CSS variable used by the important root cap', () => {
-    expect(getMobileActionOverlayRootStyle(320)).toMatchObject({
+  it('puts only the caller maxWidth CSS variable on the React style object', () => {
+    expect(getMobileActionOverlayRootStyle()).toBeUndefined();
+    expect(getMobileActionOverlayRootStyle(320)).toEqual({
       [MOBILE_ACTION_OVERLAY_MAX_VAR]: '320px',
-      maxWidth: getMobileActionOverlayMaxWidth(),
     });
-  });
-});
-
-describe('getMobileActionOverlayInnerStyle', () => {
-  it('does not force an important 100% max-width over the caller cap', () => {
-    expect(getMobileActionOverlayInnerStyle()).toEqual({
-      boxSizing: 'border-box',
-      maxWidth: '100%',
-      width: 'auto',
+    expect(getMobileActionOverlayRootStyle('40vw')).toEqual({
+      [MOBILE_ACTION_OVERLAY_MAX_VAR]: '40vw',
     });
+    expect(getMobileActionOverlayRootStyle(320)).not.toHaveProperty('left');
+    expect(getMobileActionOverlayRootStyle(320)).not.toHaveProperty('transform');
+    expect(getMobileActionOverlayRootStyle(320)).not.toHaveProperty('maxWidth');
   });
 });

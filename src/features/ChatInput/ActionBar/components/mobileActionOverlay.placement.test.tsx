@@ -10,7 +10,6 @@ import {
   MOBILE_ACTION_OVERLAY_GUTTER_PX,
   MOBILE_ACTION_OVERLAY_MAX_VAR,
   MOBILE_ACTION_OVERLAY_ROOT_CLASS,
-  getMobileActionOverlayMaxWidth,
 } from './mobileOverlayWidth';
 
 vi.stubGlobal('React', React);
@@ -41,17 +40,13 @@ const injectedStylesheetText = () =>
 
 const assertContentSizedWithGutters = (root: HTMLElement) => {
   expect(root.className).toContain(MOBILE_ACTION_OVERLAY_ROOT_CLASS);
-  expect(root.style.left).toBe('50%');
-  expect(root.style.width).toBe('max-content');
-  expect(root.style.maxWidth).toBe(getMobileActionOverlayMaxWidth());
-  expect(root.style.translate).toBe('-50% 0');
-  expect(root.style.transform).toBeFalsy();
 
-  // rc-trigger useAlign writes left after React commit.
+  // rc-trigger useAlign writes left after React commit; the stylesheet must still win.
   root.style.left = '0px';
 
   const css = injectedStylesheetText();
   expect(css).toContain('left:50%!important');
+  expect(css).toContain('right:auto!important');
   expect(css).toContain('width:max-content!important');
   expect(css).toContain(`var(${MOBILE_ACTION_OVERLAY_MAX_VAR},100vw)`);
   expect(css).toContain('translate:-50%');
