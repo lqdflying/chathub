@@ -12,12 +12,14 @@ import {
   EstimatedContextConversationSource,
   useEstimatedContextUsage,
 } from '@/hooks/useEstimatedContextUsage';
+import { useIsMobile } from '@/hooks/useIsMobile';
 import { useAgentStore } from '@/store/agent';
 import { agentChatConfigSelectors } from '@/store/agent/selectors';
 import { useChatStore } from '@/store/chat';
 import { topicSelectors } from '@/store/chat/selectors';
 
 import ActionPopover from '../components/ActionPopover';
+import { MOBILE_ACTION_OVERLAY_COMPACT_MAX_PX } from '../components/mobileOverlayWidth';
 import ContextExportControl from './ContextExportControl';
 import PromptCacheHitRate from './PromptCacheHitRate';
 import TokenProgress from './TokenProgress';
@@ -28,6 +30,7 @@ interface TokenTagProps {
 const Token = memo<TokenTagProps>(({ conversationSource }) => {
   const { t } = useTranslation(['chat', 'components']);
   const theme = useTheme();
+  const isMobile = useIsMobile();
   const [compacting, setCompacting] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(false);
 
@@ -236,7 +239,12 @@ const Token = memo<TokenTagProps>(({ conversationSource }) => {
   );
 
   return (
-    <ActionPopover compact content={content} title={t('tokenTag.popoverTitle')}>
+    <ActionPopover
+      compact
+      content={content}
+      maxWidth={isMobile ? MOBILE_ACTION_OVERLAY_COMPACT_MAX_PX : undefined}
+      title={t('tokenTag.popoverTitle')}
+    >
       <TokenTag
         maxValue={maxTokens}
         mode={'used'}

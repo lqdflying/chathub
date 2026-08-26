@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next';
 import { Center, Flexbox } from 'react-layout-kit';
 
 import { createChatToolsEngine } from '@/helpers/toolEngineering';
+import { useIsMobile } from '@/hooks/useIsMobile';
 import { useModelContextWindowTokens } from '@/hooks/useModelContextWindowTokens';
 import { useModelSupportToolUse } from '@/hooks/useModelSupportToolUse';
 import { useTokenCount } from '@/hooks/useTokenCount';
@@ -28,6 +29,7 @@ import { userGeneralSettingsSelectors, userProfileSelectors } from '@/store/user
 import { getUserStoreState } from '@/store/user/store';
 
 import ActionPopover from '../components/ActionPopover';
+import { MOBILE_ACTION_OVERLAY_COMPACT_MAX_PX } from '../components/mobileOverlayWidth';
 import ContextExportControl from './ContextExportControl';
 import PromptCacheHitRate from './PromptCacheHitRate';
 import TokenProgress from './TokenProgress';
@@ -39,6 +41,7 @@ interface TokenTagForGroupChatProps {
 const TokenTagForGroupChat = memo<TokenTagForGroupChatProps>(({ total: messageString }) => {
   const { t } = useTranslation(['chat', 'components']);
   const theme = useTheme();
+  const isMobile = useIsMobile();
 
   const input = useChatStore((s) => s.inputMessage);
   const activeTopicId = useChatStore((s) => s.activeTopicId);
@@ -320,7 +323,11 @@ const TokenTagForGroupChat = memo<TokenTagForGroupChatProps>(({ total: messageSt
   );
 
   return (
-    <ActionPopover compact content={content}>
+    <ActionPopover
+      compact
+      content={content}
+      maxWidth={isMobile ? MOBILE_ACTION_OVERLAY_COMPACT_MAX_PX : undefined}
+    >
       <TokenTag
         maxValue={maxTokens}
         mode={'used'}

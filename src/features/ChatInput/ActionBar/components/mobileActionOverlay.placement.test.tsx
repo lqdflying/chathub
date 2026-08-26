@@ -26,7 +26,6 @@ vi.mock('@/components/Loading/UpdateLoading', () => ({
 }));
 
 const VIEWPORT_WIDTH = 375;
-const GUTTER = `${MOBILE_ACTION_OVERLAY_GUTTER_PX}px`;
 
 const menu = { items: [{ key: 'one', label: 'One' }] };
 
@@ -38,23 +37,24 @@ const injectedStylesheetText = () =>
     .join('\n')
     .replace(/\s+/g, '');
 
-const assertPinnedToGutters = (root: HTMLElement) => {
+const assertContentSizedWithGutters = (root: HTMLElement) => {
   expect(root.className).toContain(MOBILE_ACTION_OVERLAY_ROOT_CLASS);
-  expect(root.style.left).toBe(GUTTER);
-  expect(root.style.right).toBe(GUTTER);
-  expect(root.style.width).toBe('auto');
+  expect(root.style.left).toBe('50%');
+  expect(root.style.width).toBe('max-content');
+  expect(root.style.maxWidth).toBe(`calc(100vw - ${MOBILE_ACTION_OVERLAY_GUTTER_PX * 2}px)`);
 
-  // rc-trigger useAlign writes these inline after React commit.
+  // rc-trigger useAlign writes left after React commit.
   root.style.left = '0px';
-  root.style.right = 'auto';
 
-  const computed = window.getComputedStyle(root);
-  if (computed.left && computed.left !== 'auto') {
-    expect(Number.parseFloat(computed.left)).toBeGreaterThanOrEqual(MOBILE_ACTION_OVERLAY_GUTTER_PX);
-  }
+  const css = injectedStylesheetText();
+  expect(css).toContain('left:50%!important');
+  expect(css).toContain('width:max-content!important');
+  expect(css).toContain('max-width:calc(100vw-32px)!important');
+  expect(css).toContain('translateX(-50%)');
 
   const rect = root.getBoundingClientRect();
   if (rect.width > 0) {
+    expect(rect.width).toBeLessThan(VIEWPORT_WIDTH - MOBILE_ACTION_OVERLAY_GUTTER_PX * 2);
     expect(rect.left).toBeGreaterThanOrEqual(MOBILE_ACTION_OVERLAY_GUTTER_PX);
     expect(VIEWPORT_WIDTH - rect.right).toBeGreaterThanOrEqual(MOBILE_ACTION_OVERLAY_GUTTER_PX);
   }
@@ -97,7 +97,7 @@ describe('mobile action overlay placement', () => {
         return node!;
       });
 
-      assertPinnedToGutters(root);
+      assertContentSizedWithGutters(root);
     },
   );
 
@@ -118,7 +118,7 @@ describe('mobile action overlay placement', () => {
         return node!;
       });
 
-      assertPinnedToGutters(root);
+      assertContentSizedWithGutters(root);
     },
   );
 
@@ -139,7 +139,7 @@ describe('mobile action overlay placement', () => {
       return node!;
     });
 
-    assertPinnedToGutters(root);
+    assertContentSizedWithGutters(root);
   });
 
   it('keeps ActionPopover 16px gutters when the caller sets inline left: 8', async () => {
@@ -164,13 +164,9 @@ describe('mobile action overlay placement', () => {
     });
 
     expect(root.className).toContain(MOBILE_ACTION_OVERLAY_ROOT_CLASS);
-    expect(injectedStylesheetText()).toContain('left:16px!important');
-    expect(injectedStylesheetText()).toContain('right:16px!important');
-
-    const computedLeft = Number.parseFloat(window.getComputedStyle(root).left);
-    if (!Number.isNaN(computedLeft) && computedLeft !== 8) {
-      expect(computedLeft).toBe(MOBILE_ACTION_OVERLAY_GUTTER_PX);
-    }
+    expect(injectedStylesheetText()).toContain('left:50%!important');
+    expect(injectedStylesheetText()).toContain('width:max-content!important');
+    expect(injectedStylesheetText()).toContain('max-width:calc(100vw-32px)!important');
   });
 
   it('keeps ActionDropdown 16px gutters when the caller sets inline left: 8', async () => {
@@ -194,12 +190,8 @@ describe('mobile action overlay placement', () => {
     });
 
     expect(root.className).toContain(MOBILE_ACTION_OVERLAY_ROOT_CLASS);
-    expect(injectedStylesheetText()).toContain('left:16px!important');
-    expect(injectedStylesheetText()).toContain('right:16px!important');
-
-    const computedLeft = Number.parseFloat(window.getComputedStyle(root).left);
-    if (!Number.isNaN(computedLeft) && computedLeft !== 8) {
-      expect(computedLeft).toBe(MOBILE_ACTION_OVERLAY_GUTTER_PX);
-    }
+    expect(injectedStylesheetText()).toContain('left:50%!important');
+    expect(injectedStylesheetText()).toContain('width:max-content!important');
+    expect(injectedStylesheetText()).toContain('max-width:calc(100vw-32px)!important');
   });
 });

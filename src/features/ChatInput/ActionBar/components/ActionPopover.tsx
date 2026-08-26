@@ -18,19 +18,24 @@ import {
 const useStyles = createStyles(({ css, prefixCls }) => ({
   mobileInner: css`
     box-sizing: border-box;
-    width: 100% !important;
+    width: auto !important;
     max-width: 100% !important;
   `,
   /**
-   * Beat rc-trigger's post-commit `element.style.left/right` writes.
-   * Stylesheet `!important` wins over inline offsets without `!important`.
-   * Callers cannot opt out of the 16px gutters via `styles.root` left/width.
+   * Content-sized card, capped to the viewport minus 16px gutters, then
+   * centered. Do not stretch with left+right and width:auto (MDN abspos fill).
+   * Callers cannot opt out of this pin via `styles.root` left/width.
    */
   mobileRoot: css`
-    left: ${MOBILE_ACTION_OVERLAY_GUTTER_PX}px !important;
-    right: ${MOBILE_ACTION_OVERLAY_GUTTER_PX}px !important;
-    width: auto !important;
-    max-width: none !important;
+    left: 50% !important;
+    right: auto !important;
+    width: max-content !important;
+    max-width: calc(100vw - ${MOBILE_ACTION_OVERLAY_GUTTER_PX * 2}px) !important;
+    transform: translateX(-50%) !important;
+
+    .${prefixCls}-popover-title {
+      white-space: normal;
+    }
   `,
   popoverContent: css`
     .${prefixCls}-form {
@@ -45,8 +50,9 @@ const useStyles = createStyles(({ css, prefixCls }) => ({
 }));
 
 /**
- * On mobile, 16px viewport gutters are pinned with `!important` and cannot be
- * overridden through `styles.root` left/right/width. Other root styles still merge.
+ * On mobile the overlay is content-sized, capped to the viewport minus 16px
+ * gutters, and centered. Callers cannot override left/right/width/transform.
+ * `maxWidth` still caps the inner card. Other root styles still merge.
  */
 export interface ActionPopoverProps extends Omit<PopoverProps, 'title' | 'content'> {
   compact?: boolean;
@@ -94,7 +100,10 @@ const ActionPopover = memo<ActionPopoverProps>(
           body: {
             maxHeight,
             ...(isMobile
-              ? getMobileActionOverlayInnerStyle()
+              ? {
+                  ...getMobileActionOverlayInnerStyle(),
+                  ...(maxWidth === undefined ? undefined : { maxWidth }),
+                }
               : {
                   maxWidth,
                   minWidth,
@@ -112,7 +121,7 @@ const ActionPopover = memo<ActionPopoverProps>(
               gap={8}
               horizontal
               justify={'space-between'}
-              style={{ marginBottom: compact ? 8 : 16 }}
+              style={{ marginBottom: compact ? 8 : 16, maxWidth: '100%', minWidth: 0 }}
             >
               {title}
               {extra}

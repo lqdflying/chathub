@@ -26,24 +26,26 @@ const useStyles = createStyles(({ css, prefixCls }) => ({
   `,
   mobileInner: css`
     box-sizing: border-box;
-    width: 100% !important;
+    width: auto !important;
     max-width: 100% !important;
   `,
   /**
-   * Mobile gutters are non-overridable. Caller `overlayStyle` left/width
-   * cannot beat these rules; non-positional styles such as zIndex still merge.
+   * Content-sized card, capped to the viewport minus 16px gutters, then
+   * centered. Caller `overlayStyle` left/width cannot beat these rules.
    */
   mobileRoot: css`
-    left: ${MOBILE_ACTION_OVERLAY_GUTTER_PX}px !important;
-    right: ${MOBILE_ACTION_OVERLAY_GUTTER_PX}px !important;
-    width: auto !important;
-    max-width: none !important;
+    left: 50% !important;
+    right: auto !important;
+    width: max-content !important;
+    max-width: calc(100vw - ${MOBILE_ACTION_OVERLAY_GUTTER_PX * 2}px) !important;
+    transform: translateX(-50%) !important;
   `,
 }));
 
 /**
- * On mobile, 16px viewport gutters are pinned with `!important` and cannot be
- * overridden through `overlayStyle` left/right/width. Other overlay styles still merge.
+ * On mobile the overlay is content-sized, capped to the viewport minus 16px
+ * gutters, and centered. Callers cannot override left/right/width/transform.
+ * `maxWidth` still caps the menu. Other overlay styles still merge.
  */
 export interface ActionDropdownProps extends DropdownProps {
   maxHeight?: number | string;
@@ -97,7 +99,10 @@ const ActionDropdown = memo<ActionDropdownProps>(
             overflowX: 'hidden',
             overflowY: 'scroll',
             ...(isMobile
-              ? getMobileActionOverlayInnerStyle()
+              ? {
+                  ...getMobileActionOverlayInnerStyle(),
+                  ...(maxWidth === undefined ? undefined : { maxWidth }),
+                }
               : {
                   maxWidth,
                   minWidth,

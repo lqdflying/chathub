@@ -7,38 +7,50 @@ export const MOBILE_ACTION_OVERLAY_GUTTER_PX = 16;
 export const MOBILE_ACTION_OVERLAY_ROOT_CLASS = 'chathub-mobile-action-overlay';
 
 /**
- * Pin the positioned overlay root to both viewport edges with 16px gutters.
+ * Compact card cap for callers such as the context-usage popover.
+ * Search overlays already use 320px; keep the token panel in that band.
+ */
+export const MOBILE_ACTION_OVERLAY_COMPACT_MAX_PX = 320;
+
+export const getMobileActionOverlayMaxWidth = () =>
+  `calc(100vw - ${MOBILE_ACTION_OVERLAY_GUTTER_PX * 2}px)`;
+
+/**
+ * Size the overlay to its content and keep 16px viewport gutters.
  *
- * Inline `left`/`right` alone is not enough. `@rc-component/trigger` `useAlign`
- * writes `popupElement.style.left` / `.right` on the DOM after React commit,
- * so Ant Design `styles.root` / `overlayStyle` lose to `shiftX` (flush to one
- * edge, leftover gutter on the other). A stylesheet `!important` class on
- * {@link MOBILE_ACTION_OVERLAY_ROOT_CLASS} beats those inline offsets.
+ * Do not set both `left` and `right` with `width: auto`. MDN: an abspos box
+ * with both insets and `width: auto` stretch-fills the containing block, which
+ * is why the token panel stayed nearly full-bleed on every mobile browser.
  *
- * Mobile gutters are non-overridable: caller `left` / `right` / `width` /
- * `maxWidth` cannot win the cascade. Non-positional styles such as `zIndex`
- * still merge.
+ * Ant Design's popup default is `width: max-content` (Dropdown FAQ: use
+ * `max-content` so the overlay is not squeezed). Cap with
+ * {@link getMobileActionOverlayMaxWidth} and center with `left: 50%` +
+ * `translateX(-50%)` so leftover space becomes equal gutters.
  *
- * `width: 'auto'` beats Ant Design Popover's `width: max-content`; otherwise
- * left+right stay over-constrained and the used width stays content-sized.
+ * `@rc-component/trigger` still writes inline `left` after React commit, so
+ * the matching stylesheet `!important` class on
+ * {@link MOBILE_ACTION_OVERLAY_ROOT_CLASS} is required. Positional properties
+ * are non-overridable; `zIndex` still merges.
  *
+ * @see https://developer.mozilla.org/en-US/docs/Web/CSS/position
+ * @see https://ant.design/components/dropdown
  * @see https://github.com/ant-design/ant-design/issues/11942
- * @see https://5x-ant-design.antgroup.com/components/popover
- * @see https://5x-ant-design.antgroup.com/components/dropdown
  * @see https://developer.apple.com/design/human-interface-guidelines/layout
  */
 export const getMobileActionOverlayRootStyle = (): CSSProperties => ({
   boxSizing: 'border-box',
-  left: MOBILE_ACTION_OVERLAY_GUTTER_PX,
-  right: MOBILE_ACTION_OVERLAY_GUTTER_PX,
-  width: 'auto',
+  left: '50%',
+  maxWidth: getMobileActionOverlayMaxWidth(),
+  right: 'auto',
+  transform: 'translateX(-50%)',
+  width: 'max-content',
 });
 
 /**
- * Stretch inner popover body / dropdown menu to the pinned root.
+ * Let the inner card fill the content-sized root without forcing 100vw.
  */
 export const getMobileActionOverlayInnerStyle = (): CSSProperties => ({
   boxSizing: 'border-box',
   maxWidth: '100%',
-  width: '100%',
+  width: 'auto',
 });

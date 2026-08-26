@@ -67,7 +67,7 @@ describe('ActionPopover mobile overlay width', () => {
     );
   });
 
-  it('pins the mobile overlay root to 16px gutters instead of only shrinking it', () => {
+  it('sizes the mobile overlay to max-content and keeps the gutter class', () => {
     useIsMobile.mockReturnValue(true);
 
     render(
@@ -82,11 +82,14 @@ describe('ActionPopover mobile overlay width', () => {
     };
 
     expect(styles.root).toMatchObject(getMobileActionOverlayRootStyle());
-    expect(styles.body).toMatchObject(getMobileActionOverlayInnerStyle());
+    expect(styles.body).toMatchObject({
+      ...getMobileActionOverlayInnerStyle(),
+      maxWidth: 360,
+    });
     expect(styles.body?.minWidth).toBeUndefined();
-    expect(styles.body?.width).toBe('100%');
+    expect(styles.body?.width).toBe('auto');
     expect(styles.body?.width).not.toBe('100vw');
-    expect(styles.root?.width).toBe('auto');
+    expect(styles.root?.width).toBe('max-content');
     expect((lastPopoverProps?.classNames as { root?: string })?.root).toContain(
       MOBILE_ACTION_OVERLAY_ROOT_CLASS,
     );

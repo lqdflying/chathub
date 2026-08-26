@@ -70,7 +70,10 @@ describe('ActionDropdown mobile overlay width', () => {
     const menuProps = lastDropdownProps?.menu as { style?: Record<string, unknown> };
 
     expect(lastDropdownProps?.overlayStyle).toMatchObject(getMobileActionOverlayRootStyle());
-    expect(menuProps.style).toMatchObject(getMobileActionOverlayInnerStyle());
+    expect(menuProps.style).toMatchObject({
+      ...getMobileActionOverlayInnerStyle(),
+      maxWidth: 360,
+    });
     expect(menuProps.style?.width).not.toBe('100vw');
     expect(String(lastDropdownProps?.overlayClassName)).toContain(MOBILE_ACTION_OVERLAY_ROOT_CLASS);
     expect(String(lastDropdownProps?.overlayClassName)).toContain('mobileRoot');
