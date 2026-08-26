@@ -81,7 +81,7 @@ describe('ActionPopover mobile overlay width', () => {
       root?: Record<string, unknown>;
     };
 
-    expect(styles.root).toMatchObject(getMobileActionOverlayRootStyle());
+    expect(styles.root).toMatchObject(getMobileActionOverlayRootStyle(360));
     expect(styles.body).toMatchObject({
       ...getMobileActionOverlayInnerStyle(),
       maxWidth: 360,

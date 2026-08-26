@@ -8,6 +8,7 @@ import { useIsMobile } from '@/hooks/useIsMobile';
 
 import {
   MOBILE_ACTION_OVERLAY_GUTTER_PX,
+  MOBILE_ACTION_OVERLAY_MAX_VAR,
   MOBILE_ACTION_OVERLAY_ROOT_CLASS,
   getMobileActionOverlayInnerStyle,
   getMobileActionOverlayRootStyle,
@@ -26,26 +27,31 @@ const useStyles = createStyles(({ css, prefixCls }) => ({
   `,
   mobileInner: css`
     box-sizing: border-box;
-    width: auto !important;
-    max-width: 100% !important;
+    width: auto;
+    max-width: 100%;
   `,
   /**
    * Content-sized card, capped to the viewport minus 16px gutters, then
-   * centered. Caller `overlayStyle` left/width cannot beat these rules.
+   * centered with `translate` so Ant slide motion can still animate `transform`.
+   * Caller maxWidth is applied via --chathub-mobile-overlay-max.
    */
   mobileRoot: css`
     left: 50% !important;
     right: auto !important;
     width: max-content !important;
-    max-width: calc(100vw - ${MOBILE_ACTION_OVERLAY_GUTTER_PX * 2}px) !important;
-    transform: translateX(-50%) !important;
+    max-width: min(
+      var(${MOBILE_ACTION_OVERLAY_MAX_VAR}, 100vw),
+      calc(100vw - ${MOBILE_ACTION_OVERLAY_GUTTER_PX * 2}px)
+    ) !important;
+    translate: -50% 0;
   `,
 }));
 
 /**
  * On mobile the overlay is content-sized, capped to the viewport minus 16px
- * gutters, and centered. Callers cannot override left/right/width/transform.
- * `maxWidth` still caps the menu. Other overlay styles still merge.
+ * gutters, and centered with CSS `translate`. Callers cannot override
+ * left/right/width. `maxWidth` caps the menu through a CSS variable on the
+ * root. Other overlay styles still merge.
  */
 export interface ActionDropdownProps extends DropdownProps {
   maxHeight?: number | string;
@@ -118,7 +124,7 @@ const ActionDropdown = memo<ActionDropdownProps>(
         overlayStyle={
           isMobile || overlayStyle
             ? {
-                ...(isMobile ? getMobileActionOverlayRootStyle() : undefined),
+                ...(isMobile ? getMobileActionOverlayRootStyle(maxWidth) : undefined),
                 ...overlayStyle,
               }
             : overlayStyle

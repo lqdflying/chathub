@@ -10,6 +10,7 @@ import { useIsMobile } from '@/hooks/useIsMobile';
 
 import {
   MOBILE_ACTION_OVERLAY_GUTTER_PX,
+  MOBILE_ACTION_OVERLAY_MAX_VAR,
   MOBILE_ACTION_OVERLAY_ROOT_CLASS,
   getMobileActionOverlayInnerStyle,
   getMobileActionOverlayRootStyle,
@@ -18,20 +19,23 @@ import {
 const useStyles = createStyles(({ css, prefixCls }) => ({
   mobileInner: css`
     box-sizing: border-box;
-    width: auto !important;
-    max-width: 100% !important;
+    width: auto;
+    max-width: 100%;
   `,
   /**
    * Content-sized card, capped to the viewport minus 16px gutters, then
-   * centered. Do not stretch with left+right and width:auto (MDN abspos fill).
-   * Callers cannot opt out of this pin via `styles.root` left/width.
+   * centered with `translate` so Ant zoom/slide can still animate `transform`.
+   * Caller maxWidth is applied via --chathub-mobile-overlay-max.
    */
   mobileRoot: css`
     left: 50% !important;
     right: auto !important;
     width: max-content !important;
-    max-width: calc(100vw - ${MOBILE_ACTION_OVERLAY_GUTTER_PX * 2}px) !important;
-    transform: translateX(-50%) !important;
+    max-width: min(
+      var(${MOBILE_ACTION_OVERLAY_MAX_VAR}, 100vw),
+      calc(100vw - ${MOBILE_ACTION_OVERLAY_GUTTER_PX * 2}px)
+    ) !important;
+    translate: -50% 0;
 
     .${prefixCls}-popover-title {
       white-space: normal;
@@ -51,8 +55,9 @@ const useStyles = createStyles(({ css, prefixCls }) => ({
 
 /**
  * On mobile the overlay is content-sized, capped to the viewport minus 16px
- * gutters, and centered. Callers cannot override left/right/width/transform.
- * `maxWidth` still caps the inner card. Other root styles still merge.
+ * gutters, and centered with CSS `translate`. Callers cannot override
+ * left/right/width. `maxWidth` caps the card through a CSS variable on the
+ * root. Other root styles still merge.
  */
 export interface ActionPopoverProps extends Omit<PopoverProps, 'title' | 'content'> {
   compact?: boolean;
@@ -111,7 +116,7 @@ const ActionPopover = memo<ActionPopoverProps>(
             ...customStyles?.body,
           },
           root: {
-            ...(isMobile ? getMobileActionOverlayRootStyle() : undefined),
+            ...(isMobile ? getMobileActionOverlayRootStyle(maxWidth) : undefined),
             ...customStyles?.root,
           },
         }}
