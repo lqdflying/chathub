@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { conversationGenerationService } from '@/services/conversationGeneration';
 import { useChatStore } from '@/store/chat';
+import * as eventDroppedDebug from '@/store/chat/slices/aiChat/actions/eventDroppedDebug';
 import { useSessionStore } from '@/store/session';
 import { useUserStore } from '@/store/user';
 
@@ -22,6 +23,8 @@ vi.mock('@/services/conversationGeneration', () => ({
 describe('useConversationGenerationSync', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.spyOn(eventDroppedDebug, 'flushEventDropSummary');
+    vi.spyOn(eventDroppedDebug, 'resetEventDroppedDebugState');
     vi.mocked(conversationGenerationService.subscribe).mockImplementation(
       () => new Promise(() => {}),
     );
@@ -71,6 +74,7 @@ describe('useConversationGenerationSync', () => {
     });
 
     expect(vi.mocked(conversationGenerationService.subscribe).mock.calls[2][0].cursor).toBe(0);
+    expect(eventDroppedDebug.resetEventDroppedDebugState).toHaveBeenCalled();
     unmount();
   });
 
@@ -203,6 +207,7 @@ describe('useConversationGenerationSync', () => {
       expect(applyEvent).toHaveBeenCalledWith(expect.objectContaining({ id: 4, type: 'status' }));
     });
     expect(syncActive.mock.calls.length).toBeGreaterThan(0);
+    expect(eventDroppedDebug.flushEventDropSummary).toHaveBeenCalled();
     unmount();
   });
 
@@ -216,6 +221,7 @@ describe('useConversationGenerationSync', () => {
     await waitFor(() => {
       expect(conversationGenerationService.subscribe).toHaveBeenCalledTimes(2);
     });
+    expect(eventDroppedDebug.flushEventDropSummary).toHaveBeenCalled();
     unmount();
   });
 });

@@ -39,44 +39,13 @@ import { useUserStore } from '@/store/user';
 import { setNamespace } from '@/utils/storeDebug';
 
 import type { ServerGenerationOperation } from '../../topic/initialState';
+import { logEventDropped, noteConversationGenerationAttached } from './eventDroppedDebug';
 
 const n = setNamespace('durableGeneration');
 
 // Orphaned `...` placeholders (interrupted browser turns) are only removed once
 // older than this, so a live producer in another tab can still finalize them.
 const ORPHAN_PLACEHOLDER_GRACE_MS = 5 * 60 * 1000;
-
-// Snapshot events for an active-but-detached operation arrive every ~1.5s via
-// SSE/poll; log only the first drop per operation+reason so a long detached
-// window produces one event, not a flood. Terminal drops are always logged.
-const droppedSnapshotLogKeys = new Set<string>();
-const DROPPED_SNAPSHOT_LOG_MAX_KEYS = 100;
-
-const logEventDropped = (
-  operationId: string,
-  reason: 'not_attached' | 'stale_revision',
-  type: string,
-  revision?: number,
-) => {
-  const isTerminal = type === 'done' || type === 'error';
-  const key = `${operationId}:${reason}`;
-  if (!isTerminal) {
-    if (droppedSnapshotLogKeys.has(key)) return;
-    if (droppedSnapshotLogKeys.size >= DROPPED_SNAPSHOT_LOG_MAX_KEYS)
-      droppedSnapshotLogKeys.clear();
-    droppedSnapshotLogKeys.add(key);
-  } else {
-    droppedSnapshotLogKeys.delete(key);
-  }
-  void hashGenerationDebugClientValue(operationId).then((operationHash) => {
-    logGenerationDebugClientSafe('event_dropped', {
-      operationHash,
-      reason,
-      revision,
-      type,
-    });
-  });
-};
 
 export interface ConversationGenerationAction {
   applyConversationGenerationEvent: (event: ConversationGenerationEvent) => void;
@@ -499,6 +468,7 @@ export const conversationGeneration: StateCreator<
       false,
       n('attach', { operationId: attached.operationId }),
     );
+    noteConversationGenerationAttached(attached.operationId);
     if (attached.assistantMessageId) {
       get().internal_markDurableGenerating(attached.assistantMessageId, true);
     }

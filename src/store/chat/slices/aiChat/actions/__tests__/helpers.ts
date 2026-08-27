@@ -9,6 +9,7 @@ import { authSelectors } from '@/store/user/selectors';
 
 import { useChatStore } from '../../../../store';
 import { messageMapKey } from '../../../../utils/messageMapKey';
+import { resetEventDroppedDebugState } from '../eventDroppedDebug';
 import { TEST_IDS, createMockAgentConfig, createMockChatConfig } from './fixtures';
 
 export const TEST_ACCOUNT_SCOPE = 'current';
@@ -104,6 +105,7 @@ export const spyOnChatService = () => {
  */
 export const resetTestEnvironment = () => {
   vi.clearAllMocks();
+  resetEventDroppedDebugState();
   useUserStore.setState({
     isUserStateInit: true,
     ownershipInvalidationGeneration: 0,

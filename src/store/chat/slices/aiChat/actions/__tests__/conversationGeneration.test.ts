@@ -1859,4 +1859,140 @@ describe('conversationGeneration store actions', () => {
       }),
     );
   });
+
+  describe('event_dropped debug throttle', () => {
+    let logSpy: ReturnType<typeof vi.spyOn>;
+
+    const droppedCalls = () =>
+      logSpy.mock.calls.filter(([event]) => event === 'event_dropped') as Array<
+        [string, Record<string, unknown>]
+      >;
+    const summaryCalls = () =>
+      logSpy.mock.calls.filter(([event]) => event === 'event_drop_summary') as Array<
+        [string, Record<string, unknown>]
+      >;
+
+    const applyDropEvent = (
+      result: { current: ReturnType<typeof useChatStore.getState> },
+      overrides: {
+        operationId?: string;
+        revision?: number;
+        type: 'done' | 'error' | 'snapshot' | 'status';
+      },
+    ) => {
+      result.current.applyConversationGenerationEvent({
+        createdAt: new Date().toISOString(),
+        id: 1,
+        operationId: overrides.operationId ?? 'cgo_foreign',
+        payload: {},
+        revision: overrides.revision ?? 1,
+        type: overrides.type,
+        userId: 'user-1',
+      });
+    };
+
+    const attachMain = (result: { current: ReturnType<typeof useChatStore.getState> }) => {
+      result.current.attachConversationGeneration({
+        assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        clearGeneration: 0,
+        generation: 0,
+        kind: 'chat',
+        lane: 'lane-main',
+        operationId: 'cgo_one',
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
+        userScope: 'current',
+      });
+    };
+
+    beforeEach(() => {
+      logSpy = vi.spyOn(generationDebugClient, 'logGenerationDebugClientSafe').mockImplementation(
+        () => undefined,
+      );
+    });
+
+    it('does not emit event_dropped for a never-attached status', () => {
+      const { result } = renderHook(() => useChatStore());
+
+      act(() => {
+        applyDropEvent(result, { type: 'status' });
+      });
+
+      expect(droppedCalls()).toHaveLength(0);
+    });
+
+    it('emits hadAttached done after attach then detach', async () => {
+      const { result } = renderHook(() => useChatStore());
+
+      act(() => {
+        attachMain(result);
+        result.current.detachConversationGeneration('cgo_one');
+        applyDropEvent(result, { operationId: 'cgo_one', type: 'done' });
+      });
+
+      await vi.waitFor(() => {
+        expect(droppedCalls()).toEqual([
+          [
+            'event_dropped',
+            expect.objectContaining({
+              hadAttached: true,
+              reason: 'not_attached',
+              type: 'done',
+            }),
+          ],
+        ]);
+      });
+    });
+
+    it('does not emit a second status after 101 never-attached drops', async () => {
+      const { result } = renderHook(() => useChatStore());
+
+      act(() => {
+        attachMain(result);
+        result.current.detachConversationGeneration('cgo_one');
+        applyDropEvent(result, { operationId: 'cgo_one', type: 'status' });
+      });
+
+      await vi.waitFor(() => {
+        expect(droppedCalls()).toHaveLength(1);
+      });
+
+      act(() => {
+        for (let index = 0; index < 101; index += 1) {
+          applyDropEvent(result, { operationId: `cgo_replay_${index}`, type: 'status' });
+        }
+        applyDropEvent(result, { operationId: 'cgo_one', type: 'status' });
+      });
+
+      expect(droppedCalls()).toHaveLength(1);
+    });
+
+    it('emits a delayed never-attached done when attach wins the race', async () => {
+      const { result } = renderHook(() => useChatStore());
+
+      act(() => {
+        applyDropEvent(result, { operationId: 'cgo_one', type: 'done' });
+      });
+
+      expect(droppedCalls()).toHaveLength(0);
+
+      act(() => {
+        attachMain(result);
+      });
+
+      await vi.waitFor(() => {
+        expect(droppedCalls()).toEqual([
+          [
+            'event_dropped',
+            expect.objectContaining({
+              hadAttached: true,
+              reason: 'not_attached',
+              type: 'done',
+            }),
+          ],
+        ]);
+      });
+    });
+  });
 });
+

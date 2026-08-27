@@ -30,6 +30,7 @@ export type GenerationDebugClientEvent =
   | 'durable_attach_skipped'
   | 'enqueue_client_settled'
   | 'event_applied_terminal'
+  | 'event_drop_summary'
   | 'event_dropped'
   | 'exec_runtime_settled'
   | 'fetch_stream_error'

@@ -92,6 +92,8 @@ describe('CHATHUB_GENERATION_DEBUG emitter', () => {
           'tool_loop_continue',
           'tool_loop_continue_skipped',
           'topic_busy_changed',
+          'event_drop_summary',
+          'event_dropped',
           'fetch_stream_error',
           'fetch_stream_interrupted',
         ]),

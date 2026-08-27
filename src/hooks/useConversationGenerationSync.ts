@@ -7,6 +7,10 @@ import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableC
 import { logGenerationDebugClientSafe } from '@/libs/logger/generationDebugClient';
 import { conversationGenerationService } from '@/services/conversationGeneration';
 import { useChatStore } from '@/store/chat';
+import {
+  flushEventDropSummary,
+  resetEventDroppedDebugState,
+} from '@/store/chat/slices/aiChat/actions/eventDroppedDebug';
 import { useSessionStore } from '@/store/session';
 import { useUserStore } from '@/store/user';
 
@@ -33,7 +37,11 @@ export const useConversationGenerationSync = () => {
   const [resumeNonce, setResumeNonce] = useState(0);
 
   useEffect(() => {
-    if (previousUserId.current !== userId && userId) cursorByUser.delete(userId);
+    if (previousUserId.current !== userId) {
+      if (userId) cursorByUser.delete(userId);
+      flushEventDropSummary();
+      resetEventDroppedDebugState();
+    }
     previousUserId.current = userId;
   }, [userId]);
 
@@ -143,6 +151,7 @@ export const useConversationGenerationSync = () => {
       logGenerationDebugClientSafe('sse_client_reset_replay', {
         eventCount: replay.events.length,
       });
+      flushEventDropSummary();
     };
 
     const handleEvent = (event: ConversationGenerationStreamEvent) => {
@@ -217,6 +226,7 @@ export const useConversationGenerationSync = () => {
           connecting = false;
           if (abortController.signal.aborted) return;
           logGenerationDebugClientSafe('sse_client_stream_ended', { reconnectAttempts });
+          flushEventDropSummary();
           startPoll();
           const delay = Math.min(250 * 2 ** reconnectAttempts, SSE_RECONNECT_MAX_MS);
           reconnectAttempts += 1;

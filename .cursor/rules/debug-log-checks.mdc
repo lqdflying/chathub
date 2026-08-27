@@ -169,14 +169,16 @@ Generation debug (durable send path):
   model=tostring(payload.model),
   provider=tostring(payload.provider),
   contentChars=tolong(payload.contentChars),
-  reasoningChars=tolong(payload.reasoningChars)
+  reasoningChars=tolong(payload.reasoningChars),
+  hadAttached=tobool(payload.hadAttached),
+  suppressedCount=tolong(payload.suppressedCount)
 | project _time, spanId, side, debug_event, kind, outcome, reason, trpcCode,
   errorClass, jobAdded, operationHash, queueAgeMs, deliveredCount, eventType,
   parentUserHash, lastTranscriptUserHash, toolName, topicHash, stillCurrent,
   classifiedAs, deferReason, errorKind,
   producerAlive, deferredLaneCount, resumedTools, transcriptCount,
   omitSessionFilter, persistedSessionNull, model, provider, contentChars,
-  reasoningChars
+  reasoningChars, hadAttached, suppressedCount
 | sort by _time asc
 ```
 
@@ -223,12 +225,16 @@ Worker health and delivery failures at a glance:
   and ['debug_event'] in ('worker_started', 'worker_start_failed',
                           'worker_stopped', 'job_malformed', 'sweep_failed',
                           'sse_poll_failed', 'sse_client_stream_failed',
-                          'sse_client_poll_failed', 'event_dropped')
+                          'sse_client_poll_failed', 'event_dropped',
+                          'event_drop_summary')
 | extend payload=parse_json(extract("(\\{.*\\})$", 1, ['message']))
 | extend reason=tostring(payload.reason), errorType=tostring(payload.errorType),
   operationHash=tostring(payload.operationHash),
-  eventType=tostring(payload.type)
-| project _time, debug_event, reason, errorType, operationHash, eventType
+  eventType=tostring(payload.type),
+  hadAttached=tobool(payload.hadAttached),
+  suppressedCount=tolong(payload.suppressedCount)
+| project _time, debug_event, reason, errorType, operationHash, eventType,
+  hadAttached, suppressedCount
 | sort by _time desc | take 50
 ```
 
@@ -355,12 +361,15 @@ Generation-debug semantics:
   `sse_client_stream_failed` mark reconnect episodes, `sse_client_poll_failed`
   is throttled to the first failure per episode, and
   `sse_client_reset_replay` reports replayed event counts.
-- Client drops: `event_dropped(reason=not_attached|stale_revision)` means the
-  browser received an event it could not apply. Snapshot drops are throttled
-  to one per operation+reason; `done`/`error` drops are always logged and are
-  the smoking gun for "server finished but the reply never appeared".
-  `event_applied_terminal` is the positive counterpart proving end-to-end
-  delivery of a terminal event.
+- Client drops: `event_dropped(reason=not_attached|stale_revision,
+  hadAttached=true)` means this tab had attached that operation and then
+  could not apply the event — `done`/`error` with `hadAttached=true` is the
+  smoking gun for "server finished but the reply never appeared". SSE replay
+  of operations this tab never attached is **not** logged per event; look at
+  `event_drop_summary` (`suppressedCount`, `notAttachedDone`, `distinctOps`).
+  Snapshot/`status` drops for an attached-then-left operation are throttled
+  to one per operation+reason (LRU). `event_applied_terminal` is the positive
+  counterpart proving end-to-end delivery of a terminal event.
 - `execute_transcript_loaded` is emitted from `loadScopedMessages` for chat,
   title, compaction, and supervisor loads. It carries `transcriptCount`,
   `omitSessionFilter`, `persistedSessionNull`, `hasTopicId`, plus
