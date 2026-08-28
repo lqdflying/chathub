@@ -1761,11 +1761,13 @@ describe('conversationGeneration store actions', () => {
     });
 
     act(() => {
-      useChatStore.getState().internal_abortDeferredBrowserLanesForTopic(
-        TEST_IDS.SESSION_ID,
-        TEST_IDS.TOPIC_ID,
-        'topic_delete',
-      );
+      useChatStore
+        .getState()
+        .internal_abortDeferredBrowserLanesForTopic(
+          TEST_IDS.SESSION_ID,
+          TEST_IDS.TOPIC_ID,
+          'topic_delete',
+        );
     });
 
     expect(logSpy).toHaveBeenCalledWith(
@@ -1906,9 +1908,9 @@ describe('conversationGeneration store actions', () => {
     };
 
     beforeEach(() => {
-      logSpy = vi.spyOn(generationDebugClient, 'logGenerationDebugClientSafe').mockImplementation(
-        () => undefined,
-      );
+      logSpy = vi
+        .spyOn(generationDebugClient, 'logGenerationDebugClientSafe')
+        .mockImplementation(() => undefined);
     });
 
     it('does not emit event_dropped for a never-attached status', () => {
@@ -1995,4 +1997,3 @@ describe('conversationGeneration store actions', () => {
     });
   });
 });
-

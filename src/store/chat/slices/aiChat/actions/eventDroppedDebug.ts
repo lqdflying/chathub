@@ -1,4 +1,5 @@
 import {
+  flushGenerationDebugClient,
   hashGenerationDebugClientValue,
   logGenerationDebugClientSafe,
 } from '@/libs/logger/generationDebugClient';
@@ -55,28 +56,6 @@ const resetSummaryCounters = () => {
   distinctOps.clear();
 };
 
-const ensurePageHideFlush = () => {
-  if (pageHideListenerRegistered || typeof window === 'undefined') return;
-  pageHideListenerRegistered = true;
-  window.addEventListener('pagehide', () => {
-    flushEventDropSummary();
-  });
-};
-
-const touchThrottleKey = (key: string) => {
-  if (droppedLogKeys.has(key)) {
-    droppedLogKeys.delete(key);
-    droppedLogKeys.set(key, true);
-    return;
-  }
-  while (droppedLogKeys.size >= DROPPED_LOG_MAX_KEYS) {
-    const oldest = droppedLogKeys.keys().next().value;
-    if (oldest === undefined) break;
-    droppedLogKeys.delete(oldest);
-  }
-  droppedLogKeys.set(key, true);
-};
-
 const recordDropShape = (
   operationId: string,
   reason: DropReason,
@@ -95,6 +74,64 @@ const recordDropShape = (
   else if (type === 'error') notAttachedError += 1;
   else if (type === 'status') notAttachedStatus += 1;
   else if (type === 'snapshot') notAttachedSnapshot += 1;
+};
+
+export const flushEventDropSummary = () => {
+  try {
+    if (suppressedCount === 0) return;
+    logGenerationDebugClientSafe('event_drop_summary', {
+      distinctOps: distinctOps.size,
+      emittedCount,
+      notAttachedCount,
+      notAttachedDone,
+      notAttachedError,
+      notAttachedSnapshot,
+      notAttachedStatus,
+      staleRevisionCount,
+      suppressedCount,
+    });
+    resetSummaryCounters();
+  } catch {
+    // Diagnostics must never interrupt conversation generation.
+  }
+};
+
+/**
+ * Remaining attach-race timers have not seen attach; treat them as suppressed
+ * so a hide/unload summary includes them.
+ */
+const settlePendingTerminalDropsOnHide = () => {
+  for (const [key, pending] of Array.from(pendingTerminalDrops.entries())) {
+    clearTimeout(pending.timer);
+    pendingTerminalDrops.delete(key);
+    recordDropShape(pending.operationId, pending.reason, pending.type, false);
+  }
+};
+
+const onPageHide = () => {
+  settlePendingTerminalDropsOnHide();
+  flushEventDropSummary();
+  flushGenerationDebugClient();
+};
+
+const ensurePageHideFlush = () => {
+  if (pageHideListenerRegistered || typeof window === 'undefined') return;
+  pageHideListenerRegistered = true;
+  window.addEventListener('pagehide', onPageHide);
+};
+
+const touchThrottleKey = (key: string) => {
+  if (droppedLogKeys.has(key)) {
+    droppedLogKeys.delete(key);
+    droppedLogKeys.set(key, true);
+    return;
+  }
+  while (droppedLogKeys.size >= DROPPED_LOG_MAX_KEYS) {
+    const oldest = droppedLogKeys.keys().next().value;
+    if (oldest === undefined) break;
+    droppedLogKeys.delete(oldest);
+  }
+  droppedLogKeys.set(key, true);
 };
 
 const emitEventDropped = (
@@ -128,7 +165,7 @@ const suppressDrop = (operationId: string, reason: DropReason, type: string) => 
 const pendingKey = (operationId: string, type: string) => `${operationId}:${type}`;
 
 const emitPendingForOperation = (operationId: string) => {
-  for (const [key, pending] of [...pendingTerminalDrops.entries()]) {
+  for (const [key, pending] of Array.from(pendingTerminalDrops.entries())) {
     if (pending.operationId !== operationId) continue;
     clearTimeout(pending.timer);
     pendingTerminalDrops.delete(key);
@@ -168,26 +205,6 @@ export const noteConversationGenerationAttached = (operationId: string) => {
     emitPendingForOperation(operationId);
   } catch {
     // Diagnostics must never interrupt attach.
-  }
-};
-
-export const flushEventDropSummary = () => {
-  try {
-    if (suppressedCount === 0) return;
-    logGenerationDebugClientSafe('event_drop_summary', {
-      distinctOps: distinctOps.size,
-      emittedCount,
-      notAttachedCount,
-      notAttachedDone,
-      notAttachedError,
-      notAttachedSnapshot,
-      notAttachedStatus,
-      staleRevisionCount,
-      suppressedCount,
-    });
-    resetSummaryCounters();
-  } catch {
-    // Diagnostics must never interrupt conversation generation.
   }
 };
 

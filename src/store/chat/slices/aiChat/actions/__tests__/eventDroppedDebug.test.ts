@@ -1,6 +1,10 @@
+/**
+ * @vitest-environment jsdom
+ */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as generationDebugClient from '@/libs/logger/generationDebugClient';
+import { lambdaClient } from '@/libs/trpc/client';
 
 import {
   EVENT_DROP_ATTACH_RACE_MS,
@@ -10,6 +14,14 @@ import {
   noteConversationGenerationAttached,
   resetEventDroppedDebugState,
 } from '../eventDroppedDebug';
+
+vi.mock('@/libs/trpc/client', () => ({
+  lambdaClient: {
+    conversationGeneration: {
+      reportClientDebug: { mutate: vi.fn().mockResolvedValue({ accepted: 1 }) },
+    },
+  },
+}));
 
 describe('eventDroppedDebug', () => {
   let logSpy: ReturnType<typeof vi.spyOn>;
@@ -116,6 +128,64 @@ describe('eventDroppedDebug', () => {
       emittedCount: 1,
       staleRevisionCount: 2,
       suppressedCount: 1,
+    });
+  });
+
+  it('settles a pending attach-race terminal into the hide summary', () => {
+    logEventDropped('cgo_pending', 'not_attached', 'done');
+    expect(summaryCalls()).toHaveLength(0);
+
+    window.dispatchEvent(new Event('pagehide'));
+
+    expect(droppedCalls()).toHaveLength(0);
+    expect(summaryCalls()).toEqual([
+      [
+        'event_drop_summary',
+        expect.objectContaining({
+          notAttachedDone: 1,
+          suppressedCount: 1,
+        }),
+      ],
+    ]);
+  });
+});
+
+describe('eventDroppedDebug pagehide queue', () => {
+  beforeEach(() => {
+    resetEventDroppedDebugState();
+    localStorage.setItem('chathub.generationDebug', '1');
+    vi.mocked(lambdaClient.conversationGeneration.reportClientDebug.mutate).mockClear();
+  });
+
+  afterEach(() => {
+    localStorage.removeItem('chathub.generationDebug');
+    resetEventDroppedDebugState();
+  });
+
+  it('delivers event_drop_summary on pagehide after the logger hide listener already registered', async () => {
+    generationDebugClient.logGenerationDebugClientSafe('send_started', { spanId: 'gd_hide' });
+    logEventDropped('cgo_replay_a', 'not_attached', 'status');
+    logEventDropped('cgo_replay_b', 'not_attached', 'status');
+
+    window.dispatchEvent(new Event('pagehide'));
+
+    await vi.waitFor(() => {
+      expect(lambdaClient.conversationGeneration.reportClientDebug.mutate).toHaveBeenCalled();
+    });
+
+    const events = vi
+      .mocked(lambdaClient.conversationGeneration.reportClientDebug.mutate)
+      .mock.calls.flatMap(
+        (call) =>
+          (call[0] as { events: Array<{ event: string; fields?: Record<string, unknown> }> })
+            .events,
+      );
+
+    expect(events.some((item) => item.event === 'send_started')).toBe(true);
+    const summary = events.find((item) => item.event === 'event_drop_summary');
+    expect(summary?.fields).toMatchObject({
+      notAttachedStatus: 2,
+      suppressedCount: 2,
     });
   });
 });
