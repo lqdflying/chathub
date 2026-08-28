@@ -566,6 +566,7 @@ export const chatMessage: StateCreator<
         creatingThreadId: undefined,
         creatingTopic: false,
         creatingTopicId: undefined,
+        pendingTopicClientIds: {},
         dalleImageLoading: {},
         dalleImageMap: {},
         inSearchingMode: false,

@@ -25,10 +25,10 @@ export interface ChatTopicState {
   activeTopicId?: string;
   creatingTopic: boolean;
   creatingTopicId?: string;
-  /** Stable client topic id for idempotent create retries until commit succeeds. */
-  pendingTopicClientId?: string;
   inSearchingMode?: boolean;
   isSearchingTopic: boolean;
+  /** In-flight idempotent topic-create identities keyed by account scope + container + clear fence. */
+  pendingTopicClientIds: Record<string, string>;
   searchTopics: ChatTopic[];
   serverGenerationOperations: Record<string, Record<string, ServerGenerationOperation>>;
   topicLoadingIds: string[];
@@ -46,6 +46,7 @@ export const initialTopicState: ChatTopicState = {
   activeTopicId: null as any,
   creatingTopic: false,
   isSearchingTopic: false,
+  pendingTopicClientIds: {},
   searchTopics: [],
   serverGenerationOperations: {},
   topicLoadingIds: [],

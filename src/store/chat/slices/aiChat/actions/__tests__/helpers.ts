@@ -130,6 +130,7 @@ export const resetTestEnvironment = () => {
       deferredBrowserGenerationLanes: {},
       messageRetryingIds: [],
       messagesMap: {},
+      pendingTopicClientIds: {},
       portalThreadId: undefined,
       reasoningLoadingIds: [],
       searchWorkflowLoadingIds: [],

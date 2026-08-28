@@ -23,18 +23,40 @@ export interface CreateTopicParams {
 const isPostgresUniqueViolation = (error: unknown): boolean =>
   (error as { code?: string })?.code === '23505';
 
+export class TopicCreateContainerMismatchError extends Error {
+  constructor() {
+    super('TOPIC_CREATE_CONTAINER_MISMATCH');
+    this.name = 'TopicCreateContainerMismatchError';
+  }
+}
+
+const topicMatchesContainer = (
+  topic: { groupId: string | null; sessionId: string | null },
+  params: Pick<CreateTopicParams, 'groupId' | 'sessionId'>,
+) =>
+  (topic.groupId ?? null) === (params.groupId ?? null) &&
+  (topic.sessionId ?? null) === (params.sessionId ?? null);
+
 const reparentTopicMessages = async (
   tx: Transaction,
   userId: string,
   topicId: string,
   messageIds: string[] | undefined,
+  container?: Pick<CreateTopicParams, 'groupId' | 'sessionId'>,
 ) => {
   if (!messageIds?.length) return;
+
+  const conditions = [eq(messages.userId, userId), inArray(messages.id, messageIds)];
+  if (container?.groupId) {
+    conditions.push(eq(messages.groupId, container.groupId));
+  } else {
+    conditions.push(eq(messages.sessionId, container?.sessionId ?? null));
+  }
 
   await tx
     .update(messages)
     .set({ topicId })
-    .where(and(eq(messages.userId, userId), inArray(messages.id, messageIds)));
+    .where(and(...conditions));
 };
 
 /** Minimal topic row for assistant memory rollup (all sessions linked to an agent). */
@@ -260,7 +282,7 @@ export class TopicModel {
         };
 
         const [topic] = await tx.insert(topics).values(insertData).returning();
-        await reparentTopicMessages(tx, this.userId, topic.id, messageIds);
+        await reparentTopicMessages(tx, this.userId, topic.id, messageIds, params);
 
         return topic;
       });
@@ -272,9 +294,13 @@ export class TopicModel {
         (params.id ? await this.findById(id) : null);
       if (!existing) throw error;
 
+      if (!topicMatchesContainer(existing, params)) {
+        throw new TopicCreateContainerMismatchError();
+      }
+
       if (messageIds?.length) {
         await this.db.transaction(async (tx) => {
-          await reparentTopicMessages(tx, this.userId, existing.id, messageIds);
+          await reparentTopicMessages(tx, this.userId, existing.id, messageIds, params);
         });
       }
 

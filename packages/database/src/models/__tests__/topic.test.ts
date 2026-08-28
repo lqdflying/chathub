@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { chatGroups, messages, sessions, topics, users } from '../../schemas';
 import { LobeChatDatabase } from '../../type';
-import { CreateTopicParams, TopicModel } from '../topic';
+import { CreateTopicParams, TopicCreateContainerMismatchError, TopicModel } from '../topic';
 import { getTestDB } from './_util';
 
 const userId = 'topic-user-test';
@@ -611,6 +611,44 @@ describe('TopicModel', () => {
         .from(messages)
         .where(eq(messages.id, 'message1'));
       expect(associatedMessages[0].topicId).toBe(first.id);
+    });
+
+    it('rejects idempotent replay when the existing topic belongs to another session', async () => {
+      const sessionB = 'topic-session-b';
+      await serverDB.insert(sessions).values({ id: sessionB, userId });
+
+      await serverDB.insert(messages).values([
+        { id: 'message-b1', role: 'user', sessionId: sessionB, userId },
+      ]);
+
+      const topicA = await topicModel.create(
+        {
+          clientId: 'shared-client-id',
+          messages: ['message1'],
+          sessionId,
+          title: 'Session A Topic',
+        },
+        'topic-session-a',
+      );
+
+      await expect(
+        topicModel.create(
+          {
+            clientId: 'shared-client-id',
+            messages: ['message-b1'],
+            sessionId: sessionB,
+            title: 'Session B Topic',
+          },
+          'topic-session-b',
+        ),
+      ).rejects.toBeInstanceOf(TopicCreateContainerMismatchError);
+
+      const sessionBMessage = await serverDB
+        .select()
+        .from(messages)
+        .where(eq(messages.id, 'message-b1'));
+      expect(sessionBMessage[0].topicId).toBeNull();
+      expect(topicA.sessionId).toBe(sessionId);
     });
 
     it('should create a new topic without associating messages', async () => {

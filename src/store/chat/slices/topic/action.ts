@@ -40,6 +40,7 @@ import {
   untrackDurableEnqueue,
 } from '@/store/chat/utils/conversationClearGeneration';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
+import { buildPendingTopicClientIdKey } from '@/store/chat/utils/pendingTopicClientId';
 import { enqueueTitleSummaryPersistence } from '@/store/chat/utils/titleSummaryOperation';
 import { globalHelpers } from '@/store/global/helpers';
 import { useSessionStore } from '@/store/session';
@@ -258,10 +259,27 @@ export const chatTopic: StateCreator<
     const { activeId, activeSessionType, internal_createTopic } = get();
     if (!accountMutationSnapshot || !activeId) return;
     const creatingTopicId = `topic-create-${nanoid(8)}`;
+    const containerId =
+      activeSessionType === 'group' ? groupId || activeId : sessionId || activeId;
+    const pendingKey = buildPendingTopicClientIdKey(
+      accountMutationSnapshot.scope,
+      containerId,
+      requestedGeneration,
+    );
+    const pendingTopicClientIds = get().pendingTopicClientIds;
     const stableClientTopicId =
-      clientTopicId ?? get().pendingTopicClientId ?? idGenerator('topics');
-    if (!get().pendingTopicClientId) {
-      set({ pendingTopicClientId: stableClientTopicId }, false, n('creatingTopic/clientId'));
+      clientTopicId ?? pendingTopicClientIds[pendingKey] ?? idGenerator('topics');
+    if (!pendingTopicClientIds[pendingKey]) {
+      set(
+        {
+          pendingTopicClientIds: {
+            ...pendingTopicClientIds,
+            [pendingKey]: stableClientTopicId,
+          },
+        },
+        false,
+        n('creatingTopic/clientId'),
+      );
     }
     const isPersistenceCurrent = () =>
       isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
@@ -291,7 +309,17 @@ export const chatTopic: StateCreator<
       if (!isPersistenceCurrent()) return;
 
       if (topicId) {
-        set({ pendingTopicClientId: undefined }, false, n('creatingTopic/clientId/clear'));
+        set(
+          (state) => {
+            if (!state.pendingTopicClientIds[pendingKey]) return state;
+
+            const nextPendingTopicClientIds = { ...state.pendingTopicClientIds };
+            delete nextPendingTopicClientIds[pendingKey];
+            return { pendingTopicClientIds: nextPendingTopicClientIds };
+          },
+          false,
+          n('creatingTopic/clientId/clear'),
+        );
       }
 
       return topicId;

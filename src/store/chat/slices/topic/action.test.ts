@@ -117,6 +117,7 @@ beforeEach(() => {
       conversationClearGeneration: 0,
       creatingTopic: false,
       creatingTopicId: undefined,
+      pendingTopicClientIds: {},
       searchTopics: [],
       topicLoadingIds: [],
       topicMaps: {},
@@ -1875,6 +1876,56 @@ describe('topic action', () => {
           expect.objectContaining({ id: 'stale-account-a-topic', title: 'defaultTitle' }),
         ]),
       );
+    });
+
+    it('does not reuse a pending topic identity from another session after navigation', async () => {
+      const { result } = renderHook(() => useChatStore());
+      const sessionA = 'account-a-session';
+      const sessionB = 'account-a-other-session';
+      const messagesA = [{ id: 'account-a-message' }] as UIChatMessage[];
+      const messagesB = [{ id: 'account-b-message' }] as UIChatMessage[];
+
+      act(() => {
+        currentUserScope = 'user:account-a';
+        useChatStore.setState({
+          activeId: sessionA,
+          conversationClearGeneration: 0,
+          messagesMap: {
+            [messageMapKey(sessionA)]: messagesA,
+          },
+          pendingTopicClientIds: {
+            'user:account-a:account-a-session:0': 'tpc_session_a_pending',
+          },
+        });
+      });
+
+      const createTopicSpy = vi.spyOn(topicService, 'createTopic').mockResolvedValue('tpc_session_b');
+
+      act(() => {
+        useChatStore.setState({
+          activeId: sessionB,
+          messagesMap: {
+            [messageMapKey(sessionB)]: messagesB,
+          },
+        });
+      });
+
+      await act(async () => {
+        await result.current.createTopic();
+      });
+
+      expect(createTopicSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          clientId: expect.not.stringMatching(/^tpc_session_a_pending$/),
+          id: expect.not.stringMatching(/^tpc_session_a_pending$/),
+          messages: messagesB.map((message) => message.id),
+          sessionId: sessionB,
+        }),
+        undefined,
+      );
+      const pending = useChatStore.getState().pendingTopicClientIds;
+      expect(pending['user:account-a:account-a-session:0']).toBe('tpc_session_a_pending');
+      expect(pending['user:account-a:account-a-other-session:0']).toBeUndefined();
     });
 
     it('should cancel stale topic creation without clearing newer creation state', async () => {

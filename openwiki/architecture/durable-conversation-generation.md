@@ -387,8 +387,7 @@ receiving a fake server success. Pre-send compaction stays on the client and run
 summary/cursor. Auto-create-topic sends create the topic and compact **that topic** first even
 if the user has already opened another topic or switched to another assistant session; the RPC
 then uses that topic id and a force-title config so the placeholder Default Topic is replaced.
-Creation is idempotent via a stable client topic id so a committed create can be retried after a
-lost response. Pre-create failures restore the editor when no topic id exists, and continue/retry
+Creation is idempotent via a stable client topic id scoped to the source account, session/group, and clear fence so a committed create can be retried after a lost response without crossing containers. Pre-create failures restore the editor when no topic id exists, and continue/retry
 the send against the created topic when creation already committed. If the topic cannot be loaded
 for compaction after create, the send is blocked instead of enqueueing uncovered history. After
 compaction settles, the client re-checks

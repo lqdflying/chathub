@@ -78,6 +78,7 @@ import { setNamespace } from '@/utils/storeDebug';
 
 import { chatSelectors, topicSelectors } from '../../../selectors';
 import { messageMapKey } from '../../../utils/messageMapKey';
+import { buildPendingTopicClientIdKey } from '../../../utils/pendingTopicClientId';
 import { notifyToolCallPersistenceFailure } from './persistenceNotification';
 
 const n = setNamespace('ai');
@@ -326,7 +327,14 @@ export const generateAIChatV2: StateCreator<
       if (!isPersistenceCurrent()) return;
 
       let createdTopicId: string | undefined;
-      const pendingTopicClientId = get().pendingTopicClientId;
+      const pendingTopicClientId =
+        get().pendingTopicClientIds[
+          buildPendingTopicClientIdKey(
+            requestedScope,
+            conversationContext.sessionId,
+            sourceClearContext.clearGeneration,
+          )
+        ];
       try {
         createdTopicId = await get().createTopic(
           undefined,
