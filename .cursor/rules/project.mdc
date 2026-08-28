@@ -19,6 +19,14 @@ Upstream: https://github.com/lobehub/lobe-chat — diverged significantly. **Do 
 - **Testing**: Vitest + Testing Library (unit), Playwright + Cucumber (e2e)
 - **Monorepo**: pnpm workspaces; use `bun` for scripts, `bunx` for executables
 
+## Browser/server split
+
+ChatHub is **B/S**: new features default to **server-side** design (tRPC,
+Graphile Worker, `src/server/services/`). The browser stays as light as
+possible — display, input, and API calls — with narrow, documented exceptions
+only when an open tab is unavoidable. Full guidance:
+**`.cursor/rules/architecture.mdc`** (*Browser/server split*).
+
 ## DB migrations — safety net (REQUIRED)
 
 Every new Drizzle migration that adds a **table** or **column** MUST also add a corresponding `ensure*` call in `scripts/migrateServerDB/docker.cjs`. This protects against **journal drift** — deployments where `__drizzle_migrations` records the migration as applied but the actual DDL never executed (failed build, restored DB backup, partial transaction).

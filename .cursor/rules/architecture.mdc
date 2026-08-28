@@ -1,9 +1,45 @@
 ---
-description: Repo layout, store pattern, data flow, tRPC routing, path alias, CSS-in-JS
+description: B/S split, repo layout, store pattern, data flow, tRPC routing, path alias, CSS-in-JS
 alwaysApply: true
 ---
 
 # Architecture
+
+## Browser/server split (default)
+
+ChatHub is a **browser/server (B/S)** product. PostgreSQL + the Next.js/Graphile
+server are the authority; the browser is a **thin client** for display,
+interaction, and streaming UX.
+
+### Default for new features
+
+- **Design server-side first.** Scheduling, background work, persistence, LLM/tool
+  execution, and business rules belong on the server (`src/server/services/`,
+  tRPC, Graphile Worker).
+- **Keep the browser light.** Client code renders UI, collects input, calls APIs,
+  and reflects server state — not product timers, cron-like sweeps, or
+  long-running producers.
+- **Browser exceptions are explicit and narrow.** Only when the platform truly
+  requires an open tab (browser-fallback tools per
+  **`durable-background-generation.mdc`**, streaming UX, local input/IME) —
+  document why; do not generalize the pattern.
+
+### Anti-patterns
+
+- Mounting schedulers or background pollers in React (`useEffect` + `setInterval`
+  for product logic)
+- Duplicating server rules in client-only code paths
+- Client stores or services for work that must survive tab close or account switch
+- Choosing a browser implementation because upstream LobeChat did — this fork
+  diverges on purpose
+
+### Examples
+
+| Concern | Server (preferred) | Browser (display / narrow exceptions) |
+| --- | --- | --- |
+| Memory dream schedule | Graphile worker + sweeper | Settings UI + tRPC read/write |
+| Chat generation | Durable Graphile job | Stream rendering; deferred lane only for unsupported tools |
+| Tool execution | HTTP MCP, Code Interpreter sidecar | DALL·E, Kagi, non-HTTP MCP while tab is open |
 
 ## Repo layout
 

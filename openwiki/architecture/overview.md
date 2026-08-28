@@ -45,6 +45,14 @@ APIs; none is a durable database host. The repository does not provide an
 Electron runtime, PGlite, IndexedDB/Dexie persistence, desktop IPC, or a
 browser-local service implementation.
 
+**Design default:** new product behavior is **server-side** (tRPC, Graphile
+Worker, `src/server/services/`). The browser is a **thin client** — render UI,
+collect input, call APIs, stream results — not a scheduler or background
+worker. Mounting client-side timers or pollers for product logic is an
+anti-pattern; narrow browser-only paths (deferred tool lanes, streaming UX)
+must be explicit and documented. See `.cursor/rules/architecture.mdc`
+(*Browser/server split*).
+
 Small browser preferences may still use `localStorage`, and browser-side model
 provider requests remain available where explicitly supported. Those are not
 alternate database or deployment modes. Old JSON exports from the retired
