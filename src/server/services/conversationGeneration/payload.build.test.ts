@@ -29,10 +29,6 @@ vi.mock('@/server/services/file', () => ({
   },
 }));
 
-vi.mock('@/helpers/modelContextWindowTokens', () => ({
-  getModelContextWindowTokens: () => 128_000,
-}));
-
 describe('buildConversationChatPayload', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -42,6 +38,7 @@ describe('buildConversationChatPayload', () => {
     enabledAiModels: [
       {
         abilities: { functionCall: true },
+        contextWindowTokens: 128_000,
         id: 'gpt-4o',
         providerId: 'openai',
       },

@@ -34,7 +34,6 @@ import {
   resolveEffectiveHistoryWindow,
 } from '@/helpers/contextCompaction';
 import { estimateFixedContextOverheadTokens } from '@/helpers/contextUsageEstimate';
-import { getModelContextWindowTokens } from '@/helpers/modelContextWindowTokens';
 import { composeSystemRole } from '@/services/chat/composeSystemRole';
 import {
   buildModelExtendParams,
@@ -213,7 +212,7 @@ export const buildConversationChatPayload = async ({
     fixedOverheadTokens: fixedOverheadTokensForHistory,
     historyCount: chatConfig?.historyCount,
     inputTemplate: chatConfig?.inputTemplate,
-    maxTokens: getModelContextWindowTokens(model, provider),
+    maxTokens: modelCard?.contextWindowTokens,
     messagesAfterCursor: resolvedMessages,
   });
   const pipeline = new ContextEngine({
