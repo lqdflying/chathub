@@ -34,7 +34,6 @@ import { TopicModel } from '@/database/models/topic';
 import { UserModel } from '@/database/models/user';
 import { idGenerator } from '@/database/utils/idGenerator';
 import {
-  CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS,
   buildSimpleCompletionSampling,
   createCompactionFingerprint,
   splitCompactionBatches,
@@ -1736,15 +1735,16 @@ const executeCompaction = async (
   }
 
   let historySummary = operation.config.historySummary || '';
+  const summaryMaxTokens = getContextCompactionMaxSummaryTokens(
+    operation.config.chatConfig?.assistanceLevel,
+  );
   for (const batch of splitCompactionBatches(candidateMessages)) {
     const { content, reasoningChars } = await runSimpleCompletion(
       db,
       operation,
       {
-        ...chainSummaryHistory(batch, historySummary || undefined),
-        max_tokens: getContextCompactionMaxSummaryTokens(
-          operation.config.chatConfig?.assistanceLevel,
-        ),
+        ...chainSummaryHistory(batch, historySummary || undefined, { summaryMaxTokens }),
+        max_tokens: summaryMaxTokens,
         stream: false,
       },
       options?.runSignal,

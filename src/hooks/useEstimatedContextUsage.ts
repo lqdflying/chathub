@@ -4,11 +4,12 @@ import { useMemo } from 'react';
 import { normalizeAssistantMemoryText } from '@/helpers/assistantMemory';
 import { selectMessagesForContext } from '@/helpers/contextCompaction';
 import {
+  estimateFixedContextOverheadTokens,
   getHistoryWindowDiagnostics,
   serializeMessagesForContextEstimate,
   wrapHistorySummaryForTokenEstimate,
-  type HistoryWindowDiagnostics,
 } from '@/helpers/contextUsageEstimate';
+import type { HistoryWindowDiagnostics } from '@/helpers/contextUsageEstimate';
 import { buildHistorySummaryForRequest } from '@/helpers/memoryArchivePrompt';
 import { createChatToolsEngine } from '@/helpers/toolEngineering';
 import { useModelContextWindowTokens } from '@/hooks/useModelContextWindowTokens';
@@ -38,9 +39,9 @@ export interface EstimatedContextUsage {
   ratio: number;
   roleSettingsToken: number;
   systemRoleToken: number;
+  toolsToken: number;
   /** Content estimate of all topic messages (growth signal; not on the wire). */
   topicChatsToken: number;
-  toolsToken: number;
   totalToken: number;
 }
 
@@ -76,13 +77,19 @@ export const useEstimatedContextUsage = (
       agentChatConfigSelectors.enableAssistantMemory(s),
     ]);
 
-  const [historyCount, enableHistoryCount, enableCompressHistory, enableUserMemoryArchive] =
-    useAgentStore((s) => [
-      agentChatConfigSelectors.historyCount(s),
-      agentChatConfigSelectors.enableHistoryCount(s),
-      agentChatConfigSelectors.currentChatConfig(s).enableCompressHistory,
-      agentChatConfigSelectors.enableUserMemoryArchive(s),
-    ]);
+  const [
+    historyCount,
+    enableHistoryCount,
+    enableCompressHistory,
+    enableUserMemoryArchive,
+    inputTemplate,
+  ] = useAgentStore((s) => [
+    agentChatConfigSelectors.historyCount(s),
+    agentChatConfigSelectors.enableHistoryCount(s),
+    agentChatConfigSelectors.currentChatConfig(s).enableCompressHistory,
+    agentChatConfigSelectors.enableUserMemoryArchive(s),
+    agentChatConfigSelectors.currentChatConfig(s).inputTemplate,
+  ]);
 
   const maxTokens = useModelContextWindowTokens(model, provider);
   const knowledgeBaseToken = useChatStore((state) =>
@@ -172,7 +179,13 @@ export const useEstimatedContextUsage = (
   const roleSettingsToken = Math.max(0, systemRoleToken - chatInstructionToken);
 
   const fixedOverheadTokens =
-    systemRoleToken + memoryToken + historySummaryToken + toolsToken + knowledgeBaseToken;
+    estimateFixedContextOverheadTokens({
+      agentMemory: agentMemoryBlock,
+      historySummaryRaw: memorySummaryRaw,
+      inputTemplate,
+      systemRole: composedSystemRole,
+      toolsString: canUseTool ? toolsString : '',
+    }) + knowledgeBaseToken;
 
   const { chatsString, topicChatsString, historyWindow } = useMemo(() => {
     const state = useChatStore.getState();
@@ -245,8 +258,8 @@ export const useEstimatedContextUsage = (
     ratio,
     roleSettingsToken,
     systemRoleToken,
-    topicChatsToken,
     toolsToken,
+    topicChatsToken,
     totalToken,
   };
 };

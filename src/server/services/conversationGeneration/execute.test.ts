@@ -2237,13 +2237,17 @@ describe('executeConversationGeneration memory compaction', () => {
 
     expect(runtimeMocks.chat).toHaveBeenCalledWith(
       expect.objectContaining({
-        max_tokens: 2448,
+        max_tokens: 2648,
         model: 'gpt-5-mini',
         reasoning_effort: 'minimal',
         stream: true,
       }),
       expect.anything(),
     );
+    const compactionPayload = runtimeMocks.chat.mock.calls[0][0] as {
+      messages: Array<{ content: string; role: string }>;
+    };
+    expect(compactionPayload.messages[0].content).toContain('limited to 600 tokens');
     expect(modelMocks.markForRetry).not.toHaveBeenCalled();
     expect(modelMocks.finalizeActive).toHaveBeenCalledWith(
       row.id,
@@ -2292,6 +2296,65 @@ describe('executeConversationGeneration memory compaction', () => {
       }),
     );
   });
+
+  it.each([
+    ['minimal', 400, 2448],
+    ['balanced', 600, 2648],
+    ['rich', 800, 2848],
+  ] as const)(
+    'embeds the %s summary cap in the durable prompt and completion budget',
+    async (level, summaryCap, maxTokens) => {
+      const candidateMessages = [
+        { content: 'hello', id: 'u1', role: 'user', updatedAt: 1 },
+        { content: 'world', id: 'a1', role: 'assistant', updatedAt: 1 },
+      ];
+      const expectedHistorySummary = '';
+      const expectedFingerprint = createCompactionFingerprint({
+        messages: candidateMessages as any,
+        summary: expectedHistorySummary,
+      });
+      aiChatMocks.getMessagesAndTopics.mockResolvedValue({
+        messages: candidateMessages,
+        topics: [],
+      });
+      vi.mocked(consumeProtocolResponse).mockResolvedValue({
+        content: '   ',
+        reasoning: { content: 'hidden thoughts' },
+      });
+
+      await runOperation({
+        attempt: 0,
+        config: {
+          chatConfig: { assistanceLevel: level },
+          compaction: {
+            candidateMessageIds: ['u1', 'a1'],
+            debugSpanId: 'cd_0123456789abcdef',
+            expectedFingerprint,
+            expectedHistorySummary,
+            trigger: 'manual',
+          },
+          model: 'gpt-5-mini',
+          provider: 'openai',
+        },
+        id: `cgo_cap_${level}`,
+        kind: 'memory_compaction',
+        lane: 'lane-1',
+        laneGeneration: 1,
+        revision: 0,
+        sessionId: 'session-1',
+        status: 'pending',
+        topicId: 'topic-1',
+        userId: 'user-1',
+      });
+
+      const compactionPayload = runtimeMocks.chat.mock.calls[0][0] as {
+        max_tokens?: number;
+        messages: Array<{ content: string }>;
+      };
+      expect(compactionPayload.messages[0].content).toContain(`limited to ${summaryCap} tokens`);
+      expect(compactionPayload.max_tokens).toBe(maxTokens);
+    },
+  );
 });
 
 describe('executeConversationGeneration translation', () => {

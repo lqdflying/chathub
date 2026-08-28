@@ -1,7 +1,7 @@
 import { agentMemoryPrompt } from '@lobechat/prompts';
 
-import { createChatToolsEngine } from '@/helpers/toolEngineering';
 import { getModelContextWindowTokens } from '@/helpers/modelContextWindowTokens';
+import { createChatToolsEngine } from '@/helpers/toolEngineering';
 import { composeSystemRole } from '@/services/chat/composeSystemRole';
 import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selectors';
 import { getAgentStoreState } from '@/store/agent/store';
@@ -15,8 +15,14 @@ import { getUserStoreState } from '@/store/user/store';
 import { encodeAsync } from '@/utils/tokenizer';
 
 import { normalizeAssistantMemoryText } from './assistantMemory';
-import { selectMessagesForContext } from './contextCompaction';
 import {
+  getMessagesAfterHistorySummaryCursor,
+  resolveEffectiveHistoryWindow,
+  selectMessagesForContext,
+} from './contextCompaction';
+import {
+  estimateFixedContextOverheadTokens,
+  resolveEffectiveHistoryCountForCompaction,
   serializeMessagesForContextEstimate,
   wrapHistorySummaryForTokenEstimate,
 } from './contextUsageEstimate';
@@ -52,8 +58,10 @@ export const estimateContextUsageAsync = async ({
 }: EstimateContextUsageAsyncParams): Promise<{
   chatsToken: number;
   contextMessages: ReturnType<typeof chatSelectors.mainAIChats>;
+  /** HistoryTruncate window setting (not included-row count after continuations). */
   effectiveHistoryCount: number;
   historySummaryToken: number;
+  includedMessageCount: number;
   inputToken: number;
   memoryToken: number;
   systemRoleToken: number;
@@ -122,22 +130,46 @@ export const estimateContextUsageAsync = async ({
   const schemaNumber = tools?.map((i) => JSON.stringify(i)).join('') || '';
   const pluginSystemRoles = toolSelectors.enabledSystemRoles(enabledToolIds)(toolState);
   const toolsString = canUseTool ? pluginSystemRoles + schemaNumber : '';
+  const inputTemplate = chatConfig.inputTemplate?.trim() || '';
 
   const [systemRoleToken, memoryToken, historySummaryToken, toolsToken, inputToken] =
     await Promise.all(
-      [systemRole, agentMemoryForRequest, historySummaryWrapped, toolsString, input].map((value) =>
-        countTokens(value || ''),
-      ),
+      [
+        systemRole || '',
+        agentMemoryForRequest,
+        historySummaryWrapped,
+        toolsString,
+        input,
+      ].map((value) => countTokens(value || '')),
     );
 
-  const fixedOverheadTokens = systemRoleToken + memoryToken + historySummaryToken + toolsToken;
+  const fixedOverheadTokens = estimateFixedContextOverheadTokens({
+    agentMemory: agentMemoryForRequest,
+    historySummaryRaw: historySummaryForRequest,
+    inputTemplate,
+    systemRole,
+    toolsString,
+  });
+
+  const rawMessages = chatSelectors.mainAIChats(chatState);
+  const afterCursor = getMessagesAfterHistorySummaryCursor(
+    rawMessages,
+    enableHistoryCompaction ? historySummaryLastMessageId : undefined,
+  );
+  const effective = resolveEffectiveHistoryWindow({
+    enableHistoryCount,
+    fixedOverheadTokens,
+    historyCount: configuredHistoryCount,
+    maxTokens,
+    messagesAfterCursor: afterCursor,
+  });
   const chats = selectMessagesForContext({
     cursorId: enableHistoryCompaction ? historySummaryLastMessageId : undefined,
     enableHistoryCount,
     fixedOverheadTokens,
     historyCount: configuredHistoryCount,
     maxTokens,
-    messages: chatSelectors.mainAIChats(chatState),
+    messages: rawMessages,
   });
   const chatsString = serializeMessagesForContextEstimate(chats);
   const chatsToken = await countTokens(chatsString);
@@ -145,8 +177,12 @@ export const estimateContextUsageAsync = async ({
   return {
     chatsToken,
     contextMessages: chats,
-    effectiveHistoryCount: chats.length,
+    effectiveHistoryCount: resolveEffectiveHistoryCountForCompaction(
+      effective,
+      afterCursor.length,
+    ),
     historySummaryToken,
+    includedMessageCount: chats.length,
     inputToken,
     memoryToken,
     systemRoleToken,

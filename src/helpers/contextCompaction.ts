@@ -32,9 +32,9 @@ const serializeMessagesForHistoryWindow = (messages: MessageLikeForHistoryWindow
   messages.map(serializeMessageForHistoryWindow).join('\n');
 
 export interface EffectiveHistoryWindow {
+  enableHistoryCount: boolean;
   /** True when the large-window path included more than the configured historyCount. */
   expanded: boolean;
-  enableHistoryCount: boolean;
   historyCount: number;
 }
 
@@ -153,8 +153,8 @@ const usesDocumentedThinkingTypeOff = ({
  * Sampling for title / translation / history-summary completions.
  * Pass `summaryMaxTokens` only when the caller wants an output cap
  * (compaction). Translation must omit it so long messages are not truncated.
- * The prompt may still ask for a ~400-token summary; the API budget must also
- * cover thinking tokens that share the completion cap on reasoning models.
+ * The prompt uses the same Assist-preset cap (400/600/800); the API budget must
+ * also cover thinking tokens that share the completion cap on reasoning models.
  */
 export const buildSimpleCompletionSampling = ({
   model,

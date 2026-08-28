@@ -234,4 +234,30 @@ describe('buildSimpleCompletionSampling', () => {
       }),
     ).toMatchObject({ enableHistoryCount: false, expanded: true });
   });
+
+  it('selects a message-count prefix that covers every row the slicer excludes with tool tails', () => {
+    const withTail = [
+      message('u1', 'user'),
+      message('a1', 'assistant'),
+      message('u2', 'user'),
+      message('a2', 'assistant'),
+      message('u3', 'user'),
+      message('a3', 'assistant'),
+      message('tool3', 'tool'),
+    ];
+    // Window setting stays 2 even though included rows become a2,u3,a3,tool3.
+    const included = selectMessagesForContext({
+      enableHistoryCount: true,
+      historyCount: 2,
+      messages: withTail,
+    });
+    expect(included.map(({ id }) => id)).toEqual(['a2', 'u3', 'a3', 'tool3']);
+
+    const prefix = selectMessageCountCompactionPrefix(withTail, 2);
+    expect(prefix.map(({ id }) => id)).toEqual(['u1', 'a1', 'u2', 'a2']);
+    // Inflating the setting with included.length (4) would wrongly drop only u1,a1.
+    expect(selectMessageCountCompactionPrefix(withTail, included.length).map(({ id }) => id)).toEqual(
+      ['u1', 'a1'],
+    );
+  });
 });

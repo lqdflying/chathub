@@ -322,15 +322,86 @@ export const generateAIChatV2: StateCreator<
     const debugSpanId = createGenerationDebugSpanId();
     const agentConfig = agentSelectors.currentAgentConfig(getAgentStoreState());
     const { model, provider } = agentConfig;
-    const activeTopic = activeTopicId
-      ? topicSelectors.getTopicById(activeTopicId)(get())
-      : undefined;
     const enableHistoryCompaction =
       !!activeTopicId &&
       activeSessionType !== 'group' &&
       !activeThreadId &&
       !!chatConfig.enableHistoryCount &&
       !!chatConfig.enableCompressHistory;
+
+    // Compact settled overflow before durable enqueue (and before the browser
+    // fallback path) so HistoryTruncate never drops turns without a summary attempt.
+    // Leave-topic aborts the send AbortController with MESSAGE_CANCEL_FLAT; that is
+    // not Stop. Only user cancel / Stop should skip enqueue.
+    if (enableHistoryCompaction && activeTopicId) {
+      const earlyCompactionKey = messageMapKey(activeId, activeTopicId);
+      const earlyCompactionController = new AbortController();
+      const abortEarlyCompactionOnUserCancel = () => {
+        if (abortController.signal.reason === USER_CANCELLED_SEND) {
+          earlyCompactionController.abort();
+        }
+      };
+      abortController.signal.addEventListener('abort', abortEarlyCompactionOnUserCancel, {
+        once: true,
+      });
+      set(
+        (state) => ({
+          preSendCompactionOperations: {
+            ...state.preSendCompactionOperations,
+            [earlyCompactionKey]: {
+              abortController: earlyCompactionController,
+              threadId: activeThreadId ?? null,
+            },
+          },
+        }),
+        false,
+        n('preSendCompaction/start'),
+      );
+      try {
+        await get().triggerMessageCountMemoryCompaction(earlyCompactionController);
+        const shouldCancelSend =
+          earlyCompactionController.signal.aborted ||
+          abortController.signal.reason === USER_CANCELLED_SEND;
+        if (shouldCancelSend) {
+          get().internal_toggleMessageLoading(false, tempId);
+          get().internal_dispatchMessage({ type: 'deleteMessages', ids: [tempId] });
+          get().internal_toggleSendMessageOperation(operationKey, false);
+          return;
+        }
+        await get().triggerTokenThresholdMemoryCompaction(earlyCompactionController);
+        if (
+          earlyCompactionController.signal.aborted ||
+          abortController.signal.reason === USER_CANCELLED_SEND
+        ) {
+          get().internal_toggleMessageLoading(false, tempId);
+          get().internal_dispatchMessage({ type: 'deleteMessages', ids: [tempId] });
+          get().internal_toggleSendMessageOperation(operationKey, false);
+          return;
+        }
+      } finally {
+        abortController.signal.removeEventListener('abort', abortEarlyCompactionOnUserCancel);
+        set(
+          (state) => {
+            if (
+              state.preSendCompactionOperations[earlyCompactionKey]?.abortController !==
+              earlyCompactionController
+            ) {
+              return state;
+            }
+            const preSendCompactionOperations = { ...state.preSendCompactionOperations };
+            delete preSendCompactionOperations[earlyCompactionKey];
+            return { preSendCompactionOperations };
+          },
+          false,
+          n('preSendCompaction/end'),
+        );
+      }
+    }
+
+    // Refresh topic after pre-send compaction so durable config carries the new summary/cursor.
+    const activeTopic = activeTopicId
+      ? topicSelectors.getTopicById(activeTopicId)(get())
+      : undefined;
     const historySummary = buildHistorySummaryForRequest({
       archives: activeTopic?.metadata?.memoryArchives,
       enableCompressHistory: enableHistoryCompaction,

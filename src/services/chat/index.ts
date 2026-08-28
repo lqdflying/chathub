@@ -11,6 +11,7 @@ import {
   createContextExportCaptureBridge,
   prependContextSnapshotToResponse,
 } from '@lobechat/model-runtime';
+import { agentMemoryPrompt } from '@lobechat/prompts';
 import {
   ChatErrorType,
   MAX_ACTIVE_SKILLS,
@@ -26,6 +27,7 @@ import { ModelProvider } from 'model-bank';
 import { enableAuth } from '@/const/auth';
 import { DEFAULT_AGENT_CONFIG } from '@/const/settings';
 import { resolveEffectiveHistoryWindow } from '@/helpers/contextCompaction';
+import { estimateFixedContextOverheadTokens } from '@/helpers/contextUsageEstimate';
 import { getSearchConfig } from '@/helpers/getSearchConfig';
 import { getModelContextWindowTokens } from '@/helpers/modelContextWindowTokens';
 import { createChatToolsEngine, createToolsEngine } from '@/helpers/toolEngineering';
@@ -36,7 +38,7 @@ import { aiModelSelectors, aiProviderSelectors, getAiInfraStoreState } from '@/s
 import { getSessionStoreState } from '@/store/session';
 import { sessionMetaSelectors } from '@/store/session/selectors';
 import { getToolStoreState } from '@/store/tool';
-import { pluginSelectors } from '@/store/tool/selectors';
+import { pluginSelectors, toolSelectors } from '@/store/tool/selectors';
 import { getUserStoreState, useUserStore } from '@/store/user';
 import {
   preferenceSelectors,
@@ -241,15 +243,22 @@ class ChatService {
 
     const enableHistoryCount = agentChatConfigSelectors.enableHistoryCount(agentStoreState);
     const configuredHistoryCount = agentChatConfigSelectors.historyCount(agentStoreState);
-    const maxTokensForHistory = getModelContextWindowTokens(
-      payload.model,
-      payload.provider!,
-    );
-    const fixedOverheadTokensForHistory = Math.ceil(
-      (systemRole.length +
-        (tools?.map((item) => JSON.stringify(item)).join('').length ?? 0)) /
-        2,
-    );
+    const maxTokensForHistory = getModelContextWindowTokens(payload.model, payload.provider!);
+    const toolState = getToolStoreState();
+    const pluginSystemRoles = toolSelectors.enabledSystemRoles(enabledToolIds)(toolState);
+    const toolsString =
+      pluginSystemRoles + (tools?.map((item) => JSON.stringify(item)).join('') || '');
+    const agentMemoryBlock = options?.agentMemory
+      ? agentMemoryPrompt(options.agentMemory)
+      : '';
+    const fixedOverheadTokensForHistory = estimateFixedContextOverheadTokens({
+      agentMemory: agentMemoryBlock,
+      historySummaryRaw: options?.historySummary || '',
+      inputTemplate: chatConfig.inputTemplate,
+      skillInstructions: activatedSkills.map((skill) => skill.instructions || '').join('\n'),
+      systemRole,
+      toolsString,
+    });
     const { enableHistoryCount: effectiveEnableHistoryCount, historyCount: effectiveHistoryCount } =
       resolveEffectiveHistoryWindow({
         enableHistoryCount,

@@ -379,6 +379,31 @@ describe('ChatService', () => {
       );
     });
 
+    it('builds a request when Chat Instruction and the agent system role are blank', async () => {
+      const getChatCompletionSpy = vi.spyOn(chatService, 'getChatCompletion');
+      vi.spyOn(userGeneralSettingsSelectors, 'generalInstruction').mockReturnValue('');
+      vi.spyOn(agentSelectors, 'currentAgentConfig').mockReturnValue({
+        ...DEFAULT_AGENT_CONFIG,
+        model: 'gpt-4',
+        provider: 'openai',
+        systemRole: '',
+      });
+
+      await chatService.createAssistantMessage({
+        messages: [{ content: 'Hello', role: 'user' }] as UIChatMessage[],
+        model: 'gpt-4',
+        plugins: [],
+        provider: 'openai',
+      });
+
+      expect(getChatCompletionSpy).toHaveBeenCalled();
+      const request = getChatCompletionSpy.mock.calls[0][0];
+      expect(request.messages?.some((item) => item.role === 'system' && !item.content?.trim())).toBe(
+        false,
+      );
+      expect(request.messages?.find((item) => item.role === 'user')?.content).toBe('Hello');
+    });
+
     describe('extendParams functionality', () => {
       it('should add reasoning parameters when model supports enableReasoning and user enables it', async () => {
         const getChatCompletionSpy = vi.spyOn(chatService, 'getChatCompletion');

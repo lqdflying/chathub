@@ -32,6 +32,7 @@ import {
   getMessagesAfterHistorySummaryCursor,
   resolveEffectiveHistoryWindow,
 } from '@/helpers/contextCompaction';
+import { estimateFixedContextOverheadTokens } from '@/helpers/contextUsageEstimate';
 import { getModelContextWindowTokens } from '@/helpers/modelContextWindowTokens';
 import { composeSystemRole } from '@/services/chat/composeSystemRole';
 import {
@@ -168,9 +169,37 @@ export const buildConversationChatPayload = async ({
   );
   const resolvedMessages = await resolveProxyImageUrls(messagesAfterSummary, fileService);
   const systemRole = composeSystemRole(generalInstruction, config.systemRole);
-  const fixedOverheadTokensForHistory = Math.ceil(
-    (systemRole.length + (tools?.map((item) => JSON.stringify(item)).join('').length ?? 0)) / 2,
-  );
+  const historySummaryRaw = historySummary || config.historySummary || '';
+  const agentMemoryBlock =
+    chatConfig?.enableAssistantMemory === false
+      ? ''
+      : agentMemoryPrompt({
+          dynamicMemory: agentMemory?.dynamicMemory,
+          fixedMemory: agentMemory?.fixedMemory,
+        });
+  const toolsSystemRoleForOverhead = manifests
+    .filter((manifest) => manifest && enabledToolIds?.includes(manifest.identifier))
+    .map((manifest) => ({
+      apis: (manifest.api || []).map((api) => ({
+        desc: api.description,
+        name: toolNameResolver.generate(manifest.identifier, api.name, manifest.type),
+      })),
+      identifier: manifest.identifier,
+      name: manifest.identifier,
+      systemRole: manifest.systemRole || '',
+    }));
+  const toolsString =
+    (toolsSystemRoleForOverhead.length > 0
+      ? pluginPrompts({ tools: toolsSystemRoleForOverhead })
+      : '') + (tools?.map((item) => JSON.stringify(item)).join('') || '');
+  const fixedOverheadTokensForHistory = estimateFixedContextOverheadTokens({
+    agentMemory: agentMemoryBlock,
+    historySummaryRaw,
+    inputTemplate: chatConfig?.inputTemplate,
+    skillInstructions: skillRecords.map((skill) => skill!.instructions || '').join('\n'),
+    systemRole,
+    toolsString,
+  });
   const effectiveHistory = resolveEffectiveHistoryWindow({
     enableHistoryCount: chatConfig?.enableHistoryCount,
     fixedOverheadTokens: fixedOverheadTokensForHistory,

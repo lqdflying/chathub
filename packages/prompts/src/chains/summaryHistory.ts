@@ -2,16 +2,20 @@ import { ChatStreamPayload, UIChatMessage } from '@lobechat/types';
 
 import { chatHistoryPrompts } from '../prompts';
 
+export const DEFAULT_HISTORY_SUMMARY_MAX_TOKENS = 400;
+
 export const chainSummaryHistory = (
   messages: UIChatMessage[],
   previousSummary?: string,
+  options?: { summaryMaxTokens?: number },
 ): Partial<ChatStreamPayload> => {
   const existingSummary = previousSummary?.trim();
+  const maxSummaryTokens = options?.summaryMaxTokens ?? DEFAULT_HISTORY_SUMMARY_MAX_TOKENS;
 
   return {
     messages: [
       {
-        content: `You maintain a compact, cumulative memory of a conversation. Merge new chat history into the existing summary when one is provided. Preserve the conversation's original language. Keep durable facts, user preferences, decisions, constraints, technical identifiers, completed work, and unresolved tasks. Replace superseded facts instead of retaining contradictions. Do not invent details. Return only the updated summary, limited to 400 tokens.`,
+        content: `You maintain a compact, cumulative memory of a conversation. Merge new chat history into the existing summary when one is provided. Preserve the conversation's original language. Keep durable facts, user preferences, decisions, constraints, technical identifiers, completed work, and unresolved tasks. Replace superseded facts instead of retaining contradictions. Do not invent details. Return only the updated summary, limited to ${maxSummaryTokens} tokens.`,
         role: 'system',
       },
       {

@@ -25,7 +25,7 @@ import { estimatedEncodeAsync } from '@/utils/tokenizer/estimated';
 
 import { useChatStore } from '../../../../store';
 import { messageMapKey } from '../../../../utils/messageMapKey';
-import { TEST_CONTENT, TEST_IDS, createMockStoreState } from './fixtures';
+import { TEST_CONTENT, TEST_IDS, createMockMessage, createMockStoreState } from './fixtures';
 import { resetTestEnvironment, setupMockSelectors, spyOnMessageService } from './helpers';
 
 // Keep zustand mock as it's needed globally
@@ -802,6 +802,108 @@ describe('generateAIChatV2 actions', () => {
             topicId: TEST_IDS.TOPIC_ID,
           }),
         );
+      });
+
+      it('compacts settled overflow before durable enqueue and ships the new summary cursor', async () => {
+        vi.mocked(isClientDurableConversationGenerationEnabled).mockReturnValue(true);
+        vi.spyOn(aiProviderSelectors, 'isProviderFetchOnClient').mockImplementation(
+          () => () => false,
+        );
+        setupMockSelectors({
+          chatConfig: {
+            enableCompressHistory: true,
+            enableHistoryCount: true,
+            historyCount: 2,
+          },
+        });
+
+        const compactedSummary = 'covered u1 through a2';
+        const compactedCursor = 'a2';
+        const compactSpy = vi
+          .spyOn(useChatStore.getState(), 'triggerMessageCountMemoryCompaction')
+          .mockImplementation(async () => {
+            useChatStore.setState({
+              topicMaps: {
+                [TEST_IDS.SESSION_ID]: [
+                  {
+                    historySummary: compactedSummary,
+                    id: TEST_IDS.TOPIC_ID,
+                    metadata: { historySummaryLastMessageId: compactedCursor },
+                    title: 'Topic',
+                  } as any,
+                ],
+              },
+            });
+            return { status: 'compacted' } as any;
+          });
+        vi.spyOn(useChatStore.getState(), 'triggerTokenThresholdMemoryCompaction').mockResolvedValue(
+          { status: 'not_needed' } as any,
+        );
+
+        act(() => {
+          useChatStore.setState({
+            messagesMap: {
+              [messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)]: [
+                createMockMessage({ content: 'u1', id: 'u1', role: 'user' }),
+                createMockMessage({ content: 'a1', id: 'a1', role: 'assistant' }),
+                createMockMessage({ content: 'u2', id: 'u2', role: 'user' }),
+                createMockMessage({ content: 'a2', id: 'a2', role: 'assistant' }),
+                createMockMessage({ content: 'u3', id: 'u3', role: 'user' }),
+                createMockMessage({ content: 'a3', id: 'a3', role: 'assistant' }),
+              ],
+            },
+            topicMaps: {
+              [TEST_IDS.SESSION_ID]: [
+                {
+                  historySummary: '',
+                  id: TEST_IDS.TOPIC_ID,
+                  metadata: {},
+                  title: 'Topic',
+                } as any,
+              ],
+            },
+          });
+        });
+
+        (aiChatService.sendMessageInServer as Mock).mockResolvedValueOnce({
+          assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+          isCreateNewTopic: false,
+          messages: [
+            {
+              content: TEST_CONTENT.USER_MESSAGE,
+              id: TEST_IDS.USER_MESSAGE_ID,
+              role: 'user',
+              sessionId: TEST_IDS.SESSION_ID,
+              topicId: TEST_IDS.TOPIC_ID,
+            },
+          ],
+          operationId: 'cgo_durable_compacted',
+          topicId: TEST_IDS.TOPIC_ID,
+          topics: [],
+          userMessageId: TEST_IDS.USER_MESSAGE_ID,
+        });
+
+        const { result } = renderHook(() => useChatStore());
+
+        await act(async () => {
+          await result.current.sendMessage({ message: TEST_CONTENT.USER_MESSAGE });
+        });
+
+        expect(compactSpy.mock.invocationCallOrder[0]).toBeLessThan(
+          (aiChatService.sendMessageInServer as Mock).mock.invocationCallOrder[0],
+        );
+        expect(aiChatService.sendMessageInServer).toHaveBeenCalledWith(
+          expect.objectContaining({
+            generation: expect.objectContaining({
+              config: expect.objectContaining({
+                historySummary: compactedSummary,
+                historySummaryLastMessageId: compactedCursor,
+              }),
+            }),
+          }),
+          expect.anything(),
+        );
+        expect(result.current.internal_execAgentRuntime).not.toHaveBeenCalled();
       });
 
       it('lets the server generate the topic title after a durable send', async () => {

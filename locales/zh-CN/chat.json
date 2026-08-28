@@ -492,7 +492,7 @@
       "limit": "历史条数上限 {{count}}",
       "title": "历史窗口",
       "topicChats": "话题会话估算",
-      "warnUncovered": "有较早轮次未进入下次请求，且尚无可用历史总结。"
+      "warnUncovered": "有较早轮次不会进入下次请求，且当前总结尚未覆盖这些轮次。"
     },
     "knowledgeBase": "知识库",
     "rest": "剩余可用",

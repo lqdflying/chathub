@@ -165,6 +165,9 @@ describe('chat memory actions', () => {
       model: 'summary-model',
       provider: 'summary-provider',
     });
+    expect(vi.mocked(chatService.fetchPresetTaskResult).mock.calls[0][0].params.messages[0].content).toContain(
+      'limited to 600 tokens',
+    );
     expect(topicService.updateTopic).toHaveBeenCalledTimes(1);
     expect(topicService.updateTopic).toHaveBeenCalledWith(
       TOPIC_ID,
@@ -195,6 +198,30 @@ describe('chat memory actions', () => {
       }),
     );
   });
+
+  it.each([
+    ['minimal', 400, 2448],
+    ['balanced', 600, 2648],
+    ['rich', 800, 2848],
+  ] as const)(
+    'embeds the %s summary cap in the client prompt and completion budget',
+    async (level, summaryCap, maxTokens) => {
+      vi.spyOn(agentChatConfigSelectors, 'assistanceLevel').mockReturnValue(level);
+      vi.spyOn(systemAgentSelectors, 'historyCompress').mockReturnValue({
+        model: 'gpt-5-mini',
+        provider: 'openai',
+      });
+
+      await useChatStore.getState().triggerManualMemoryCompaction();
+
+      const params = vi.mocked(chatService.fetchPresetTaskResult).mock.calls[0][0].params as {
+        max_tokens?: number;
+        messages: Array<{ content: string }>;
+      };
+      expect(params.messages[0].content).toContain(`limited to ${summaryCap} tokens`);
+      expect(params.max_tokens).toBe(maxTokens);
+    },
+  );
 
   it('enqueues the planned compaction snapshot with version and invalidation guards', async () => {
     durableMocks.enabled = true;

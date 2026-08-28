@@ -32,4 +32,14 @@ describe('chainSummaryHistory', () => {
     expect(result.messages?.[1].content).toContain('Use port 3010.');
     expect(result.messages?.[0].content).toContain('limited to 400 tokens');
   });
+
+  it.each([
+    ['minimal', 400],
+    ['balanced', 600],
+    ['rich', 800],
+  ] as const)('embeds the %s summary cap in the system prompt', (_level, maxSummaryTokens) => {
+    const messages = [{ content: 'Hello', role: 'user' }] as UIChatMessage[];
+    const result = chainSummaryHistory(messages, undefined, { summaryMaxTokens: maxSummaryTokens });
+    expect(result.messages?.[0].content).toContain(`limited to ${maxSummaryTokens} tokens`);
+  });
 });

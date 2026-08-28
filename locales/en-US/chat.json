@@ -492,7 +492,7 @@
       "limit": "History limit {{count}}",
       "title": "History window",
       "topicChats": "Topic chat estimate",
-      "warnUncovered": "Older turns are not in the next request yet, and no usable history summary is available."
+      "warnUncovered": "Older turns will not be in the next request, and the current summary does not cover them yet."
     },
     "knowledgeBase": "Knowledge Base",
     "rest": "Remaining",

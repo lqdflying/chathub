@@ -382,8 +382,9 @@ even when the sidecar is unset (`not_configured`) or the program fails.
 Image generation (DALL·E / image-designer chat tools), non-HTTP MCP, and
 unknown plugin runtimes are still capability-gated before durable enqueue, so
 the existing browser runtime handles the whole conversation rather than
-receiving a fake server success. Pre-send compaction also stays on the client
-because it must finish before the user message is committed.
+receiving a fake server success. Pre-send compaction stays on the client and runs
+**before durable enqueue**, so the worker chat payload reads the refreshed
+summary/cursor. It must finish before the user message is committed.
 
 Background compaction is different: the client runs the normal eligibility and
 prefix planner, then stores a non-secret plan snapshot with candidate message
@@ -392,11 +393,12 @@ version. The worker batches that exact prefix and atomically verifies/persists
 the summary, cursor, archives, and bounded debug log. An edit, delete, clear, or
 other invalidation makes the operation `interrupted` instead of committing a
 stale summary. Compaction (`memory_compaction` and the client pre-send
-summarizer) keeps the prompt/summary cap at 400 tokens but, for thinking
+summarizer) sets the prompt and summary cap from the Assist preset (minimal 400 /
+balanced 600 / rich 800 tokens) but, for thinking
 models, raises the API `max_tokens` by 2048 and sends documented thinking-off /
 lowest-effort fields. Title, language-detect, and translation share
 `runSimpleCompletion` sampling (thinking-off / GPT-5 effort) but **do not**
-inherit that 400-token output cap — `chainTranslate` has no `max_tokens`.
+inherit that summary output cap — `chainTranslate` has no `max_tokens`.
 Native OpenAI Responses (for example `gpt-5.5`) maps the generic budget to
 `max_output_tokens`. Thinking-off is sent only where the vendor documents it
 (Anthropic `thinking: { type: 'disabled' }`; DeepSeek V4

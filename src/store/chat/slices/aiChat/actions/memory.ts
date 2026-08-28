@@ -154,19 +154,22 @@ const summarizeBatch = async ({
     onFinish: async (text) => {
       output = text;
     },
-    params: {
-      ...chainSummaryHistory(messages, previousSummary || undefined),
-      ...buildSimpleCompletionSampling({
+    params: (() => {
+      const summaryMaxTokens = getContextCompactionMaxSummaryTokens(
+        agentChatConfigSelectors.assistanceLevel(getAgentStoreState()),
+      );
+      return {
+        ...chainSummaryHistory(messages, previousSummary || undefined, { summaryMaxTokens }),
+        ...buildSimpleCompletionSampling({
+          model,
+          provider,
+          summaryMaxTokens,
+        }),
         model,
         provider,
-        summaryMaxTokens: getContextCompactionMaxSummaryTokens(
-          agentChatConfigSelectors.assistanceLevel(getAgentStoreState()),
-        ),
-      }),
-      model,
-      provider,
-      stream: false,
-    },
+        stream: false,
+      };
+    })(),
     trace: {
       sessionId,
       topicId,
@@ -229,14 +232,14 @@ async function runCompactionFromStore(
     activeProvider?: string;
     beforeEstimate?: Awaited<ReturnType<typeof estimateContextUsageAsync>>;
     candidateCount?: number;
+    effectiveHistoryCount?: number;
     enableCompressHistory?: boolean;
     enableHistoryCount?: boolean;
     enableTokenThresholdAutoCompact?: boolean;
     enableUserMemoryArchive?: boolean;
-    highWatermark?: number;
-    effectiveHistoryCount?: number;
     excludedByCursor?: number;
     excludedByHistoryCount?: number;
+    highWatermark?: number;
     historyCount?: number;
     lowWatermark?: number;
     maxTokens?: number;
@@ -263,14 +266,14 @@ async function runCompactionFromStore(
       logCompactionDebugClientSafe('planner_settled', {
         candidateCount: debug.candidateCount,
         chatsToken: debug.beforeEstimate?.chatsToken,
+        effectiveHistoryCount: debug.effectiveHistoryCount,
         enableCompressHistory: debug.enableCompressHistory,
         enableHistoryCount: debug.enableHistoryCount,
         enableTokenThresholdAutoCompact: debug.enableTokenThresholdAutoCompact,
         enableUserMemoryArchive: debug.enableUserMemoryArchive,
-        highWatermark: debug.highWatermark ?? result.highWatermark,
-        effectiveHistoryCount: debug.effectiveHistoryCount,
         excludedByCursor: debug.excludedByCursor,
         excludedByHistoryCount: debug.excludedByHistoryCount,
+        highWatermark: debug.highWatermark ?? result.highWatermark,
         historyCount: debug.historyCount,
         historySummaryToken: debug.beforeEstimate?.historySummaryToken,
         inputToken: debug.beforeEstimate?.inputToken,

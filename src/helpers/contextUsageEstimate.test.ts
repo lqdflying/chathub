@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import { LARGE_CONTEXT_WINDOW_TOKENS } from './contextCompaction';
 import {
+  estimateFixedContextOverheadTokens,
   getContextCompactionMaxSummaryTokens,
   getHistoryWindowDiagnostics,
   resolveEffectiveHistoryWindow,
@@ -89,6 +90,46 @@ describe('contextUsageEstimate', () => {
     expect(diagnostics.includedMessageCount).toBeLessThan(diagnostics.topicMessageCount);
     expect(diagnostics.excludedByHistoryCount).toBeGreaterThan(0);
     expect(diagnostics.warnUncoveredExclusion).toBe(true);
+  });
+
+  it('still warns when a prior summary exists but newer turns fall outside the history window', () => {
+    const messages = [
+      message('u1', 'user'),
+      message('a1', 'assistant'),
+      message('u2', 'user'),
+      message('a2', 'assistant'),
+      message('u3', 'user'),
+      message('a3', 'assistant'),
+      message('u4', 'user'),
+    ];
+    const diagnostics = getHistoryWindowDiagnostics({
+      configuredHistoryCount: 2,
+      cursorId: 'a1',
+      enableCompressHistory: true,
+      enableHistoryCount: true,
+      hasTopicSummary: true,
+      historyCount: 2,
+      maxTokens: 8000,
+      messages,
+    });
+    expect(diagnostics.excludedByCursor).toBeGreaterThan(0);
+    expect(diagnostics.excludedByHistoryCount).toBeGreaterThan(0);
+    expect(diagnostics.warnUncoveredExclusion).toBe(true);
+  });
+
+  it('treats a missing system role as zero overhead instead of throwing', () => {
+    expect(
+      estimateFixedContextOverheadTokens({
+        systemRole: undefined,
+        toolsString: '',
+      }),
+    ).toBe(0);
+    expect(
+      estimateFixedContextOverheadTokens({
+        agentMemory: 'abcd',
+        systemRole: undefined,
+      }),
+    ).toBe(2);
   });
 
   it('scales summary max tokens by assistance level', () => {

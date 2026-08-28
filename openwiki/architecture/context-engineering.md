@@ -169,9 +169,14 @@ window. `resolveEffectiveHistoryWindow` (`src/helpers/contextCompaction.ts`) kee
 `historyCount` on small cards; when `contextWindowTokens >= 128k`, it expands (or temporarily
 disables) message truncate while an approximate chat payload still fits under 55% of the window
 after fixed overhead. The token estimator, token popover, browser `createAssistantMessage`, and
-Graphile `payload.ts` all share that helper plus latest-user-anchored slicing from
-`packages/context-engine`. Assistant/tool continuations extend the active turn without sliding the
-cached prefix. A pathological continuation tail is bounded separately: the default keeps the newest
+Graphile `payload.ts` all share `estimateFixedContextOverheadTokens` (system role, assistant
+memory, wrapped history summary, tool schemas/roles, activated skill instructions, input
+template) plus latest-user-anchored slicing from `packages/context-engine`. The popover adds
+in-flight Knowledge Base tokens on top of that same overhead. `effectiveHistoryCount` is the
+HistoryTruncate **setting** (or the full post-cursor length when truncate is disabled);
+`includedMessageCount` is the sliced row count after assistant/tool continuations. Assistant/tool
+continuations extend the active turn without sliding the cached prefix. A pathological
+continuation tail is bounded separately: the default keeps the newest
 20 assistant/tool messages after the latest user message.
 
 The token popover title is a **next request estimate**. It also exposes a History window block
@@ -190,7 +195,8 @@ It does not compare full-topic size to the vendor's advertised window. `message_
 in-flight Knowledge Base tokens that the planner estimate does not. Operators diagnose
 those mismatches with `CHATHUB_COMPACTION_DEBUG` (`chathub-compaction-debug`); that switch
 does not change watermarks or when compact runs. `planner_settled` may also include
-`effectiveHistoryCount`, `excludedByHistoryCount`, and `preSendMessageCountCompact`.
+`effectiveHistoryCount` (the window setting, not the included-row count),
+`excludedByHistoryCount`, and `preSendMessageCountCompact`.
 Token compaction chooses the oldest complete turns needed to reach the low watermark. It never
 summarizes the latest user turn or an unresolved assistant/tool tail. If fixed prompt content and the
 protected turn already exceed the target, the action reports `target_unreachable` instead of retrying
@@ -198,11 +204,13 @@ the same unchanged context continuously.
 
 The compaction prompt merges only messages after the cursor into the prior summary. Output caps scale
 with Assist preset (minimal 400 / balanced 600 / rich 800 tokens) via
-`getContextCompactionMaxSummaryTokens`. Large deltas are split between complete turns into bounded
+`getContextCompactionMaxSummaryTokens` and are embedded in `chainSummaryHistory` as well as the
+API completion budget. Large deltas are split between complete turns into bounded
 batches. **Any** abortable pre-send run (`message_count` or `token_threshold`) processes at most
 three batches; it persists a cursor only through the batches actually summarized, and a later run
-resumes from that cursor. Server-mode send runs pre-send `message_count` **before**
-`token_threshold` so unsettled overflow is summarized before `HistoryTruncate` can drop it.
+resumes from that cursor. Server-mode send runs client pre-send `message_count` then
+`token_threshold` **before durable enqueue** (and again on the browser-fallback path after the
+user message is committed) so settled overflow is summarized before `HistoryTruncate` can drop it.
 Post-send `message_count` remains as catch-up. Non-abortable manual / scheduled / post-send
 message-count runs may process all eligible batches. Legacy topic summaries without a valid cursor
 are rebuilt from raw eligible history once. Empty or failed model output never replaces the existing

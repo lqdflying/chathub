@@ -1,23 +1,25 @@
+import { getSlicedMessages } from '@lobechat/context-engine';
 import { historySummaryPrompt } from '@lobechat/prompts';
 import type { UIChatMessage } from '@lobechat/types';
-import { getSlicedMessages } from '@lobechat/context-engine';
 
 import {
+  CONTEXT_CHARS_PER_TOKEN_ESTIMATE,
   getMessagesAfterHistorySummaryCursor,
   resolveEffectiveHistoryWindow,
 } from '@/helpers/contextCompaction';
+import type { EffectiveHistoryWindow } from '@/helpers/contextCompaction';
 
 export {
   CONTEXT_CHARS_PER_TOKEN_ESTIMATE,
+  type EffectiveHistoryWindow,
   LARGE_CONTEXT_EXPAND_WATERMARK,
   LARGE_CONTEXT_WINDOW_TOKENS,
   resolveEffectiveHistoryWindow,
-  type EffectiveHistoryWindow,
 } from '@/helpers/contextCompaction';
 
 export type MessageLikeForContextEstimate = Pick<
   UIChatMessage,
-  'content' | 'role' | 'tools' | 'tool_call_id'
+  'content' | 'role' | 'tool_call_id' | 'tools'
 >;
 
 /** Serialize a chat row closer to the wire than content-only joins. */
@@ -38,6 +40,37 @@ export const serializeMessagesForContextEstimate = (
 export const wrapHistorySummaryForTokenEstimate = (rawSummary: string): string => {
   const trimmed = rawSummary.trim();
   return trimmed ? historySummaryPrompt(trimmed) : '';
+};
+
+/**
+ * Char-based estimate of every stable pre-history block the context-engine injects
+ * before HistoryTruncate. Shared by UI, planner, browser builder, and durable payload.
+ */
+export const estimateFixedContextOverheadTokens = ({
+  agentMemory = '',
+  historySummaryRaw = '',
+  inputTemplate = '',
+  skillInstructions = '',
+  systemRole,
+  toolsString = '',
+}: {
+  agentMemory?: string;
+  historySummaryRaw?: string;
+  inputTemplate?: string;
+  skillInstructions?: string;
+  systemRole?: string | null;
+  toolsString?: string;
+}): number => {
+  const parts = [
+    systemRole ?? '',
+    agentMemory,
+    wrapHistorySummaryForTokenEstimate(historySummaryRaw),
+    toolsString,
+    skillInstructions,
+    inputTemplate,
+  ].join('');
+
+  return Math.ceil(parts.length / CONTEXT_CHARS_PER_TOKEN_ESTIMATE);
 };
 
 export interface HistoryWindowDiagnostics {
@@ -95,8 +128,10 @@ export const getHistoryWindowDiagnostics = ({
   });
 
   const excludedByHistoryCount = Math.max(0, afterCursor.length - included.length);
+  // A topic summary only covers rows through the cursor. Post-cursor history-count
+  // exclusions are still uncovered until compaction advances that cursor.
   const warnUncoveredExclusion =
-    excludedByCursor + excludedByHistoryCount > 0 && !hasTopicSummary;
+    (excludedByCursor > 0 && !hasTopicSummary) || excludedByHistoryCount > 0;
 
   return {
     configuredHistoryCount,
@@ -124,9 +159,17 @@ export const getContextCompactionMaxSummaryTokens = (
     case 'rich': {
       return 800;
     }
-    case 'balanced':
     default: {
       return 600;
     }
   }
+};
+
+/** Resolve the HistoryTruncate setting (not the included-row count after continuations). */
+export const resolveEffectiveHistoryCountForCompaction = (
+  effective: EffectiveHistoryWindow,
+  messagesAfterCursorLength: number,
+): number => {
+  if (!effective.enableHistoryCount) return messagesAfterCursorLength;
+  return effective.historyCount;
 };
