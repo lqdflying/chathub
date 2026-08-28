@@ -1,6 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { applyUserInputTemplate } from '../../utils/inputTemplate';
 import { InputTemplateProcessor } from '../InputTemplate';
+
+describe('applyUserInputTemplate', () => {
+  it('expands {{text}} and leaves the original content on compile failure', () => {
+    expect(applyUserInputTemplate('Ask: {{text}}', 'hello')).toBe('Ask: hello');
+    expect(applyUserInputTemplate(undefined, 'hello')).toBe('hello');
+    expect(applyUserInputTemplate('<%- invalid javascript syntax %>', 'hello')).toBe('hello');
+  });
+});
 
 describe('InputTemplateProcessor', () => {
   it('should apply template to user messages', async () => {

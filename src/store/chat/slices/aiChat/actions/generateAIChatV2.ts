@@ -230,7 +230,7 @@ export const generateAIChatV2: StateCreator<
     // if message is empty or no files, then stop
     if (!message && !hasFile) return;
 
-    const expectedConversationVersion =
+    let expectedConversationVersion =
       capturedConversationVersion ?? (await messageService.getConversationVersion());
     if (!isCurrentConversation()) return;
 
@@ -248,6 +248,81 @@ export const generateAIChatV2: StateCreator<
       !activeTopicId &&
       !!chatConfig.enableAutoCreateTopic &&
       messages.length + 2 >= autoCreateThreshold;
+    const compactionEligible =
+      activeSessionType !== 'group' &&
+      !activeThreadId &&
+      !!chatConfig.enableHistoryCount &&
+      !!chatConfig.enableCompressHistory;
+    let sendTopicId = activeTopicId ?? null;
+    let createNewTopicOnSend = shouldCreateNewTopic;
+
+    if (shouldCreateNewTopic && compactionEligible && messages.length > 0) {
+      if (!isPersistenceCurrent()) return;
+
+      const createdTopicId = await get().createTopic(
+        undefined,
+        undefined,
+        expectedConversationVersion,
+      );
+      if (!isPersistenceCurrent()) return;
+
+      if (createdTopicId) {
+        set(
+          (state) => {
+            const fromKey = messageMapKey(activeId, sourceClearContext.topicId);
+            const toKey = messageMapKey(activeId, createdTopicId);
+            const rows = state.messagesMap[fromKey];
+            if (!rows?.length || fromKey === toKey) return state;
+
+            return {
+              messagesMap: {
+                ...state.messagesMap,
+                [toKey]: rows.map((row) => ({ ...row, topicId: createdTopicId })),
+              },
+            };
+          },
+          false,
+          n('sendMessageInServer/relocateDefaultConversation'),
+        );
+
+        const stillOnSourceConversation =
+          isSameAccount() &&
+          get().activeId === conversationContext.sessionId &&
+          (get().activeTopicId ?? null) === (sourceClearContext.topicId ?? null);
+        if (stillOnSourceConversation) {
+          await get().switchTopic(createdTopicId, true);
+          if (isSameAccount() && get().activeId === conversationContext.sessionId) {
+            getSkillStoreState().moveSelectedSkills(
+              getSkillSelectionKey({
+                sessionId: activeId,
+                threadId: activeThreadId,
+                topicId: sourceClearContext.topicId,
+              }),
+              getSkillSelectionKey({
+                sessionId: activeId,
+                threadId: activeThreadId,
+                topicId: createdTopicId,
+              }),
+            );
+          }
+        }
+
+        sendTopicId = createdTopicId;
+        createNewTopicOnSend = false;
+        conversationContext = {
+          ...conversationContext,
+          clearGeneration: resolveConversationClearGeneration(
+            get(),
+            conversationContext.sessionId,
+            createdTopicId,
+            conversationContext.threadId ?? null,
+          ),
+          topicId: createdTopicId,
+        };
+        expectedConversationVersion = await messageService.getConversationVersion();
+        if (!isPersistenceCurrent()) return;
+      }
+    }
 
     // 构造服务端模式临时消息的本地媒体预览（优先使用 base64Url）
     // Note: base64Url is a self-contained data URL that requires no network fetch.
@@ -293,8 +368,7 @@ export const generateAIChatV2: StateCreator<
       files: fileIdList,
       role: 'user',
       sessionId: activeId,
-      // if there is activeTopicId，then add topicId to message
-      topicId: activeTopicId,
+      topicId: sendTopicId,
       threadId: activeThreadId,
       imageList: tempImages.length > 0 ? tempImages : undefined,
       videoList: tempVideos.length > 0 ? tempVideos : undefined,
@@ -302,7 +376,15 @@ export const generateAIChatV2: StateCreator<
     });
     get().internal_toggleMessageLoading(true, tempId);
 
-    const operationKey = messageMapKey(activeId, activeTopicId);
+    const operationKey = messageMapKey(activeId, sendTopicId);
+    const discardOptimisticSend = () => {
+      get().internal_toggleMessageLoading(false, tempId);
+      get().internal_dispatchMessage(
+        { type: 'deleteMessages', ids: [tempId] },
+        { sessionId: conversationContext.sessionId, topicId: sendTopicId },
+      );
+      get().internal_toggleSendMessageOperation(operationKey, false);
+    };
 
     // Start tracking sendMessageInServer operation with AbortController
     const abortController = get().internal_toggleSendMessageOperation(operationKey, true)!;
@@ -322,19 +404,14 @@ export const generateAIChatV2: StateCreator<
     const debugSpanId = createGenerationDebugSpanId();
     const agentConfig = agentSelectors.currentAgentConfig(getAgentStoreState());
     const { model, provider } = agentConfig;
-    const enableHistoryCompaction =
-      !!activeTopicId &&
-      activeSessionType !== 'group' &&
-      !activeThreadId &&
-      !!chatConfig.enableHistoryCount &&
-      !!chatConfig.enableCompressHistory;
+    const enableHistoryCompaction = !!sendTopicId && compactionEligible;
 
     // Compact settled overflow before durable enqueue (and before the browser
     // fallback path) so HistoryTruncate never drops turns without a summary attempt.
     // Leave-topic aborts the send AbortController with MESSAGE_CANCEL_FLAT; that is
     // not Stop. Only user cancel / Stop should skip enqueue.
-    if (enableHistoryCompaction && activeTopicId) {
-      const earlyCompactionKey = messageMapKey(activeId, activeTopicId);
+    if (enableHistoryCompaction && sendTopicId) {
+      const earlyCompactionKey = messageMapKey(activeId, sendTopicId);
       const earlyCompactionController = new AbortController();
       const abortEarlyCompactionOnUserCancel = () => {
         if (abortController.signal.reason === USER_CANCELLED_SEND) {
@@ -363,9 +440,7 @@ export const generateAIChatV2: StateCreator<
           earlyCompactionController.signal.aborted ||
           abortController.signal.reason === USER_CANCELLED_SEND;
         if (shouldCancelSend) {
-          get().internal_toggleMessageLoading(false, tempId);
-          get().internal_dispatchMessage({ type: 'deleteMessages', ids: [tempId] });
-          get().internal_toggleSendMessageOperation(operationKey, false);
+          discardOptimisticSend();
           return;
         }
         await get().triggerTokenThresholdMemoryCompaction(earlyCompactionController);
@@ -373,9 +448,7 @@ export const generateAIChatV2: StateCreator<
           earlyCompactionController.signal.aborted ||
           abortController.signal.reason === USER_CANCELLED_SEND
         ) {
-          get().internal_toggleMessageLoading(false, tempId);
-          get().internal_dispatchMessage({ type: 'deleteMessages', ids: [tempId] });
-          get().internal_toggleSendMessageOperation(operationKey, false);
+          discardOptimisticSend();
           return;
         }
       } finally {
@@ -398,9 +471,14 @@ export const generateAIChatV2: StateCreator<
       }
     }
 
+    if (!isPersistenceCurrent()) {
+      discardOptimisticSend();
+      return;
+    }
+
     // Refresh topic after pre-send compaction so durable config carries the new summary/cursor.
-    const activeTopic = activeTopicId
-      ? topicSelectors.getTopicById(activeTopicId)(get())
+    const activeTopic = sendTopicId
+      ? topicSelectors.getTopicById(sendTopicId)(get())
       : undefined;
     const historySummary = buildHistorySummaryForRequest({
       archives: activeTopic?.metadata?.memoryArchives,
@@ -441,7 +519,7 @@ export const generateAIChatV2: StateCreator<
     // reattaching it. Untracked in the finally below; the attach path right after
     // the finally is synchronous, so the fence handoff cannot be interleaved.
     const durableIdempotencyKey = generation?.idempotencyKey;
-    const sendLaneKey = laneScopedClearKey(activeId, activeTopicId, activeThreadId ?? null);
+    const sendLaneKey = laneScopedClearKey(activeId, sendTopicId, activeThreadId ?? null);
     if (durableIdempotencyKey) {
       set(
         (state) =>
@@ -456,7 +534,7 @@ export const generateAIChatV2: StateCreator<
     try {
       logGenerationDebugClientSafe('send_started', {
         durableRequested: Boolean(generation),
-        hasTopic: Boolean(activeTopicId),
+        hasTopic: Boolean(sendTopicId),
         isWelcomeQuestion: Boolean(isWelcomeQuestion),
         spanId: debugSpanId,
       });
@@ -470,9 +548,9 @@ export const generateAIChatV2: StateCreator<
             ...(messageMetadata && { metadata: messageMetadata }),
           },
           // if there is activeTopicId，then add topicId to message
-          topicId: activeTopicId,
+          topicId: sendTopicId,
           threadId: activeThreadId,
-          newTopic: shouldCreateNewTopic
+          newTopic: createNewTopicOnSend
             ? {
                 topicMessageIds: messages.map((m) => m.id),
                 title: t('defaultTitle', { ns: 'topic' }),
@@ -555,11 +633,11 @@ export const generateAIChatV2: StateCreator<
           if (recovered?.assistantMessageId && recovered.userMessageId && isSameAccount()) {
             data = {
               assistantMessageId: recovered.assistantMessageId,
-              isCreateNewTopic: shouldCreateNewTopic,
+              isCreateNewTopic: createNewTopicOnSend,
               messages: [],
               operation: recovered,
               operationId: recovered.id,
-              topicId: recovered.topicId || activeTopicId || '',
+              topicId: recovered.topicId || sendTopicId || '',
               userMessageId: recovered.userMessageId,
             };
             await get().refreshMessages(conversationContext);
@@ -621,7 +699,7 @@ export const generateAIChatV2: StateCreator<
     ) {
       get().internal_dispatchMessage(
         { id: tempId, type: 'deleteMessage' },
-        { sessionId: activeId, topicId: activeTopicId },
+        { sessionId: activeId, topicId: sendTopicId },
       );
     }
 

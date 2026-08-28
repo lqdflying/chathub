@@ -170,9 +170,11 @@ window. `resolveEffectiveHistoryWindow` (`src/helpers/contextCompaction.ts`) kee
 disables) message truncate while an approximate chat payload still fits under 55% of the window
 after fixed overhead. The token estimator, token popover, browser `createAssistantMessage`, and
 Graphile `payload.ts` all share `estimateFixedContextOverheadTokens` (system role, assistant
-memory, wrapped history summary, tool schemas/roles, activated skill instructions, input
-template) plus latest-user-anchored slicing from `packages/context-engine`. The popover adds
-in-flight Knowledge Base tokens on top of that same overhead. `effectiveHistoryCount` is the
+memory, wrapped history summary, tool schemas/roles, and `formatSkillInstructionsBlock` XML)
+plus latest-user-anchored slicing from `packages/context-engine`. Input templates are **not** a
+one-shot overhead string: `resolveEffectiveHistoryWindow` / `serializeMessagesForContextEstimate`
+apply the same `{{text}}` expansion as `InputTemplateProcessor` to every included user row.
+The popover adds in-flight Knowledge Base tokens on top of that same overhead. `effectiveHistoryCount` is the
 HistoryTruncate **setting** (or the full post-cursor length when truncate is disabled);
 `includedMessageCount` is the sliced row count after assistant/tool continuations. Assistant/tool
 continuations extend the active turn without sliding the cached prefix. A pathological
@@ -188,7 +190,7 @@ The configurable compact threshold is the high watermark. It is clamped to 50%-9
 80%. The low watermark is derived 20 percentage points below it, so the default target is 60%.
 The 80% gate lives only on `trigger=token_threshold`. It compares
 `estimateContextUsageAsync` (system role + tools + assistant memory + wrapped history summary +
-`selectMessagesForContext` + input) to `enabledAiModels[].contextWindowTokens` for the
+activated skill XML + `selectMessagesForContext` with per-user input templates + input) to `enabledAiModels[].contextWindowTokens` for the
 **active chat model** (including user overrides; OpenAI-compatible cards are forced to 258k).
 It does not compare full-topic size to the vendor's advertised window. `message_count`,
 `scheduled`, and `manual` ignore that gate. The token-badge watcher ratio can include
@@ -211,7 +213,10 @@ three batches; it persists a cursor only through the batches actually summarized
 resumes from that cursor. Server-mode send runs client pre-send `message_count` then
 `token_threshold` **before durable enqueue** (and again on the browser-fallback path after the
 user message is committed) so settled overflow is summarized before `HistoryTruncate` can drop it.
-Post-send `message_count` remains as catch-up. Non-abortable manual / scheduled / post-send
+When auto-create-topic fires, the client creates the topic, relocates default-conversation rows,
+runs that same pre-send compaction, then enqueues with the topic id (no `newTopic` payload).
+Account and conversation-clear fences are re-checked after compaction; navigation alone still
+allows durable enqueue. Post-send `message_count` remains as catch-up. Non-abortable manual / scheduled / post-send
 message-count runs may process all eligible batches. Legacy topic summaries without a valid cursor
 are rebuilt from raw eligible history once. Empty or failed model output never replaces the existing
 summary or advances the cursor. Identical archive excerpts are not stored twice.

@@ -13,6 +13,7 @@ export { ContextEngine } from './pipeline';
 export type { SkillInstructionItem, SkillInstructionsConfig } from './providers';
 export {
   AgentMemoryProvider,
+  formatSkillInstructionsBlock,
   HistorySummaryProvider,
   InboxGuideProvider,
   SkillInstructionsProvider,
@@ -32,6 +33,7 @@ export {
   ToolCallProcessor,
   ToolMessageReorder,
 } from './processors';
+export { applyUserInputTemplate, compileUserInputTemplate } from './utils/inputTemplate';
 
 // Tools Engine
 export type {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { PipelineContext } from '../../types';
-import { SkillInstructionsProvider } from '../SkillInstructions';
+import { SkillInstructionsProvider, formatSkillInstructionsBlock } from '../SkillInstructions';
 
 const createContext = (): PipelineContext => ({
   initialState: { messages: [] } as any,
@@ -51,7 +51,18 @@ describe('SkillInstructionsProvider', () => {
     }).process(createContext());
 
     const content = String(result.messages.find((message) => message.role === 'system')?.content);
+    expect(content).toBe(formatSkillInstructionsBlock({
+      activated: [
+        {
+          description: 'Summarize text.',
+          identifier: 'summarize-text',
+          instructions: 'secret body',
+          name: 'summarize-text',
+        },
+      ],
+    }));
     expect(content).toContain('<activated_skills>');
+    expect(content).toContain('<skill name="summarize-text">');
     expect(content).toContain('secret body');
   });
 });

@@ -11,6 +11,13 @@ const mocks = vi.hoisted(() => ({
     tool_call_id?: string;
   }>,
   historyCount: 20,
+  inputTemplate: '',
+  skillRecords: [] as Array<{
+    description: string;
+    identifier: string;
+    instructions: string;
+    name: string;
+  }>,
 }));
 
 vi.mock('@/utils/tokenizer', () => ({
@@ -44,7 +51,11 @@ vi.mock('@/services/chat/composeSystemRole', () => ({
 
 vi.mock('@/store/agent/selectors', () => ({
   agentChatConfigSelectors: {
-    currentChatConfig: () => ({ enableCompressHistory: true, enableUserMemoryArchive: false }),
+    currentChatConfig: () => ({
+      enableCompressHistory: true,
+      enableUserMemoryArchive: false,
+      inputTemplate: mocks.inputTemplate,
+    }),
     enableAssistantMemory: () => false,
     enableHistoryCount: () => true,
     historyCount: () => mocks.historyCount,
@@ -58,8 +69,18 @@ vi.mock('@/store/agent/selectors', () => ({
   },
 }));
 
-vi.mock('@/store/agent/store', () => ({
-  getAgentStoreState: () => ({}),
+vi.mock('@/services/skill', () => ({
+  skillService: {
+    resolveSkills: async () => mocks.skillRecords,
+  },
+}));
+
+vi.mock('@/store/skill', () => ({
+  getSkillSelectionKey: () => 'session:topic:main',
+  getSkillStoreState: () => ({}),
+  skillSelectors: {
+    selectedSkillIds: () => () => mocks.skillRecords.map((skill) => skill.identifier),
+  },
 }));
 
 vi.mock('@/store/aiInfra', () => ({
@@ -103,6 +124,8 @@ describe('estimateContextUsageAsync', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.historyCount = 20;
+    mocks.inputTemplate = '';
+    mocks.skillRecords = [];
     mocks.chats = [{ content: 'chat-text', id: 'u1', role: 'user' }];
   });
 
@@ -149,5 +172,36 @@ describe('estimateContextUsageAsync', () => {
     expect(result.effectiveHistoryCount).toBe(2);
     expect(result.includedMessageCount).toBe(4);
     expect(result.contextMessages.map(({ id }) => id)).toEqual(['a2', 'u3', 'a3', 'tool3']);
+  });
+
+  it('includes activated skill XML and per-user template expansion in chats tokens', async () => {
+    mocks.inputTemplate = 'Ask: {{text}}';
+    mocks.skillRecords = [
+      {
+        description: 'Review code.',
+        identifier: 'reviewer',
+        instructions: 'Inspect every diff.',
+        name: 'reviewer',
+      },
+    ];
+    mocks.chats = [
+      { content: 'one', id: 'u1', role: 'user' },
+      { content: 'two', id: 'u2', role: 'user' },
+    ];
+
+    const result = await estimateContextUsageAsync({
+      agentState: {} as any,
+      chatState: { inputMessage: '' } as any,
+    });
+
+    expect(result.chatsToken).toBe('user:\nAsk: one\nuser:\nAsk: two'.length);
+    expect(result.totalToken).toBeGreaterThan(
+      result.systemRoleToken +
+        result.memoryToken +
+        result.historySummaryToken +
+        result.toolsToken +
+        result.chatsToken +
+        result.inputToken,
+    );
   });
 });

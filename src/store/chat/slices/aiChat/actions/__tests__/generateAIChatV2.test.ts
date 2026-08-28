@@ -658,10 +658,70 @@ describe('generateAIChatV2 actions', () => {
           await sendPromise;
         });
 
+        expect(aiChatService.sendMessageInServer).not.toHaveBeenCalled();
         expect(aiChatService.createAssistantMessageInServer).not.toHaveBeenCalled();
         expect(result.current.internal_execAgentRuntime).not.toHaveBeenCalled();
+        expect(
+          Object.values(result.current.messagesMap).flat().some((item) => item.role === 'user'),
+        ).toBe(false);
         currentUserScope = 'user:account-a';
         useUserStore.setState({ userStateScope: currentUserScope });
+      });
+
+      it('does not enqueue after a conversation-clear fence during compaction', async () => {
+        const compactionDeferred = createDeferred<any>();
+        const compactionSpy = vi.fn(() => compactionDeferred.promise);
+        useChatStore.setState({ triggerTokenThresholdMemoryCompaction: compactionSpy });
+        const { result } = renderHook(() => useChatStore());
+        const previousFence = result.current.conversationClearGeneration;
+
+        let sendPromise!: Promise<void>;
+        act(() => {
+          sendPromise = result.current.sendMessageInServer({
+            message: TEST_CONTENT.USER_MESSAGE,
+          });
+        });
+        await vi.waitFor(() => expect(compactionSpy).toHaveBeenCalled());
+
+        act(() => {
+          useChatStore.setState({ conversationClearGeneration: previousFence + 1 });
+        });
+        compactionDeferred.resolve({ status: 'ineligible' });
+        await act(async () => {
+          await sendPromise;
+        });
+
+        expect(aiChatService.sendMessageInServer).not.toHaveBeenCalled();
+        expect(result.current.internal_execAgentRuntime).not.toHaveBeenCalled();
+      });
+
+      it('still enqueues a durable send if the user only navigates away during compaction', async () => {
+        vi.mocked(isClientDurableConversationGenerationEnabled).mockReturnValue(true);
+        vi.spyOn(aiProviderSelectors, 'isProviderFetchOnClient').mockImplementation(
+          () => () => false,
+        );
+        const compactionDeferred = createDeferred<any>();
+        const compactionSpy = vi.fn(() => compactionDeferred.promise);
+        useChatStore.setState({ triggerTokenThresholdMemoryCompaction: compactionSpy });
+        const { result } = renderHook(() => useChatStore());
+
+        let sendPromise!: Promise<void>;
+        act(() => {
+          sendPromise = result.current.sendMessage({
+            message: TEST_CONTENT.USER_MESSAGE,
+          });
+        });
+        await vi.waitFor(() => expect(compactionSpy).toHaveBeenCalled());
+
+        act(() => {
+          useChatStore.setState({ activeTopicId: 'another-topic' });
+        });
+        compactionDeferred.resolve({ status: 'not_needed' });
+        await act(async () => {
+          await sendPromise;
+        });
+
+        expect(aiChatService.sendMessageInServer).toHaveBeenCalled();
       });
     });
 
@@ -1148,6 +1208,134 @@ describe('generateAIChatV2 actions', () => {
         expect(callArgs.newTopic).toMatchObject({
           topicMessageIds: [],
         });
+      });
+
+      it('creates the auto-topic, compacting overflow before durable enqueue', async () => {
+        vi.mocked(isClientDurableConversationGenerationEnabled).mockReturnValue(true);
+        vi.spyOn(aiProviderSelectors, 'isProviderFetchOnClient').mockImplementation(
+          () => () => false,
+        );
+        setupMockSelectors({
+          chatConfig: {
+            autoCreateTopicThreshold: 8,
+            enableAutoCreateTopic: true,
+            enableCompressHistory: true,
+            enableHistoryCount: true,
+            historyCount: 2,
+          },
+        });
+
+        const createdTopicId = TEST_IDS.NEW_TOPIC_ID;
+        const compactedSummary = 'covered u1 through a2';
+        const compactedCursor = 'a2';
+        const historyMessages = [
+          createMockMessage({ content: 'u1', id: 'u1', role: 'user', topicId: undefined }),
+          createMockMessage({ content: 'a1', id: 'a1', role: 'assistant', topicId: undefined }),
+          createMockMessage({ content: 'u2', id: 'u2', role: 'user', topicId: undefined }),
+          createMockMessage({ content: 'a2', id: 'a2', role: 'assistant', topicId: undefined }),
+          createMockMessage({ content: 'u3', id: 'u3', role: 'user', topicId: undefined }),
+          createMockMessage({ content: 'a3', id: 'a3', role: 'assistant', topicId: undefined }),
+        ];
+
+        const createTopic = vi.fn(async () => {
+          const sourceKey = messageMapKey(TEST_IDS.SESSION_ID);
+          const targetKey = messageMapKey(TEST_IDS.SESSION_ID, createdTopicId);
+          const rows = useChatStore.getState().messagesMap[sourceKey] || [];
+          useChatStore.setState({
+            messagesMap: {
+              ...useChatStore.getState().messagesMap,
+              [targetKey]: rows.map((row) => ({ ...row, topicId: createdTopicId })),
+            },
+            topicMaps: {
+              [TEST_IDS.SESSION_ID]: [
+                {
+                  historySummary: '',
+                  id: createdTopicId,
+                  metadata: {},
+                  title: 'Topic',
+                } as any,
+              ],
+            },
+          });
+          return createdTopicId;
+        });
+        const switchTopic = vi.fn(async (id?: string) => {
+          useChatStore.setState({ activeTopicId: id ?? null });
+        });
+        const compactSpy = vi
+          .spyOn(useChatStore.getState(), 'triggerMessageCountMemoryCompaction')
+          .mockImplementation(async () => {
+            useChatStore.setState({
+              topicMaps: {
+                [TEST_IDS.SESSION_ID]: [
+                  {
+                    historySummary: compactedSummary,
+                    id: createdTopicId,
+                    metadata: { historySummaryLastMessageId: compactedCursor },
+                    title: 'Topic',
+                  } as any,
+                ],
+              },
+            });
+            return { status: 'compacted' } as any;
+          });
+        vi.spyOn(useChatStore.getState(), 'triggerTokenThresholdMemoryCompaction').mockResolvedValue(
+          { status: 'not_needed' } as any,
+        );
+
+        act(() => {
+          useChatStore.setState({
+            activeTopicId: undefined,
+            createTopic,
+            messagesMap: {
+              [messageMapKey(TEST_IDS.SESSION_ID)]: historyMessages,
+            },
+            switchTopic,
+          });
+        });
+
+        (aiChatService.sendMessageInServer as Mock).mockResolvedValueOnce({
+          assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+          isCreateNewTopic: false,
+          messages: [
+            {
+              content: TEST_CONTENT.USER_MESSAGE,
+              id: TEST_IDS.USER_MESSAGE_ID,
+              role: 'user',
+              sessionId: TEST_IDS.SESSION_ID,
+              topicId: createdTopicId,
+            },
+          ],
+          operationId: 'cgo_durable_autotopic',
+          topicId: createdTopicId,
+          topics: [],
+          userMessageId: TEST_IDS.USER_MESSAGE_ID,
+        });
+
+        const { result } = renderHook(() => useChatStore());
+
+        await act(async () => {
+          await result.current.sendMessage({ message: TEST_CONTENT.USER_MESSAGE });
+        });
+
+        expect(createTopic).toHaveBeenCalled();
+        expect(switchTopic).toHaveBeenCalledWith(createdTopicId, true);
+        expect(compactSpy.mock.invocationCallOrder[0]).toBeLessThan(
+          (aiChatService.sendMessageInServer as Mock).mock.invocationCallOrder[0],
+        );
+        expect(aiChatService.sendMessageInServer).toHaveBeenCalledWith(
+          expect.objectContaining({
+            generation: expect.objectContaining({
+              config: expect.objectContaining({
+                historySummary: compactedSummary,
+                historySummaryLastMessageId: compactedCursor,
+              }),
+            }),
+            newTopic: undefined,
+            topicId: createdTopicId,
+          }),
+          expect.anything(),
+        );
       });
 
       it('should not create new topic when threshold is not reached', async () => {

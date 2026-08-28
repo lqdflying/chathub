@@ -1,6 +1,7 @@
 import {
   AgentMemoryProvider,
   ContextEngine,
+  formatSkillInstructionsBlock,
   HistorySummaryProvider,
   HistoryTruncateProcessor,
   InboxGuideProvider,
@@ -192,11 +193,18 @@ export const buildConversationChatPayload = async ({
     (toolsSystemRoleForOverhead.length > 0
       ? pluginPrompts({ tools: toolsSystemRoleForOverhead })
       : '') + (tools?.map((item) => JSON.stringify(item)).join('') || '');
+  const skillInstructions = formatSkillInstructionsBlock({
+    activated: skillRecords.map((skill) => ({
+      description: skill!.description,
+      identifier: skill!.identifier,
+      instructions: skill!.instructions,
+      name: skill!.name,
+    })),
+  });
   const fixedOverheadTokensForHistory = estimateFixedContextOverheadTokens({
     agentMemory: agentMemoryBlock,
     historySummaryRaw,
-    inputTemplate: chatConfig?.inputTemplate,
-    skillInstructions: skillRecords.map((skill) => skill!.instructions || '').join('\n'),
+    skillInstructions,
     systemRole,
     toolsString,
   });
@@ -204,6 +212,7 @@ export const buildConversationChatPayload = async ({
     enableHistoryCount: chatConfig?.enableHistoryCount,
     fixedOverheadTokens: fixedOverheadTokensForHistory,
     historyCount: chatConfig?.historyCount,
+    inputTemplate: chatConfig?.inputTemplate,
     maxTokens: getModelContextWindowTokens(model, provider),
     messagesAfterCursor: resolvedMessages,
   });

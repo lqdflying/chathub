@@ -1,8 +1,8 @@
 import debug from 'debug';
-import { template } from 'lodash-es';
 
 import { BaseProcessor } from '../base/BaseProcessor';
 import type { PipelineContext, ProcessorOptions } from '../types';
+import { compileUserInputTemplate } from '../utils/inputTemplate';
 
 const log = debug('context-engine:processor:InputTemplateProcessor');
 
@@ -37,10 +37,7 @@ export class InputTemplateProcessor extends BaseProcessor {
     let processedCount = 0;
 
     try {
-      // Compile the template
-      const compiler = template(this.config.inputTemplate, {
-        interpolate: /{{\s*(text)\s*}}/g,
-      });
+      const compiler = compileUserInputTemplate(this.config.inputTemplate);
 
       log(`Applying input template: ${this.config.inputTemplate}`);
 

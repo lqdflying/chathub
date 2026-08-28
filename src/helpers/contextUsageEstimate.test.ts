@@ -132,6 +132,28 @@ describe('contextUsageEstimate', () => {
     ).toBe(2);
   });
 
+  it('counts skill XML wrappers and ignores a one-shot input template string', () => {
+    const skillInstructions = `<activated_skills>
+<skill name="reviewer">
+${'Review diffs carefully.'.repeat(10)}
+</skill>
+</activated_skills>`;
+    const withSkills = estimateFixedContextOverheadTokens({
+      skillInstructions,
+      systemRole: 'Be concise.',
+    });
+    const withoutSkills = estimateFixedContextOverheadTokens({
+      systemRole: 'Be concise.',
+    });
+    expect(withSkills).toBeGreaterThan(withoutSkills);
+    expect(withSkills).toBe(
+      estimateFixedContextOverheadTokens({
+        skillInstructions,
+        systemRole: 'Be concise.',
+      }),
+    );
+  });
+
   it('scales summary max tokens by assistance level', () => {
     expect(getContextCompactionMaxSummaryTokens('minimal')).toBe(400);
     expect(getContextCompactionMaxSummaryTokens('balanced')).toBe(600);

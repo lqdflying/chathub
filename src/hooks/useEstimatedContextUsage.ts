@@ -1,5 +1,6 @@
+import { formatSkillInstructionsBlock } from '@lobechat/context-engine';
 import { agentMemoryPrompt } from '@lobechat/prompts';
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { normalizeAssistantMemoryText } from '@/helpers/assistantMemory';
 import { selectMessagesForContext } from '@/helpers/contextCompaction';
@@ -16,11 +17,13 @@ import { useModelContextWindowTokens } from '@/hooks/useModelContextWindowTokens
 import { useModelSupportToolUse } from '@/hooks/useModelSupportToolUse';
 import { useTokenCount } from '@/hooks/useTokenCount';
 import { composeSystemRole } from '@/services/chat/composeSystemRole';
+import { skillService } from '@/services/skill';
 import { useAgentStore } from '@/store/agent';
 import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selectors';
 import { useChatStore } from '@/store/chat';
 import { chatSelectors, threadSelectors, topicSelectors } from '@/store/chat/selectors';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
+import { getSkillSelectionKey, skillSelectors, useSkillStore } from '@/store/skill';
 import { useToolStore } from '@/store/tool';
 import { toolSelectors } from '@/store/tool/selectors';
 import { useUserStore } from '@/store/user';
@@ -58,6 +61,7 @@ export const useEstimatedContextUsage = (
     historySummaryLastMessageId,
     isRegularTopic,
     lastCompactionStatus,
+    skillSelectionKey,
   ] = useChatStore((s) => [
     s.inputMessage,
     topicSelectors.currentActiveTopicSummary(s)?.content,
@@ -65,7 +69,41 @@ export const useEstimatedContextUsage = (
     topicSelectors.currentActiveTopic(s)?.metadata?.historySummaryLastMessageId,
     s.activeSessionType !== 'group' && !s.activeThreadId && !s.portalThreadId,
     topicSelectors.currentActiveTopic(s)?.metadata?.memoryDebugLog?.at(-1)?.status,
+    getSkillSelectionKey({
+      sessionId: s.activeId,
+      threadId: s.activeThreadId,
+      topicId: s.activeTopicId,
+    }),
   ]);
+  const selectedSkillIds = useSkillStore(skillSelectors.selectedSkillIds(skillSelectionKey));
+  const selectedSkillIdKey = selectedSkillIds.join(',');
+  const [skillInstructions, setSkillInstructions] = useState('');
+
+  useEffect(() => {
+    if (!selectedSkillIdKey) {
+      setSkillInstructions('');
+      return;
+    }
+
+    let cancelled = false;
+    void skillService.resolveSkills(selectedSkillIdKey.split(',')).then((records) => {
+      if (cancelled) return;
+      setSkillInstructions(
+        formatSkillInstructionsBlock({
+          activated: records.map((skill) => ({
+            description: skill.description,
+            identifier: skill.identifier,
+            instructions: skill.instructions,
+            name: skill.name,
+          })),
+        }),
+      );
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSkillIdKey]);
 
   const [systemRole, model, provider, assistantMemory, fixedMemory, enableAssistantMemory] =
     useAgentStore((s) => [
@@ -175,6 +213,7 @@ export const useEstimatedContextUsage = (
   const memoryToken = useTokenCount(agentMemoryBlock);
   const historySummaryToken = useTokenCount(memorySummaryWrapped);
   const systemRoleToken = useTokenCount(composedSystemRole);
+  const skillToken = useTokenCount(skillInstructions);
   const chatInstructionToken = useTokenCount(generalInstruction?.trim());
   const roleSettingsToken = Math.max(0, systemRoleToken - chatInstructionToken);
 
@@ -182,7 +221,7 @@ export const useEstimatedContextUsage = (
     estimateFixedContextOverheadTokens({
       agentMemory: agentMemoryBlock,
       historySummaryRaw: memorySummaryRaw,
-      inputTemplate,
+      skillInstructions,
       systemRole: composedSystemRole,
       toolsString: canUseTool ? toolsString : '',
     }) + knowledgeBaseToken;
@@ -202,12 +241,13 @@ export const useEstimatedContextUsage = (
       enableHistoryCount,
       fixedOverheadTokens,
       historyCount,
+      inputTemplate,
       maxTokens,
       messages: chats,
     });
 
     return {
-      chatsString: serializeMessagesForContextEstimate(sliced),
+      chatsString: serializeMessagesForContextEstimate(sliced, inputTemplate),
       historyWindow: getHistoryWindowDiagnostics({
         configuredHistoryCount: historyCount,
         cursorId,
@@ -216,10 +256,11 @@ export const useEstimatedContextUsage = (
         fixedOverheadTokens,
         hasTopicSummary: !!memorySummaryRaw.trim(),
         historyCount,
+        inputTemplate,
         maxTokens,
         messages: chats,
       }),
-      topicChatsString: serializeMessagesForContextEstimate(chats),
+      topicChatsString: serializeMessagesForContextEstimate(chats, inputTemplate),
     };
   }, [
     conversationSource,
@@ -228,6 +269,7 @@ export const useEstimatedContextUsage = (
     fixedOverheadTokens,
     historyCount,
     historySummaryLastMessageId,
+    inputTemplate,
     isRegularTopic,
     maxTokens,
     memorySummaryRaw,
@@ -242,7 +284,8 @@ export const useEstimatedContextUsage = (
     historySummaryToken +
     toolsToken +
     chatsToken +
-    knowledgeBaseToken;
+    knowledgeBaseToken +
+    skillToken;
   const ratio = maxTokens > 0 ? totalToken / maxTokens : 0;
 
   return {

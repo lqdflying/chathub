@@ -10,6 +10,10 @@ export { ToolSystemRoleProvider } from './ToolSystemRole';
 export type { AgentMemoryConfig } from './AgentMemory';
 export type { HistorySummaryConfig } from './HistorySummary';
 export type { InboxGuideConfig } from './InboxGuide';
-export type { SkillInstructionItem, SkillInstructionsConfig } from './SkillInstructions';
+export {
+  formatSkillInstructionsBlock,
+  type SkillInstructionItem,
+  type SkillInstructionsConfig,
+} from './SkillInstructions';
 export type { SystemRoleInjectorConfig } from './SystemRoleInjector';
 export type { ToolSystemRoleConfig } from './ToolSystemRole';

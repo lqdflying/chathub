@@ -1,4 +1,4 @@
-import { getSlicedMessages } from '@lobechat/context-engine';
+import { applyUserInputTemplate, getSlicedMessages } from '@lobechat/context-engine';
 import {
   type GPT5ReasoningEffort,
   type MemoryCompactionTrigger,
@@ -21,15 +21,25 @@ type MessageLikeForHistoryWindow = Pick<
   'content' | 'role' | 'tools' | 'tool_call_id'
 >;
 
-const serializeMessageForHistoryWindow = (message: MessageLikeForHistoryWindow): string => {
-  const parts = [`${message.role ?? ''}:`, message.content ?? ''];
+const serializeMessageForHistoryWindow = (
+  message: MessageLikeForHistoryWindow,
+  inputTemplate?: string,
+): string => {
+  const content =
+    message.role === 'user'
+      ? applyUserInputTemplate(inputTemplate, message.content ?? '')
+      : (message.content ?? '');
+  const parts = [`${message.role ?? ''}:`, content];
   if (message.tool_call_id) parts.push(`tool_call_id:${message.tool_call_id}`);
   if (message.tools?.length) parts.push(JSON.stringify(message.tools));
   return parts.join('\n');
 };
 
-const serializeMessagesForHistoryWindow = (messages: MessageLikeForHistoryWindow[]): string =>
-  messages.map(serializeMessageForHistoryWindow).join('\n');
+const serializeMessagesForHistoryWindow = (
+  messages: MessageLikeForHistoryWindow[],
+  inputTemplate?: string,
+): string =>
+  messages.map((message) => serializeMessageForHistoryWindow(message, inputTemplate)).join('\n');
 
 export interface EffectiveHistoryWindow {
   enableHistoryCount: boolean;
@@ -47,12 +57,15 @@ export const resolveEffectiveHistoryWindow = ({
   enableHistoryCount,
   fixedOverheadTokens = 0,
   historyCount,
+  inputTemplate,
   maxTokens,
   messagesAfterCursor,
 }: {
   enableHistoryCount?: boolean;
   fixedOverheadTokens?: number;
   historyCount?: number;
+  /** Applied to every included user row; must not be counted again as fixed overhead. */
+  inputTemplate?: string;
   maxTokens?: number;
   messagesAfterCursor: MessageLikeForHistoryWindow[];
 }): EffectiveHistoryWindow => {
@@ -75,7 +88,10 @@ export const resolveEffectiveHistoryWindow = ({
   }
 
   const approxTokens = (messages: MessageLikeForHistoryWindow[]) =>
-    Math.ceil(serializeMessagesForHistoryWindow(messages).length / CONTEXT_CHARS_PER_TOKEN_ESTIMATE);
+    Math.ceil(
+      serializeMessagesForHistoryWindow(messages, inputTemplate).length /
+        CONTEXT_CHARS_PER_TOKEN_ESTIMATE,
+    );
 
   if (approxTokens(messagesAfterCursor) <= budgetTokens) {
     return { enableHistoryCount: false, expanded: true, historyCount };
@@ -229,6 +245,7 @@ export const selectMessagesForContext = ({
   enableHistoryCount,
   fixedOverheadTokens,
   historyCount,
+  inputTemplate,
   maxTokens,
   messages,
 }: {
@@ -236,6 +253,7 @@ export const selectMessagesForContext = ({
   enableHistoryCount?: boolean;
   fixedOverheadTokens?: number;
   historyCount?: number;
+  inputTemplate?: string;
   maxTokens?: number;
   messages: UIChatMessage[];
 }) => {
@@ -244,6 +262,7 @@ export const selectMessagesForContext = ({
     enableHistoryCount,
     fixedOverheadTokens,
     historyCount,
+    inputTemplate,
     maxTokens,
     messagesAfterCursor: afterCursor,
   });

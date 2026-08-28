@@ -1,4 +1,5 @@
 import { LOBE_CHAT_CONTEXT_EXPORT_HEADER } from '@lobechat/const';
+import { formatSkillInstructionsBlock } from '@lobechat/context-engine';
 import {
   FetchSSEOptions,
   fetchSSE,
@@ -254,8 +255,14 @@ class ChatService {
     const fixedOverheadTokensForHistory = estimateFixedContextOverheadTokens({
       agentMemory: agentMemoryBlock,
       historySummaryRaw: options?.historySummary || '',
-      inputTemplate: chatConfig.inputTemplate,
-      skillInstructions: activatedSkills.map((skill) => skill.instructions || '').join('\n'),
+      skillInstructions: formatSkillInstructionsBlock({
+        activated: activatedSkills.map((skill) => ({
+          description: skill.description,
+          identifier: skill.identifier,
+          instructions: skill.instructions,
+          name: skill.name,
+        })),
+      }),
       systemRole,
       toolsString,
     });
@@ -264,6 +271,7 @@ class ChatService {
         enableHistoryCount,
         fixedOverheadTokens: fixedOverheadTokensForHistory,
         historyCount: configuredHistoryCount,
+        inputTemplate: chatConfig.inputTemplate,
         maxTokens: maxTokensForHistory,
         messagesAfterCursor: sanitizedMessages,
       });

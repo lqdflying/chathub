@@ -89,6 +89,39 @@ describe('context compaction helpers', () => {
     ).toEqual(['a2', 'u3', 'tool-call', 'tool-result']);
   });
 
+  it('counts per-user input templates when deciding large-window expansion', () => {
+    const longUser = 'u'.repeat(8000);
+    const turns = Array.from({ length: 10 }, (_, index) => [
+      message(`u${index}`, 'user'),
+      message(`a${index}`, 'assistant'),
+    ]).flat().map((item) =>
+      item.role === 'user' ? { ...item, content: longUser } : item,
+    );
+    const inputTemplate = `${'P'.repeat(2000)}{{text}}`;
+    const skillOverhead = Math.ceil('S'.repeat(50_000).length / 2);
+
+    const withoutPerUser = resolveEffectiveHistoryWindow({
+      enableHistoryCount: true,
+      fixedOverheadTokens: skillOverhead,
+      historyCount: 2,
+      maxTokens: LARGE_CONTEXT_WINDOW_TOKENS,
+      messagesAfterCursor: turns,
+    });
+    const withPerUser = resolveEffectiveHistoryWindow({
+      enableHistoryCount: true,
+      fixedOverheadTokens: skillOverhead,
+      historyCount: 2,
+      inputTemplate,
+      maxTokens: LARGE_CONTEXT_WINDOW_TOKENS,
+      messagesAfterCursor: turns,
+    });
+
+    expect(withoutPerUser.enableHistoryCount).toBe(false);
+    expect(withPerUser.enableHistoryCount).toBe(true);
+    expect(withPerUser.historyCount).toBeGreaterThanOrEqual(2);
+    expect(withPerUser.historyCount).toBeLessThan(turns.length);
+  });
+
   it('splits large deltas only between turns', () => {
     const longHistory = Array.from({ length: 6 }, (_, index) => [
       message(`u${index}`, 'user'),

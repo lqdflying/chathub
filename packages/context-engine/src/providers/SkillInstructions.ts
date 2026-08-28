@@ -17,7 +17,7 @@ export interface SkillInstructionsConfig {
   available?: SkillInstructionItem[];
 }
 
-const formatSkillBlock = (config: SkillInstructionsConfig = {}) => {
+export const formatSkillInstructionsBlock = (config: SkillInstructionsConfig = {}) => {
   const available = (config.available || [])
     .map(({ description, identifier }) => `- ${identifier}: ${description}`)
     .join('\n');
@@ -48,7 +48,7 @@ export class SkillInstructionsProvider extends BaseProvider {
 
   protected async doProcess(context: PipelineContext): Promise<PipelineContext> {
     const clonedContext = this.cloneContext(context);
-    const formatted = formatSkillBlock(this.config);
+    const formatted = formatSkillInstructionsBlock(this.config);
     if (!formatted) return this.markAsExecuted(clonedContext);
 
     const system = clonedContext.messages.find((message) => message.role === 'system');

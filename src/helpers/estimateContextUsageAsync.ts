@@ -1,13 +1,16 @@
+import { formatSkillInstructionsBlock } from '@lobechat/context-engine';
 import { agentMemoryPrompt } from '@lobechat/prompts';
 
 import { getModelContextWindowTokens } from '@/helpers/modelContextWindowTokens';
 import { createChatToolsEngine } from '@/helpers/toolEngineering';
 import { composeSystemRole } from '@/services/chat/composeSystemRole';
+import { skillService } from '@/services/skill';
 import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selectors';
 import { getAgentStoreState } from '@/store/agent/store';
 import { aiModelSelectors, getAiInfraStoreState } from '@/store/aiInfra';
 import { ChatStoreState } from '@/store/chat/initialState';
 import { chatSelectors, topicSelectors } from '@/store/chat/selectors';
+import { getSkillSelectionKey, getSkillStoreState, skillSelectors } from '@/store/skill';
 import { toolSelectors } from '@/store/tool/selectors';
 import { getToolStoreState } from '@/store/tool/store';
 import { userGeneralSettingsSelectors } from '@/store/user/selectors';
@@ -131,8 +134,24 @@ export const estimateContextUsageAsync = async ({
   const pluginSystemRoles = toolSelectors.enabledSystemRoles(enabledToolIds)(toolState);
   const toolsString = canUseTool ? pluginSystemRoles + schemaNumber : '';
   const inputTemplate = chatConfig.inputTemplate?.trim() || '';
+  const skillIds = skillSelectors.selectedSkillIds(
+    getSkillSelectionKey({
+      sessionId: chatState.activeId,
+      threadId: chatState.activeThreadId,
+      topicId: chatState.activeTopicId,
+    }),
+  )(getSkillStoreState());
+  const skillRecords = skillIds.length ? await skillService.resolveSkills(skillIds) : [];
+  const skillInstructions = formatSkillInstructionsBlock({
+    activated: skillRecords.map((skill) => ({
+      description: skill.description,
+      identifier: skill.identifier,
+      instructions: skill.instructions,
+      name: skill.name,
+    })),
+  });
 
-  const [systemRoleToken, memoryToken, historySummaryToken, toolsToken, inputToken] =
+  const [systemRoleToken, memoryToken, historySummaryToken, toolsToken, inputToken, skillToken] =
     await Promise.all(
       [
         systemRole || '',
@@ -140,13 +159,14 @@ export const estimateContextUsageAsync = async ({
         historySummaryWrapped,
         toolsString,
         input,
+        skillInstructions,
       ].map((value) => countTokens(value || '')),
     );
 
   const fixedOverheadTokens = estimateFixedContextOverheadTokens({
     agentMemory: agentMemoryForRequest,
     historySummaryRaw: historySummaryForRequest,
-    inputTemplate,
+    skillInstructions,
     systemRole,
     toolsString,
   });
@@ -160,6 +180,7 @@ export const estimateContextUsageAsync = async ({
     enableHistoryCount,
     fixedOverheadTokens,
     historyCount: configuredHistoryCount,
+    inputTemplate,
     maxTokens,
     messagesAfterCursor: afterCursor,
   });
@@ -168,10 +189,11 @@ export const estimateContextUsageAsync = async ({
     enableHistoryCount,
     fixedOverheadTokens,
     historyCount: configuredHistoryCount,
+    inputTemplate,
     maxTokens,
     messages: rawMessages,
   });
-  const chatsString = serializeMessagesForContextEstimate(chats);
+  const chatsString = serializeMessagesForContextEstimate(chats, inputTemplate);
   const chatsToken = await countTokens(chatsString);
 
   return {
@@ -188,6 +210,12 @@ export const estimateContextUsageAsync = async ({
     systemRoleToken,
     toolsToken,
     totalToken:
-      systemRoleToken + memoryToken + historySummaryToken + toolsToken + chatsToken + inputToken,
+      systemRoleToken +
+      memoryToken +
+      historySummaryToken +
+      toolsToken +
+      chatsToken +
+      inputToken +
+      skillToken,
   };
 };

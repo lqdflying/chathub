@@ -1,4 +1,4 @@
-import { getSlicedMessages } from '@lobechat/context-engine';
+import { applyUserInputTemplate, getSlicedMessages } from '@lobechat/context-engine';
 import { historySummaryPrompt } from '@lobechat/prompts';
 import type { UIChatMessage } from '@lobechat/types';
 
@@ -25,8 +25,13 @@ export type MessageLikeForContextEstimate = Pick<
 /** Serialize a chat row closer to the wire than content-only joins. */
 export const serializeMessageForContextEstimate = (
   message: MessageLikeForContextEstimate,
+  inputTemplate?: string,
 ): string => {
-  const parts = [`${message.role ?? ''}:`, message.content ?? ''];
+  const content =
+    message.role === 'user'
+      ? applyUserInputTemplate(inputTemplate, message.content ?? '')
+      : (message.content ?? '');
+  const parts = [`${message.role ?? ''}:`, content];
   if (message.tool_call_id) parts.push(`tool_call_id:${message.tool_call_id}`);
   if (message.tools?.length) parts.push(JSON.stringify(message.tools));
   return parts.join('\n');
@@ -34,7 +39,9 @@ export const serializeMessageForContextEstimate = (
 
 export const serializeMessagesForContextEstimate = (
   messages: MessageLikeForContextEstimate[],
-): string => messages.map(serializeMessageForContextEstimate).join('\n');
+  inputTemplate?: string,
+): string =>
+  messages.map((message) => serializeMessageForContextEstimate(message, inputTemplate)).join('\n');
 
 /** Match HistorySummaryProvider: count the XML wrapper, not only raw summary text. */
 export const wrapHistorySummaryForTokenEstimate = (rawSummary: string): string => {
@@ -49,14 +56,12 @@ export const wrapHistorySummaryForTokenEstimate = (rawSummary: string): string =
 export const estimateFixedContextOverheadTokens = ({
   agentMemory = '',
   historySummaryRaw = '',
-  inputTemplate = '',
   skillInstructions = '',
   systemRole,
   toolsString = '',
 }: {
   agentMemory?: string;
   historySummaryRaw?: string;
-  inputTemplate?: string;
   skillInstructions?: string;
   systemRole?: string | null;
   toolsString?: string;
@@ -67,7 +72,6 @@ export const estimateFixedContextOverheadTokens = ({
     wrapHistorySummaryForTokenEstimate(historySummaryRaw),
     toolsString,
     skillInstructions,
-    inputTemplate,
   ].join('');
 
   return Math.ceil(parts.length / CONTEXT_CHARS_PER_TOKEN_ESTIMATE);
@@ -94,6 +98,7 @@ export const getHistoryWindowDiagnostics = ({
   fixedOverheadTokens,
   hasTopicSummary,
   historyCount,
+  inputTemplate,
   maxTokens,
   messages,
 }: {
@@ -104,6 +109,7 @@ export const getHistoryWindowDiagnostics = ({
   fixedOverheadTokens?: number;
   hasTopicSummary: boolean;
   historyCount?: number;
+  inputTemplate?: string;
   maxTokens?: number;
   messages: UIChatMessage[];
 }): HistoryWindowDiagnostics => {
@@ -118,6 +124,7 @@ export const getHistoryWindowDiagnostics = ({
     enableHistoryCount,
     fixedOverheadTokens,
     historyCount,
+    inputTemplate,
     maxTokens,
     messagesAfterCursor: afterCursor,
   });
