@@ -70,10 +70,25 @@ const recordDropShape = (
     return;
   }
   notAttachedCount += 1;
-  if (type === 'done') notAttachedDone += 1;
-  else if (type === 'error') notAttachedError += 1;
-  else if (type === 'status') notAttachedStatus += 1;
-  else if (type === 'snapshot') notAttachedSnapshot += 1;
+  switch (type) {
+    case 'done': {
+      notAttachedDone += 1;
+      break;
+    }
+    case 'error': {
+      notAttachedError += 1;
+      break;
+    }
+    case 'status': {
+      notAttachedStatus += 1;
+      break;
+    }
+    case 'snapshot': {
+      notAttachedSnapshot += 1;
+      break;
+    }
+    // No default
+  }
 };
 
 export const flushEventDropSummary = () => {
@@ -215,6 +230,10 @@ export const resetEventDroppedDebugState = () => {
   for (const pending of pendingTerminalDrops.values()) clearTimeout(pending.timer);
   pendingTerminalDrops.clear();
   resetSummaryCounters();
+  if (typeof window !== 'undefined' && pageHideListenerRegistered) {
+    window.removeEventListener('pagehide', onPageHide);
+  }
+  pageHideListenerRegistered = false;
 };
 
 export const logEventDropped = (

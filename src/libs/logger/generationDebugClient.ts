@@ -174,6 +174,18 @@ const boundClientDebugFields = (fields: Record<string, unknown> = {}): Record<st
   return Object.fromEntries(entries);
 };
 
+type TrpcClientModule = typeof import('@/libs/trpc/client');
+
+let trpcClientModulePromise: Promise<TrpcClientModule> | undefined;
+
+const loadTrpcClientModule = (): Promise<TrpcClientModule> => {
+  trpcClientModulePromise ??= import('@/libs/trpc/client').catch((error: unknown) => {
+    trpcClientModulePromise = undefined;
+    throw error;
+  });
+  return trpcClientModulePromise;
+};
+
 export const flushGenerationDebugClient = () => {
   if (typeof window === 'undefined' || queue.length === 0) return;
   const events = queue;
@@ -183,7 +195,9 @@ export const flushGenerationDebugClient = () => {
     flushTimer = undefined;
   }
 
-  import('@/libs/trpc/client')
+  // Share one in-flight import so concurrent pagehide flushes (logger + drop
+  // summary) observe the same client module.
+  void loadTrpcClientModule()
     .then(({ lambdaClient }) =>
       lambdaClient.conversationGeneration.reportClientDebug.mutate(
         { events },

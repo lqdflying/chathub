@@ -151,6 +151,15 @@ describe('eventDroppedDebug', () => {
 });
 
 describe('eventDroppedDebug pagehide queue', () => {
+  const reportedDebugEvents = () =>
+    vi
+      .mocked(lambdaClient.conversationGeneration.reportClientDebug.mutate)
+      .mock.calls.flatMap(
+        (call) =>
+          (call[0] as { events: Array<{ event: string; fields?: Record<string, unknown> }> })
+            .events,
+      );
+
   beforeEach(() => {
     resetEventDroppedDebugState();
     localStorage.setItem('chathub.generationDebug', '1');
@@ -169,18 +178,13 @@ describe('eventDroppedDebug pagehide queue', () => {
 
     window.dispatchEvent(new Event('pagehide'));
 
+    // Logger hide flush uses a dynamic import; wait for the later summary
+    // mutate, not merely the first send_started flush.
     await vi.waitFor(() => {
-      expect(lambdaClient.conversationGeneration.reportClientDebug.mutate).toHaveBeenCalled();
+      expect(reportedDebugEvents().some((item) => item.event === 'event_drop_summary')).toBe(true);
     });
 
-    const events = vi
-      .mocked(lambdaClient.conversationGeneration.reportClientDebug.mutate)
-      .mock.calls.flatMap(
-        (call) =>
-          (call[0] as { events: Array<{ event: string; fields?: Record<string, unknown> }> })
-            .events,
-      );
-
+    const events = reportedDebugEvents();
     expect(events.some((item) => item.event === 'send_started')).toBe(true);
     const summary = events.find((item) => item.event === 'event_drop_summary');
     expect(summary?.fields).toMatchObject({
