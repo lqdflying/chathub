@@ -6,7 +6,6 @@ import { CSSProperties, MouseEvent, memo } from 'react';
 
 const stopLabelActivation = (event: MouseEvent) => {
   event.preventDefault();
-  event.stopPropagation();
 };
 
 interface InfoTooltipProps extends Omit<TooltipProps, 'children'> {
@@ -18,13 +17,7 @@ const InfoTooltip = memo<InfoTooltipProps>(({ size, iconStyle, ...res }) => {
   const theme = useTheme();
   return (
     <Tooltip {...res}>
-      <span
-        className={'chathub-form-label-tooltip'}
-        onClick={stopLabelActivation}
-        onClickCapture={stopLabelActivation}
-        onMouseDown={stopLabelActivation}
-        onMouseDownCapture={stopLabelActivation}
-      >
+      <span className={'chathub-form-label-tooltip'} onClick={stopLabelActivation}>
         <Icon
           icon={CircleHelp}
           size={size}
