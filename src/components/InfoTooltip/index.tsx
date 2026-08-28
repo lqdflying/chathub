@@ -14,6 +14,7 @@ const InfoTooltip = memo<InfoTooltipProps>(({ size, iconStyle, ...res }) => {
   return (
     <Tooltip {...res}>
       <Icon
+        className={'chathub-form-label-tooltip'}
         icon={CircleHelp}
         size={size}
         style={{ color: theme.colorTextTertiary, ...iconStyle }}

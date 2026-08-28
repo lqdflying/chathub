@@ -38,4 +38,25 @@ export default ({ token }: { prefixCls: string; token: Theme }) => css`
     max-width: 90vw;
     max-height: 90vh;
   }
+
+  /*
+   * Settings switches: only the control toggles — not the full row label.
+   * Ant Design associates horizontal Form.Item labels with the switch input.
+   */
+  .${token.prefixCls}-form-item:has(.${token.prefixCls}-switch)
+    .${token.prefixCls}-form-item-label
+    > label {
+    cursor: default;
+    pointer-events: none;
+  }
+
+  .${token.prefixCls}-form-item:has(.${token.prefixCls}-switch)
+    .${token.prefixCls}-form-item-label
+    .${token.prefixCls}-form-item-tooltip,
+  .${token.prefixCls}-form-item:has(.${token.prefixCls}-switch)
+    .${token.prefixCls}-form-item-label
+    .chathub-form-label-tooltip {
+    cursor: help;
+    pointer-events: auto;
+  }
 `;
