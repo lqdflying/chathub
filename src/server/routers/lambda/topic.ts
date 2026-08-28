@@ -116,9 +116,11 @@ export const topicRouter = router({
   createTopic: topicProcedure
     .input(
       z.object({
+        clientId: z.string().optional(),
         expectedConversationVersion: z.number().optional(),
         favorite: z.boolean().optional(),
         groupId: z.string().nullable().optional(),
+        id: z.string().optional(),
         messages: z.array(z.string()).optional(),
         sessionId: z.string().nullable().optional(),
         title: z.string(),
@@ -131,7 +133,7 @@ export const topicRouter = router({
         ctx.userId,
         async (transaction) => {
           const topicModel = new TopicModel(transaction, ctx.userId);
-          return topicModel.create(topic);
+          return topicModel.create(topic, topic.id);
         },
         expectedConversationVersion,
       );

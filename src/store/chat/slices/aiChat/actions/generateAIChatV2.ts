@@ -294,17 +294,45 @@ export const generateAIChatV2: StateCreator<
         ),
         topicId: createdTopicId,
       };
+      set(
+        (state) => {
+          const containerId = conversationContext.sessionId;
+          const topics = state.topicMaps[containerId] || [];
+          if (topics.some((topic) => topic.id === createdTopicId)) return state;
+
+          return {
+            topicMaps: {
+              ...state.topicMaps,
+              [containerId]: [
+                {
+                  createdAt: Date.now(),
+                  historySummary: '',
+                  id: createdTopicId,
+                  metadata: {},
+                  title: t('defaultTitle', { ns: 'topic' }),
+                  updatedAt: Date.now(),
+                },
+                ...topics,
+              ],
+            },
+          };
+        },
+        false,
+        n('sendMessageInServer/adoptCreatedTopic'),
+      );
     };
 
     if (shouldCreateNewTopic && compactionEligible && messages.length > 0) {
       if (!isPersistenceCurrent()) return;
 
       let createdTopicId: string | undefined;
+      const pendingTopicClientId = get().pendingTopicClientId;
       try {
         createdTopicId = await get().createTopic(
           undefined,
           undefined,
           expectedConversationVersion,
+          pendingTopicClientId,
         );
         if (!isPersistenceCurrent()) return;
 
@@ -542,6 +570,32 @@ export const generateAIChatV2: StateCreator<
     }
 
     if (!isPersistenceCurrent()) {
+      discardOptimisticSend();
+      return;
+    }
+
+    const hydrateSendTopic = async () => {
+      if (!sendTopicId) return true;
+
+      const readTopic = () =>
+        get().topicMaps[conversationContext.sessionId]?.find((topic) => topic.id === sendTopicId);
+
+      if (readTopic()) return true;
+
+      try {
+        await get().refreshTopic({
+          accountMutationSnapshot,
+          containerId: conversationContext.sessionId,
+        });
+      } catch {
+        // Fall through when the topic map is still empty.
+      }
+
+      return !!readTopic();
+    };
+
+    if (compactionConversation && !(await hydrateSendTopic())) {
+      reportPreCreateFailure(new Error('Topic is not loaded for pre-send compaction'));
       discardOptimisticSend();
       return;
     }

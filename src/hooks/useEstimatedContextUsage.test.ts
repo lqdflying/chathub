@@ -46,13 +46,21 @@ const mocks = vi.hoisted(() => {
     selector ? selector({}) : {},
   );
   const useUserStore = vi.fn((selector?: () => unknown) => (selector ? selector() : {}));
+  let hasPendingFiles = false;
+  const useFileStore = vi.fn((selector?: (state: { hasPendingFiles: boolean }) => unknown) =>
+    selector ? selector({ hasPendingFiles }) : { hasPendingFiles },
+  );
 
   return {
     chatState,
     getAgentState: () => agentState,
+    hasPendingFiles: () => hasPendingFiles,
     mainChats,
     maxTokens: 1000,
     portalChats,
+    setHasPendingFiles: (value: boolean) => {
+      hasPendingFiles = value;
+    },
     setAgentState: (nextState: Partial<typeof agentState>) => {
       agentState = { ...agentState, ...nextState };
       agentListeners.forEach((listener) => listener());
@@ -62,6 +70,7 @@ const mocks = vi.hoisted(() => {
       return () => agentListeners.delete(listener);
     },
     useChatStore,
+    useFileStore,
     useToolStore,
     useUserStore,
   };
@@ -83,6 +92,12 @@ vi.mock('@/store/agent', async () => {
   return { useAgentStore };
 });
 vi.mock('@/store/tool', () => ({ useToolStore: mocks.useToolStore }));
+vi.mock('@/store/file/store', () => ({ useFileStore: mocks.useFileStore }));
+vi.mock('@/store/file/slices/chat/selectors', () => ({
+  fileChatSelectors: {
+    chatUploadFileListHasItem: (state: { hasPendingFiles: boolean }) => state.hasPendingFiles,
+  },
+}));
 vi.mock('@/store/user', () => ({ useUserStore: mocks.useUserStore }));
 
 vi.mock('@/store/chat/selectors', () => ({
@@ -161,6 +176,7 @@ describe('useEstimatedContextUsage', () => {
   beforeEach(() => {
     mocks.chatState.inputMessage = '';
     mocks.maxTokens = 1000;
+    mocks.setHasPendingFiles(false);
     mocks.setAgentState({
       enableHistoryCount: true,
       historyCount: 2,
@@ -295,5 +311,22 @@ describe('useEstimatedContextUsage', () => {
     expect(result.current.inputTokenCount).toBe(0);
     expect(result.current.historyWindow.enableHistoryCount).toBe(expected.enableHistoryCount);
     expect(result.current.historyWindow.topicMessageCount).toBe(1);
+  });
+
+  it('counts file-only pending sends with the input template once', () => {
+    mocks.chatState.inputMessage = '';
+    mocks.setHasPendingFiles(true);
+    mocks.setAgentState({ inputTemplate: 'Ask: {{text}}' });
+
+    const { result } = renderHook(() => useEstimatedContextUsage('main'));
+    const templatedEmpty = applyUserInputTemplate('Ask: {{text}}', '');
+
+    expect(result.current.inputTokenCount).toBe(templatedEmpty.length);
+    expect(result.current.chatsToken).toBe(
+      serializeMessagesForContextEstimate(
+        appendPendingUserInputForContextWindow(mocks.mainChats as any, '', true),
+        'Ask: {{text}}',
+      ).length,
+    );
   });
 });

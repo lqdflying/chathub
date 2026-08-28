@@ -583,6 +583,36 @@ describe('TopicModel', () => {
       expect(unassociatedMessage[0].topicId).toBeNull();
     });
 
+    it('returns the existing topic when create is retried with the same clientId', async () => {
+      await serverDB.insert(messages).values([
+        { id: 'message1', role: 'user', userId, sessionId },
+      ]);
+
+      const topicData = {
+        clientId: 'client-topic-1',
+        messages: ['message1'],
+        sessionId,
+        title: 'Idempotent Topic',
+      };
+
+      const first = await topicModel.create(topicData, 'topic-idempotent-1');
+      const second = await topicModel.create(topicData, 'topic-idempotent-1');
+
+      expect(second.id).toBe(first.id);
+
+      const dbTopics = await serverDB
+        .select()
+        .from(topics)
+        .where(eq(topics.clientId, 'client-topic-1'));
+      expect(dbTopics).toHaveLength(1);
+
+      const associatedMessages = await serverDB
+        .select()
+        .from(messages)
+        .where(eq(messages.id, 'message1'));
+      expect(associatedMessages[0].topicId).toBe(first.id);
+    });
+
     it('should create a new topic without associating messages', async () => {
       const topicData = {
         title: 'New Topic',

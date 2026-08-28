@@ -343,7 +343,10 @@ async function runCompactionFromStore(
     return finish('ineligible', { reason: 'generation_in_progress' });
   }
 
-  const agentState = getAgentStoreState();
+  const baseAgentState = getAgentStoreState();
+  const agentState = conversation
+    ? { ...baseAgentState, activeId: conversation.sessionId }
+    : baseAgentState;
   const chatConfig = agentChatConfigSelectors.currentChatConfig(agentState);
   const enableHistoryCount = agentChatConfigSelectors.enableHistoryCount(agentState);
   const historyCount = agentChatConfigSelectors.historyCount(agentState);
@@ -360,7 +363,37 @@ async function runCompactionFromStore(
     return finish('ineligible', { reason: 'token_auto_compaction_is_disabled' });
   }
 
-  const topic = topicSelectors.currentActiveTopic(scopedState);
+  let topic =
+    requestedSessionId && requestedTopicId
+      ? topicSelectors.getTopicInContainer(requestedSessionId, requestedTopicId)(scopedState)
+      : topicSelectors.currentActiveTopic(scopedState);
+  if (!topic && conversation && requestedSessionId && requestedTopicId) {
+    try {
+      await get().refreshTopic({
+        accountMutationSnapshot,
+        containerId: requestedSessionId,
+      });
+    } catch {
+      // Fall through to topic_not_loaded when the map is still empty.
+    }
+    const refreshedState = get();
+    topic = topicSelectors.getTopicInContainer(
+      requestedSessionId,
+      requestedTopicId,
+    )({
+      ...refreshedState,
+      activeId: conversation.sessionId,
+      activeTopicId: conversation.topicId,
+    });
+    if (topic) {
+      Object.assign(scopedState, {
+        ...refreshedState,
+        activeId: conversation.sessionId,
+        activeTopicId: conversation.topicId,
+        inputMessage: '',
+      });
+    }
+  }
   if (!topic) return finish('ineligible', { reason: 'topic_not_loaded' });
 
   const mainMessages = chatSelectors.mainTopicAIChats(scopedState);

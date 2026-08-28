@@ -11,12 +11,31 @@ import {
 } from '../utils/sortMessagesParentFirst';
 
 export interface CreateTopicParams {
+  clientId?: string;
   favorite?: boolean;
   groupId?: string | null;
+  id?: string;
   messages?: string[];
   sessionId?: string | null;
   title?: string;
 }
+
+const isPostgresUniqueViolation = (error: unknown): boolean =>
+  (error as { code?: string })?.code === '23505';
+
+const reparentTopicMessages = async (
+  tx: Transaction,
+  userId: string,
+  topicId: string,
+  messageIds: string[] | undefined,
+) => {
+  if (!messageIds?.length) return;
+
+  await tx
+    .update(messages)
+    .set({ topicId })
+    .where(and(eq(messages.userId, userId), inArray(messages.id, messageIds)));
+};
 
 /** Minimal topic row for assistant memory rollup (all sessions linked to an agent). */
 export interface TopicMemoryRollupRow {
@@ -70,6 +89,12 @@ export class TopicModel {
   findById = async (id: string) => {
     return this.db.query.topics.findFirst({
       where: and(eq(topics.id, id), eq(topics.userId, this.userId)),
+    });
+  };
+
+  findByClientId = async (clientId: string) => {
+    return this.db.query.topics.findFirst({
+      where: and(eq(topics.clientId, clientId), eq(topics.userId, this.userId)),
     });
   };
 
@@ -219,30 +244,42 @@ export class TopicModel {
 
   create = async (
     { messages: messageIds, ...params }: CreateTopicParams,
-    id: string = this.genId(),
+    id: string = params.id ?? this.genId(),
   ): Promise<TopicItem> => {
-    return this.db.transaction(async (tx) => {
-      const insertData = {
-        ...params,
-        groupId: params.groupId || null,
-        id,
-        sessionId: params.sessionId || null,
-        userId: this.userId,
-      };
+    const clientId = params.clientId;
 
-      // Insert new topic
-      const [topic] = await tx.insert(topics).values(insertData).returning();
+    try {
+      return await this.db.transaction(async (tx) => {
+        const insertData = {
+          ...params,
+          ...(clientId ? { clientId } : {}),
+          groupId: params.groupId || null,
+          id,
+          sessionId: params.sessionId || null,
+          userId: this.userId,
+        };
 
-      // Update associated messages' topicId
-      if (messageIds && messageIds.length > 0) {
-        await tx
-          .update(messages)
-          .set({ topicId: topic.id })
-          .where(and(eq(messages.userId, this.userId), inArray(messages.id, messageIds)));
+        const [topic] = await tx.insert(topics).values(insertData).returning();
+        await reparentTopicMessages(tx, this.userId, topic.id, messageIds);
+
+        return topic;
+      });
+    } catch (error) {
+      if (!isPostgresUniqueViolation(error)) throw error;
+
+      const existing =
+        (clientId ? await this.findByClientId(clientId) : null) ??
+        (params.id ? await this.findById(id) : null);
+      if (!existing) throw error;
+
+      if (messageIds?.length) {
+        await this.db.transaction(async (tx) => {
+          await reparentTopicMessages(tx, this.userId, existing.id, messageIds);
+        });
       }
 
-      return topic;
-    });
+      return existing;
+    }
   };
 
   batchCreate = async (topicParams: (CreateTopicParams & { id?: string })[]) => {

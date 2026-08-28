@@ -186,7 +186,10 @@ The token popover title is a **next request estimate**. It also exposes a Histor
 counts history summary text with the same `<chat_history_summary>` wrapper the request injects.
 Chat message estimates serialize `role` + `content` + tool payloads rather than content-only joins.
 The unsent editor draft is treated as the next user row for window selection and is counted once
-after the same `{{text}}` input template the request applies (empty/file-only drafts add no row).
+after the same `{{text}}` input template the request applies. File-only pending sends add the same
+empty user row the request will create so prefix/suffix templates are not omitted. History-window
+**included/topic** counts in the popover exclude that synthetic draft row; they describe persisted
+topic messages only, while window math still includes the draft.
 
 The configurable compact threshold is the high watermark. It is clamped to 50%-99% and defaults to
 80%. The low watermark is derived 20 percentage points below it, so the default target is 60%.

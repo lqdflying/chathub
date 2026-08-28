@@ -28,17 +28,31 @@ export const PENDING_CONTEXT_INPUT_MESSAGE_ID = '__pending_input__';
 export const appendPendingUserInputForContextWindow = (
   messages: UIChatMessage[],
   pendingInput?: string,
+  pendingHasFiles?: boolean,
 ): UIChatMessage[] => {
-  if (!pendingInput) return messages;
+  if (pendingInput) {
+    return [
+      ...messages,
+      {
+        content: pendingInput,
+        id: PENDING_CONTEXT_INPUT_MESSAGE_ID,
+        role: 'user',
+      } as UIChatMessage,
+    ];
+  }
 
-  return [
-    ...messages,
-    {
-      content: pendingInput,
-      id: PENDING_CONTEXT_INPUT_MESSAGE_ID,
-      role: 'user',
-    } as UIChatMessage,
-  ];
+  if (pendingHasFiles) {
+    return [
+      ...messages,
+      {
+        content: '',
+        id: PENDING_CONTEXT_INPUT_MESSAGE_ID,
+        role: 'user',
+      } as UIChatMessage,
+    ];
+  }
+
+  return messages;
 };
 
 const serializeMessageForHistoryWindow = (
@@ -268,6 +282,7 @@ export const selectMessagesForContext = ({
   inputTemplate,
   maxTokens,
   messages,
+  pendingHasFiles,
   pendingInput,
 }: {
   cursorId?: string;
@@ -277,9 +292,14 @@ export const selectMessagesForContext = ({
   inputTemplate?: string;
   maxTokens?: number;
   messages: UIChatMessage[];
+  pendingHasFiles?: boolean;
   pendingInput?: string;
 }) => {
-  const nextRequestMessages = appendPendingUserInputForContextWindow(messages, pendingInput);
+  const nextRequestMessages = appendPendingUserInputForContextWindow(
+    messages,
+    pendingInput,
+    pendingHasFiles,
+  );
   const afterCursor = getMessagesAfterHistorySummaryCursor(nextRequestMessages, cursorId);
   const effective = resolveEffectiveHistoryWindow({
     enableHistoryCount,

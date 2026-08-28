@@ -1778,14 +1778,18 @@ describe('topic action', () => {
       });
 
       expect(createTopicSpy).toHaveBeenCalledWith(
-        {
+        expect.objectContaining({
+          clientId: expect.stringMatching(/^tpc_/),
+          id: expect.stringMatching(/^tpc_/),
           messages: messages.map((m) => m.id),
           sessionId: activeId,
           title: 'defaultTitle',
-        },
+        }),
         undefined,
       );
-      expect(refreshTopicSpy).toHaveBeenCalled();
+      expect(refreshTopicSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ containerId: activeId }),
+      );
     });
 
     it('does not continue topic creation after ownership becomes invalid mid-flight', async () => {
@@ -1860,11 +1864,17 @@ describe('topic action', () => {
       });
 
       expect(topicId).toBe('stale-account-a-topic');
-      expect(refreshTopicSpy).not.toHaveBeenCalled();
+      expect(refreshTopicSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ containerId: activeId }),
+      );
       expect(useChatStore.getState().creatingTopic).toBe(false);
       expect(useChatStore.getState().creatingTopicId).toBeUndefined();
       expect(useChatStore.getState().topicLoadingIds).not.toContain(temporaryTopicId);
-      expect(useChatStore.getState().topicMaps[activeId]).toEqual([]);
+      expect(useChatStore.getState().topicMaps[activeId]).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: 'stale-account-a-topic', title: 'defaultTitle' }),
+        ]),
+      );
     });
 
     it('should cancel stale topic creation without clearing newer creation state', async () => {

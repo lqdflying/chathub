@@ -40,6 +40,11 @@ const currentUnFavTopics = (s: ChatStoreState): ChatTopic[] =>
 
 const currentTopicLength = (s: ChatStoreState): number => currentTopics(s)?.length || 0;
 
+const getTopicInContainer =
+  (containerId: string, topicId: string) =>
+  (s: ChatStoreState): ChatTopic | undefined =>
+    s.topicMaps[containerId]?.find((topic) => topic.id === topicId);
+
 const getTopicById =
   (id: string) =>
   (s: ChatStoreState): ChatTopic | undefined =>
@@ -191,6 +196,7 @@ export const topicSelectors = {
   currentUnFavTopics,
   displayTopics,
   getTopicById,
+  getTopicInContainer,
   groupedTopicsSelector,
   isCreatingTopic,
   isInSearchMode,

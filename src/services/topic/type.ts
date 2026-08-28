@@ -6,8 +6,12 @@ import { BatchTaskResult } from '@/types/service';
 import { ChatTopic, TopicRankItem } from '@/types/topic';
 
 export interface CreateTopicParams {
+  /** Stable client id for idempotent create retries (maps to topics.clientId). */
+  clientId?: string;
   favorite?: boolean;
   groupId?: string | null;
+  /** Optional server topic id when the client pre-allocates one. */
+  id?: string;
   messages?: string[];
   sessionId?: string | null;
   title: string;

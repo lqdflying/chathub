@@ -137,7 +137,18 @@ export const resetTestEnvironment = () => {
       threadMaps: {},
       toolCallingStreamIds: {},
       toolsCallingIds: [],
-      topicMaps: {},
+      topicMaps: {
+        [TEST_IDS.SESSION_ID]: [
+          {
+            createdAt: Date.now(),
+            historySummary: '',
+            id: TEST_IDS.TOPIC_ID,
+            metadata: {},
+            title: 'Test Topic',
+            updatedAt: Date.now(),
+          },
+        ],
+      },
     },
     false,
   );

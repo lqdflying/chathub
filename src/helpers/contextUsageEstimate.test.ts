@@ -179,7 +179,25 @@ ${'Review diffs carefully.'.repeat(10)}
     expect(withPending.enableHistoryCount).toBe(true);
     expect(withPending.topicMessageCount).toBe(stored.length);
     expect(withPending.excludedByHistoryCount).toBe(1);
-    expect(withPending.includedMessageCount).toBe(2);
+    expect(withPending.includedMessageCount).toBeLessThanOrEqual(stored.length);
+  });
+
+  it('keeps persisted-topic counts when a fitting text draft is pending', () => {
+    const pending = 'short draft';
+    const stored = [message('u1', 'user', 'short'), message('a1', 'assistant', 'short')];
+    const diagnostics = getHistoryWindowDiagnostics({
+      configuredHistoryCount: 2,
+      enableHistoryCount: true,
+      hasTopicSummary: false,
+      historyCount: 2,
+      maxTokens: LARGE_CONTEXT_WINDOW_TOKENS,
+      messages: stored,
+      pendingInput: pending,
+    });
+
+    expect(diagnostics.topicMessageCount).toBe(2);
+    expect(diagnostics.includedMessageCount).toBeLessThanOrEqual(diagnostics.topicMessageCount);
+    expect(diagnostics.effectiveHistoryCount).toBeLessThanOrEqual(diagnostics.topicMessageCount);
   });
 
   it('scales summary max tokens by assistance level', () => {

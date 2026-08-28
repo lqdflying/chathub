@@ -16,6 +16,8 @@ import { getToolStoreState } from '@/store/tool/store';
 import { userGeneralSettingsSelectors } from '@/store/user/selectors';
 import { getUserStoreState } from '@/store/user/store';
 import { encodeAsync } from '@/utils/tokenizer';
+import { getFileStoreState } from '@/store/file/store';
+import { fileChatSelectors } from '@/store/file/slices/chat/selectors';
 
 import { normalizeAssistantMemoryText } from './assistantMemory';
 import {
@@ -74,6 +76,7 @@ export const estimateContextUsageAsync = async ({
   totalToken: number;
 }> => {
   const input = chatState.inputMessage || '';
+  const pendingHasFiles = fileChatSelectors.chatUploadFileListHasItem(getFileStoreState());
   const activeTopic = topicSelectors.currentActiveTopic(chatState);
   const historySummary = overrides
     ? overrides.historySummary
@@ -176,7 +179,7 @@ export const estimateContextUsageAsync = async ({
 
   const rawMessages = chatSelectors.mainAIChats(chatState);
   const afterCursor = getMessagesAfterHistorySummaryCursor(
-    appendPendingUserInputForContextWindow(rawMessages, input),
+    appendPendingUserInputForContextWindow(rawMessages, input, pendingHasFiles),
     enableHistoryCompaction ? historySummaryLastMessageId : undefined,
   );
   const effective = resolveEffectiveHistoryWindow({
@@ -195,6 +198,7 @@ export const estimateContextUsageAsync = async ({
     inputTemplate,
     maxTokens,
     messages: rawMessages,
+    pendingHasFiles,
     pendingInput: input,
   });
   const chatsString = serializeMessagesForContextEstimate(chats, inputTemplate);

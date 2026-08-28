@@ -4,6 +4,7 @@ import type { UIChatMessage } from '@lobechat/types';
 
 import {
   CONTEXT_CHARS_PER_TOKEN_ESTIMATE,
+  PENDING_CONTEXT_INPUT_MESSAGE_ID,
   appendPendingUserInputForContextWindow,
   getMessagesAfterHistorySummaryCursor,
   resolveEffectiveHistoryWindow,
@@ -104,6 +105,7 @@ export const getHistoryWindowDiagnostics = ({
   inputTemplate,
   maxTokens,
   messages,
+  pendingHasFiles,
   pendingInput,
 }: {
   configuredHistoryCount: number;
@@ -116,10 +118,15 @@ export const getHistoryWindowDiagnostics = ({
   inputTemplate?: string;
   maxTokens?: number;
   messages: UIChatMessage[];
+  pendingHasFiles?: boolean;
   pendingInput?: string;
 }): HistoryWindowDiagnostics => {
   const topicMessageCount = messages.length;
-  const nextRequestMessages = appendPendingUserInputForContextWindow(messages, pendingInput);
+  const nextRequestMessages = appendPendingUserInputForContextWindow(
+    messages,
+    pendingInput,
+    pendingHasFiles,
+  );
   const afterCursor = getMessagesAfterHistorySummaryCursor(
     nextRequestMessages,
     enableCompressHistory && enableHistoryCount ? cursorId : undefined,
@@ -145,6 +152,9 @@ export const getHistoryWindowDiagnostics = ({
   });
 
   const excludedByHistoryCount = Math.max(0, afterCursor.length - included.length);
+  const includedPersistedCount = included.filter(
+    (message) => message.id !== PENDING_CONTEXT_INPUT_MESSAGE_ID,
+  ).length;
   // A topic summary only covers rows through the cursor. Post-cursor history-count
   // exclusions are still uncovered until compaction advances that cursor.
   const warnUncoveredExclusion =
@@ -154,13 +164,13 @@ export const getHistoryWindowDiagnostics = ({
     configuredHistoryCount,
     effectiveHistoryCount: effective.enableHistoryCount
       ? effective.historyCount
-      : afterCursor.length,
+      : persistedAfterCursor.length,
     enableHistoryCount: !!enableHistoryCount,
     excludedByCursor,
     excludedByHistoryCount,
     expanded: effective.expanded,
     hasTopicSummary,
-    includedMessageCount: included.length,
+    includedMessageCount: includedPersistedCount,
     topicMessageCount,
     warnUncoveredExclusion,
   };

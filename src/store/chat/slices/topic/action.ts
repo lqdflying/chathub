@@ -13,6 +13,7 @@ import { StateCreator } from 'zustand/vanilla';
 
 import { message } from '@/components/AntdStaticMethods';
 import { LOADING_FLAT } from '@/const/message';
+import { idGenerator } from '@/database/utils/idGenerator';
 import { conversationGenerationRequestKey } from '@/helpers/conversationGenerationIdempotency';
 import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableConversationGeneration';
 import { mutateAccountSWR, useClientDataSWR } from '@/libs/swr';
@@ -199,6 +200,7 @@ export interface ChatTopicAction {
     sessionId?: string,
     groupId?: string,
     expectedConversationVersion?: number,
+    clientTopicId?: string,
   ) => Promise<string | undefined>;
 
   autoRenameTopicTitle: (id: string) => Promise<void>;
@@ -250,12 +252,17 @@ export const chatTopic: StateCreator<
     }
   },
 
-  createTopic: async (sessionId, groupId, expectedConversationVersion) => {
+  createTopic: async (sessionId, groupId, expectedConversationVersion, clientTopicId) => {
     const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
     const requestedGeneration = get().conversationClearGeneration;
     const { activeId, activeSessionType, internal_createTopic } = get();
     if (!accountMutationSnapshot || !activeId) return;
     const creatingTopicId = `topic-create-${nanoid(8)}`;
+    const stableClientTopicId =
+      clientTopicId ?? get().pendingTopicClientId ?? idGenerator('topics');
+    if (!get().pendingTopicClientId) {
+      set({ pendingTopicClientId: stableClientTopicId }, false, n('creatingTopic/clientId'));
+    }
     const isPersistenceCurrent = () =>
       isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
       get().conversationClearGeneration === requestedGeneration;
@@ -271,6 +278,8 @@ export const chatTopic: StateCreator<
     try {
       const topicId = await internal_createTopic(
         {
+          clientId: stableClientTopicId,
+          id: stableClientTopicId,
           title: t('defaultTitle', { ns: 'topic' }),
           messages: messages.map((m) => m.id),
           ...(activeSessionType === 'group'
@@ -280,6 +289,10 @@ export const chatTopic: StateCreator<
         expectedConversationVersion,
       );
       if (!isPersistenceCurrent()) return;
+
+      if (topicId) {
+        set({ pendingTopicClientId: undefined }, false, n('creatingTopic/clientId/clear'));
+      }
 
       return topicId;
     } finally {
@@ -1141,22 +1154,59 @@ export const chatTopic: StateCreator<
 
     acquireTopicLoadingOperation(loadingOperationKey, operationId);
     get().internal_updateTopicLoading(tmpId, true);
-    try {
-      const topicId = await topicService.createTopic(
-        params,
-        expectedConversationVersion === undefined ? undefined : { expectedConversationVersion },
+    const pinCommittedTopic = (topicId: string) => {
+      set(
+        (state) => {
+          const topics = state.topicMaps[requestedContainerId] || [];
+          const withoutTemp = topics.filter((topic) => topic.id !== tmpId && topic.id !== topicId);
+          const committedTopic: ChatTopic = {
+            createdAt: Date.now(),
+            favorite: params.favorite ?? false,
+            id: topicId,
+            metadata: {},
+            sessionId: params.sessionId ?? undefined,
+            title: params.title ?? t('defaultTitle', { ns: 'topic' }),
+            updatedAt: Date.now(),
+          };
+
+          return {
+            topicMaps: {
+              ...state.topicMaps,
+              [requestedContainerId]: [committedTopic, ...withoutTemp],
+            },
+          };
+        },
+        false,
+        n('internal_createTopic/pin', { requestedContainerId, topicId }),
       );
+    };
+    try {
+      const invokeCreate = () =>
+        topicService.createTopic(
+          params,
+          expectedConversationVersion === undefined ? undefined : { expectedConversationVersion },
+        );
+
+      let topicId: string | undefined;
+      try {
+        topicId = await invokeCreate();
+      } catch (firstError) {
+        if (!params.clientId) throw firstError;
+        topicId = await invokeCreate();
+      }
       const persistenceCurrent =
         isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
         get().conversationClearGeneration === requestedGeneration;
       if (!persistenceCurrent) return;
 
-      if (get().activeId === requestedContainerId) {
-        try {
-          await get().refreshTopic();
-        } catch {
-          // The topic is already committed; send recovery continues with this id.
-        }
+      pinCommittedTopic(topicId);
+      try {
+        await get().refreshTopic({
+          accountMutationSnapshot,
+          containerId: requestedContainerId,
+        });
+      } catch {
+        // The topic is already committed; send recovery continues with this id.
       }
 
       return topicId;

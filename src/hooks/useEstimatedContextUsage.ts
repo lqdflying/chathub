@@ -26,6 +26,8 @@ import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { getSkillSelectionKey, skillSelectors, useSkillStore } from '@/store/skill';
 import { useToolStore } from '@/store/tool';
 import { toolSelectors } from '@/store/tool/selectors';
+import { fileChatSelectors } from '@/store/file/slices/chat/selectors';
+import { useFileStore } from '@/store/file/store';
 import { useUserStore } from '@/store/user';
 import { userGeneralSettingsSelectors } from '@/store/user/selectors';
 
@@ -77,6 +79,7 @@ export const useEstimatedContextUsage = (
   ]);
   const selectedSkillIds = useSkillStore(skillSelectors.selectedSkillIds(skillSelectionKey));
   const selectedSkillIdKey = selectedSkillIds.join(',');
+  const hasPendingFiles = useFileStore(fileChatSelectors.chatUploadFileListHasItem);
   const [skillInstructions, setSkillInstructions] = useState('');
 
   useEffect(() => {
@@ -158,7 +161,8 @@ export const useEstimatedContextUsage = (
   });
 
   const toolsToken = useTokenCount(canUseTool ? toolsString : '');
-  const templatedPendingInput = input ? applyUserInputTemplate(inputTemplate, input) : '';
+  const templatedPendingInput =
+    input || hasPendingFiles ? applyUserInputTemplate(inputTemplate, input) : '';
   const inputTokenCount = useTokenCount(templatedPendingInput);
   const messageFingerprint = useChatStore((state) => {
     const chats =
@@ -245,6 +249,7 @@ export const useEstimatedContextUsage = (
       inputTemplate,
       maxTokens,
       messages: chats,
+      pendingHasFiles: hasPendingFiles,
       pendingInput: input,
     });
 
@@ -261,6 +266,7 @@ export const useEstimatedContextUsage = (
         inputTemplate,
         maxTokens,
         messages: chats,
+        pendingHasFiles: hasPendingFiles,
         pendingInput: input,
       }),
       topicChatsString: serializeMessagesForContextEstimate(chats, inputTemplate),
@@ -270,6 +276,7 @@ export const useEstimatedContextUsage = (
     enableCompressHistory,
     enableHistoryCount,
     fixedOverheadTokens,
+    hasPendingFiles,
     historyCount,
     historySummaryLastMessageId,
     input,

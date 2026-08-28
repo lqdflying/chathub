@@ -25,6 +25,8 @@ export interface ChatTopicState {
   activeTopicId?: string;
   creatingTopic: boolean;
   creatingTopicId?: string;
+  /** Stable client topic id for idempotent create retries until commit succeeds. */
+  pendingTopicClientId?: string;
   inSearchingMode?: boolean;
   isSearchingTopic: boolean;
   searchTopics: ChatTopic[];
