@@ -7,6 +7,99 @@ import {
 } from '@lobechat/types';
 import { LOBE_DEFAULT_MODEL_LIST, ModelProvider } from 'model-bank';
 
+/** Models at or above this window may expand past configured historyCount when budget remains. */
+export const LARGE_CONTEXT_WINDOW_TOKENS = 128_000;
+
+/** Keep expanded history under this fraction of the model window (fixed overhead + chats). */
+export const LARGE_CONTEXT_EXPAND_WATERMARK = 0.55;
+
+/** CJK-safe rough chars→tokens for expand decisions (not the BPE estimator). */
+export const CONTEXT_CHARS_PER_TOKEN_ESTIMATE = 2;
+
+type MessageLikeForHistoryWindow = Pick<
+  UIChatMessage,
+  'content' | 'role' | 'tools' | 'tool_call_id'
+>;
+
+const serializeMessageForHistoryWindow = (message: MessageLikeForHistoryWindow): string => {
+  const parts = [`${message.role ?? ''}:`, message.content ?? ''];
+  if (message.tool_call_id) parts.push(`tool_call_id:${message.tool_call_id}`);
+  if (message.tools?.length) parts.push(JSON.stringify(message.tools));
+  return parts.join('\n');
+};
+
+const serializeMessagesForHistoryWindow = (messages: MessageLikeForHistoryWindow[]): string =>
+  messages.map(serializeMessageForHistoryWindow).join('\n');
+
+export interface EffectiveHistoryWindow {
+  /** True when the large-window path included more than the configured historyCount. */
+  expanded: boolean;
+  enableHistoryCount: boolean;
+  historyCount: number;
+}
+
+/**
+ * For large context windows, grow (or disable) the message-count truncate while the
+ * approximate next-request chat payload still fits under LARGE_CONTEXT_EXPAND_WATERMARK.
+ * Small windows keep the configured historyCount unchanged.
+ */
+export const resolveEffectiveHistoryWindow = ({
+  enableHistoryCount,
+  fixedOverheadTokens = 0,
+  historyCount,
+  maxTokens,
+  messagesAfterCursor,
+}: {
+  enableHistoryCount?: boolean;
+  fixedOverheadTokens?: number;
+  historyCount?: number;
+  maxTokens?: number;
+  messagesAfterCursor: MessageLikeForHistoryWindow[];
+}): EffectiveHistoryWindow => {
+  if (!enableHistoryCount || historyCount === undefined) {
+    return { enableHistoryCount: false, expanded: false, historyCount: historyCount ?? 0 };
+  }
+
+  if (historyCount <= 0) {
+    return { enableHistoryCount: true, expanded: false, historyCount };
+  }
+
+  if (!maxTokens || maxTokens < LARGE_CONTEXT_WINDOW_TOKENS) {
+    return { enableHistoryCount: true, expanded: false, historyCount };
+  }
+
+  const budgetTokens =
+    Math.floor(maxTokens * LARGE_CONTEXT_EXPAND_WATERMARK) - Math.max(0, fixedOverheadTokens);
+  if (budgetTokens <= 0) {
+    return { enableHistoryCount: true, expanded: false, historyCount };
+  }
+
+  const approxTokens = (messages: MessageLikeForHistoryWindow[]) =>
+    Math.ceil(serializeMessagesForHistoryWindow(messages).length / CONTEXT_CHARS_PER_TOKEN_ESTIMATE);
+
+  if (approxTokens(messagesAfterCursor) <= budgetTokens) {
+    return { enableHistoryCount: false, expanded: true, historyCount };
+  }
+
+  let best = historyCount;
+  for (let n = messagesAfterCursor.length; n > historyCount; n -= 1) {
+    const sliced = getSlicedMessages(messagesAfterCursor, {
+      enableHistoryCount: true,
+      historyCount: n,
+    }) as MessageLikeForHistoryWindow[];
+    if (approxTokens(sliced) <= budgetTokens) {
+      best = n;
+      break;
+    }
+  }
+
+  return {
+    enableHistoryCount: true,
+    expanded: best > historyCount,
+    historyCount: best,
+  };
+};
+
 export const CONTEXT_COMPACTION_DEFAULT_HIGH_WATERMARK = 0.8;
 export const CONTEXT_COMPACTION_WATERMARK_GAP = 0.2;
 export const CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS = 400;
@@ -134,18 +227,32 @@ export const getMessagesAfterHistorySummaryCursor = (
 export const selectMessagesForContext = ({
   cursorId,
   enableHistoryCount,
+  fixedOverheadTokens,
   historyCount,
+  maxTokens,
   messages,
 }: {
   cursorId?: string;
   enableHistoryCount?: boolean;
+  fixedOverheadTokens?: number;
   historyCount?: number;
+  maxTokens?: number;
   messages: UIChatMessage[];
-}) =>
-  getSlicedMessages(getMessagesAfterHistorySummaryCursor(messages, cursorId), {
+}) => {
+  const afterCursor = getMessagesAfterHistorySummaryCursor(messages, cursorId);
+  const effective = resolveEffectiveHistoryWindow({
     enableHistoryCount,
+    fixedOverheadTokens,
     historyCount,
+    maxTokens,
+    messagesAfterCursor: afterCursor,
+  });
+
+  return getSlicedMessages(afterCursor, {
+    enableHistoryCount: effective.enableHistoryCount,
+    historyCount: effective.historyCount,
   }) as UIChatMessage[];
+};
 
 export interface PendingCompactionHistory {
   pendingMessages: UIChatMessage[];

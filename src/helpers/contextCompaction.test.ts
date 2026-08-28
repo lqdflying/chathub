@@ -5,10 +5,12 @@ import { buildDeepSeekPayload } from '../../packages/model-runtime/src/providers
 import {
   CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS,
   CONTEXT_COMPACTION_REASONING_HEADROOM_TOKENS,
+  LARGE_CONTEXT_WINDOW_TOKENS,
   buildSimpleCompletionSampling,
   getContextCompactionWatermarks,
   getMessagesAfterHistorySummaryCursor,
   getSettledCompactionPrefixes,
+  resolveEffectiveHistoryWindow,
   resolvePendingCompactionHistory,
   selectMessageCountCompactionPrefix,
   selectMessagesForContext,
@@ -217,4 +219,19 @@ describe('buildSimpleCompletionSampling', () => {
       expect(upstream).not.toHaveProperty('reasoning_effort');
     },
   );
+
+  it('expands history on large context windows when the full topic still fits', () => {
+    const longTopic = Array.from({ length: 30 }, (_, index) =>
+      message(`m${index}`, index % 2 === 0 ? 'user' : 'assistant', `turn-${index}`),
+    );
+    expect(
+      resolveEffectiveHistoryWindow({
+        enableHistoryCount: true,
+        fixedOverheadTokens: 2000,
+        historyCount: 20,
+        maxTokens: LARGE_CONTEXT_WINDOW_TOKENS,
+        messagesAfterCursor: longTopic,
+      }),
+    ).toMatchObject({ enableHistoryCount: false, expanded: true });
+  });
 });

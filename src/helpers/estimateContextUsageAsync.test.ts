@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { wrapHistorySummaryForTokenEstimate } from './contextUsageEstimate';
 import { estimateContextUsageAsync } from './estimateContextUsageAsync';
 
 vi.mock('@/utils/tokenizer', () => ({
@@ -14,8 +15,8 @@ vi.mock('@/helpers/memoryArchivePrompt', () => ({
   buildHistorySummaryForRequest: () => 'history-summary-text',
 }));
 
-vi.mock('@/helpers/contextCompaction', () => ({
-  selectMessagesForContext: ({ messages }: { messages: Array<{ content: string }> }) => messages,
+vi.mock('@/helpers/modelContextWindowTokens', () => ({
+  getModelContextWindowTokens: () => 8000,
 }));
 
 vi.mock('@/helpers/toolEngineering', () => ({
@@ -60,7 +61,7 @@ vi.mock('@/store/aiInfra', () => ({
 
 vi.mock('@/store/chat/selectors', () => ({
   chatSelectors: {
-    mainAIChats: () => [{ content: 'chat-text', id: 'u1' }],
+    mainAIChats: () => [{ content: 'chat-text', id: 'u1', role: 'user' }],
   },
   topicSelectors: {
     currentActiveTopic: () => ({ metadata: {} }),
@@ -102,8 +103,10 @@ describe('estimateContextUsageAsync', () => {
     expect(result.systemRoleToken).toBe('system-role-text'.length);
     expect(result.toolsToken).toBeGreaterThan(0);
     expect(result.inputToken).toBe('input-text'.length);
-    expect(result.chatsToken).toBe('chat-text'.length);
-    expect(result.historySummaryToken).toBe('history-summary-text'.length);
+    expect(result.chatsToken).toBe('user:\nchat-text'.length);
+    expect(result.historySummaryToken).toBe(
+      wrapHistorySummaryForTokenEstimate('history-summary-text').length,
+    );
     expect(result.totalToken).toBe(
       result.systemRoleToken +
         result.memoryToken +

@@ -25,6 +25,7 @@ import { ModelProvider } from 'model-bank';
 
 import { enableAuth } from '@/const/auth';
 import { DEFAULT_AGENT_CONFIG } from '@/const/settings';
+import { resolveEffectiveHistoryWindow } from '@/helpers/contextCompaction';
 import { getSearchConfig } from '@/helpers/getSearchConfig';
 import { getModelContextWindowTokens } from '@/helpers/modelContextWindowTokens';
 import { createChatToolsEngine, createToolsEngine } from '@/helpers/toolEngineering';
@@ -238,12 +239,32 @@ class ChatService {
     const generalInstruction = userGeneralSettingsSelectors.generalInstruction(getUserStoreState());
     const systemRole = composeSystemRole(generalInstruction, agentConfig.systemRole);
 
+    const enableHistoryCount = agentChatConfigSelectors.enableHistoryCount(agentStoreState);
+    const configuredHistoryCount = agentChatConfigSelectors.historyCount(agentStoreState);
+    const maxTokensForHistory = getModelContextWindowTokens(
+      payload.model,
+      payload.provider!,
+    );
+    const fixedOverheadTokensForHistory = Math.ceil(
+      (systemRole.length +
+        (tools?.map((item) => JSON.stringify(item)).join('').length ?? 0)) /
+        2,
+    );
+    const { enableHistoryCount: effectiveEnableHistoryCount, historyCount: effectiveHistoryCount } =
+      resolveEffectiveHistoryWindow({
+        enableHistoryCount,
+        fixedOverheadTokens: fixedOverheadTokensForHistory,
+        historyCount: configuredHistoryCount,
+        maxTokens: maxTokensForHistory,
+        messagesAfterCursor: sanitizedMessages,
+      });
+
     // Apply context engineering with preprocessing configuration
     let oaiMessages = await contextEngineering({
       agentMemory: options?.agentMemory,
-      enableHistoryCount: agentChatConfigSelectors.enableHistoryCount(agentStoreState),
+      enableHistoryCount: effectiveEnableHistoryCount,
       existingSystemRolePolicy: 'prepend',
-      historyCount: agentChatConfigSelectors.historyCount(agentStoreState),
+      historyCount: effectiveHistoryCount,
       historySummary: options?.historySummary,
       inputTemplate: chatConfig.inputTemplate,
       isWelcomeQuestion: options?.isWelcomeQuestion,

@@ -9,7 +9,6 @@ import {
 import { StateCreator } from 'zustand/vanilla';
 
 import {
-  CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS,
   buildSimpleCompletionSampling,
   createCompactionFingerprint,
   getContextCompactionWatermarks,
@@ -19,6 +18,7 @@ import {
   splitCompactionBatches,
 } from '@/helpers/contextCompaction';
 import { conversationGenerationIdempotencyKey } from '@/helpers/conversationGenerationIdempotency';
+import { getContextCompactionMaxSummaryTokens } from '@/helpers/contextUsageEstimate';
 import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableConversationGeneration';
 import { estimateContextUsageAsync } from '@/helpers/estimateContextUsageAsync';
 import { getModelContextWindowTokens } from '@/helpers/modelContextWindowTokens';
@@ -69,7 +69,9 @@ const compactionResult = (
 export interface ChatMemoryAction {
   internal_invalidateMemoryCompaction: (messageIds: string[]) => Promise<void>;
   triggerManualMemoryCompaction: () => Promise<MemoryCompactionResult>;
-  triggerMessageCountMemoryCompaction: () => Promise<MemoryCompactionResult>;
+  triggerMessageCountMemoryCompaction: (
+    abortController?: AbortController,
+  ) => Promise<MemoryCompactionResult>;
   triggerScheduledMemoryCompaction: () => Promise<MemoryCompactionResult>;
   triggerTokenThresholdMemoryCompaction: (
     abortController?: AbortController,
@@ -104,10 +106,10 @@ const selectTokenTargetPrefix = async ({
 
   const contextMessageIds = new Set(contextMessages.map(({ id }) => id));
   const previousSummaryTokens = await countTextTokens(previousSummary);
-  const summaryGrowthAllowance = Math.max(
-    0,
-    CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS - previousSummaryTokens,
+  const summaryMaxTokens = getContextCompactionMaxSummaryTokens(
+    agentChatConfigSelectors.assistanceLevel(getAgentStoreState()),
   );
+  const summaryGrowthAllowance = Math.max(0, summaryMaxTokens - previousSummaryTokens);
   const targetTokens = maxTokens * targetRatio;
 
   for (const prefix of prefixes) {
@@ -157,7 +159,9 @@ const summarizeBatch = async ({
       ...buildSimpleCompletionSampling({
         model,
         provider,
-        summaryMaxTokens: CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS,
+        summaryMaxTokens: getContextCompactionMaxSummaryTokens(
+          agentChatConfigSelectors.assistanceLevel(getAgentStoreState()),
+        ),
       }),
       model,
       provider,
@@ -230,9 +234,13 @@ async function runCompactionFromStore(
     enableTokenThresholdAutoCompact?: boolean;
     enableUserMemoryArchive?: boolean;
     highWatermark?: number;
+    effectiveHistoryCount?: number;
+    excludedByCursor?: number;
+    excludedByHistoryCount?: number;
     historyCount?: number;
     lowWatermark?: number;
     maxTokens?: number;
+    preSendMessageCountCompact?: boolean;
     slicedMessageCount?: number;
     targetReachable?: boolean;
     topicMessageCount?: number;
@@ -260,6 +268,9 @@ async function runCompactionFromStore(
         enableTokenThresholdAutoCompact: debug.enableTokenThresholdAutoCompact,
         enableUserMemoryArchive: debug.enableUserMemoryArchive,
         highWatermark: debug.highWatermark ?? result.highWatermark,
+        effectiveHistoryCount: debug.effectiveHistoryCount,
+        excludedByCursor: debug.excludedByCursor,
+        excludedByHistoryCount: debug.excludedByHistoryCount,
         historyCount: debug.historyCount,
         historySummaryToken: debug.beforeEstimate?.historySummaryToken,
         inputToken: debug.beforeEstimate?.inputToken,
@@ -272,6 +283,7 @@ async function runCompactionFromStore(
           : result.reason === 'durable_enqueued'
             ? 'durable_enqueued'
             : 'client_inline',
+        preSendMessageCountCompact: debug.preSendMessageCountCompact,
         provider: debug.activeProvider,
         ratio:
           typeof maxTokens === 'number' && maxTokens > 0 && typeof totalToken === 'number'
@@ -362,6 +374,31 @@ async function runCompactionFromStore(
   const beforeEstimate = await estimateContextUsageAsync({ agentState, chatState: state });
   debug.beforeEstimate = beforeEstimate;
   debug.slicedMessageCount = beforeEstimate.contextMessages.length;
+  debug.effectiveHistoryCount = beforeEstimate.effectiveHistoryCount;
+  debug.excludedByHistoryCount = Math.max(
+    0,
+    pending.pendingMessages.length - beforeEstimate.contextMessages.length,
+  );
+  debug.preSendMessageCountCompact = trigger === 'message_count' && !!abortController;
+  if (trigger === 'message_count') {
+    // Re-select against the token-budget-aware window so large-context expands are respected.
+    candidateMessages = selectDefaultCompactionPrefix(
+      pending.pendingMessages,
+      trigger,
+      beforeEstimate.effectiveHistoryCount || historyCount,
+    );
+    if (pending.rebuildingSummary) {
+      candidateMessages = getSettledCompactionPrefixes(pending.pendingMessages).at(-1) ?? [];
+    }
+    if (!candidateMessages.length) {
+      debug.candidateCount = 0;
+      return finish('not_needed', {
+        highWatermark: high,
+        lowWatermark: low,
+        reason: 'no_settled_turn_available',
+      });
+    }
+  }
   if (abortController?.signal.aborted) {
     return finish('ineligible', { reason: 'aborted' });
   }
@@ -426,8 +463,8 @@ async function runCompactionFromStore(
 
   let historySummary = pending.previousSummary;
   const batches = splitCompactionBatches(candidateMessages);
-  const maxBatches =
-    trigger === 'token_threshold' && abortController ? MAX_PRE_SEND_BATCHES : batches.length;
+  // Any abortable (pre-send) path stays bounded so Stop / send latency remain predictable.
+  const maxBatches = abortController ? MAX_PRE_SEND_BATCHES : batches.length;
   const processedBatches = batches.slice(0, maxBatches);
   // pre-send runs may process fewer batches than eligible; the cursor and stats below must
   // only cover what was actually summarized, or the skipped batches are lost forever
@@ -812,7 +849,8 @@ export const chatMemory: StateCreator<
   },
 
   triggerManualMemoryCompaction: () => triggerCompaction(set, get, 'manual'),
-  triggerMessageCountMemoryCompaction: () => triggerCompaction(set, get, 'message_count'),
+  triggerMessageCountMemoryCompaction: (abortController) =>
+    triggerCompaction(set, get, 'message_count', abortController),
   triggerScheduledMemoryCompaction: () => triggerCompaction(set, get, 'scheduled'),
   triggerTokenThresholdMemoryCompaction: (abortController) =>
     triggerCompaction(set, get, 'token_threshold', abortController),

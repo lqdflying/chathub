@@ -161,7 +161,7 @@ describe('chat memory actions', () => {
       'reasoning_effort',
     );
     expect(vi.mocked(chatService.fetchPresetTaskResult).mock.calls[0][0].params).toMatchObject({
-      max_tokens: 2448,
+      max_tokens: 2648,
       model: 'summary-model',
       provider: 'summary-provider',
     });
@@ -187,7 +187,7 @@ describe('chat memory actions', () => {
     expect(chatService.fetchPresetTaskResult).toHaveBeenCalledWith(
       expect.objectContaining({
         params: expect.objectContaining({
-          max_tokens: 2448,
+          max_tokens: 2648,
           model: 'gpt-5-mini',
           provider: 'openai',
           reasoning_effort: 'minimal',
@@ -814,6 +814,50 @@ describe('chat memory actions', () => {
         ratio: 0.2,
         status: 'compacted',
         totalToken: 200,
+        trigger: 'message_count',
+      }),
+    );
+  });
+
+  it('runs message_count compaction on the pre-send path when an AbortController is provided', async () => {
+    vi.spyOn(compactionDebugClient, 'isCompactionDebugClientEnabled').mockReturnValue(true);
+    const logSpy = vi.spyOn(compactionDebugClient, 'logCompactionDebugClientSafe');
+    vi.mocked(estimateContextUsageAsync)
+      .mockReset()
+      .mockResolvedValueOnce({
+        chatsToken: 6,
+        contextMessages: messages,
+        effectiveHistoryCount: 4,
+        historySummaryToken: 0,
+        inputToken: 0,
+        memoryToken: 0,
+        systemRoleToken: 0,
+        toolsToken: 0,
+        totalToken: 200,
+      })
+      .mockResolvedValueOnce({
+        chatsToken: 4,
+        contextMessages: messages.slice(2),
+        effectiveHistoryCount: 4,
+        historySummaryToken: 2,
+        inputToken: 0,
+        memoryToken: 0,
+        systemRoleToken: 0,
+        toolsToken: 0,
+        totalToken: 150,
+      });
+
+    const result = await useChatStore
+      .getState()
+      .triggerMessageCountMemoryCompaction(new AbortController());
+
+    expect(result.status).toBe('compacted');
+    expect(logSpy).toHaveBeenCalledWith(
+      'planner_settled',
+      expect.objectContaining({
+        path: 'pre_send',
+        preSendMessageCountCompact: true,
+        status: 'compacted',
         trigger: 'message_count',
       }),
     );

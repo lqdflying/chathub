@@ -56,10 +56,13 @@ const Token = memo<TokenTagProps>(({ conversationSource }) => {
     chatInstructionToken,
     chatsToken,
     historySummaryToken,
+    historyWindow,
     knowledgeBaseToken,
+    lastCompactionStatus,
     maxTokens,
     memoryToken,
     roleSettingsToken,
+    topicChatsToken,
     toolsToken,
     totalToken,
   } = useEstimatedContextUsage(conversationSource);
@@ -179,6 +182,46 @@ const Token = memo<TokenTagProps>(({ conversationSource }) => {
         showIcon
         showTotal={t('tokenDetails.total')}
       />
+      {historyWindow.enableHistoryCount && (
+        <Flexbox gap={4}>
+          <div style={{ color: theme.colorTextDescription, fontSize: 12 }}>
+            {t('tokenDetails.historyWindow.title')}
+          </div>
+          <div style={{ color: theme.colorTextSecondary, fontSize: 12 }}>
+            {t('tokenDetails.historyWindow.includedOfTopic', {
+              included: historyWindow.includedMessageCount,
+              topic: historyWindow.topicMessageCount,
+            })}
+          </div>
+          <div style={{ color: theme.colorTextSecondary, fontSize: 12 }}>
+            {t('tokenDetails.historyWindow.limit', {
+              count: historyWindow.effectiveHistoryCount,
+            })}
+            {historyWindow.excludedByCursor > 0
+              ? ` · ${t('tokenDetails.historyWindow.excludedByCursor')}: ${historyWindow.excludedByCursor}`
+              : ''}
+            {historyWindow.excludedByHistoryCount > 0
+              ? ` · ${t('tokenDetails.historyWindow.excludedByHistoryCount')}: ${historyWindow.excludedByHistoryCount}`
+              : ''}
+          </div>
+          <div style={{ color: theme.colorTextSecondary, fontSize: 12 }}>
+            {t('tokenDetails.historyWindow.topicChats')}: {numeral(topicChatsToken).format('0,0')}
+          </div>
+          {lastCompactionStatus && (
+            <div style={{ color: theme.colorTextSecondary, fontSize: 12 }}>
+              {t('tokenDetails.historyWindow.compactionStatus')}:{' '}
+              {t(`memoryCompaction.result.${lastCompactionStatus}`, {
+                defaultValue: lastCompactionStatus,
+              })}
+            </div>
+          )}
+          {historyWindow.warnUncoveredExclusion && (
+            <div style={{ color: theme.colorWarning, fontSize: 12 }}>
+              {t('tokenDetails.historyWindow.warnUncovered')}
+            </div>
+          )}
+        </Flexbox>
+      )}
       <PromptCacheHitRate conversationSource={conversationSource} />
       {conversationSource !== 'portal' && (
         <Button

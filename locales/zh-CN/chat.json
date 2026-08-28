@@ -484,18 +484,28 @@
     "chats": "会话消息",
     "groupOrchestration": "群组编排",
     "historySummary": "历史总结",
+    "historyWindow": {
+      "compactionStatus": "最近压缩",
+      "excludedByCursor": "已由总结覆盖",
+      "excludedByHistoryCount": "超出历史窗口",
+      "includedOfTopic": "下次请求消息 {{included}} / {{topic}}",
+      "limit": "历史条数上限 {{count}}",
+      "title": "历史窗口",
+      "topicChats": "话题会话估算",
+      "warnUncovered": "有较早轮次未进入下次请求，且尚无可用历史总结。"
+    },
     "knowledgeBase": "知识库",
     "rest": "剩余可用",
     "roleSettings": "角色设定",
     "supervisor": "群组主持",
-    "title": "上下文明细",
+    "title": "下次请求估算",
     "tools": "插件设定",
     "total": "总共可用",
     "used": "总计使用"
   },
   "tokenTag": {
     "overload": "超过限制",
-    "popoverTitle": "上下文明细与压缩",
+    "popoverTitle": "上下文使用与压缩",
     "remained": "剩余",
     "used": "使用"
   },

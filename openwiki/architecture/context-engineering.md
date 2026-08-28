@@ -164,37 +164,49 @@ A notable implementation detail in the current code is proxy image URL resolutio
 
 Topic compaction is incremental. Raw messages remain in storage; the topic metadata field
 `historySummaryLastMessageId` records the last complete turn represented by `historySummary`.
-Request construction removes messages through that cursor before applying the configured history
-window. The token estimator, token popover, and provider request all use the same latest-user-anchored
-window from `packages/context-engine`, so assistant/tool continuations extend the active turn without
-sliding the cached prefix. A pathological continuation tail is bounded separately: the default keeps
-the newest 20 assistant/tool messages after the latest user message, preserving the current tool
-results instead of the oldest tail entries.
+Request construction removes messages through that cursor before applying the **effective** history
+window. `resolveEffectiveHistoryWindow` (`src/helpers/contextCompaction.ts`) keeps the configured
+`historyCount` on small cards; when `contextWindowTokens >= 128k`, it expands (or temporarily
+disables) message truncate while an approximate chat payload still fits under 55% of the window
+after fixed overhead. The token estimator, token popover, browser `createAssistantMessage`, and
+Graphile `payload.ts` all share that helper plus latest-user-anchored slicing from
+`packages/context-engine`. Assistant/tool continuations extend the active turn without sliding the
+cached prefix. A pathological continuation tail is bounded separately: the default keeps the newest
+20 assistant/tool messages after the latest user message.
+
+The token popover title is a **next request estimate**. It also exposes a History window block
+(included/topic counts, exclusions, topic-wide chat estimate, last `memoryDebugLog` status) and
+counts history summary text with the same `<chat_history_summary>` wrapper the request injects.
+Chat message estimates serialize `role` + `content` + tool payloads rather than content-only joins.
 
 The configurable compact threshold is the high watermark. It is clamped to 50%-99% and defaults to
 80%. The low watermark is derived 20 percentage points below it, so the default target is 60%.
 The 80% gate lives only on `trigger=token_threshold`. It compares
-`estimateContextUsageAsync` (system role + tools + assistant memory + history summary +
+`estimateContextUsageAsync` (system role + tools + assistant memory + wrapped history summary +
 `selectMessagesForContext` + input) to `enabledAiModels[].contextWindowTokens` for the
 **active chat model** (including user overrides; OpenAI-compatible cards are forced to 258k).
 It does not compare full-topic size to the vendor's advertised window. `message_count`,
 `scheduled`, and `manual` ignore that gate. The token-badge watcher ratio can include
 in-flight Knowledge Base tokens that the planner estimate does not. Operators diagnose
 those mismatches with `CHATHUB_COMPACTION_DEBUG` (`chathub-compaction-debug`); that switch
-does not change watermarks or when compact runs.
+does not change watermarks or when compact runs. `planner_settled` may also include
+`effectiveHistoryCount`, `excludedByHistoryCount`, and `preSendMessageCountCompact`.
 Token compaction chooses the oldest complete turns needed to reach the low watermark. It never
 summarizes the latest user turn or an unresolved assistant/tool tail. If fixed prompt content and the
 protected turn already exceed the target, the action reports `target_unreachable` instead of retrying
 the same unchanged context continuously.
 
-The compaction prompt merges only messages after the cursor into the prior summary and caps the model
-output at 400 tokens. Large deltas are split between complete turns into bounded batches. A pre-send
-token-threshold run processes at most three batches so sending remains bounded; it persists a cursor
-only through the batches actually summarized, and a later run resumes from that cursor. Manual,
-scheduled, and message-count runs may process all eligible batches. Legacy topic summaries without a
-valid cursor are rebuilt from raw eligible history once, rather than treating an unknown prefix as
-safely compacted. Empty or failed model output never replaces the existing summary or advances the
-cursor. Identical archive excerpts are not stored twice.
+The compaction prompt merges only messages after the cursor into the prior summary. Output caps scale
+with Assist preset (minimal 400 / balanced 600 / rich 800 tokens) via
+`getContextCompactionMaxSummaryTokens`. Large deltas are split between complete turns into bounded
+batches. **Any** abortable pre-send run (`message_count` or `token_threshold`) processes at most
+three batches; it persists a cursor only through the batches actually summarized, and a later run
+resumes from that cursor. Server-mode send runs pre-send `message_count` **before**
+`token_threshold` so unsettled overflow is summarized before `HistoryTruncate` can drop it.
+Post-send `message_count` remains as catch-up. Non-abortable manual / scheduled / post-send
+message-count runs may process all eligible batches. Legacy topic summaries without a valid cursor
+are rebuilt from raw eligible history once. Empty or failed model output never replaces the existing
+summary or advances the cursor. Identical archive excerpts are not stored twice.
 
 All entry points use the same per-topic single-flight action: manual, message-count, daily, pre-request
 token checks, and reactive token automation. The automatic watcher is driven by message/config/token

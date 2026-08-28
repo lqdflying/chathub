@@ -3,6 +3,12 @@ import { useMemo } from 'react';
 
 import { normalizeAssistantMemoryText } from '@/helpers/assistantMemory';
 import { selectMessagesForContext } from '@/helpers/contextCompaction';
+import {
+  getHistoryWindowDiagnostics,
+  serializeMessagesForContextEstimate,
+  wrapHistorySummaryForTokenEstimate,
+  type HistoryWindowDiagnostics,
+} from '@/helpers/contextUsageEstimate';
 import { buildHistorySummaryForRequest } from '@/helpers/memoryArchivePrompt';
 import { createChatToolsEngine } from '@/helpers/toolEngineering';
 import { useModelContextWindowTokens } from '@/hooks/useModelContextWindowTokens';
@@ -23,13 +29,17 @@ export interface EstimatedContextUsage {
   chatInstructionToken: number;
   chatsToken: number;
   historySummaryToken: number;
+  historyWindow: HistoryWindowDiagnostics;
   inputTokenCount: number;
   knowledgeBaseToken: number;
+  lastCompactionStatus?: string;
   maxTokens: number;
   memoryToken: number;
   ratio: number;
   roleSettingsToken: number;
   systemRoleToken: number;
+  /** Content estimate of all topic messages (growth signal; not on the wire). */
+  topicChatsToken: number;
   toolsToken: number;
   totalToken: number;
 }
@@ -40,14 +50,21 @@ export type EstimatedContextConversationSource = 'main' | 'portal';
 export const useEstimatedContextUsage = (
   conversationSource: EstimatedContextConversationSource = 'main',
 ): EstimatedContextUsage => {
-  const [input, historySummary, memoryArchives, historySummaryLastMessageId, isRegularTopic] =
-    useChatStore((s) => [
-      s.inputMessage,
-      topicSelectors.currentActiveTopicSummary(s)?.content,
-      topicSelectors.currentActiveTopic(s)?.metadata?.memoryArchives,
-      topicSelectors.currentActiveTopic(s)?.metadata?.historySummaryLastMessageId,
-      s.activeSessionType !== 'group' && !s.activeThreadId && !s.portalThreadId,
-    ]);
+  const [
+    input,
+    historySummary,
+    memoryArchives,
+    historySummaryLastMessageId,
+    isRegularTopic,
+    lastCompactionStatus,
+  ] = useChatStore((s) => [
+    s.inputMessage,
+    topicSelectors.currentActiveTopicSummary(s)?.content,
+    topicSelectors.currentActiveTopic(s)?.metadata?.memoryArchives,
+    topicSelectors.currentActiveTopic(s)?.metadata?.historySummaryLastMessageId,
+    s.activeSessionType !== 'group' && !s.activeThreadId && !s.portalThreadId,
+    topicSelectors.currentActiveTopic(s)?.metadata?.memoryDebugLog?.at(-1)?.status,
+  ]);
 
   const [systemRole, model, provider, assistantMemory, fixedMemory, enableAssistantMemory] =
     useAgentStore((s) => [
@@ -64,7 +81,7 @@ export const useEstimatedContextUsage = (
       agentChatConfigSelectors.historyCount(s),
       agentChatConfigSelectors.enableHistoryCount(s),
       agentChatConfigSelectors.currentChatConfig(s).enableCompressHistory,
-      agentChatConfigSelectors.currentChatConfig(s).enableUserMemoryArchive,
+      agentChatConfigSelectors.enableUserMemoryArchive(s),
     ]);
 
   const maxTokens = useModelContextWindowTokens(model, provider);
@@ -103,44 +120,15 @@ export const useEstimatedContextUsage = (
         ? threadSelectors.portalAIChats(state)
         : chatSelectors.mainAIChats(state);
 
-    return chats.map((chat) => `${chat.id}\u0000${chat.content}`).join('\u0001');
+    return chats
+      .map(
+        (chat) =>
+          `${chat.id}\u0000${chat.role}\u0000${chat.content}\u0000${chat.tool_call_id ?? ''}\u0000${JSON.stringify(chat.tools ?? [])}`,
+      )
+      .join('\u0001');
   });
 
-  const chatsString = useMemo(() => {
-    const state = useChatStore.getState();
-    const chats =
-      conversationSource === 'portal'
-        ? threadSelectors.portalAIChats(state)
-        : chatSelectors.mainAIChats(state);
-    const chatsWithHistoryConfig = selectMessagesForContext({
-      cursorId:
-        conversationSource === 'main' &&
-        enableHistoryCount &&
-        enableCompressHistory &&
-        isRegularTopic
-          ? historySummaryLastMessageId
-          : undefined,
-      enableHistoryCount,
-      historyCount,
-      messages: chats,
-    });
-
-    return chatsWithHistoryConfig.map((chat) => chat.content).join('');
-  }, [
-    conversationSource,
-    enableCompressHistory,
-    enableHistoryCount,
-    historyCount,
-    historySummaryLastMessageId,
-    isRegularTopic,
-    messageFingerprint,
-  ]);
-
-  const chatsToken = useTokenCount(chatsString) + inputTokenCount;
-  const systemRoleToken = useTokenCount(composedSystemRole);
-  const chatInstructionToken = useTokenCount(generalInstruction?.trim());
-  const roleSettingsToken = Math.max(0, systemRoleToken - chatInstructionToken);
-  const memorySummary = useMemo(
+  const memorySummaryRaw = useMemo(
     () =>
       buildHistorySummaryForRequest({
         archives: memoryArchives,
@@ -162,7 +150,11 @@ export const useEstimatedContextUsage = (
       conversationSource,
     ],
   );
-  // mirrors the AgentMemoryProvider injection built in internal_fetchAIChatMessage
+  const memorySummaryWrapped = useMemo(
+    () => wrapHistorySummaryForTokenEstimate(memorySummaryRaw),
+    [memorySummaryRaw],
+  );
+
   const agentMemoryBlock = useMemo(
     () =>
       enableAssistantMemory
@@ -174,7 +166,63 @@ export const useEstimatedContextUsage = (
     [assistantMemory, fixedMemory, enableAssistantMemory],
   );
   const memoryToken = useTokenCount(agentMemoryBlock);
-  const historySummaryToken = useTokenCount(memorySummary);
+  const historySummaryToken = useTokenCount(memorySummaryWrapped);
+  const systemRoleToken = useTokenCount(composedSystemRole);
+  const chatInstructionToken = useTokenCount(generalInstruction?.trim());
+  const roleSettingsToken = Math.max(0, systemRoleToken - chatInstructionToken);
+
+  const fixedOverheadTokens =
+    systemRoleToken + memoryToken + historySummaryToken + toolsToken + knowledgeBaseToken;
+
+  const { chatsString, topicChatsString, historyWindow } = useMemo(() => {
+    const state = useChatStore.getState();
+    const chats =
+      conversationSource === 'portal'
+        ? threadSelectors.portalAIChats(state)
+        : chatSelectors.mainAIChats(state);
+
+    const applyCursor =
+      conversationSource === 'main' && enableHistoryCount && enableCompressHistory && isRegularTopic;
+    const cursorId = applyCursor ? historySummaryLastMessageId : undefined;
+    const sliced = selectMessagesForContext({
+      cursorId,
+      enableHistoryCount,
+      fixedOverheadTokens,
+      historyCount,
+      maxTokens,
+      messages: chats,
+    });
+
+    return {
+      chatsString: serializeMessagesForContextEstimate(sliced),
+      historyWindow: getHistoryWindowDiagnostics({
+        configuredHistoryCount: historyCount,
+        cursorId,
+        enableCompressHistory: applyCursor,
+        enableHistoryCount,
+        fixedOverheadTokens,
+        hasTopicSummary: !!memorySummaryRaw.trim(),
+        historyCount,
+        maxTokens,
+        messages: chats,
+      }),
+      topicChatsString: serializeMessagesForContextEstimate(chats),
+    };
+  }, [
+    conversationSource,
+    enableCompressHistory,
+    enableHistoryCount,
+    fixedOverheadTokens,
+    historyCount,
+    historySummaryLastMessageId,
+    isRegularTopic,
+    maxTokens,
+    memorySummaryRaw,
+    messageFingerprint,
+  ]);
+
+  const chatsToken = useTokenCount(chatsString) + inputTokenCount;
+  const topicChatsToken = useTokenCount(topicChatsString);
   const totalToken =
     systemRoleToken +
     memoryToken +
@@ -188,13 +236,16 @@ export const useEstimatedContextUsage = (
     chatInstructionToken,
     chatsToken,
     historySummaryToken,
+    historyWindow,
     inputTokenCount,
     knowledgeBaseToken,
+    lastCompactionStatus,
     maxTokens,
     memoryToken,
     ratio,
     roleSettingsToken,
     systemRoleToken,
+    topicChatsToken,
     toolsToken,
     totalToken,
   };

@@ -28,7 +28,11 @@ import type { LobeChatPluginManifest } from '@lobehub/chat-plugin-sdk';
 
 import { PluginModel } from '@/database/models/plugin';
 import { SkillModel } from '@/database/models/skill';
-import { getMessagesAfterHistorySummaryCursor } from '@/helpers/contextCompaction';
+import {
+  getMessagesAfterHistorySummaryCursor,
+  resolveEffectiveHistoryWindow,
+} from '@/helpers/contextCompaction';
+import { getModelContextWindowTokens } from '@/helpers/modelContextWindowTokens';
 import { composeSystemRole } from '@/services/chat/composeSystemRole';
 import {
   buildModelExtendParams,
@@ -164,11 +168,21 @@ export const buildConversationChatPayload = async ({
   );
   const resolvedMessages = await resolveProxyImageUrls(messagesAfterSummary, fileService);
   const systemRole = composeSystemRole(generalInstruction, config.systemRole);
+  const fixedOverheadTokensForHistory = Math.ceil(
+    (systemRole.length + (tools?.map((item) => JSON.stringify(item)).join('').length ?? 0)) / 2,
+  );
+  const effectiveHistory = resolveEffectiveHistoryWindow({
+    enableHistoryCount: chatConfig?.enableHistoryCount,
+    fixedOverheadTokens: fixedOverheadTokensForHistory,
+    historyCount: chatConfig?.historyCount,
+    maxTokens: getModelContextWindowTokens(model, provider),
+    messagesAfterCursor: resolvedMessages,
+  });
   const pipeline = new ContextEngine({
     pipeline: [
       new HistoryTruncateProcessor({
-        enableHistoryCount: chatConfig?.enableHistoryCount,
-        historyCount: chatConfig?.historyCount,
+        enableHistoryCount: effectiveHistory.enableHistoryCount,
+        historyCount: effectiveHistory.historyCount,
       }),
       new SystemRoleInjector({ existingSystemRolePolicy: 'prepend', systemRole }),
       new AgentMemoryProvider({

@@ -1,6 +1,7 @@
 import { agentMemoryPrompt } from '@lobechat/prompts';
 
 import { createChatToolsEngine } from '@/helpers/toolEngineering';
+import { getModelContextWindowTokens } from '@/helpers/modelContextWindowTokens';
 import { composeSystemRole } from '@/services/chat/composeSystemRole';
 import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selectors';
 import { getAgentStoreState } from '@/store/agent/store';
@@ -15,6 +16,10 @@ import { encodeAsync } from '@/utils/tokenizer';
 
 import { normalizeAssistantMemoryText } from './assistantMemory';
 import { selectMessagesForContext } from './contextCompaction';
+import {
+  serializeMessagesForContextEstimate,
+  wrapHistorySummaryForTokenEstimate,
+} from './contextUsageEstimate';
 import { buildHistorySummaryForRequest } from './memoryArchivePrompt';
 
 interface EstimateContextUsageOverrides {
@@ -47,6 +52,7 @@ export const estimateContextUsageAsync = async ({
 }: EstimateContextUsageAsyncParams): Promise<{
   chatsToken: number;
   contextMessages: ReturnType<typeof chatSelectors.mainAIChats>;
+  effectiveHistoryCount: number;
   historySummaryToken: number;
   inputToken: number;
   memoryToken: number;
@@ -69,6 +75,7 @@ export const estimateContextUsageAsync = async ({
   const agentConfig = agentSelectors.currentAgentConfig(agentState);
   const chatConfig = agentChatConfigSelectors.currentChatConfig(agentState);
   const enableHistoryCount = agentChatConfigSelectors.enableHistoryCount(agentState);
+  const configuredHistoryCount = agentChatConfigSelectors.historyCount(agentState);
   const enableHistoryCompaction = !!enableHistoryCount && !!chatConfig.enableCompressHistory;
   const historySummaryForRequest =
     buildHistorySummaryForRequest({
@@ -77,7 +84,7 @@ export const estimateContextUsageAsync = async ({
       enableUserMemoryArchive: chatConfig.enableUserMemoryArchive,
       topicSummary: historySummary,
     }) || '';
-  // mirrors the AgentMemoryProvider injection built in internal_fetchAIChatMessage
+  const historySummaryWrapped = wrapHistorySummaryForTokenEstimate(historySummaryForRequest);
   const agentMemoryForRequest = agentChatConfigSelectors.enableAssistantMemory(agentState)
     ? agentMemoryPrompt({
         dynamicMemory: normalizeAssistantMemoryText(agentConfig.assistantMemory) || undefined,
@@ -92,6 +99,7 @@ export const estimateContextUsageAsync = async ({
   );
   const model = agentSelectors.currentAgentModel(agentState) as string;
   const provider = agentSelectors.currentAgentModelProvider(agentState) as string;
+  const maxTokens = getModelContextWindowTokens(model, provider);
 
   const aiState = getAiInfraStoreState();
   const canUseTool = aiModelSelectors.isModelSupportToolUse(model, provider)(aiState);
@@ -115,29 +123,29 @@ export const estimateContextUsageAsync = async ({
   const pluginSystemRoles = toolSelectors.enabledSystemRoles(enabledToolIds)(toolState);
   const toolsString = canUseTool ? pluginSystemRoles + schemaNumber : '';
 
+  const [systemRoleToken, memoryToken, historySummaryToken, toolsToken, inputToken] =
+    await Promise.all(
+      [systemRole, agentMemoryForRequest, historySummaryWrapped, toolsString, input].map((value) =>
+        countTokens(value || ''),
+      ),
+    );
+
+  const fixedOverheadTokens = systemRoleToken + memoryToken + historySummaryToken + toolsToken;
   const chats = selectMessagesForContext({
     cursorId: enableHistoryCompaction ? historySummaryLastMessageId : undefined,
     enableHistoryCount,
-    historyCount: agentChatConfigSelectors.historyCount(agentState),
+    fixedOverheadTokens,
+    historyCount: configuredHistoryCount,
+    maxTokens,
     messages: chatSelectors.mainAIChats(chatState),
   });
-  const chatsString = chats.map((chat) => chat.content).join('');
-
-  const [systemRoleToken, memoryToken, historySummaryToken, toolsToken, chatsToken, inputToken] =
-    await Promise.all(
-      [
-        systemRole,
-        agentMemoryForRequest,
-        historySummaryForRequest,
-        toolsString,
-        chatsString,
-        input,
-      ].map((value) => countTokens(value || '')),
-    );
+  const chatsString = serializeMessagesForContextEstimate(chats);
+  const chatsToken = await countTokens(chatsString);
 
   return {
     chatsToken,
     contextMessages: chats,
+    effectiveHistoryCount: chats.length,
     historySummaryToken,
     inputToken,
     memoryToken,

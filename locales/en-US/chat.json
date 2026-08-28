@@ -484,11 +484,21 @@
     "chats": "Chat Messages",
     "groupOrchestration": "Group Orchestration",
     "historySummary": "History Summary",
+    "historyWindow": {
+      "compactionStatus": "Last compaction",
+      "excludedByCursor": "Covered by summary",
+      "excludedByHistoryCount": "Outside history window",
+      "includedOfTopic": "Next-request messages {{included}} / {{topic}}",
+      "limit": "History limit {{count}}",
+      "title": "History window",
+      "topicChats": "Topic chat estimate",
+      "warnUncovered": "Older turns are not in the next request yet, and no usable history summary is available."
+    },
     "knowledgeBase": "Knowledge Base",
     "rest": "Remaining",
     "roleSettings": "Role Settings",
     "supervisor": "Group Host",
-    "title": "Context Details",
+    "title": "Next request estimate",
     "tools": "Plugin Settings",
     "total": "Total Available",
     "used": "Total Used"

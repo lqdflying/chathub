@@ -794,6 +794,24 @@ export const generateAIChatV2: StateCreator<
         n('preSendCompaction/start'),
       );
       try {
+        // Compact message-count overflow before truncate so the outbound request
+        // never drops unsettled history without a summary attempt.
+        await get().triggerMessageCountMemoryCompaction(compactionController);
+        if (
+          compactionController.signal.aborted ||
+          (!isCurrentConversation() && !data.deferReason)
+        ) {
+          if (!compactionController.signal.aborted) {
+            logGenerationDebugClientSafe('browser_path_started', {
+              hasTopicId: Boolean(data.topicId),
+              reason: 'notCurrent',
+              skipped: true,
+              spanId: debugSpanId,
+              stillCurrent: false,
+            });
+          }
+          return;
+        }
         await get().triggerTokenThresholdMemoryCompaction(compactionController);
         if (
           compactionController.signal.aborted ||

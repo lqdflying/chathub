@@ -39,6 +39,7 @@ import {
   createCompactionFingerprint,
   splitCompactionBatches,
 } from '@/helpers/contextCompaction';
+import { getContextCompactionMaxSummaryTokens } from '@/helpers/contextUsageEstimate';
 import {
   applySupervisorToolCalls,
   formatSupervisorTodoContent,
@@ -1741,7 +1742,9 @@ const executeCompaction = async (
       operation,
       {
         ...chainSummaryHistory(batch, historySummary || undefined),
-        max_tokens: CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS,
+        max_tokens: getContextCompactionMaxSummaryTokens(
+          operation.config.chatConfig?.assistanceLevel,
+        ),
         stream: false,
       },
       options?.runSignal,

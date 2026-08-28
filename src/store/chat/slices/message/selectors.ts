@@ -3,8 +3,9 @@ import { ChatFileItem, UIChatMessage } from '@lobechat/types';
 import { DEFAULT_USER_AVATAR } from '@/const/meta';
 import { INBOX_SESSION_ID } from '@/const/session';
 import { selectMessagesForContext } from '@/helpers/contextCompaction';
+import { getModelContextWindowTokens } from '@/helpers/modelContextWindowTokens';
 import { useAgentStore } from '@/store/agent';
-import { agentChatConfigSelectors } from '@/store/agent/selectors';
+import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selectors';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { useSessionStore } from '@/store/session';
 import { sessionMetaSelectors } from '@/store/session/selectors';
@@ -116,6 +117,8 @@ const mainAIChatsWithHistoryConfig = (s: ChatStoreState): UIChatMessage[] => {
   const enableCompressHistory =
     agentChatConfigSelectors.currentChatConfig(agentState).enableCompressHistory;
   const historyCount = agentChatConfigSelectors.historyCount(agentState);
+  const model = agentSelectors.currentAgentModel(agentState) as string;
+  const provider = agentSelectors.currentAgentModelProvider(agentState) as string;
   const cursorId =
     s.activeSessionType === 'group' ||
     !!s.activeThreadId ||
@@ -130,6 +133,7 @@ const mainAIChatsWithHistoryConfig = (s: ChatStoreState): UIChatMessage[] => {
     cursorId,
     enableHistoryCount,
     historyCount,
+    maxTokens: getModelContextWindowTokens(model, provider),
     messages: chats,
   });
 };
