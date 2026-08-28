@@ -7,8 +7,6 @@ import { useTranslation } from 'react-i18next';
 
 import { pathString } from '@/utils/url';
 
-import HeaderContent from '../../features/HeaderContent';
-
 const Header = memo(() => {
   const { t } = useTranslation('setting');
   const router = useRouter();
@@ -17,7 +15,6 @@ const Header = memo(() => {
     <ChatHeader
       left={<ChatHeaderTitle title={t('header.session')} />}
       onBackClick={() => router.push(pathString('/chat', { search: location.search }))}
-      right={<HeaderContent />}
       showBackButton
     />
   );

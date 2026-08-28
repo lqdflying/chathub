@@ -6,7 +6,6 @@ import { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
-import HeaderContent from '@/app/[variants]/(main)/chat/settings/features/HeaderContent';
 import BrandWatermark from '@/components/BrandWatermark';
 import PanelTitle from '@/components/PanelTitle';
 import { INBOX_SESSION_ID } from '@/const/session';
@@ -150,9 +149,6 @@ const AgentSettings = memo<AgentSettingsProps>(({ agentId, onClose, open }) => {
             <PanelTitle desc={t('header.sessionDesc')} title={t('header.session')} />
             <Flexbox flex={1} width={'100%'}>
               <AgentCategory setTab={setTab} tab={tab} />
-            </Flexbox>
-            <Flexbox align={'center'} gap={8} paddingInline={8} width={'100%'}>
-              <HeaderContent modal />
             </Flexbox>
             <BrandWatermark paddingInline={12} />
           </Flexbox>
