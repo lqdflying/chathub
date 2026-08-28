@@ -12,7 +12,10 @@ export async function register() {
 
     const { startConversationGenerationSweeper, startConversationGenerationWorker } =
       await import('./server/services/conversationGeneration/worker');
+    const { startAssistantMemoryDreamScheduler } =
+      await import('./server/services/assistantMemoryDream');
     startConversationGenerationSweeper();
+    startAssistantMemoryDreamScheduler();
     try {
       await startConversationGenerationWorker();
     } catch (error) {

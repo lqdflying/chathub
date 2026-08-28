@@ -141,11 +141,29 @@ export interface LobeAgentChatConfig {
    */
   enableAssistantMemory?: boolean;
 
-  /** Opt-in: client-side daily compaction per session/topic */
+  /**
+   * @deprecated Kept for read-time migration into `memoryDreamScheduleFrequency`.
+   * Former "Daily topic note" toggle — do not read at runtime.
+   */
   enableDailyMemorySummary?: boolean;
 
-  /** Opt-in: at most once per UTC day per agent — LLM rollup of topic summaries into assistant memory */
+  /**
+   * @deprecated Kept for read-time migration into `memoryDreamScheduleFrequency`.
+   * Former periodic rollup toggle — do not read at runtime.
+   */
   enablePeriodicAssistantMemoryRollup?: boolean;
+
+  /**
+   * Server-side memory dream schedule. Times are UTC.
+   * `'off'` (default) / `'daily'` / `'weekly'`.
+   */
+  memoryDreamScheduleFrequency?: 'daily' | 'off' | 'weekly';
+
+  /** Earliest UTC time (`HH:mm`) the dream may run. Default `'02:00'`. */
+  memoryDreamScheduleTime?: string;
+
+  /** UTC weekday (0 = Sunday … 6 = Saturday) when frequency is `'weekly'`. Default 0. */
+  memoryDreamScheduleWeekday?: number;
 
   /** Append snapshot excerpts to topic metadata on compaction; optional prompt injection */
   enableUserMemoryArchive?: boolean;
@@ -180,6 +198,12 @@ export const AgentChatConfigSchema = z.object({
     .enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])
     .optional(),
   historyCount: z.number().optional(),
+  memoryDreamScheduleFrequency: z.enum(['daily', 'off', 'weekly']).optional(),
+  memoryDreamScheduleTime: z
+    .string()
+    .regex(/^([01]\d|2[0-3]):([0-5]\d)$/)
+    .optional(),
+  memoryDreamScheduleWeekday: z.number().int().min(0).max(6).optional(),
   minimaxReasoningSplit: z.boolean().optional(),
   moonshotPreservedReasoning: z.boolean().optional(),
   reasoningBudgetToken: z.number().optional(),

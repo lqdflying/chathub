@@ -1,19 +1,29 @@
 'use client';
 
 import { Form, type FormGroupItemType } from '@lobehub/ui';
-import { Alert, App, InputNumber, Select, Switch } from 'antd';
+import { Alert, App, Form as AntdForm, InputNumber, Select, Switch, TimePicker } from 'antd';
 import { useTheme } from 'antd-style';
+import dayjs, { type Dayjs } from 'dayjs';
 import isEqual from 'fast-deep-equal';
-import { memo } from 'react';
+import { memo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
+import InfoTooltip from '@/components/InfoTooltip';
 import { assistanceLevelToChatConfigPatch, type AssistanceLevel } from '@/const/assistanceLevel';
 import { FORM_STYLE } from '@/const/layoutTokens';
+import { resolveMemoryDreamSchedule } from '@/helpers/assistantMemory';
 
 import { selectors, useStore } from '../store';
 import DynamicMemory from './DynamicMemory';
 import FixedMemory from './FixedMemory';
+
+const withTooltip = (title: string, tooltip: string): ReactNode => (
+  <Flexbox align={'center'} gap={6} horizontal>
+    {title}
+    <InfoTooltip title={tooltip} />
+  </Flexbox>
+);
 
 const AgentMemory = memo(() => {
   const { t } = useTranslation('setting');
@@ -22,6 +32,11 @@ const AgentMemory = memo(() => {
   const [form] = Form.useForm();
   const updateConfig = useStore((s) => s.setChatConfig);
   const config = useStore(selectors.currentChatConfig, isEqual);
+  const rawChatConfig = useStore((s) => s.config.chatConfig);
+  const schedule = resolveMemoryDreamSchedule(rawChatConfig);
+  const frequency =
+    (AntdForm.useWatch('memoryDreamScheduleFrequency', form) as string | undefined) ??
+    schedule.frequency;
 
   const compactionGroup: FormGroupItemType = {
     children: [
@@ -36,13 +51,19 @@ const AgentMemory = memo(() => {
           />
         ),
         desc: t('settingChatMemory.assistanceLevel.hint'),
-        label: t('settingChatMemory.assistanceLevel.title'),
+        label: withTooltip(
+          t('settingChatMemory.assistanceLevel.title'),
+          t('settingChatMemory.assistanceLevel.tooltip'),
+        ),
         name: 'assistanceLevel',
       },
       {
         children: <Switch />,
         desc: t('settingChatMemory.enableTokenThresholdAutoCompact.desc'),
-        label: t('settingChatMemory.enableTokenThresholdAutoCompact.title'),
+        label: withTooltip(
+          t('settingChatMemory.enableTokenThresholdAutoCompact.title'),
+          t('settingChatMemory.enableTokenThresholdAutoCompact.tooltip'),
+        ),
         layout: 'horizontal',
         minWidth: undefined,
         name: 'enableTokenThresholdAutoCompact',
@@ -52,17 +73,11 @@ const AgentMemory = memo(() => {
         children: <InputNumber max={0.99} min={0.5} step={0.01} style={{ width: '100%' }} />,
         desc: t('settingChatMemory.contextCompactThreshold.desc'),
         hidden: !config.enableTokenThresholdAutoCompact,
-        label: t('settingChatMemory.contextCompactThreshold.title'),
+        label: withTooltip(
+          t('settingChatMemory.contextCompactThreshold.title'),
+          t('settingChatMemory.contextCompactThreshold.tooltip'),
+        ),
         name: 'contextCompactThreshold',
-      },
-      {
-        children: <Switch />,
-        desc: t('settingChatMemory.enableDailyMemorySummary.desc'),
-        label: t('settingChatMemory.enableDailyMemorySummary.title'),
-        layout: 'horizontal',
-        minWidth: undefined,
-        name: 'enableDailyMemorySummary',
-        valuePropName: 'checked',
       },
     ],
     title: t('settingChatMemory.compactionGroupTitle'),
@@ -82,14 +97,50 @@ const AgentMemory = memo(() => {
         valuePropName: 'checked',
       },
       {
-        children: <Switch />,
-        desc: t('settingChatMemory.enablePeriodicAssistantMemoryRollup.desc'),
+        children: (
+          <Select
+            options={(['off', 'daily', 'weekly'] as const).map((value) => ({
+              label: t(`settingChatMemory.memoryDreamSchedule.frequency.${value}`),
+              value,
+            }))}
+            popupMatchSelectWidth={false}
+            style={{ minWidth: 160 }}
+          />
+        ),
+        desc: t('settingChatMemory.memoryDreamSchedule.frequency.desc'),
         hidden: !memoryEnabled,
-        label: t('settingChatMemory.enablePeriodicAssistantMemoryRollup.title'),
-        layout: 'horizontal',
-        minWidth: undefined,
-        name: 'enablePeriodicAssistantMemoryRollup',
-        valuePropName: 'checked',
+        label: withTooltip(
+          t('settingChatMemory.memoryDreamSchedule.title'),
+          t('settingChatMemory.memoryDreamSchedule.tooltip'),
+        ),
+        name: 'memoryDreamScheduleFrequency',
+      },
+      {
+        children: <TimePicker format={'HH:mm'} needConfirm={false} showNow={false} />,
+        desc: t('settingChatMemory.memoryDreamSchedule.time.desc'),
+        getValueFromEvent: (value: Dayjs | null) => value?.format('HH:mm') ?? '02:00',
+        getValueProps: (value: string | undefined) => ({
+          value: dayjs(value || '02:00', 'HH:mm'),
+        }),
+        hidden: !memoryEnabled || frequency === 'off',
+        label: t('settingChatMemory.memoryDreamSchedule.time.title'),
+        name: 'memoryDreamScheduleTime',
+      },
+      {
+        children: (
+          <Select
+            options={[0, 1, 2, 3, 4, 5, 6].map((value) => ({
+              label: t(`settingChatMemory.memoryDreamSchedule.weekday.${value}`),
+              value,
+            }))}
+            popupMatchSelectWidth={false}
+            style={{ minWidth: 160 }}
+          />
+        ),
+        desc: t('settingChatMemory.memoryDreamSchedule.weekday.desc'),
+        hidden: !memoryEnabled || frequency !== 'weekly',
+        label: t('settingChatMemory.memoryDreamSchedule.weekday.title'),
+        name: 'memoryDreamScheduleWeekday',
       },
     ],
     title: t('settingChatMemory.memoryGroupTitle'),
@@ -145,7 +196,12 @@ const AgentMemory = memo(() => {
           />
         }
         form={form}
-        initialValues={config}
+        initialValues={{
+          ...config,
+          memoryDreamScheduleFrequency: schedule.frequency,
+          memoryDreamScheduleTime: schedule.time,
+          memoryDreamScheduleWeekday: schedule.weekday,
+        }}
         items={[compactionGroup, memoryGroup]}
         itemsType={'group'}
         onFinish={updateConfig}

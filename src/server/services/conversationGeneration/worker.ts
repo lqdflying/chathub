@@ -2,6 +2,10 @@ import { type Runner, type Task, run } from 'graphile-worker';
 
 import { getServerDB } from '@/database/core/db-adaptor';
 import { hashGenerationDebugValue, logGenerationDebugSafe } from '@/libs/logger/generationDebug';
+import {
+  ASSISTANT_MEMORY_DREAM_TASK,
+  handleAssistantMemoryDreamJob,
+} from '@/server/services/assistantMemoryDream';
 
 import {
   CONVERSATION_GENERATION_SWEEP_INTERVAL_MS,
@@ -164,6 +168,7 @@ export const startConversationGenerationWorker = async (): Promise<Runner | unde
         noHandleSignals: true,
         pollInterval: 1000,
         taskList: {
+          [ASSISTANT_MEMORY_DREAM_TASK]: handleAssistantMemoryDreamJob,
           [CONVERSATION_GENERATION_TASK]: handleConversationGenerationJob,
         },
       });

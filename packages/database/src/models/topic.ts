@@ -1,5 +1,5 @@
 import { DBMessageItem, TopicRankItem } from '@lobechat/types';
-import { and, asc, count, desc, eq, gt, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, gte, ilike, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 
 import { TopicItem, agentsToSessions, messages, topics } from '../schemas';
 import { LobeChatDatabase, Transaction } from '../type';
@@ -63,6 +63,16 @@ const reparentTopicMessages = async (
 export interface TopicMemoryRollupRow {
   historySummary: string | null;
   id: string;
+  sessionId: string | null;
+  title: string | null;
+  updatedAt: Date;
+}
+
+/** Minimal topic row for the scheduled memory dream (previous-day activity window). */
+export interface TopicMemoryDreamRow {
+  historySummary: string | null;
+  id: string;
+  lastActivityAt: Date;
   sessionId: string | null;
   title: string | null;
   updatedAt: Date;
@@ -157,6 +167,49 @@ export class TopicModel {
       .limit(Math.min(Math.max(limit, 1), 500));
   };
 
+  /**
+   * Topics linked to `agentId` whose `lastActivityAt` falls in `[activityFrom, activityTo)`.
+   * The caller filters empty `historySummary` rows; this listing is the activity window.
+   */
+  listTopicsForAssistantMemoryDream = async ({
+    activityFrom,
+    activityTo,
+    agentId,
+    limit = 30,
+  }: {
+    activityFrom: Date;
+    activityTo: Date;
+    agentId: string;
+    limit?: number;
+  }): Promise<TopicMemoryDreamRow[]> => {
+    return this.db
+      .select({
+        historySummary: topics.historySummary,
+        id: topics.id,
+        lastActivityAt: topics.lastActivityAt,
+        sessionId: topics.sessionId,
+        title: topics.title,
+        updatedAt: topics.updatedAt,
+      })
+      .from(topics)
+      .innerJoin(
+        agentsToSessions,
+        and(
+          eq(topics.sessionId, agentsToSessions.sessionId),
+          eq(agentsToSessions.agentId, agentId),
+          eq(agentsToSessions.userId, this.userId),
+        ),
+      )
+      .where(
+        and(
+          eq(topics.userId, this.userId),
+          gte(topics.lastActivityAt, activityFrom),
+          lt(topics.lastActivityAt, activityTo),
+        ),
+      )
+      .orderBy(desc(topics.lastActivityAt))
+      .limit(Math.min(Math.max(limit, 1), 100));
+  };
 
   queryByKeyword = async (keyword: string, containerId?: string | null): Promise<TopicItem[]> => {
     if (!keyword) return [];

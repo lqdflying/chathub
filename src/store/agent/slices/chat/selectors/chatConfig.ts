@@ -1,5 +1,6 @@
 import { contextCachingModels, thinkingWithToolClaudeModels } from '@/const/models';
 import { DEFAULT_AGENT_CHAT_CONFIG, DEFAULT_AGENT_SEARCH_FC_MODEL } from '@/const/settings';
+import { resolveMemoryDreamSchedule } from '@/helpers/assistantMemory';
 import { AgentStoreState } from '@/store/agent/initialState';
 import { LobeAgentChatConfig } from '@/types/agent';
 
@@ -72,9 +73,14 @@ const enableAssistantMemory = (s: AgentStoreState) =>
   currentAgentChatConfig(s).enableAssistantMemory ??
   DEFAULT_AGENT_CHAT_CONFIG.enableAssistantMemory!;
 
-const enableDailyMemorySummary = (s: AgentStoreState) =>
-  currentAgentChatConfig(s).enableDailyMemorySummary ??
-  DEFAULT_AGENT_CHAT_CONFIG.enableDailyMemorySummary!;
+const memoryDreamSchedule = (s: AgentStoreState) =>
+  resolveMemoryDreamSchedule(currentAgentChatConfig(s));
+
+const memoryDreamScheduleFrequency = (s: AgentStoreState) => memoryDreamSchedule(s).frequency;
+
+const memoryDreamScheduleTime = (s: AgentStoreState) => memoryDreamSchedule(s).time;
+
+const memoryDreamScheduleWeekday = (s: AgentStoreState) => memoryDreamSchedule(s).weekday;
 
 const enableUserMemoryArchive = (s: AgentStoreState) =>
   currentAgentChatConfig(s).enableUserMemoryArchive ??
@@ -87,13 +93,15 @@ export const agentChatConfigSelectors = {
   currentChatConfig: currentAgentChatConfig,
   displayMode,
   enableAssistantMemory,
-  enableDailyMemorySummary,
   enableHistoryCount,
   enableHistoryDivider,
   enableTokenThresholdAutoCompact,
   enableUserMemoryArchive,
   historyCount,
   isAgentEnableSearch,
+  memoryDreamScheduleFrequency,
+  memoryDreamScheduleTime,
+  memoryDreamScheduleWeekday,
   searchFCModel,
   useModelBuiltinSearch,
 };

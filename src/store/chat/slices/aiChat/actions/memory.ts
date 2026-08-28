@@ -79,7 +79,6 @@ export interface ChatMemoryAction {
     abortController?: AbortController,
     conversation?: MemoryCompactionConversationScope,
   ) => Promise<MemoryCompactionResult>;
-  triggerScheduledMemoryCompaction: () => Promise<MemoryCompactionResult>;
   triggerTokenThresholdMemoryCompaction: (
     abortController?: AbortController,
     conversation?: MemoryCompactionConversationScope,
@@ -929,7 +928,6 @@ export const chatMemory: StateCreator<
   triggerManualMemoryCompaction: () => triggerCompaction(set, get, 'manual'),
   triggerMessageCountMemoryCompaction: (abortController, conversation) =>
     triggerCompaction(set, get, 'message_count', abortController, conversation),
-  triggerScheduledMemoryCompaction: () => triggerCompaction(set, get, 'scheduled'),
   triggerTokenThresholdMemoryCompaction: (abortController, conversation) =>
     triggerCompaction(set, get, 'token_threshold', abortController, conversation),
 });

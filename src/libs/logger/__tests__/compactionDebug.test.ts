@@ -252,6 +252,56 @@ describe('CHATHUB_COMPACTION_DEBUG emitter', () => {
     });
   });
 
+  describe('dream scheduler events', () => {
+    beforeEach(() => {
+      vi.stubEnv('CHATHUB_COMPACTION_DEBUG', '1');
+    });
+
+    it('emits dream_scheduler_tick fields verbatim', () => {
+      logCompactionDebugSafe('dream_scheduler_tick', {
+        due: true,
+        frequency: 'daily',
+        path: 'assistant_memory_rollup',
+        scheduleTime: '02:00',
+        trigger: 'scheduled',
+      });
+
+      const record = JSON.parse(consoleLogSpy.mock.calls[0][1] as string);
+      expect(record).toMatchObject({
+        due: true,
+        frequency: 'daily',
+        path: 'assistant_memory_rollup',
+        scheduleTime: '02:00',
+        side: 'server',
+        trigger: 'scheduled',
+      });
+    });
+
+    it('emits dream_scheduler_settled window dates verbatim', () => {
+      logCompactionDebugSafe('dream_scheduler_settled', {
+        activeTopicCount: 3,
+        activityWindowEnd: '2026-08-28',
+        activityWindowStart: '2026-08-27',
+        path: 'assistant_memory_rollup',
+        reason: 'no_changes',
+        status: 'skipped',
+        topicsWithSummary: 2,
+        trigger: 'scheduled',
+      });
+
+      const record = JSON.parse(consoleLogSpy.mock.calls[0][1] as string);
+      expect(record).toMatchObject({
+        activeTopicCount: 3,
+        activityWindowEnd: '2026-08-28',
+        activityWindowStart: '2026-08-27',
+        path: 'assistant_memory_rollup',
+        reason: 'no_changes',
+        status: 'skipped',
+        topicsWithSummary: 2,
+      });
+    });
+  });
+
   describe('verbose level', () => {
     it('keeps flag booleans at verbose', () => {
       vi.stubEnv('CHATHUB_COMPACTION_DEBUG', 'verbose');

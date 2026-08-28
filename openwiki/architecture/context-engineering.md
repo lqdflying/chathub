@@ -21,7 +21,7 @@ The main entrypoint is `src/services/chat/contextEngineering.ts`. It constructs 
 
 Agent memory sits immediately after the system role on purpose: the rarely-changing
 memory block stays in the stable prompt prefix (fixed memory changes only on user
-edits, dynamic memory at most daily), ahead of the more volatile inbox/tool/summary
+edits, dynamic memory when a dream or manual rollup writes), ahead of the more volatile inbox/tool/summary
 blocks, which preserves provider prompt-cache hit rates.
 
 The chat-input token popover **Most recent reported cache** figure is not that live tokenizer estimate. It reads cache fields from the latest assistant or grouped tool-turn `usage` / `metadata` / children (`src/features/ChatInput/ActionBar/Token/getPromptCacheHitRate.ts`) and divides cached tokens by `totalInputTokens` when present. Durable Graphile turns must persist `ModelUsage` **flat** on `messages.metadata` (matching browser `generateAIChat` `onFinish`). Nested `{ usage: ModelUsage }` from older workers is unwrapped on read. The visible status line is rate · status · cached/input; the reporting model stays on the help icon so the popover stays narrow. In-flight `LOADING_FLAT` rows are skipped; a later completed reply that only has totals keeps a previous cache-bearing rate, or shows `0 / totalInput` with status `provider reported` when no cache counters exist in the topic. The rate definition does not change when Anthropic omits a zero write counter.
@@ -254,8 +254,8 @@ allocation bucket, and member/agent-scoped requests inject the target agent's ow
 config rather than the host session's.
 
 The whole feature is gated per assistant by `chatConfig.enableAssistantMemory` (default on):
-when off, nothing is injected, estimators count zero, the scheduler and manual rollup skip
-(`disabled`), the save-memory tool is not offered, and the Memory tab collapses to the master
+when off, nothing is injected, estimators count zero, the scheduled memory dream
+and manual rollup skip (`disabled`), the save-memory tool is not offered, and the Memory tab collapses to the master
 switch. Stateless assistants opt out with one toggle.
 
 The model can also maintain fixed memory through an implicit builtin tool (`lobe-memory`,
@@ -290,18 +290,49 @@ exponential backoff (10 min base, 6 h cap) honored by scheduled runs. Successful
 prior document in the one-slot backup, and `restoreAssistantMemoryBackup` swaps it with the
 current text so restoring twice is a redo.
 
-Rollup runs are single-flight per account scope and agent; the scheduler and the manual button
-join the same in-flight job. Rollup currency is ACCOUNT-level only: the target session/agent is
+Rollup runs are single-flight per account scope and agent; the Memory tab
+**Regenerate** button joins the in-flight job. Rollup currency is ACCOUNT-level only: the target session/agent is
 captured at start, so the user can navigate to other sessions while the rollup runs in the
 background and the result is still written to the captured agent — only an account switch or
 scope reset aborts. In-flight agent ids are exposed in store state
 (`assistantMemoryRollingAgentIds`) so the Regenerate spinner survives unmounts and navigation.
-The rollup day-marker is account-scoped
-(`lobe_assistant_memory_rollup_<scope>_<agentId>`) on the local calendar day, written on success
-and on genuine no-op skips but not on failures or backoff skips, and the scheduler interval reads
-all state inside its tick so switching agents never resets it. Topic listing and rollup persistence
-always use the server database. After a successful write, every agent-config SWR key in the account
+Topic listing and rollup persistence always use the server database. After a successful write, every agent-config SWR key in the account
 scope is revalidated so sibling sessions bound to the same agent drop their stale copy.
+
+## Scheduled memory dream (daily/weekly style learning)
+
+The memory dream is a **server-side** Graphile job, not a browser `setInterval`.
+`src/instrumentation.ts` starts `startAssistantMemoryDreamScheduler()` next to the
+conversation-generation sweeper. Every 15 minutes the dispatcher reads `agents.chat_config`
+and enqueues `assistant_memory_dream` for agents that are due.
+
+**Schedule (UTC only).** `memoryDreamScheduleFrequency` (`off` / `daily` / `weekly`),
+`memoryDreamScheduleTime` (`HH:mm`, default `02:00`), and `memoryDreamScheduleWeekday`
+(0–6, Sunday–Saturday) live on agent `chatConfig`. Times and weekdays are UTC. Deprecated
+toggles `enableDailyMemorySummary` / `enablePeriodicAssistantMemoryRollup` migrate at
+read time to `daily` via `resolveMemoryDreamSchedule` (shared by the settings UI and the
+dispatcher). There is no per-user timezone field.
+
+**Scope.** The job lists topics linked to the agent whose `lastActivityAt` falls in the
+**previous UTC calendar day**, with a non-empty `historySummary`. It does not scan all
+assistant topics and does not compact topic history. The prompt
+(`chainAssistantMemoryDream`) is a style-learning pass: communication style, interaction
+patterns, tool habits, standing preferences — never per-topic recaps. Output follows the
+same `NO_CHANGES` sentinel and size bounds as the manual rollup.
+
+**Markers and backoff.** Success and genuine no-op skips (`no_active_topics_yesterday`,
+`no_summaries`, `no_changes`) write `assistantMemoryMeta.lastDreamMarker` (`YYYY-MM-DD` or
+`YYYY-Www`). Failures record `lastError` and honor the same exponential backoff as rollup
+(10 min base, 6 h cap). Graphile `job_key` is
+`assistant-memory-dream:<agentId>:<periodStamp>` with `unsafe_dedupe`.
+
+**Debug.** Dream events share `CHATHUB_COMPACTION_DEBUG` / `chathub-compaction-debug`:
+`dream_scheduler_tick` and `dream_scheduler_settled` with `path=assistant_memory_rollup`
+and `trigger=scheduled`. They are server-emitted. After the daily topic-note scheduler
+was removed, `planner_settled` with `trigger=scheduled` on a topic path is a regression.
+
+Manual **Regenerate** on the Dynamic memory panel still runs `rollupAssistantMemory`
+(dirty-scan across agent topics) in the browser and is unchanged.
 
 Assistant-wide memory rollup is an agent-store action, while `ChatService` reads the agent store when
 assembling requests. The action therefore lazy-loads `@/services/chat` only when a rollup runs; a
@@ -379,13 +410,15 @@ Useful test locations include:
 - `packages/context-engine/src/providers/__tests__/AgentMemoryProvider.test.ts`
 - `src/services/chat/contextEngineering.test.ts`
 - `src/store/agent/slices/chat/action.test.ts` (rollup watermarks/backoff/undo)
-- `src/features/Conversation/components/ContextMemory/AssistantMemoryRollupScheduler.test.tsx`
+- `src/server/services/assistantMemoryDream/schedule.test.ts`
+- `src/server/services/assistantMemoryDream/execute.test.ts`
 
 ## Key source references
 
 - `src/services/chat/contextEngineering.ts`
 - `src/helpers/contextCompaction.ts`
 - `src/store/chat/slices/aiChat/actions/memory.ts`
+- `src/server/services/assistantMemoryDream/`
 - `packages/context-engine/src/pipeline.ts`
 - `packages/context-engine/src/processors/`
 - `packages/context-engine/src/providers/`

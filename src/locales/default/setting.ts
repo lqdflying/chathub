@@ -304,15 +304,21 @@ export default {
     enableAutoCreateTopic: {
       desc: '会话过程中是否自动创建话题，仅在临时话题中生效',
       title: '自动创建话题',
+      tooltip:
+        '只影响何时从临时话题拆出新话题。不会触发记忆梦境，也不会压缩当前话题。',
     },
     enableCompressHistory: {
       title: '开启历史消息自动总结',
+      tooltip:
+        '开启后才允许话题压缩（按消息数或上下文将满）。这是话题内的历史摘要，不是跨话题的记忆梦境。',
     },
     enableHistoryCount: {
       alias: '不限制',
       limited: '只包含 {{number}} 条会话消息',
       setlimited: '使用历史消息数',
       title: '限制历史消息数',
+      tooltip:
+        '限制每次请求附带的消息数。超过后可触发话题压缩。与记忆梦境无关：梦境读取的是已压缩的话题摘要。',
       unlimited: '不限历史消息数',
     },
     enableStreaming: {
@@ -370,6 +376,8 @@ export default {
       minimal: '轻量',
       rich: '丰富',
       title: '协助预设',
+      tooltip:
+        '一键设置附带消息数、历史总结和自动压缩的默认值。不会开启记忆梦境。',
     },
     clear: '清空',
     clearConfirm: '将清空该助手的动态记忆（固定记忆不受影响）。是否继续？',
@@ -378,6 +386,8 @@ export default {
     contextCompactThreshold: {
       desc: '达到该比例时自动压缩，目标水位固定低 20 个百分点（默认 80% → 60%）',
       title: '超过比例时压缩',
+      tooltip:
+        '仅压缩当前话题的历史消息。与记忆梦境无关；梦境不会改写话题摘要。',
     },
     copy: '复制',
     copySuccess: '已复制',
@@ -403,6 +413,8 @@ export default {
     enableTokenThresholdAutoCompact: {
       desc: '需先在「聊天偏好」开启限制历史消息数与历史总结',
       title: '上下文将满时自动压缩',
+      tooltip:
+        '当前话题上下文达到阈值时压缩该话题。独立于记忆梦境；不会在日历时间点压缩话题。',
     },
     enableUserMemoryArchive: {
       desc: '在话题元数据中保留摘要片段供模型参考',
@@ -420,6 +432,32 @@ export default {
     guide:
       '1）「固定记忆」由你维护；助手也可通过内置工具在对话中保存条目（#1、#2…），自动汇总永不改写它。\n2）「动态记忆」由模型从话题压缩摘要增量提炼，可随时编辑、重新生成或恢复上一版。\n3）话题压缩需先在「聊天偏好」开启「限制历史消息数」与「历史总结」；聊天中点击绿色「用量」标签可查看占用、查看话题摘要并手动压缩。',
     guideTitle: '设置步骤',
+    memoryDreamSchedule: {
+      frequency: {
+        daily: '每天',
+        desc: '服务器按 UTC 时间运行；无需打开浏览器',
+        off: '关闭',
+        weekly: '每周',
+      },
+      time: {
+        desc: '到达该 UTC 时刻后才会运行（默认 02:00 UTC）',
+        title: '运行时刻（UTC）',
+      },
+      title: '每日记忆梦境',
+      tooltip:
+        '从昨天（UTC 日历日）有活动的话题摘要中学习你与该助手的使用风格（语气、格式、工具习惯、长期偏好），写入动态记忆。不是对话回顾，也不会压缩话题。按设定的 UTC 时刻在服务器运行，无需打开浏览器。手动刷新请用动态记忆的「立即重新生成」。',
+      weekday: {
+        '0': '星期日',
+        '1': '星期一',
+        '2': '星期二',
+        '3': '星期三',
+        '4': '星期四',
+        '5': '星期五',
+        '6': '星期六',
+        desc: '每周在该 UTC 星期几运行',
+        title: '星期（UTC）',
+      },
+    },
     memoryGroupTitle: '记忆',
     notActiveAgentTooltip: '仅当该助手为当前会话时可用',
     regenerate: '立即重新生成',

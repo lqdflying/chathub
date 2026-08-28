@@ -6,9 +6,10 @@ import { fingerprintString, sanitizeSafeRecord } from './toolsDebug';
 
 /**
  * CHATHUB_COMPACTION_DEBUG is a single switch for structured diagnostics of
- * topic compaction: why a run started or was skipped (token-threshold vs
- * message-count / scheduled / manual), the estimated request-token breakdown,
- * and which context-window number was used. It does not change compaction
+ * topic compaction and the scheduled assistant-memory dream: why a run started
+ * or was skipped (token-threshold vs message-count / scheduled / manual), the
+ * estimated request-token breakdown, which context-window number was used, and
+ * dream scheduler tick/settle metadata. It does not change compaction or dream
  * behavior. Value semantics match CHATHUB_TOOLS_DEBUG:
  *
  * - unset / empty / 0 / false / off  → off
@@ -52,13 +53,29 @@ const COMPACTION_DEBUG_RESERVED_KEYS = new Set([
   'timestamp',
 ]);
 
-const COMPACTION_DEBUG_ENUM_KEYS = ['outcome', 'path', 'reason', 'status', 'trigger'] as const;
+const COMPACTION_DEBUG_ENUM_KEYS = [
+  'activityWindowEnd',
+  'activityWindowStart',
+  'frequency',
+  'outcome',
+  'path',
+  'reason',
+  'scheduleTime',
+  'skippedReason',
+  'status',
+  'trigger',
+] as const;
 
 const TRUSTED_COMPACTION_PROVIDERS = new Set<string>(Object.values(ModelProvider));
 
 export const COMPACTION_DEBUG_CLIENT_EVENTS = ['planner_settled', 'watcher_armed'] as const;
 
-export const COMPACTION_DEBUG_PATHS = ['client_inline', 'durable_enqueued', 'pre_send'] as const;
+export const COMPACTION_DEBUG_PATHS = [
+  'assistant_memory_rollup',
+  'client_inline',
+  'durable_enqueued',
+  'pre_send',
+] as const;
 
 export const COMPACTION_DEBUG_TRIGGERS = [
   'manual',
@@ -101,8 +118,42 @@ export const COMPACTION_DEBUG_REASONS = [
   'unknown_context_window',
 ] as const;
 
+export const COMPACTION_DEBUG_DREAM_SKIP_REASONS = [
+  'already_ran',
+  'backoff',
+  'before_time',
+  'disabled',
+  'malformed_job',
+  'no_agent',
+  'off',
+  'stale_job',
+  'wrong_weekday',
+] as const;
+
+export const COMPACTION_DEBUG_DREAM_SETTLE_REASONS = [
+  'already_ran',
+  'backoff',
+  'before_time',
+  'completion_failed',
+  'disabled',
+  'malformed_job',
+  'no_active_topics_yesterday',
+  'no_agent',
+  'no_changes',
+  'no_summaries',
+  'off',
+  'stale_job',
+  'wrong_weekday',
+] as const;
+
+export const COMPACTION_DEBUG_DREAM_STATUSES = ['failed', 'skipped', 'success'] as const;
+
+export const COMPACTION_DEBUG_DREAM_FREQUENCIES = ['daily', 'off', 'weekly'] as const;
+
 export type CompactionDebugEvent =
   | (typeof COMPACTION_DEBUG_CLIENT_EVENTS)[number]
+  | 'dream_scheduler_settled'
+  | 'dream_scheduler_tick'
   | 'worker_settled';
 
 export type CompactionDebugSide = 'client' | 'server';
@@ -203,6 +254,34 @@ const workerSettledFieldsSchema = z
   })
   .strip();
 
+const optionalIsoDate = optionalMatchingString(/^\d{4}-\d{2}-\d{2}$/, 10);
+const optionalScheduleTime = optionalMatchingString(/^([01]\d|2[0-3]):([0-5]\d)$/, 5);
+
+const dreamSchedulerTickFieldsSchema = z
+  .object({
+    due: optionalBoolean,
+    frequency: optionalEnum(COMPACTION_DEBUG_DREAM_FREQUENCIES),
+    markerKeyHash: optionalHash,
+    path: optionalEnum(COMPACTION_DEBUG_PATHS),
+    scheduleTime: optionalScheduleTime,
+    skippedReason: optionalEnum(COMPACTION_DEBUG_DREAM_SKIP_REASONS),
+    trigger: optionalEnum(COMPACTION_DEBUG_TRIGGERS),
+  })
+  .strip();
+
+const dreamSchedulerSettledFieldsSchema = z
+  .object({
+    activeTopicCount: optionalFiniteNumber,
+    activityWindowEnd: optionalIsoDate,
+    activityWindowStart: optionalIsoDate,
+    path: optionalEnum(COMPACTION_DEBUG_PATHS),
+    reason: optionalEnum(COMPACTION_DEBUG_DREAM_SETTLE_REASONS),
+    status: optionalEnum(COMPACTION_DEBUG_DREAM_STATUSES),
+    topicsWithSummary: optionalFiniteNumber,
+    trigger: optionalEnum(COMPACTION_DEBUG_TRIGGERS),
+  })
+  .strip();
+
 export const compactionDebugClientEventSchema = z.discriminatedUnion('event', [
   z.object({
     event: z.literal('planner_settled'),
@@ -215,6 +294,8 @@ export const compactionDebugClientEventSchema = z.discriminatedUnion('event', [
 ]);
 
 const EVENT_FIELD_SCHEMAS = {
+  dream_scheduler_settled: dreamSchedulerSettledFieldsSchema,
+  dream_scheduler_tick: dreamSchedulerTickFieldsSchema,
   planner_settled: plannerSettledFieldsSchema,
   watcher_armed: watcherArmedFieldsSchema,
   worker_settled: workerSettledFieldsSchema,

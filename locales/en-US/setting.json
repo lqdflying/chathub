@@ -298,16 +298,19 @@
     },
     "enableAutoCreateTopic": {
       "desc": "Whether to automatically create a topic during the conversation, only effective in temporary topics",
-      "title": "Auto Create Topic"
+      "title": "Auto Create Topic",
+      "tooltip": "Only controls when a new topic is split from the temporary topic. It does not run the memory dream or compact the current topic."
     },
     "enableCompressHistory": {
-      "title": "Enable Automatic Summary of Chat History"
+      "title": "Enable Automatic Summary of Chat History",
+      "tooltip": "Required for topic compaction (message-count or context-full). That is an in-topic history summary, not the cross-topic memory dream."
     },
     "enableHistoryCount": {
       "alias": "Unlimited",
       "limited": "Include only {{number}} conversation messages",
       "setlimited": "Set limited history messages",
       "title": "Limit History Message Count",
+      "tooltip": "Limits how many messages each request carries. Overflow can trigger topic compaction. Independent of the memory dream, which reads already-compacted topic summaries.",
       "unlimited": "Unlimited history message count"
     },
     "enableStreaming": {
@@ -364,7 +367,8 @@
       "hint": "Applies suggested defaults for history and compression. You can still override in Chat preferences.",
       "minimal": "Light",
       "rich": "Rich",
-      "title": "Assist preset"
+      "title": "Assist preset",
+      "tooltip": "Applies suggested defaults for history count, summarization, and auto-compact. It does not turn on the memory dream."
     },
     "clear": "Clear",
     "clearConfirm": "This clears the assistant's dynamic memory (fixed memory is untouched). Continue?",
@@ -372,7 +376,8 @@
     "compactionGroupTitle": "Compact",
     "contextCompactThreshold": {
       "desc": "When estimated context use exceeds this share of the model window, try auto-compacting (estimate only).",
-      "title": "Compact when above"
+      "title": "Compact when above",
+      "tooltip": "Compacts the current topic's history only. Independent of the memory dream, which never rewrites topic summaries."
     },
     "copy": "Copy",
     "copySuccess": "Copied",
@@ -397,7 +402,8 @@
     },
     "enableTokenThresholdAutoCompact": {
       "desc": "Requires Limit history and Summarize history in Chat preferences.",
-      "title": "Auto-compact when context is full"
+      "title": "Auto-compact when context is full",
+      "tooltip": "Compacts the current topic when its context hits the threshold. Independent of the memory dream; it does not compact topics on a calendar schedule."
     },
     "enableUserMemoryArchive": {
       "desc": "Store short summary snippets on the topic for the model to reuse.",
@@ -414,6 +420,31 @@
     },
     "guide": "1) Fixed memory is yours — the assistant can also append entries (#1, #2, …) via its built-in tool, and automatic summarization never rewrites it.\n2) Dynamic memory is distilled incrementally from topic compaction summaries; you can edit, regenerate, or restore the previous version at any time.\n3) Topic compaction requires Limit history messages and Summarize history in Chat preferences; in chat, click the green usage badge to inspect usage, view the topic summary, and compact manually.",
     "guideTitle": "How to set up",
+    "memoryDreamSchedule": {
+      "frequency": {
+        "daily": "Daily",
+        "desc": "Runs on the server at UTC time; the browser does not need to be open",
+        "off": "Off",
+        "weekly": "Weekly"
+      },
+      "time": {
+        "desc": "Earliest UTC time the dream may run (default 02:00 UTC)",
+        "title": "Run at (UTC)"
+      },
+      "title": "Daily memory dream",
+      "tooltip": "Learns how you work with this assistant (tone, format, tool habits, standing preferences) from topic summaries that were active on the previous UTC calendar day, and writes durable customization into dynamic memory. Not a recap, and it does not compact topics. Runs on the server at the configured UTC time — no open browser required. Manual refresh remains Dynamic memory → Regenerate.",
+      "weekday": {
+        "0": "Sunday",
+        "1": "Monday",
+        "2": "Tuesday",
+        "3": "Wednesday",
+        "4": "Thursday",
+        "5": "Friday",
+        "6": "Saturday",
+        "desc": "UTC weekday for weekly runs",
+        "title": "Weekday (UTC)"
+      }
+    },
     "memoryGroupTitle": "Memory",
     "notActiveAgentTooltip": "Available only while this assistant is the active session",
     "regenerate": "Regenerate now",

@@ -33,6 +33,11 @@ export interface AssistantMemoryLastError {
  *   replaced atomically, pruning watermarks of deleted topics.
  */
 export interface AssistantMemoryMeta {
+  /**
+   * UTC period stamp of the last completed dream (`YYYY-MM-DD` or `YYYY-Www`).
+   * Written on success and genuine no-op skips; left unchanged on failure/backoff.
+   */
+  lastDreamMarker?: string | null;
   lastError?: AssistantMemoryLastError | null;
   /** ISO timestamp of the last rollup that advanced the watermarks. */
   lastRollupAt?: string;

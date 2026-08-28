@@ -603,12 +603,12 @@ describe('chat memory actions', () => {
     });
 
     const manual = useChatStore.getState().triggerManualMemoryCompaction();
-    const scheduled = useChatStore.getState().triggerScheduledMemoryCompaction();
+    const background = useChatStore.getState().triggerMessageCountMemoryCompaction();
     await vi.waitFor(() => expect(chatService.fetchPresetTaskResult).toHaveBeenCalledTimes(1));
     release();
 
-    const [manualResult, scheduledResult] = await Promise.all([manual, scheduled]);
-    expect(manualResult).toEqual(scheduledResult);
+    const [manualResult, backgroundResult] = await Promise.all([manual, background]);
+    expect(manualResult).toEqual(backgroundResult);
     expect(topicService.updateTopic).toHaveBeenCalledTimes(1);
   });
 
@@ -623,7 +623,7 @@ describe('chat memory actions', () => {
     });
 
     // a job started without a controller (e.g. the auto-compact watcher)
-    const background = useChatStore.getState().triggerScheduledMemoryCompaction();
+    const background = useChatStore.getState().triggerMessageCountMemoryCompaction();
     await vi.waitFor(() => expect(chatService.fetchPresetTaskResult).toHaveBeenCalledTimes(1));
 
     // a pre-send caller joins the same job with its own controller and then aborts

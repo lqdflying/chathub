@@ -1,4 +1,5 @@
 import { ASSISTANT_MEMORY_MAX_CHARS, ASSISTANT_MEMORY_TARGET_TOKENS } from '@lobechat/prompts';
+import type { LobeAgentChatConfig } from '@lobechat/types';
 
 const PREAMBLE_PATTERNS = [
   /^here(?:'s| is)\s+(?:the\s+)?(?:updated\s+)?assistant memory\s*[:：]\s*/i,
@@ -7,7 +8,7 @@ const PREAMBLE_PATTERNS = [
   /^here(?:'s| is)\s+(?:the\s+)?(?:updated\s+)?dynamic memory\s*[:：]\s*/i,
   /^updated dynamic memory\s*[:：]\s*/i,
   /^(?:这是|以下是)?\s*(?:更新后的|最新的)?\s*(?:助手|助理)?(?:记忆|动态记忆)(?:文档|内容)?\s*[:：]\s*/,
-  /^(?:更新された|最新の)?\s*(?:アシスタント(?:の)?)?(?:メモリ|記憶)\s*[:：]\s*/,
+  /^(?:更新された|最新の)?\s*(?:アシスタントの?)?(?:メモリ|記憶)\s*[:：]\s*/,
   // generic first line ending with a "... memory:" style label, in any of the known phrasings
   /^[^\n]{0,60}(?:assistant memory|dynamic memory|助手记忆|动态记忆|アシスタントメモリ)[^\n]{0,12}[:：]\s*\n+/i,
 ];
@@ -227,3 +228,53 @@ export const capAssistantMemoryByTokensAsync = async (
     return capAtReadableBoundary(trimmed, ASSISTANT_MEMORY_MAX_CHARS);
   }
 };
+
+export type MemoryDreamScheduleFrequency = 'daily' | 'off' | 'weekly';
+
+export interface MemoryDreamSchedule {
+  frequency: MemoryDreamScheduleFrequency;
+  time: string;
+  weekday: number;
+}
+
+const SCHEDULE_TIME_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+const isDreamFrequency = (value: unknown): value is MemoryDreamScheduleFrequency =>
+  value === 'off' || value === 'daily' || value === 'weekly';
+
+/**
+ * Resolve the dream schedule from chatConfig, including the read-time migration
+ * from the deprecated daily-topic-note / periodic-rollup toggles.
+ *
+ * An explicit `memoryDreamScheduleFrequency` always wins. When it is unset,
+ * either legacy toggle maps to `'daily'`. Times are UTC `HH:mm`.
+ */
+export const resolveMemoryDreamSchedule = (
+  chatConfig?: Partial<LobeAgentChatConfig> | null,
+): MemoryDreamSchedule => {
+  const time = SCHEDULE_TIME_PATTERN.test(chatConfig?.memoryDreamScheduleTime ?? '')
+    ? (chatConfig!.memoryDreamScheduleTime as string)
+    : '02:00';
+  const weekdayRaw = chatConfig?.memoryDreamScheduleWeekday;
+  const weekday =
+    typeof weekdayRaw === 'number' && Number.isInteger(weekdayRaw) && weekdayRaw >= 0 && weekdayRaw <= 6
+      ? weekdayRaw
+      : 0;
+
+  if (isDreamFrequency(chatConfig?.memoryDreamScheduleFrequency)) {
+    return { frequency: chatConfig.memoryDreamScheduleFrequency, time, weekday };
+  }
+
+  if (chatConfig?.enableDailyMemorySummary || chatConfig?.enablePeriodicAssistantMemoryRollup) {
+    return { frequency: 'daily', time, weekday };
+  }
+
+  return { frequency: 'off', time, weekday };
+};
+
+const ROLLUP_BACKOFF_BASE_MS = 10 * 60 * 1000;
+const ROLLUP_BACKOFF_MAX_MS = 6 * 60 * 60 * 1000;
+
+/** Exponential backoff for failed scheduled rollup/dream runs (10 min base, 6 h cap). */
+export const rollupBackoffDelayMs = (attempts: number) =>
+  Math.min(ROLLUP_BACKOFF_BASE_MS * 2 ** (Math.max(1, attempts) - 1), ROLLUP_BACKOFF_MAX_MS);

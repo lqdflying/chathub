@@ -19,6 +19,7 @@ import {
   capAssistantMemoryByTokensAsync,
   hashText,
   normalizeAssistantMemoryText,
+  rollupBackoffDelayMs,
 } from '@/helpers/assistantMemory';
 import {
   mutateAccountSWR,
@@ -133,12 +134,6 @@ export interface AssistantMemoryRollupResult {
 
 /** Per scope+agent single-flight guard: concurrent calls join the in-flight rollup. */
 const rollupJobs = new Map<string, Promise<AssistantMemoryRollupResult>>();
-
-const ROLLUP_BACKOFF_BASE_MS = 10 * 60 * 1000;
-const ROLLUP_BACKOFF_MAX_MS = 6 * 60 * 60 * 1000;
-
-const rollupBackoffDelayMs = (attempts: number) =>
-  Math.min(ROLLUP_BACKOFF_BASE_MS * 2 ** (Math.max(1, attempts) - 1), ROLLUP_BACKOFF_MAX_MS);
 
 interface AgentMutationCheckpoint {
   accountSnapshot: NonNullable<ReturnType<typeof captureAccountMutationSnapshot>>;

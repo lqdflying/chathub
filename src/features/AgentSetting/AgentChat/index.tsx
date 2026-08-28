@@ -5,14 +5,22 @@ import { Switch } from 'antd';
 import { useThemeMode } from 'antd-style';
 import isEqual from 'fast-deep-equal';
 import { LayoutList, MessagesSquare } from 'lucide-react';
-import { memo } from 'react';
+import { memo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
+import InfoTooltip from '@/components/InfoTooltip';
 import { FORM_STYLE } from '@/const/layoutTokens';
 import { imageUrl } from '@/const/url';
 
 import { selectors, useStore } from '../store';
+
+const withTooltip = (title: string, tooltip: string): ReactNode => (
+  <Flexbox align={'center'} gap={6} horizontal>
+    {title}
+    <InfoTooltip title={tooltip} />
+  </Flexbox>
+);
 
 const AgentChat = memo(() => {
   const { t } = useTranslation('setting');
@@ -61,7 +69,10 @@ const AgentChat = memo(() => {
       {
         children: <Switch />,
         desc: t('settingChat.enableAutoCreateTopic.desc'),
-        label: t('settingChat.enableAutoCreateTopic.title'),
+        label: withTooltip(
+          t('settingChat.enableAutoCreateTopic.title'),
+          t('settingChat.enableAutoCreateTopic.tooltip'),
+        ),
         layout: 'horizontal',
         minWidth: undefined,
         name: 'enableAutoCreateTopic',
@@ -77,7 +88,10 @@ const AgentChat = memo(() => {
       },
       {
         children: <Switch />,
-        label: t('settingChat.enableHistoryCount.title'),
+        label: withTooltip(
+          t('settingChat.enableHistoryCount.title'),
+          t('settingChat.enableHistoryCount.tooltip'),
+        ),
         layout: 'horizontal',
         minWidth: undefined,
         name: 'enableHistoryCount',
@@ -94,7 +108,10 @@ const AgentChat = memo(() => {
       {
         children: <Switch />,
         hidden: !config.enableHistoryCount,
-        label: t('settingChat.enableCompressHistory.title'),
+        label: withTooltip(
+          t('settingChat.enableCompressHistory.title'),
+          t('settingChat.enableCompressHistory.tooltip'),
+        ),
         layout: 'horizontal',
         minWidth: undefined,
         name: 'enableCompressHistory',

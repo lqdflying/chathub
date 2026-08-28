@@ -480,7 +480,7 @@ Debug env vars are process-wide; the Docker overlay does not strip them.
 | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `CHATHUB_DEBUG` / `LOG_LEVEL` | Pino level for tRPC. Worker lifecycle uses `[conversation-generation]` console logs.                                                                                                                                         |
 | `CHATHUB_GENERATION_DEBUG`    | Send-path diagnostics for this engine itself: client send/attach/sync decisions re-emitted via `reportClientDebug`, plus enqueue/sweep/execute events. Compaction jobs still emit `kind=memory_compaction` `execute_*` here. |
-| `CHATHUB_COMPACTION_DEBUG`    | Topic-compaction planner/watcher/worker diagnostics (`chathub-compaction-debug`): why compact ran or skipped, estimate parts, and the window used. Client events use `reportCompactionDebug`, not `reportClientDebug`.       |
+| `CHATHUB_COMPACTION_DEBUG`    | Topic-compaction planner/watcher/worker diagnostics plus scheduled memory-dream tick/settle (`chathub-compaction-debug`). Client compaction events use `reportCompactionDebug`; dream events are server-emitted. |
 | `CHATHUB_TOOLS_DEBUG`         | MCP HTTP tools log through `mcpService`. Chat tool turns emit `tool_batch_*` / `tool_completion_reported` from `toolDiagnostics.ts`.                                                                                         |
 | `DEBUG_*_CACHE`               | `createConversationRuntimeChatOptions` passes `cacheDiagnostics` and `trustedPromptCacheKey` into `runtime.chat`, matching `/webapi/chat/[provider]`.                                                                        |
 | `CHATHUB_KNOWLEDGE_DEBUG`     | `injectRag` emits retrieval / vector-search / prompt-injection events; embeddings still log in `RagEmbeddingService`.                                                                                                        |
@@ -584,7 +584,8 @@ Semantics that matter when reading the stream:
 - Topic compaction **planner** decisions (`not_needed`, `below_high_watermark`,
   estimate parts, `maxTokens`) are **not** in this stream. Use
   `CHATHUB_COMPACTION_DEBUG` (`chathub-compaction-debug`: `watcher_armed`,
-  `planner_settled`, `worker_settled`). Join worker records with generation-debug
+  `planner_settled`, `worker_settled`, `dream_scheduler_tick`,
+  `dream_scheduler_settled`). Join worker records with generation-debug
   using the planner `spanId` (`cd_...`) passed as `debugSpanId` on enqueue.
 - `execute_settled` is terminal only (`succeeded` / `cancelled` / `failed` /
   `interrupted`); retries do not emit it.
