@@ -2,7 +2,13 @@ import { describe, expect, it } from 'vitest';
 
 import { resolveMemoryDreamSchedule, rollupBackoffDelayMs } from '@/helpers/assistantMemory';
 
-import { isDreamDue, previousUtcDayWindow, resolveDreamPeriodStamp, utcDayStamp } from './schedule';
+import {
+  isDreamDue,
+  previousUtcDayWindow,
+  resolveDreamPeriodStamp,
+  utcDayStamp,
+  weeklyScheduledInstantUtc,
+} from './schedule';
 
 const at = (iso: string) => new Date(iso);
 
@@ -70,7 +76,7 @@ describe('isDreamDue', () => {
     expect(result.skippedReason).toBeUndefined();
   });
 
-  it('skips weekly runs on the wrong UTC weekday', () => {
+  it('skips weekly runs before the configured UTC instant in the ISO week', () => {
     expect(
       isDreamDue({
         chatConfig: {
@@ -80,7 +86,7 @@ describe('isDreamDue', () => {
         },
         now: fridayAfter,
       }),
-    ).toMatchObject({ due: false, skippedReason: 'wrong_weekday' });
+    ).toMatchObject({ due: false, skippedReason: 'before_time' });
   });
 
   it('is due for weekly on the matching UTC weekday after the time', () => {
@@ -94,6 +100,55 @@ describe('isDreamDue', () => {
         now: fridayAfter,
       }).due,
     ).toBe(true);
+  });
+
+  it('remains due later in the same ISO week after the configured weekday passes', () => {
+    const weeklyConfig = {
+      memoryDreamScheduleFrequency: 'weekly' as const,
+      memoryDreamScheduleTime: '23:55',
+      memoryDreamScheduleWeekday: 5,
+    };
+    const fridayLate = at('2026-08-28T23:58:00.000Z');
+    const saturdayAfterBackoff = at('2026-08-29T00:15:00.000Z');
+    const attempts = 1;
+    const failedAt = fridayLate.getTime() - rollupBackoffDelayMs(attempts) - 1000;
+
+    expect(isDreamDue({ chatConfig: weeklyConfig, now: fridayLate }).due).toBe(true);
+    expect(
+      isDreamDue({
+        assistantMemoryMeta: {
+          lastError: { at: new Date(failedAt).toISOString(), attempts, message: 'boom' },
+        },
+        chatConfig: weeklyConfig,
+        now: saturdayAfterBackoff,
+      }),
+    ).toMatchObject({ due: true, periodStamp: '2026-W35' });
+  });
+
+  it('skips before the configured weekday in the current ISO week', () => {
+    expect(
+      isDreamDue({
+        chatConfig: {
+          memoryDreamScheduleFrequency: 'weekly',
+          memoryDreamScheduleTime: '02:00',
+          memoryDreamScheduleWeekday: 5,
+        },
+        now: at('2026-08-26T12:00:00.000Z'),
+      }),
+    ).toMatchObject({ due: false, skippedReason: 'before_time' });
+  });
+
+  it('starts a new ISO week instead of running the prior week job', () => {
+    expect(
+      isDreamDue({
+        chatConfig: {
+          memoryDreamScheduleFrequency: 'weekly',
+          memoryDreamScheduleTime: '02:00',
+          memoryDreamScheduleWeekday: 5,
+        },
+        now: at('2026-08-31T03:00:00.000Z'),
+      }),
+    ).toMatchObject({ due: false, periodStamp: '2026-W36', skippedReason: 'before_time' });
   });
 
   it('skips when the period marker is already written', () => {
@@ -143,5 +198,10 @@ describe('previousUtcDayWindow / period stamps', () => {
   it('uses the UTC date for daily stamps even near midnight', () => {
     expect(utcDayStamp(at('2026-08-28T23:59:00.000Z'))).toBe('2026-08-28');
     expect(resolveDreamPeriodStamp('daily', at('2026-08-29T00:00:00.000Z'))).toBe('2026-08-29');
+  });
+
+  it('places Sunday at the end of the ISO week', () => {
+    const sunday = weeklyScheduledInstantUtc(at('2026-08-28T12:00:00.000Z'), 0, '02:00');
+    expect(sunday.toISOString()).toBe('2026-08-30T02:00:00.000Z');
   });
 });

@@ -48,11 +48,12 @@ export const dispatchDueAssistantMemoryDreams = async (db: LobeChatDatabase, now
     const chatConfig = (row.chatConfig ?? {}) as LobeAgentChatConfig;
     const assistantMemoryMeta = (row.assistantMemoryMeta ?? null) as AssistantMemoryMeta | null;
     const due = isDreamDue({ assistantMemoryMeta, chatConfig, now });
+    const markerKeyHash = hashCompactionDebugValue(dreamJobKey(row.id, due.periodStamp));
 
     logCompactionDebugSafe('dream_scheduler_tick', {
       due: due.due,
       frequency: due.frequency,
-      markerKeyHash: hashCompactionDebugValue(dreamJobKey(row.id, due.periodStamp)),
+      markerKeyHash,
       path: 'assistant_memory_rollup',
       scheduleTime: due.scheduleTime,
       skippedReason: due.skippedReason,
@@ -67,10 +68,13 @@ export const dispatchDueAssistantMemoryDreams = async (db: LobeChatDatabase, now
         periodStamp: due.periodStamp,
         userId: row.userId,
       });
-    } catch (error) {
-      console.error('[assistant-memory-dream] failed to enqueue job', {
-        agentId: row.id,
-        error: error instanceof Error ? error.message : String(error),
+    } catch {
+      logCompactionDebugSafe('dream_scheduler_settled', {
+        markerKeyHash,
+        path: 'assistant_memory_rollup',
+        reason: 'enqueue_failed',
+        status: 'failed',
+        trigger: 'scheduled',
       });
     }
   }

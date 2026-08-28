@@ -2,13 +2,16 @@ import { ASSISTANT_MEMORY_NO_CHANGES_SENTINEL } from '@lobechat/prompts';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const listTopics = vi.fn();
+const countTopics = vi.fn();
 const chat = vi.fn();
 const consume = vi.fn();
-const updateWhere = vi.fn();
+const updateReturning = vi.fn();
+const updateWhere = vi.fn(() => ({ returning: updateReturning }));
 const updateSet = vi.fn(() => ({ where: updateWhere }));
 
 vi.mock('@/database/models/topic', () => ({
   TopicModel: class {
+    countTopicsForAssistantMemoryDream = countTopics;
     listTopicsForAssistantMemoryDream = listTopics;
   },
 }));
@@ -60,12 +63,14 @@ import { executeAssistantMemoryDream } from './execute';
 
 const NOW = new Date('2026-08-28T03:00:00.000Z');
 const PERIOD = '2026-08-28';
+const SNAPSHOT_UPDATED_AT = new Date('2026-08-27T10:00:00.000Z');
 
 const agentRow = {
   assistantMemory: 'prior memory',
   assistantMemoryMeta: {},
   chatConfig: { memoryDreamScheduleFrequency: 'daily', memoryDreamScheduleTime: '02:00' },
   fixedMemory: '',
+  updatedAt: SNAPSHOT_UPDATED_AT,
 };
 
 const createDb = (row: typeof agentRow | undefined = agentRow) =>
@@ -83,7 +88,8 @@ const createDb = (row: typeof agentRow | undefined = agentRow) =>
 describe('executeAssistantMemoryDream', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    updateWhere.mockResolvedValue(undefined);
+    updateReturning.mockResolvedValue([{ id: 'agent-1' }]);
+    countTopics.mockResolvedValue(1);
     listTopics.mockResolvedValue([
       {
         historySummary: 'user prefers tables',
@@ -118,6 +124,7 @@ describe('executeAssistantMemoryDream', () => {
         }),
       }),
     );
+    expect(updateWhere).toHaveBeenCalled();
   });
 
   it('writes the marker without changing memory on NO_CHANGES', async () => {
@@ -141,6 +148,7 @@ describe('executeAssistantMemoryDream', () => {
   });
 
   it('writes the marker when yesterday had no active topics', async () => {
+    countTopics.mockResolvedValue(0);
     listTopics.mockResolvedValue([]);
     const db = createDb();
     const result = await executeAssistantMemoryDream({
@@ -199,5 +207,21 @@ describe('executeAssistantMemoryDream', () => {
     expect(result).toMatchObject({ reason: 'stale_job', status: 'skipped' });
     expect(listTopics).not.toHaveBeenCalled();
     expect(updateSet).not.toHaveBeenCalled();
+  });
+
+  it('does not overwrite memory when the agent row changed during the model call', async () => {
+    updateReturning.mockResolvedValueOnce([]);
+    const db = createDb();
+    const result = await executeAssistantMemoryDream({
+      agentId: 'agent-1',
+      db,
+      now: NOW,
+      periodStamp: PERIOD,
+      userId: 'user-1',
+    });
+
+    expect(result).toMatchObject({ reason: 'stale_conflict', status: 'skipped' });
+    expect(updateSet).toHaveBeenCalledTimes(1);
+    expect(updateReturning).toHaveBeenCalled();
   });
 });

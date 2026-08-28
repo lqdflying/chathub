@@ -211,3 +211,20 @@ describe('capAssistantMemoryByTokensAsync', () => {
     expect(encodeAsync).not.toHaveBeenCalled();
   });
 });
+
+describe('scheduleTimeToDayjs', () => {
+  it('parses valid HH:mm values without customParseFormat', async () => {
+    const { dayjsToScheduleTime, scheduleTimeToDayjs } = await import('./assistantMemory');
+
+    expect(scheduleTimeToDayjs('02:00').isValid()).toBe(true);
+    expect(scheduleTimeToDayjs('02:00').format('HH:mm')).toBe('02:00');
+    expect(scheduleTimeToDayjs('23:59').format('HH:mm')).toBe('23:59');
+    expect(dayjsToScheduleTime(scheduleTimeToDayjs('02:00'))).toBe('02:00');
+  });
+
+  it('falls back to 02:00 for invalid values', async () => {
+    const { scheduleTimeToDayjs } = await import('./assistantMemory');
+
+    expect(scheduleTimeToDayjs('invalid').format('HH:mm')).toBe('02:00');
+  });
+});

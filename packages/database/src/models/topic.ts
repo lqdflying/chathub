@@ -167,9 +167,44 @@ export class TopicModel {
       .limit(Math.min(Math.max(limit, 1), 500));
   };
 
+  private dreamActivityJoin = (agentId: string) =>
+    and(
+      eq(topics.sessionId, agentsToSessions.sessionId),
+      eq(agentsToSessions.agentId, agentId),
+      eq(agentsToSessions.userId, this.userId),
+    );
+
+  private dreamActivityWhere = (activityFrom: Date, activityTo: Date) =>
+    and(
+      eq(topics.userId, this.userId),
+      gte(topics.lastActivityAt, activityFrom),
+      lt(topics.lastActivityAt, activityTo),
+    );
+
+  private dreamSummaryPresent = () => sql`btrim(coalesce(${topics.historySummary}, '')) <> ''`;
+
+  /** Count topics linked to `agentId` active in `[activityFrom, activityTo)`. */
+  countTopicsForAssistantMemoryDream = async ({
+    activityFrom,
+    activityTo,
+    agentId,
+  }: {
+    activityFrom: Date;
+    activityTo: Date;
+    agentId: string;
+  }): Promise<number> => {
+    const [row] = await this.db
+      .select({ count: count() })
+      .from(topics)
+      .innerJoin(agentsToSessions, this.dreamActivityJoin(agentId))
+      .where(this.dreamActivityWhere(activityFrom, activityTo));
+
+    return Number(row?.count ?? 0);
+  };
+
   /**
-   * Topics linked to `agentId` whose `lastActivityAt` falls in `[activityFrom, activityTo)`.
-   * The caller filters empty `historySummary` rows; this listing is the activity window.
+   * Newest topics linked to `agentId` active in `[activityFrom, activityTo)` with a
+   * non-empty `historySummary`, capped for the dream prompt.
    */
   listTopicsForAssistantMemoryDream = async ({
     activityFrom,
@@ -192,21 +227,8 @@ export class TopicModel {
         updatedAt: topics.updatedAt,
       })
       .from(topics)
-      .innerJoin(
-        agentsToSessions,
-        and(
-          eq(topics.sessionId, agentsToSessions.sessionId),
-          eq(agentsToSessions.agentId, agentId),
-          eq(agentsToSessions.userId, this.userId),
-        ),
-      )
-      .where(
-        and(
-          eq(topics.userId, this.userId),
-          gte(topics.lastActivityAt, activityFrom),
-          lt(topics.lastActivityAt, activityTo),
-        ),
-      )
+      .innerJoin(agentsToSessions, this.dreamActivityJoin(agentId))
+      .where(and(this.dreamActivityWhere(activityFrom, activityTo), this.dreamSummaryPresent()))
       .orderBy(desc(topics.lastActivityAt))
       .limit(Math.min(Math.max(limit, 1), 100));
   };

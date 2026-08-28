@@ -326,6 +326,11 @@ same `NO_CHANGES` sentinel and size bounds as the manual rollup.
 (10 min base, 6 h cap). Graphile `job_key` is
 `assistant-memory-dream:<agentId>:<periodStamp>` with `unsafe_dedupe`.
 
+**Concurrency.** Dream writes compare `agents.updatedAt` from the initial load and use a
+compare-and-swap update. If the user edits dynamic memory, restores a backup, or runs manual
+**Regenerate** while the model call is in flight, the stale dream result is dropped as
+`stale_conflict` instead of overwriting newer memory or metadata.
+
 **Debug.** Dream events share `CHATHUB_COMPACTION_DEBUG` / `chathub-compaction-debug`:
 `dream_scheduler_tick` and `dream_scheduler_settled` with `path=assistant_memory_rollup`
 and `trigger=scheduled`. They are server-emitted. After the daily topic-note scheduler

@@ -45,6 +45,39 @@ export const utcWeekStamp = (now: Date) => {
 export const resolveDreamPeriodStamp = (frequency: MemoryDreamScheduleFrequency, now: Date) =>
   frequency === 'weekly' ? utcWeekStamp(now) : utcDayStamp(now);
 
+/** Monday 00:00 UTC of the ISO week containing `now`. */
+export const mondayOfIsoWeekUtc = (now: Date) => {
+  const date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const isoDay = date.getUTCDay() || 7;
+  date.setUTCDate(date.getUTCDate() - (isoDay - 1));
+  return date;
+};
+
+/**
+ * Earliest UTC instant for a weekly dream in the ISO week containing `now`.
+ * `weekday` is 0=Sunday .. 6=Saturday (same as `Date#getUTCDay`).
+ */
+export const weeklyScheduledInstantUtc = (
+  now: Date,
+  weekday: number,
+  scheduleTime: string,
+): Date => {
+  const { hour, minute } = parseScheduleTime(scheduleTime);
+  const monday = mondayOfIsoWeekUtc(now);
+  const offsetFromMonday = weekday === 0 ? 6 : weekday - 1;
+  return new Date(
+    Date.UTC(
+      monday.getUTCFullYear(),
+      monday.getUTCMonth(),
+      monday.getUTCDate() + offsetFromMonday,
+      hour,
+      minute,
+      0,
+      0,
+    ),
+  );
+};
+
 /** `[start, end)` of the previous UTC calendar day. */
 export const previousUtcDayWindow = (now: Date) => {
   const startOfToday = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
@@ -79,13 +112,16 @@ export const isDreamDue = ({
     return { ...base, due: false, skippedReason: 'off' };
   }
 
-  if (schedule.frequency === 'weekly' && now.getUTCDay() !== schedule.weekday) {
-    return { ...base, due: false, skippedReason: 'wrong_weekday' };
-  }
-
-  const { hour, minute } = parseScheduleTime(schedule.time);
-  if (now.getUTCHours() < hour || (now.getUTCHours() === hour && now.getUTCMinutes() < minute)) {
-    return { ...base, due: false, skippedReason: 'before_time' };
+  if (schedule.frequency === 'weekly') {
+    const scheduledAt = weeklyScheduledInstantUtc(now, schedule.weekday, schedule.time);
+    if (now < scheduledAt) {
+      return { ...base, due: false, skippedReason: 'before_time' };
+    }
+  } else {
+    const { hour, minute } = parseScheduleTime(schedule.time);
+    if (now.getUTCHours() < hour || (now.getUTCHours() === hour && now.getUTCMinutes() < minute)) {
+      return { ...base, due: false, skippedReason: 'before_time' };
+    }
   }
 
   if (assistantMemoryMeta?.lastDreamMarker === periodStamp) {

@@ -12,7 +12,11 @@ import { Flexbox } from 'react-layout-kit';
 import InfoTooltip from '@/components/InfoTooltip';
 import { assistanceLevelToChatConfigPatch, type AssistanceLevel } from '@/const/assistanceLevel';
 import { FORM_STYLE } from '@/const/layoutTokens';
-import { resolveMemoryDreamSchedule } from '@/helpers/assistantMemory';
+import {
+  dayjsToScheduleTime,
+  resolveMemoryDreamSchedule,
+  scheduleTimeToDayjs,
+} from '@/helpers/assistantMemory';
 
 import { selectors, useStore } from '../store';
 import DynamicMemory from './DynamicMemory';
@@ -118,9 +122,9 @@ const AgentMemory = memo(() => {
       {
         children: <TimePicker format={'HH:mm'} needConfirm={false} showNow={false} />,
         desc: t('settingChatMemory.memoryDreamSchedule.time.desc'),
-        getValueFromEvent: (value: Dayjs | null) => value?.format('HH:mm') ?? '02:00',
+        getValueFromEvent: (value: Dayjs | null) => dayjsToScheduleTime(value),
         getValueProps: (value: string | undefined) => ({
-          value: dayjs(value || '02:00', 'HH:mm'),
+          value: scheduleTimeToDayjs(value),
         }),
         hidden: !memoryEnabled || frequency === 'off',
         label: t('settingChatMemory.memoryDreamSchedule.time.title'),

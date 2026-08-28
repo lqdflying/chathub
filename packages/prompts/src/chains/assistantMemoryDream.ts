@@ -3,7 +3,6 @@ import { ChatStreamPayload } from '@lobechat/types';
 import {
   ASSISTANT_MEMORY_NO_CHANGES_SENTINEL,
   ASSISTANT_MEMORY_ROLLUP_MAX_FIXED_CHARS,
-  
   ASSISTANT_MEMORY_ROLLUP_MAX_PRIOR_CHARS,
   capTopicSummaryText,
 } from './assistantMemoryRollup';
@@ -118,4 +117,6 @@ Otherwise output only the updated dynamic memory text, without preamble or expla
   };
 };
 
-export {ASSISTANT_MEMORY_ROLLUP_MAX_OUTPUT_TOKENS as ASSISTANT_MEMORY_DREAM_MAX_OUTPUT_TOKENS} from './assistantMemoryRollup';
+export {
+  ASSISTANT_MEMORY_ROLLUP_MAX_OUTPUT_TOKENS as ASSISTANT_MEMORY_DREAM_MAX_OUTPUT_TOKENS,
+} from './assistantMemoryRollup';

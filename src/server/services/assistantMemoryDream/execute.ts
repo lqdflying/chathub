@@ -41,6 +41,12 @@ export interface AssistantMemoryDreamExecuteResult {
   topicsWithSummary?: number;
 }
 
+type AgentDreamSnapshot = {
+  assistantMemory: string | null;
+  assistantMemoryMeta: AssistantMemoryMeta;
+  updatedAt: Date;
+};
+
 const nowISO = () => new Date().toISOString();
 
 const settle = (
@@ -65,16 +71,26 @@ const settle = (
   });
 };
 
-const writeAgentMemory = async (
+const writeAgentMemoryIfUnchanged = async (
   db: LobeChatDatabase,
   agentId: string,
   userId: string,
+  snapshot: AgentDreamSnapshot,
   patch: { assistantMemory?: string; assistantMemoryMeta: AssistantMemoryMeta },
 ) => {
-  await db
+  const updated = await db
     .update(agents)
     .set(patch)
-    .where(and(eq(agents.id, agentId), eq(agents.userId, userId)));
+    .where(
+      and(
+        eq(agents.id, agentId),
+        eq(agents.userId, userId),
+        eq(agents.updatedAt, snapshot.updatedAt),
+      ),
+    )
+    .returning({ id: agents.id });
+
+  return updated.length > 0;
 };
 
 const loadHistoryCompress = async (db: LobeChatDatabase, userId: string) => {
@@ -159,6 +175,7 @@ export const executeAssistantMemoryDream = async ({
       assistantMemoryMeta: agents.assistantMemoryMeta,
       chatConfig: agents.chatConfig,
       fixedMemory: agents.fixedMemory,
+      updatedAt: agents.updatedAt,
     })
     .from(agents)
     .where(and(eq(agents.id, agentId), eq(agents.userId, userId)))
@@ -172,6 +189,11 @@ export const executeAssistantMemoryDream = async ({
 
   const chatConfig = (agent.chatConfig ?? {}) as LobeAgentChatConfig;
   const meta = (agent.assistantMemoryMeta ?? {}) as AssistantMemoryMeta;
+  const snapshot: AgentDreamSnapshot = {
+    assistantMemory: agent.assistantMemory,
+    assistantMemoryMeta: meta,
+    updatedAt: agent.updatedAt,
+  };
   const due = isDreamDue({ assistantMemoryMeta: meta, chatConfig, now });
 
   if (!due.due) {
@@ -187,29 +209,37 @@ export const executeAssistantMemoryDream = async ({
   }
 
   const topicModel = new TopicModel(db, userId);
-  const rows = await topicModel.listTopicsForAssistantMemoryDream({
+  const activeTopicCount = await topicModel.countTopicsForAssistantMemoryDream({
+    activityFrom: from,
+    activityTo: to,
+    agentId,
+  });
+  const topics = await topicModel.listTopicsForAssistantMemoryDream({
     activityFrom: from,
     activityTo: to,
     agentId,
     limit: ASSISTANT_MEMORY_DREAM_MAX_TOPICS,
   });
-  const activeTopicCount = rows.length;
-  const topics = rows.filter((row) => (row.historySummary ?? '').trim().length > 0);
 
   const writeMarker = async (extra: Partial<AssistantMemoryMeta> = {}) => {
-    await writeAgentMemory(db, agentId, userId, {
+    const wrote = await writeAgentMemoryIfUnchanged(db, agentId, userId, snapshot, {
       assistantMemoryMeta: {
-        ...meta,
+        ...snapshot.assistantMemoryMeta,
         lastDreamMarker: periodStamp,
         lastError: null,
         lastRollupAt: nowISO(),
         ...extra,
       },
     });
+    return wrote;
   };
 
   if (activeTopicCount === 0) {
-    await writeMarker();
+    if (!(await writeMarker())) {
+      const result = { reason: 'stale_conflict', status: 'skipped' as const };
+      settle({ ...result, activityWindowEnd: windowEnd, activityWindowStart: windowStart });
+      return result;
+    }
     const result = {
       activeTopicCount,
       reason: 'no_active_topics_yesterday',
@@ -225,7 +255,11 @@ export const executeAssistantMemoryDream = async ({
   }
 
   if (topics.length === 0) {
-    await writeMarker();
+    if (!(await writeMarker())) {
+      const result = { reason: 'stale_conflict', status: 'skipped' as const };
+      settle({ ...result, activityWindowEnd: windowEnd, activityWindowStart: windowStart });
+      return result;
+    }
     const result = {
       activeTopicCount,
       reason: 'no_summaries',
@@ -266,7 +300,16 @@ export const executeAssistantMemoryDream = async ({
       normalizeAssistantMemoryText(text) === ASSISTANT_MEMORY_NO_CHANGES_SENTINEL);
 
   if (isNoChanges) {
-    await writeMarker();
+    if (!(await writeMarker())) {
+      const result = { reason: 'stale_conflict', status: 'skipped' as const };
+      settle({
+        ...result,
+        activityWindowEnd: windowEnd,
+        activityWindowStart: windowStart,
+        topicsWithSummary: topics.length,
+      });
+      return result;
+    }
     const result = {
       activeTopicCount,
       reason: 'no_changes',
@@ -279,16 +322,26 @@ export const executeAssistantMemoryDream = async ({
 
   const next = failureMessage ? '' : await capAssistantMemoryByTokensAsync(normalizeAssistantMemoryText(text));
   if (!next) {
-    await writeAgentMemory(db, agentId, userId, {
+    const wrote = await writeAgentMemoryIfUnchanged(db, agentId, userId, snapshot, {
       assistantMemoryMeta: {
-        ...meta,
+        ...snapshot.assistantMemoryMeta,
         lastError: {
           at: nowISO(),
-          attempts: (meta.lastError?.attempts ?? 0) + 1,
+          attempts: (snapshot.assistantMemoryMeta.lastError?.attempts ?? 0) + 1,
           message: failureMessage || 'empty dream output',
         },
       },
     });
+    if (!wrote) {
+      const result = { reason: 'stale_conflict', status: 'skipped' as const };
+      settle({
+        ...result,
+        activityWindowEnd: windowEnd,
+        activityWindowStart: windowStart,
+        topicsWithSummary: topics.length,
+      });
+      return result;
+    }
     const result = {
       activeTopicCount,
       reason: 'completion_failed',
@@ -299,16 +352,28 @@ export const executeAssistantMemoryDream = async ({
     return result;
   }
 
-  await writeAgentMemory(db, agentId, userId, {
+  const wrote = await writeAgentMemoryIfUnchanged(db, agentId, userId, snapshot, {
     assistantMemory: next,
     assistantMemoryMeta: {
-      ...meta,
+      ...snapshot.assistantMemoryMeta,
       lastDreamMarker: periodStamp,
       lastError: null,
       lastRollupAt: nowISO(),
-      previousMemory: prior ? { at: nowISO(), text: prior } : meta.previousMemory ?? null,
+      previousMemory: prior
+        ? { at: nowISO(), text: prior }
+        : snapshot.assistantMemoryMeta.previousMemory ?? null,
     },
   });
+  if (!wrote) {
+    const result = { reason: 'stale_conflict', status: 'skipped' as const };
+    settle({
+      ...result,
+      activityWindowEnd: windowEnd,
+      activityWindowStart: windowStart,
+      topicsWithSummary: topics.length,
+    });
+    return result;
+  }
 
   const result = {
     activeTopicCount,

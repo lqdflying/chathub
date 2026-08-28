@@ -1,5 +1,6 @@
 import { ASSISTANT_MEMORY_MAX_CHARS, ASSISTANT_MEMORY_TARGET_TOKENS } from '@lobechat/prompts';
 import type { LobeAgentChatConfig } from '@lobechat/types';
+import dayjs, { type Dayjs } from 'dayjs';
 
 const PREAMBLE_PATTERNS = [
   /^here(?:'s| is)\s+(?:the\s+)?(?:updated\s+)?assistant memory\s*[:：]\s*/i,
@@ -278,3 +279,20 @@ const ROLLUP_BACKOFF_MAX_MS = 6 * 60 * 60 * 1000;
 /** Exponential backoff for failed scheduled rollup/dream runs (10 min base, 6 h cap). */
 export const rollupBackoffDelayMs = (attempts: number) =>
   Math.min(ROLLUP_BACKOFF_BASE_MS * 2 ** (Math.max(1, attempts) - 1), ROLLUP_BACKOFF_MAX_MS);
+
+/** Parse a validated `HH:mm` schedule string into hour/minute parts. */
+export const parseScheduleHHmm = (value: string | undefined) => {
+  const match = SCHEDULE_TIME_PATTERN.exec(value ?? '');
+  return match
+    ? { hour: Number(match[1]), minute: Number(match[2]) }
+    : { hour: 2, minute: 0 };
+};
+
+/** Build a Dayjs time for Ant Design `TimePicker` without `customParseFormat`. */
+export const scheduleTimeToDayjs = (value: string | undefined): Dayjs => {
+  const { hour, minute } = parseScheduleHHmm(value);
+  return dayjs().hour(hour).minute(minute).second(0).millisecond(0);
+};
+
+export const dayjsToScheduleTime = (value: Dayjs | null | undefined): string =>
+  value?.format('HH:mm') ?? '02:00';
