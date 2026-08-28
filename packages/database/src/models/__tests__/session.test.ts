@@ -935,6 +935,52 @@ describe('SessionModel', () => {
       });
     });
 
+    it('should advance agents.updatedAt instead of re-writing the loaded snapshot', async () => {
+      const sessionId = 'test-session-updated-at';
+      const agentId = 'test-agent-updated-at';
+
+      await serverDB.transaction(async (trx) => {
+        await trx.insert(sessions).values({
+          id: sessionId,
+          userId,
+          type: 'agent',
+        });
+
+        await trx.insert(agents).values({
+          assistantMemory: 'before',
+          id: agentId,
+          userId,
+          model: 'gpt-3.5-turbo',
+          title: 'Original Title',
+        });
+
+        await trx.insert(agentsToSessions).values({
+          agentId,
+          sessionId,
+          userId,
+        });
+      });
+
+      const [before] = await serverDB
+        .select({ updatedAt: agents.updatedAt })
+        .from(agents)
+        .where(and(eq(agents.id, agentId), eq(agents.userId, userId)));
+
+      await new Promise((resolve) => setTimeout(resolve, 5));
+
+      await sessionModel.updateConfig(sessionId, {
+        assistantMemory: 'after user edit',
+      });
+
+      const [after] = await serverDB
+        .select({ assistantMemory: agents.assistantMemory, updatedAt: agents.updatedAt })
+        .from(agents)
+        .where(and(eq(agents.id, agentId), eq(agents.userId, userId)));
+
+      expect(after.assistantMemory).toBe('after user edit');
+      expect(after.updatedAt.getTime()).toBeGreaterThan(before.updatedAt.getTime());
+    });
+
     it('should merge config with existing agent config', async () => {
       // Create test session with agent having existing config
       const sessionId = 'test-session-merge';

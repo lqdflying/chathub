@@ -492,6 +492,12 @@ export class SessionModel {
       }
     }
 
+    // Never write snapshot timestamps back — Drizzle `$onUpdate` must advance `updatedAt`
+    // so optimistic concurrency (e.g. assistant-memory dream CAS) can detect races.
+    delete mergedValue.updatedAt;
+    delete mergedValue.createdAt;
+    delete mergedValue.accessedAt;
+
     return this.db
       .update(agents)
       .set(mergedValue)

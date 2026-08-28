@@ -3,7 +3,7 @@
 import { Form, type FormGroupItemType } from '@lobehub/ui';
 import { Alert, App, Form as AntdForm, InputNumber, Select, Switch, TimePicker } from 'antd';
 import { useTheme } from 'antd-style';
-import dayjs, { type Dayjs } from 'dayjs';
+import { type Dayjs } from 'dayjs';
 import isEqual from 'fast-deep-equal';
 import { memo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';

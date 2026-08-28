@@ -276,6 +276,7 @@ const dreamSchedulerSettledFieldsSchema = z
     activeTopicCount: optionalFiniteNumber,
     activityWindowEnd: optionalIsoDate,
     activityWindowStart: optionalIsoDate,
+    markerKeyHash: optionalHash,
     path: optionalEnum(COMPACTION_DEBUG_PATHS),
     reason: optionalEnum(COMPACTION_DEBUG_DREAM_SETTLE_REASONS),
     status: optionalEnum(COMPACTION_DEBUG_DREAM_STATUSES),

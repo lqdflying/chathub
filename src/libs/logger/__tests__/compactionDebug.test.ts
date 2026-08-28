@@ -300,6 +300,26 @@ describe('CHATHUB_COMPACTION_DEBUG emitter', () => {
         topicsWithSummary: 2,
       });
     });
+
+    it('emits dream_scheduler_settled markerKeyHash for enqueue failures', () => {
+      logCompactionDebugSafe('dream_scheduler_settled', {
+        markerKeyHash: 'abc123deadbeef00',
+        path: 'assistant_memory_rollup',
+        reason: 'enqueue_failed',
+        status: 'failed',
+        trigger: 'scheduled',
+      });
+
+      const record = JSON.parse(consoleLogSpy.mock.calls[0][1] as string);
+      expect(record).toMatchObject({
+        markerKeyHash: 'abc123deadbeef00',
+        path: 'assistant_memory_rollup',
+        reason: 'enqueue_failed',
+        status: 'failed',
+        side: 'server',
+        trigger: 'scheduled',
+      });
+    });
   });
 
   describe('verbose level', () => {

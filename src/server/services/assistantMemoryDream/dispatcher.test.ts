@@ -1,22 +1,23 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { logCompactionDebugSafe } = vi.hoisted(() => ({
-  logCompactionDebugSafe: vi.fn(),
-}));
-
-vi.mock('@/libs/logger/compactionDebug', () => ({
-  hashCompactionDebugValue: () => 'hashed-marker-key',
-  logCompactionDebugSafe,
-}));
+import { COMPACTION_DEBUG_NAMESPACE } from '@/libs/logger/compactionDebug';
 
 import { dispatchDueAssistantMemoryDreams } from './dispatcher';
 
 describe('dispatchDueAssistantMemoryDreams', () => {
+  let consoleLogSpy: ReturnType<typeof vi.spyOn>;
+
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.stubEnv('CHATHUB_COMPACTION_DEBUG', '1');
+    consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
   });
 
-  it('logs a safe enqueue failure without raw agent ids or error text', async () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  it('logs enqueue failure with hashed marker and without raw ids or error text', async () => {
     const execute = vi.fn().mockRejectedValue(new Error('raw-database-secret'));
     const db = {
       execute,
@@ -36,17 +37,22 @@ describe('dispatchDueAssistantMemoryDreams', () => {
 
     await dispatchDueAssistantMemoryDreams(db, new Date('2026-08-28T03:00:00.000Z'));
 
-    const settled = logCompactionDebugSafe.mock.calls.find(
-      ([event]) => event === 'dream_scheduler_settled',
+    const settledCall = consoleLogSpy.mock.calls.find((call) =>
+      String(call[0]).includes(`${COMPACTION_DEBUG_NAMESPACE}:dream_scheduler_settled`),
     );
-    expect(settled).toBeDefined();
-    expect(settled?.[1]).toMatchObject({
+    expect(settledCall).toBeDefined();
+
+    const record = JSON.parse(settledCall![1] as string);
+    expect(record).toMatchObject({
       path: 'assistant_memory_rollup',
       reason: 'enqueue_failed',
       status: 'failed',
       trigger: 'scheduled',
     });
-    expect(JSON.stringify(logCompactionDebugSafe.mock.calls)).not.toContain('agent-secret-id');
-    expect(JSON.stringify(logCompactionDebugSafe.mock.calls)).not.toContain('raw-database-secret');
+    expect(record.markerKeyHash).toMatch(/^[a-f0-9]{16}$/);
+    expect(JSON.stringify(record)).not.toContain('agent-secret-id');
+    expect(JSON.stringify(record)).not.toContain('raw-database-secret');
+    expect(JSON.stringify(consoleLogSpy.mock.calls)).not.toContain('agent-secret-id');
+    expect(JSON.stringify(consoleLogSpy.mock.calls)).not.toContain('raw-database-secret');
   });
 });

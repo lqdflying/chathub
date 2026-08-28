@@ -327,9 +327,11 @@ same `NO_CHANGES` sentinel and size bounds as the manual rollup.
 `assistant-memory-dream:<agentId>:<periodStamp>` with `unsafe_dedupe`.
 
 **Concurrency.** Dream writes compare `agents.updatedAt` from the initial load and use a
-compare-and-swap update. If the user edits dynamic memory, restores a backup, or runs manual
-**Regenerate** while the model call is in flight, the stale dream result is dropped as
-`stale_conflict` instead of overwriting newer memory or metadata.
+compare-and-swap update. `SessionModel.updateConfig` omits snapshot timestamp columns on
+write so Drizzle `$onUpdate` advances `updatedAt` on every user or rollup mutation. If the
+user edits dynamic memory, restores a backup, or runs manual **Regenerate** while the model
+call is in flight, the stale dream result is dropped as `stale_conflict` instead of
+overwriting newer memory or metadata.
 
 **Debug.** Dream events share `CHATHUB_COMPACTION_DEBUG` / `chathub-compaction-debug`:
 `dream_scheduler_tick` and `dream_scheduler_settled` with `path=assistant_memory_rollup`
