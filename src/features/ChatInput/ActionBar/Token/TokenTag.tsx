@@ -21,6 +21,7 @@ import { topicSelectors } from '@/store/chat/selectors';
 import ActionPopover from '../components/ActionPopover';
 import { MOBILE_ACTION_OVERLAY_COMPACT_MAX_PX } from '../components/mobileOverlayWidth';
 import ContextExportControl from './ContextExportControl';
+import { formatHistoryWindowLimitLine } from './formatHistoryWindowLimitLine';
 import PromptCacheHitRate from './PromptCacheHitRate';
 import TokenProgress from './TokenProgress';
 
@@ -194,15 +195,7 @@ const Token = memo<TokenTagProps>(({ conversationSource }) => {
             })}
           </div>
           <div style={{ color: theme.colorTextSecondary, fontSize: 12 }}>
-            {t('tokenDetails.historyWindow.limit', {
-              count: historyWindow.configuredHistoryCount,
-            })}
-            {historyWindow.expanded &&
-            historyWindow.effectiveHistoryCount > historyWindow.configuredHistoryCount
-              ? ` · ${t('tokenDetails.historyWindow.expandedLimit', {
-                  count: historyWindow.effectiveHistoryCount,
-                })}`
-              : ''}
+            {formatHistoryWindowLimitLine(historyWindow, t)}
             {historyWindow.excludedByCursor > 0
               ? ` · ${t('tokenDetails.historyWindow.excludedByCursor')}: ${historyWindow.excludedByCursor}`
               : ''}

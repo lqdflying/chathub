@@ -174,15 +174,20 @@ memory, wrapped history summary, tool schemas/roles, and `formatSkillInstruction
 plus latest-user-anchored slicing from `packages/context-engine`. Input templates are **not** a
 one-shot overhead string: `resolveEffectiveHistoryWindow` / `serializeMessagesForContextEstimate`
 apply the same `{{text}}` expansion as `InputTemplateProcessor` to every included user row.
-The popover adds in-flight Knowledge Base tokens on top of that same overhead. `effectiveHistoryCount` is the
-HistoryTruncate **setting** (or the full post-cursor length when truncate is disabled);
-`includedMessageCount` is the sliced row count after assistant/tool continuations. Assistant/tool
+The popover adds in-flight Knowledge Base tokens on top of that same overhead.
+`configuredHistoryCount` is the persisted HistoryTruncate setting shown as **History limit**
+in the token popover. `effectiveHistoryCount` is the runtime cap used for slicing: the configured
+value when truncate is active, or the full post-cursor topic length when large-window expansion
+temporarily disables truncate. The popover appends **Large-context expanded to N** only when
+`effectiveHistoryCount` exceeds `configuredHistoryCount`. `includedMessageCount` is the sliced row
+count after assistant/tool continuations. Assistant/tool
 continuations extend the active turn without sliding the cached prefix. A pathological
 continuation tail is bounded separately: the default keeps the newest
 20 assistant/tool messages after the latest user message.
 
 The token popover title is a **next request estimate**. It also exposes a History window block
-(included/topic counts, exclusions, topic-wide chat estimate, last `memoryDebugLog` status) and
+(included/topic counts, exclusions, the configured history limit with an optional large-context
+expansion suffix, topic-wide chat estimate, last `memoryDebugLog` status) and
 counts history summary text with the same `<chat_history_summary>` wrapper the request injects.
 Chat message estimates serialize `role` + `content` + tool payloads rather than content-only joins.
 The unsent editor draft is treated as the next user row for window selection and is counted once
