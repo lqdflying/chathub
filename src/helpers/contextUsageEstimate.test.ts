@@ -154,6 +154,34 @@ ${'Review diffs carefully.'.repeat(10)}
     );
   });
 
+  it('keeps truncation when templated pending input no longer fits a large window', () => {
+    const pending = 'x'.repeat(80_000);
+    const stored = [message('u1', 'user', 'short'), message('a1', 'assistant', 'short')];
+    const storedOnly = resolveEffectiveHistoryWindow({
+      enableHistoryCount: true,
+      historyCount: 2,
+      inputTemplate: '{{text}}{{text}}',
+      maxTokens: LARGE_CONTEXT_WINDOW_TOKENS,
+      messagesAfterCursor: stored,
+    });
+    const withPending = getHistoryWindowDiagnostics({
+      configuredHistoryCount: 2,
+      enableHistoryCount: true,
+      hasTopicSummary: false,
+      historyCount: 2,
+      inputTemplate: '{{text}}{{text}}',
+      maxTokens: LARGE_CONTEXT_WINDOW_TOKENS,
+      messages: stored,
+      pendingInput: pending,
+    });
+
+    expect(storedOnly.enableHistoryCount).toBe(false);
+    expect(withPending.enableHistoryCount).toBe(true);
+    expect(withPending.topicMessageCount).toBe(stored.length);
+    expect(withPending.excludedByHistoryCount).toBe(1);
+    expect(withPending.includedMessageCount).toBe(2);
+  });
+
   it('scales summary max tokens by assistance level', () => {
     expect(getContextCompactionMaxSummaryTokens('minimal')).toBe(400);
     expect(getContextCompactionMaxSummaryTokens('balanced')).toBe(600);

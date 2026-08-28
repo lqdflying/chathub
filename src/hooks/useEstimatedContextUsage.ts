@@ -1,4 +1,4 @@
-import { formatSkillInstructionsBlock } from '@lobechat/context-engine';
+import { applyUserInputTemplate, formatSkillInstructionsBlock } from '@lobechat/context-engine';
 import { agentMemoryPrompt } from '@lobechat/prompts';
 import { useEffect, useMemo, useState } from 'react';
 
@@ -158,7 +158,8 @@ export const useEstimatedContextUsage = (
   });
 
   const toolsToken = useTokenCount(canUseTool ? toolsString : '');
-  const inputTokenCount = useTokenCount(input);
+  const templatedPendingInput = input ? applyUserInputTemplate(inputTemplate, input) : '';
+  const inputTokenCount = useTokenCount(templatedPendingInput);
   const messageFingerprint = useChatStore((state) => {
     const chats =
       conversationSource === 'portal'
@@ -244,6 +245,7 @@ export const useEstimatedContextUsage = (
       inputTemplate,
       maxTokens,
       messages: chats,
+      pendingInput: input,
     });
 
     return {
@@ -259,6 +261,7 @@ export const useEstimatedContextUsage = (
         inputTemplate,
         maxTokens,
         messages: chats,
+        pendingInput: input,
       }),
       topicChatsString: serializeMessagesForContextEstimate(chats, inputTemplate),
     };
@@ -269,6 +272,7 @@ export const useEstimatedContextUsage = (
     fixedOverheadTokens,
     historyCount,
     historySummaryLastMessageId,
+    input,
     inputTemplate,
     isRegularTopic,
     maxTokens,
@@ -276,7 +280,7 @@ export const useEstimatedContextUsage = (
     messageFingerprint,
   ]);
 
-  const chatsToken = useTokenCount(chatsString) + inputTokenCount;
+  const chatsToken = useTokenCount(chatsString);
   const topicChatsToken = useTokenCount(topicChatsString);
   const totalToken =
     systemRoleToken +

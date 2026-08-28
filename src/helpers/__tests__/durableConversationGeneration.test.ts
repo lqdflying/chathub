@@ -46,6 +46,20 @@ describe('buildDurableConversationConfig', () => {
     });
   });
 
+  it('captures the force-title marker for pre-created auto-topics', () => {
+    expect(
+      buildDurableConversationConfig({
+        agentConfig: {
+          model: 'model-a',
+          provider: 'provider-a',
+        },
+        title: { force: true, topicId: 'topic-1' },
+      }),
+    ).toMatchObject({
+      title: { force: true, topicId: 'topic-1' },
+    });
+  });
+
   it('uses the agent chat config and system role when no resolved override is provided', () => {
     expect(
       buildDurableConversationConfig({

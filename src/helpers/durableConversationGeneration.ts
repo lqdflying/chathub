@@ -27,6 +27,7 @@ export const buildDurableConversationConfig = ({
   locale,
   ragQuery,
   systemRole,
+  title,
 }: {
   activatedSkillIds?: string[];
   agentConfig: DurableAgentConfig;
@@ -39,6 +40,7 @@ export const buildDurableConversationConfig = ({
   locale?: string;
   ragQuery?: string;
   systemRole?: string;
+  title?: ConversationGenerationConfigSnapshot['title'];
 }): ConversationGenerationConfigSnapshot => ({
   activatedSkillIds: activatedSkillIds?.length
     ? [...new Set(activatedSkillIds)]
@@ -56,6 +58,7 @@ export const buildDurableConversationConfig = ({
   provider: agentConfig.provider,
   ragQuery,
   systemRole: systemRole ?? agentConfig.systemRole ?? undefined,
+  ...(title ? { title } : {}),
 });
 
 export const isClientDurableConversationGenerationEnabled = () => {

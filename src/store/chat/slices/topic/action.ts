@@ -224,7 +224,7 @@ export interface ChatTopicAction {
     expectedConversationVersion?: number,
   ) => Promise<string | undefined>;
   internal_updateTopic: (id: string, data: Partial<ChatTopic>) => Promise<void>;
-  internal_dispatchTopic: (payload: ChatTopicDispatch, action?: any) => void;
+  internal_dispatchTopic: (payload: ChatTopicDispatch, action?: any, sessionId?: string) => void;
 }
 
 export const chatTopic: StateCreator<
@@ -256,10 +256,9 @@ export const chatTopic: StateCreator<
     const { activeId, activeSessionType, internal_createTopic } = get();
     if (!accountMutationSnapshot || !activeId) return;
     const creatingTopicId = `topic-create-${nanoid(8)}`;
-    const isCurrentRequest = () =>
+    const isPersistenceCurrent = () =>
       isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
-      get().conversationClearGeneration === requestedGeneration &&
-      get().activeId === activeId;
+      get().conversationClearGeneration === requestedGeneration;
     const clearCurrentTopicCreation = () => {
       if (get().creatingTopicId !== creatingTopicId) return;
 
@@ -269,24 +268,23 @@ export const chatTopic: StateCreator<
     const messages = chatSelectors.activeBaseChats(get());
 
     set({ creatingTopic: true, creatingTopicId }, false, n('creatingTopic/start'));
-    const topicId = await internal_createTopic(
-      {
-        title: t('defaultTitle', { ns: 'topic' }),
-        messages: messages.map((m) => m.id),
-        ...(activeSessionType === 'group'
-          ? { groupId: groupId || activeId }
-          : { sessionId: sessionId || activeId }),
-      },
-      expectedConversationVersion,
-    );
-    if (!isCurrentRequest()) {
+    try {
+      const topicId = await internal_createTopic(
+        {
+          title: t('defaultTitle', { ns: 'topic' }),
+          messages: messages.map((m) => m.id),
+          ...(activeSessionType === 'group'
+            ? { groupId: groupId || activeId }
+            : { sessionId: sessionId || activeId }),
+        },
+        expectedConversationVersion,
+      );
+      if (!isPersistenceCurrent()) return;
+
+      return topicId;
+    } finally {
       clearCurrentTopicCreation();
-      return;
     }
-
-    clearCurrentTopicCreation();
-
-    return topicId;
   },
 
   saveToTopic: async (sessionId, groupId) => {
@@ -1134,15 +1132,11 @@ export const chatTopic: StateCreator<
       requestedContainerId,
       operationId,
     );
-    const isCurrentRequest = () =>
-      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
-      get().conversationClearGeneration === requestedGeneration &&
-      get().activeId === requestedContainerId;
-
     const tmpId = `topic-temp-${nanoid(8)}`;
     get().internal_dispatchTopic(
       { type: 'addTopic', value: { ...params, id: tmpId } },
       'internal_createTopic',
+      requestedContainerId,
     );
 
     acquireTopicLoadingOperation(loadingOperationKey, operationId);
@@ -1152,10 +1146,18 @@ export const chatTopic: StateCreator<
         params,
         expectedConversationVersion === undefined ? undefined : { expectedConversationVersion },
       );
-      if (!isCurrentRequest()) return;
+      const persistenceCurrent =
+        isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
+        get().conversationClearGeneration === requestedGeneration;
+      if (!persistenceCurrent) return;
 
-      await get().refreshTopic();
-      if (!isCurrentRequest()) return;
+      if (get().activeId === requestedContainerId) {
+        try {
+          await get().refreshTopic();
+        } catch {
+          // The topic is already committed; send recovery continues with this id.
+        }
+      }
 
       return topicId;
     } finally {
@@ -1185,9 +1187,10 @@ export const chatTopic: StateCreator<
     }
   },
 
-  internal_dispatchTopic: (payload, action) => {
-    const nextTopics = topicReducer(topicSelectors.currentTopics(get()), payload);
-    const nextMap = { ...get().topicMaps, [get().activeId]: nextTopics };
+  internal_dispatchTopic: (payload, action, sessionId) => {
+    const containerId = sessionId ?? get().activeId;
+    const nextTopics = topicReducer(get().topicMaps[containerId] || [], payload);
+    const nextMap = { ...get().topicMaps, [containerId]: nextTopics };
 
     // no need to update map if is the same
     if (isEqual(nextMap, get().topicMaps)) return;

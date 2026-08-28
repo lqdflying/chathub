@@ -333,16 +333,16 @@ export const generateAIChat: StateCreator<
     onlyAddUserMessage,
     isWelcomeQuestion,
   }) => {
-    const { activeId, sendMessageInServer } = get();
+    const { activeId, mainInputEditor, sendMessageInServer } = get();
     const hasFile = !!files?.length;
     if (!activeId || (!message && !hasFile)) return;
 
-    const expectedConversationVersion = await messageService.getConversationVersion();
+    const inputEditorTempState = mainInputEditor?.getJSONState();
 
     return sendMessageInServer({
       activatedSkillIds,
-      expectedConversationVersion,
       files,
+      inputEditorTempState,
       isWelcomeQuestion,
       message,
       metadata,

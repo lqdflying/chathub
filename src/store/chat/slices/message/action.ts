@@ -1260,7 +1260,12 @@ export const chatMessage: StateCreator<
 
     // use optimistic update to avoid the slow waiting
     const tempId = 'tmp_' + nanoid();
-    internal_dispatchMessage({ type: 'createMessage', id: tempId, value: message });
+    internal_dispatchMessage(
+      { type: 'createMessage', id: tempId, value: message },
+      message.sessionId
+        ? { sessionId: message.sessionId, topicId: message.topicId }
+        : undefined,
+    );
 
     return tempId;
   },

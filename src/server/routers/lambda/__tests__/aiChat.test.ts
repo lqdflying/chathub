@@ -275,6 +275,50 @@ describe('aiChatRouter', () => {
     expect(result.operationId).toBe('operation-new');
   });
 
+  it('forces title generation for a pre-created topic that still has a placeholder title', async () => {
+    vi.mocked(isDurableConversationGenerationEnabled).mockResolvedValue(true);
+    const mockCreateMessage = vi
+      .fn()
+      .mockResolvedValueOnce({ id: 'message-user-new' })
+      .mockResolvedValueOnce({ id: 'msg_1234567890ABCD' });
+    const mockGet = vi.fn().mockResolvedValue({ messages: [], topics: [] });
+    durableMocks.enqueueInTransaction.mockResolvedValue({
+      assistantMessageId: 'msg_1234567890ABCD',
+      id: 'operation-new',
+      userMessageId: 'message-user-new',
+    });
+    vi.mocked(MessageModel).mockImplementation(() => ({ create: mockCreateMessage }) as any);
+    vi.mocked(TopicModel).mockImplementation(
+      () => ({ findById: vi.fn().mockResolvedValue({ id: 't1', title: 'Default Topic' }) }) as any,
+    );
+    vi.mocked(AiChatService).mockImplementation(() => ({ getMessagesAndTopics: mockGet }) as any);
+
+    const caller = aiChatRouter.createCaller(mockCtx as any);
+    await caller.sendMessageInServer({
+      expectedConversationVersion: 7,
+      generation: {
+        config: {
+          model: 'gpt-4o',
+          provider: 'openai',
+          title: { force: true, topicId: 't1' },
+        },
+        idempotencyKey: 'chat-send-force-title',
+      },
+      newUserMessage: { content: 'hi' },
+      sessionId: 's1',
+      topicId: 't1',
+    });
+
+    expect(durableMocks.enqueueInTransaction).toHaveBeenCalledWith(
+      mockTransaction,
+      expect.objectContaining({
+        config: expect.objectContaining({
+          title: { force: true, topicId: 't1' },
+        }),
+      }),
+    );
+  });
+
   it('falls back to browser generation before creating a durable placeholder for unsupported tools', async () => {
     vi.mocked(isDurableConversationGenerationEnabled).mockResolvedValue(true);
     durableMocks.findUnsupportedConversationTool.mockResolvedValue({

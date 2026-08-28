@@ -96,6 +96,7 @@ const isUserCancelledSend = (error: unknown, abortController: AbortController) =
 type GuardedSendMessageParams = SendMessageParams & {
   contextExportCaptureId?: string;
   expectedConversationVersion?: number;
+  inputEditorTempState?: unknown;
 };
 
 export interface AIGenerateV2Action {
@@ -163,6 +164,7 @@ export const generateAIChatV2: StateCreator<
     contextExportCaptureId,
     expectedConversationVersion: capturedConversationVersion,
     files,
+    inputEditorTempState,
     isWelcomeQuestion,
     message,
     metadata,
@@ -230,6 +232,9 @@ export const generateAIChatV2: StateCreator<
     // if message is empty or no files, then stop
     if (!message && !hasFile) return;
 
+    // Capture before the first await. useSend clears the editor without waiting.
+    const jsonState = inputEditorTempState ?? mainInputEditor?.getJSONState();
+
     let expectedConversationVersion =
       capturedConversationVersion ?? (await messageService.getConversationVersion());
     if (!isCurrentConversation()) return;
@@ -255,72 +260,125 @@ export const generateAIChatV2: StateCreator<
       !!chatConfig.enableCompressHistory;
     let sendTopicId = activeTopicId ?? null;
     let createNewTopicOnSend = shouldCreateNewTopic;
+    let forceGeneratedTopicTitle = false;
+
+    const reportPreCreateFailure = (error: unknown) => {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const sourceOperationKey = messageMapKey(activeId, activeTopicId);
+      get().internal_toggleSendMessageOperation(sourceOperationKey, true);
+      get().internal_updateSendMessageOperation(sourceOperationKey, {
+        inputEditorTempState: jsonState,
+        inputSendErrorMsg: errorMessage,
+      });
+      get().internal_toggleSendMessageOperation(sourceOperationKey, false);
+      const stillOnSourceConversation =
+        isSameAccount() &&
+        get().activeId === conversationContext.sessionId &&
+        (get().activeTopicId ?? null) === (sourceClearContext.topicId ?? null);
+      if (stillOnSourceConversation) {
+        get().mainInputEditor?.setJSONState(jsonState);
+      }
+    };
+
+    const adoptCreatedTopic = (createdTopicId: string) => {
+      sendTopicId = createdTopicId;
+      createNewTopicOnSend = false;
+      forceGeneratedTopicTitle = true;
+      conversationContext = {
+        ...conversationContext,
+        clearGeneration: resolveConversationClearGeneration(
+          get(),
+          conversationContext.sessionId,
+          createdTopicId,
+          conversationContext.threadId ?? null,
+        ),
+        topicId: createdTopicId,
+      };
+    };
 
     if (shouldCreateNewTopic && compactionEligible && messages.length > 0) {
       if (!isPersistenceCurrent()) return;
 
-      const createdTopicId = await get().createTopic(
-        undefined,
-        undefined,
-        expectedConversationVersion,
-      );
-      if (!isPersistenceCurrent()) return;
-
-      if (createdTopicId) {
-        set(
-          (state) => {
-            const fromKey = messageMapKey(activeId, sourceClearContext.topicId);
-            const toKey = messageMapKey(activeId, createdTopicId);
-            const rows = state.messagesMap[fromKey];
-            if (!rows?.length || fromKey === toKey) return state;
-
-            return {
-              messagesMap: {
-                ...state.messagesMap,
-                [toKey]: rows.map((row) => ({ ...row, topicId: createdTopicId })),
-              },
-            };
-          },
-          false,
-          n('sendMessageInServer/relocateDefaultConversation'),
+      let createdTopicId: string | undefined;
+      try {
+        createdTopicId = await get().createTopic(
+          undefined,
+          undefined,
+          expectedConversationVersion,
         );
-
-        const stillOnSourceConversation =
-          isSameAccount() &&
-          get().activeId === conversationContext.sessionId &&
-          (get().activeTopicId ?? null) === (sourceClearContext.topicId ?? null);
-        if (stillOnSourceConversation) {
-          await get().switchTopic(createdTopicId, true);
-          if (isSameAccount() && get().activeId === conversationContext.sessionId) {
-            getSkillStoreState().moveSelectedSkills(
-              getSkillSelectionKey({
-                sessionId: activeId,
-                threadId: activeThreadId,
-                topicId: sourceClearContext.topicId,
-              }),
-              getSkillSelectionKey({
-                sessionId: activeId,
-                threadId: activeThreadId,
-                topicId: createdTopicId,
-              }),
-            );
-          }
-        }
-
-        sendTopicId = createdTopicId;
-        createNewTopicOnSend = false;
-        conversationContext = {
-          ...conversationContext,
-          clearGeneration: resolveConversationClearGeneration(
-            get(),
-            conversationContext.sessionId,
-            createdTopicId,
-            conversationContext.threadId ?? null,
-          ),
-          topicId: createdTopicId,
-        };
-        expectedConversationVersion = await messageService.getConversationVersion();
         if (!isPersistenceCurrent()) return;
+
+        if (createdTopicId) {
+          const committedTopicId = createdTopicId;
+          set(
+            (state) => {
+              const fromKey = messageMapKey(activeId, sourceClearContext.topicId);
+              const toKey = messageMapKey(activeId, committedTopicId);
+              const rows = state.messagesMap[fromKey];
+              if (!rows?.length || fromKey === toKey) return state;
+
+              return {
+                messagesMap: {
+                  ...state.messagesMap,
+                  [toKey]: rows.map((row) => ({ ...row, topicId: committedTopicId })),
+                },
+              };
+            },
+            false,
+            n('sendMessageInServer/relocateDefaultConversation'),
+          );
+
+          const stillOnSourceConversation =
+            isSameAccount() &&
+            get().activeId === conversationContext.sessionId &&
+            (get().activeTopicId ?? null) === (sourceClearContext.topicId ?? null);
+          if (stillOnSourceConversation) {
+            try {
+              await get().switchTopic(createdTopicId, true);
+              if (isSameAccount() && get().activeId === conversationContext.sessionId) {
+                getSkillStoreState().moveSelectedSkills(
+                  getSkillSelectionKey({
+                    sessionId: activeId,
+                    threadId: activeThreadId,
+                    topicId: sourceClearContext.topicId,
+                  }),
+                  getSkillSelectionKey({
+                    sessionId: activeId,
+                    threadId: activeThreadId,
+                    topicId: createdTopicId,
+                  }),
+                );
+              }
+            } catch {
+              // Topic is committed; continue the send against it even if the UI switch failed.
+            }
+          }
+
+          adoptCreatedTopic(createdTopicId);
+          try {
+            expectedConversationVersion = await messageService.getConversationVersion();
+          } catch {
+            try {
+              expectedConversationVersion = await messageService.getConversationVersion();
+            } catch {
+              // Keep the pre-create version and continue the send against this topic.
+            }
+          }
+          if (!isPersistenceCurrent()) return;
+        }
+      } catch (error) {
+        if (createdTopicId) {
+          adoptCreatedTopic(createdTopicId);
+          try {
+            expectedConversationVersion = await messageService.getConversationVersion();
+          } catch {
+            // Keep the pre-create version; the send catch path can still recover.
+          }
+          if (!isPersistenceCurrent()) return;
+        } else {
+          reportPreCreateFailure(error);
+          return;
+        }
       }
     }
 
@@ -389,7 +447,6 @@ export const generateAIChatV2: StateCreator<
     // Start tracking sendMessageInServer operation with AbortController
     const abortController = get().internal_toggleSendMessageOperation(operationKey, true)!;
 
-    const jsonState = mainInputEditor?.getJSONState();
     get().internal_updateSendMessageOperation(
       operationKey,
       { inputSendErrorMsg: undefined, inputEditorTempState: jsonState },
@@ -405,13 +462,20 @@ export const generateAIChatV2: StateCreator<
     const agentConfig = agentSelectors.currentAgentConfig(getAgentStoreState());
     const { model, provider } = agentConfig;
     const enableHistoryCompaction = !!sendTopicId && compactionEligible;
+    const compactionConversation =
+      enableHistoryCompaction && sendTopicId
+        ? { sessionId: conversationContext.sessionId, topicId: sendTopicId }
+        : undefined;
 
     // Compact settled overflow before durable enqueue (and before the browser
     // fallback path) so HistoryTruncate never drops turns without a summary attempt.
     // Leave-topic aborts the send AbortController with MESSAGE_CANCEL_FLAT; that is
     // not Stop. Only user cancel / Stop should skip enqueue.
-    if (enableHistoryCompaction && sendTopicId) {
-      const earlyCompactionKey = messageMapKey(activeId, sendTopicId);
+    if (compactionConversation) {
+      const earlyCompactionKey = messageMapKey(
+        compactionConversation.sessionId,
+        compactionConversation.topicId,
+      );
       const earlyCompactionController = new AbortController();
       const abortEarlyCompactionOnUserCancel = () => {
         if (abortController.signal.reason === USER_CANCELLED_SEND) {
@@ -435,7 +499,10 @@ export const generateAIChatV2: StateCreator<
         n('preSendCompaction/start'),
       );
       try {
-        await get().triggerMessageCountMemoryCompaction(earlyCompactionController);
+        await get().triggerMessageCountMemoryCompaction(
+          earlyCompactionController,
+          compactionConversation,
+        );
         const shouldCancelSend =
           earlyCompactionController.signal.aborted ||
           abortController.signal.reason === USER_CANCELLED_SEND;
@@ -443,7 +510,10 @@ export const generateAIChatV2: StateCreator<
           discardOptimisticSend();
           return;
         }
-        await get().triggerTokenThresholdMemoryCompaction(earlyCompactionController);
+        await get().triggerTokenThresholdMemoryCompaction(
+          earlyCompactionController,
+          compactionConversation,
+        );
         if (
           earlyCompactionController.signal.aborted ||
           abortController.signal.reason === USER_CANCELLED_SEND
@@ -478,7 +548,7 @@ export const generateAIChatV2: StateCreator<
 
     // Refresh topic after pre-send compaction so durable config carries the new summary/cursor.
     const activeTopic = sendTopicId
-      ? topicSelectors.getTopicById(sendTopicId)(get())
+      ? get().topicMaps[conversationContext.sessionId]?.find((topic) => topic.id === sendTopicId)
       : undefined;
     const historySummary = buildHistorySummaryForRequest({
       archives: activeTopic?.metadata?.memoryArchives,
@@ -508,6 +578,10 @@ export const generateAIChatV2: StateCreator<
               locale: globalHelpers.getCurrentLanguage(),
               ragQuery: get().internal_shouldUseRAG() ? message : undefined,
               systemRole: agentSelectors.currentAgentSystemRole(getAgentStoreState()),
+              title:
+                forceGeneratedTopicTitle && sendTopicId
+                  ? { force: true, topicId: sendTopicId }
+                  : undefined,
             }),
             debugSpanId,
             idempotencyKey: `chat-send:${tempId}`,
@@ -745,7 +819,7 @@ export const generateAIChatV2: StateCreator<
 
     const summaryTitle = async () => {
       // check activeTopic and then auto update topic title
-      if (data.isCreateNewTopic) {
+      if (data.isCreateNewTopic || forceGeneratedTopicTitle) {
         await get().summaryTopicTitle(data.topicId, data.messages);
         return;
       }
@@ -945,7 +1019,12 @@ export const generateAIChatV2: StateCreator<
       try {
         // Compact message-count overflow before truncate so the outbound request
         // never drops unsettled history without a summary attempt.
-        await get().triggerMessageCountMemoryCompaction(compactionController);
+        await get().triggerMessageCountMemoryCompaction(
+          compactionController,
+          data.topicId
+            ? { sessionId: conversationContext.sessionId, topicId: data.topicId }
+            : undefined,
+        );
         if (
           compactionController.signal.aborted ||
           (!isCurrentConversation() && !data.deferReason)
@@ -961,7 +1040,12 @@ export const generateAIChatV2: StateCreator<
           }
           return;
         }
-        await get().triggerTokenThresholdMemoryCompaction(compactionController);
+        await get().triggerTokenThresholdMemoryCompaction(
+          compactionController,
+          data.topicId
+            ? { sessionId: conversationContext.sessionId, topicId: data.topicId }
+            : undefined,
+        );
         if (
           compactionController.signal.aborted ||
           (!isCurrentConversation() && !data.deferReason)

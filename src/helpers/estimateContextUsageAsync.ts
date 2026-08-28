@@ -1,4 +1,4 @@
-import { formatSkillInstructionsBlock } from '@lobechat/context-engine';
+import { applyUserInputTemplate, formatSkillInstructionsBlock } from '@lobechat/context-engine';
 import { agentMemoryPrompt } from '@lobechat/prompts';
 
 import { getModelContextWindowTokens } from '@/helpers/modelContextWindowTokens';
@@ -19,6 +19,8 @@ import { encodeAsync } from '@/utils/tokenizer';
 
 import { normalizeAssistantMemoryText } from './assistantMemory';
 import {
+  PENDING_CONTEXT_INPUT_MESSAGE_ID,
+  appendPendingUserInputForContextWindow,
   getMessagesAfterHistorySummaryCursor,
   resolveEffectiveHistoryWindow,
   selectMessagesForContext,
@@ -151,6 +153,7 @@ export const estimateContextUsageAsync = async ({
     })),
   });
 
+  const templatedInput = applyUserInputTemplate(inputTemplate, input);
   const [systemRoleToken, memoryToken, historySummaryToken, toolsToken, inputToken, skillToken] =
     await Promise.all(
       [
@@ -158,7 +161,7 @@ export const estimateContextUsageAsync = async ({
         agentMemoryForRequest,
         historySummaryWrapped,
         toolsString,
-        input,
+        templatedInput,
         skillInstructions,
       ].map((value) => countTokens(value || '')),
     );
@@ -173,7 +176,7 @@ export const estimateContextUsageAsync = async ({
 
   const rawMessages = chatSelectors.mainAIChats(chatState);
   const afterCursor = getMessagesAfterHistorySummaryCursor(
-    rawMessages,
+    appendPendingUserInputForContextWindow(rawMessages, input),
     enableHistoryCompaction ? historySummaryLastMessageId : undefined,
   );
   const effective = resolveEffectiveHistoryWindow({
@@ -192,13 +195,14 @@ export const estimateContextUsageAsync = async ({
     inputTemplate,
     maxTokens,
     messages: rawMessages,
+    pendingInput: input,
   });
   const chatsString = serializeMessagesForContextEstimate(chats, inputTemplate);
   const chatsToken = await countTokens(chatsString);
 
   return {
     chatsToken,
-    contextMessages: chats,
+    contextMessages: chats.filter(({ id }) => id !== PENDING_CONTEXT_INPUT_MESSAGE_ID),
     effectiveHistoryCount: resolveEffectiveHistoryCountForCompaction(
       effective,
       afterCursor.length,
@@ -215,7 +219,6 @@ export const estimateContextUsageAsync = async ({
       historySummaryToken +
       toolsToken +
       chatsToken +
-      inputToken +
       skillToken,
   };
 };

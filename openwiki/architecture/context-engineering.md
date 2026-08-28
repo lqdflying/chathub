@@ -185,6 +185,8 @@ The token popover title is a **next request estimate**. It also exposes a Histor
 (included/topic counts, exclusions, topic-wide chat estimate, last `memoryDebugLog` status) and
 counts history summary text with the same `<chat_history_summary>` wrapper the request injects.
 Chat message estimates serialize `role` + `content` + tool payloads rather than content-only joins.
+The unsent editor draft is treated as the next user row for window selection and is counted once
+after the same `{{text}}` input template the request applies (empty/file-only drafts add no row).
 
 The configurable compact threshold is the high watermark. It is clamped to 50%-99% and defaults to
 80%. The low watermark is derived 20 percentage points below it, so the default target is 60%.
@@ -214,8 +216,12 @@ resumes from that cursor. Server-mode send runs client pre-send `message_count` 
 `token_threshold` **before durable enqueue** (and again on the browser-fallback path after the
 user message is committed) so settled overflow is summarized before `HistoryTruncate` can drop it.
 When auto-create-topic fires, the client creates the topic, relocates default-conversation rows,
-runs that same pre-send compaction, then enqueues with the topic id (no `newTopic` payload).
-Account and conversation-clear fences are re-checked after compaction; navigation alone still
+and runs that same pre-send compaction **against the created topic id** (not whichever topic is
+active in the UI), then enqueues with the topic id (no `newTopic` payload). A force-title marker
+replaces the placeholder Default Topic after send. If `createTopic` fails before an id exists, the
+editor snapshot captured before `useSend` clears the input is restored and the send error is
+shown; if creation already committed, the send continues against that topic. Account and
+conversation-clear fences are re-checked after compaction; navigation alone still
 allows durable enqueue. Post-send `message_count` remains as catch-up. Non-abortable manual / scheduled / post-send
 message-count runs may process all eligible batches. Legacy topic summaries without a valid cursor
 are rebuilt from raw eligible history once. Empty or failed model output never replaces the existing

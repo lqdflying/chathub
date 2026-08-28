@@ -384,11 +384,14 @@ unknown plugin runtimes are still capability-gated before durable enqueue, so
 the existing browser runtime handles the whole conversation rather than
 receiving a fake server success. Pre-send compaction stays on the client and runs
 **before durable enqueue**, so the worker chat payload reads the refreshed
-summary/cursor. Auto-create-topic sends create the topic and compact first; the
-RPC then uses that topic id. After compaction settles, the client re-checks
+summary/cursor. Auto-create-topic sends create the topic and compact **that topic** first even
+if the user has already opened another topic; the RPC then uses that topic id and a force-title
+config so the placeholder Default Topic is replaced. Pre-create failures restore the editor when
+no topic id exists, and continue/retry the send against the created topic when creation already
+committed. After compaction settles, the client re-checks
 `isPersistenceCurrent()` (account ownership + clear/delete fences) before
 building the durable request. Navigation-only topic/session changes still
-enqueue. It must finish before the user message is committed.
+enqueue. Compaction of the created topic must finish before the user message is committed.
 
 Background compaction is different: the client runs the normal eligibility and
 prefix planner, then stores a non-secret plan snapshot with candidate message

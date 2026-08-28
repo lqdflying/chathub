@@ -4,16 +4,19 @@ import type { UIChatMessage } from '@lobechat/types';
 
 import {
   CONTEXT_CHARS_PER_TOKEN_ESTIMATE,
+  appendPendingUserInputForContextWindow,
   getMessagesAfterHistorySummaryCursor,
   resolveEffectiveHistoryWindow,
 } from '@/helpers/contextCompaction';
 import type { EffectiveHistoryWindow } from '@/helpers/contextCompaction';
 
 export {
+  appendPendingUserInputForContextWindow,
   CONTEXT_CHARS_PER_TOKEN_ESTIMATE,
   type EffectiveHistoryWindow,
   LARGE_CONTEXT_EXPAND_WATERMARK,
   LARGE_CONTEXT_WINDOW_TOKENS,
+  PENDING_CONTEXT_INPUT_MESSAGE_ID,
   resolveEffectiveHistoryWindow,
 } from '@/helpers/contextCompaction';
 
@@ -101,6 +104,7 @@ export const getHistoryWindowDiagnostics = ({
   inputTemplate,
   maxTokens,
   messages,
+  pendingInput,
 }: {
   configuredHistoryCount: number;
   cursorId?: string;
@@ -112,13 +116,19 @@ export const getHistoryWindowDiagnostics = ({
   inputTemplate?: string;
   maxTokens?: number;
   messages: UIChatMessage[];
+  pendingInput?: string;
 }): HistoryWindowDiagnostics => {
   const topicMessageCount = messages.length;
+  const nextRequestMessages = appendPendingUserInputForContextWindow(messages, pendingInput);
   const afterCursor = getMessagesAfterHistorySummaryCursor(
+    nextRequestMessages,
+    enableCompressHistory && enableHistoryCount ? cursorId : undefined,
+  );
+  const persistedAfterCursor = getMessagesAfterHistorySummaryCursor(
     messages,
     enableCompressHistory && enableHistoryCount ? cursorId : undefined,
   );
-  const excludedByCursor = Math.max(0, topicMessageCount - afterCursor.length);
+  const excludedByCursor = Math.max(0, topicMessageCount - persistedAfterCursor.length);
 
   const effective = resolveEffectiveHistoryWindow({
     enableHistoryCount,

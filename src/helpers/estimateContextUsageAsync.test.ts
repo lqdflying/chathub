@@ -138,17 +138,17 @@ describe('estimateContextUsageAsync', () => {
     expect(result.systemRoleToken).toBe('system-role-text'.length);
     expect(result.toolsToken).toBeGreaterThan(0);
     expect(result.inputToken).toBe('input-text'.length);
-    expect(result.chatsToken).toBe('user:\nchat-text'.length);
+    expect(result.chatsToken).toBe('user:\nchat-text\nuser:\ninput-text'.length);
     expect(result.historySummaryToken).toBe(
       wrapHistorySummaryForTokenEstimate('history-summary-text').length,
     );
+    expect(result.contextMessages.map(({ id }) => id)).toEqual(['u1']);
     expect(result.totalToken).toBe(
       result.systemRoleToken +
         result.memoryToken +
         result.historySummaryToken +
         result.toolsToken +
-        result.chatsToken +
-        result.inputToken,
+        result.chatsToken,
     );
   });
 
@@ -202,6 +202,27 @@ describe('estimateContextUsageAsync', () => {
         result.toolsToken +
         result.chatsToken +
         result.inputToken,
+    );
+  });
+
+  it('templates pending input once and keeps it out of persisted contextMessages', async () => {
+    mocks.inputTemplate = '{{text}}{{text}}';
+    mocks.chats = [{ content: 'one', id: 'u1', role: 'user' }];
+
+    const result = await estimateContextUsageAsync({
+      agentState: {} as any,
+      chatState: { inputMessage: 'draft' } as any,
+    });
+
+    expect(result.inputToken).toBe('draftdraft'.length);
+    expect(result.chatsToken).toBe('user:\noneone\nuser:\ndraftdraft'.length);
+    expect(result.contextMessages.map(({ id }) => id)).toEqual(['u1']);
+    expect(result.totalToken).toBe(
+      result.systemRoleToken +
+        result.memoryToken +
+        result.historySummaryToken +
+        result.toolsToken +
+        result.chatsToken,
     );
   });
 });

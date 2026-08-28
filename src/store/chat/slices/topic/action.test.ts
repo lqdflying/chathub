@@ -1859,7 +1859,7 @@ describe('topic action', () => {
         topicId = await createTopicPromise;
       });
 
-      expect(topicId).toBeUndefined();
+      expect(topicId).toBe('stale-account-a-topic');
       expect(refreshTopicSpy).not.toHaveBeenCalled();
       expect(useChatStore.getState().creatingTopic).toBe(false);
       expect(useChatStore.getState().creatingTopicId).toBeUndefined();

@@ -21,6 +21,26 @@ type MessageLikeForHistoryWindow = Pick<
   'content' | 'role' | 'tools' | 'tool_call_id'
 >;
 
+/** Synthetic row id for the unsent editor draft in next-request window math. */
+export const PENDING_CONTEXT_INPUT_MESSAGE_ID = '__pending_input__';
+
+/** Represent the pending editor input as the next user row, matching the post-send payload. */
+export const appendPendingUserInputForContextWindow = (
+  messages: UIChatMessage[],
+  pendingInput?: string,
+): UIChatMessage[] => {
+  if (!pendingInput) return messages;
+
+  return [
+    ...messages,
+    {
+      content: pendingInput,
+      id: PENDING_CONTEXT_INPUT_MESSAGE_ID,
+      role: 'user',
+    } as UIChatMessage,
+  ];
+};
+
 const serializeMessageForHistoryWindow = (
   message: MessageLikeForHistoryWindow,
   inputTemplate?: string,
@@ -248,6 +268,7 @@ export const selectMessagesForContext = ({
   inputTemplate,
   maxTokens,
   messages,
+  pendingInput,
 }: {
   cursorId?: string;
   enableHistoryCount?: boolean;
@@ -256,8 +277,10 @@ export const selectMessagesForContext = ({
   inputTemplate?: string;
   maxTokens?: number;
   messages: UIChatMessage[];
+  pendingInput?: string;
 }) => {
-  const afterCursor = getMessagesAfterHistorySummaryCursor(messages, cursorId);
+  const nextRequestMessages = appendPendingUserInputForContextWindow(messages, pendingInput);
+  const afterCursor = getMessagesAfterHistorySummaryCursor(nextRequestMessages, cursorId);
   const effective = resolveEffectiveHistoryWindow({
     enableHistoryCount,
     fixedOverheadTokens,

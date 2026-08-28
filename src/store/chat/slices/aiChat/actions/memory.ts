@@ -66,15 +66,23 @@ const compactionResult = (
   values: Omit<MemoryCompactionResult, 'status'> = {},
 ): MemoryCompactionResult => ({ status, ...values });
 
+/** Explicit conversation for pre-send compaction. Navigation must not retarget the run. */
+export interface MemoryCompactionConversationScope {
+  sessionId: string;
+  topicId: string;
+}
+
 export interface ChatMemoryAction {
   internal_invalidateMemoryCompaction: (messageIds: string[]) => Promise<void>;
   triggerManualMemoryCompaction: () => Promise<MemoryCompactionResult>;
   triggerMessageCountMemoryCompaction: (
     abortController?: AbortController,
+    conversation?: MemoryCompactionConversationScope,
   ) => Promise<MemoryCompactionResult>;
   triggerScheduledMemoryCompaction: () => Promise<MemoryCompactionResult>;
   triggerTokenThresholdMemoryCompaction: (
     abortController?: AbortController,
+    conversation?: MemoryCompactionConversationScope,
   ) => Promise<MemoryCompactionResult>;
 }
 
@@ -195,12 +203,25 @@ async function runCompactionFromStore(
   trigger: MemoryCompactionTrigger,
   accountMutationSnapshot: AccountMutationSnapshot,
   abortController?: AbortController,
+  conversation?: MemoryCompactionConversationScope,
 ): Promise<MemoryCompactionResult> {
   const state = get();
   const requestedGeneration = state.conversationClearGeneration;
   const requestedInvalidationGeneration = state.memoryCompactionInvalidationGeneration;
-  const requestedSessionId = state.activeId;
-  const requestedTopicId = state.activeTopicId;
+  const requestedSessionId = conversation?.sessionId ?? state.activeId;
+  const requestedTopicId = conversation?.topicId ?? state.activeTopicId;
+  const pinToActiveConversation = !conversation;
+  const scopedState: ChatStore = conversation
+    ? {
+        ...state,
+        activeId: conversation.sessionId,
+        activeSessionType: state.activeSessionType === 'group' ? undefined : state.activeSessionType,
+        activeThreadId: undefined,
+        activeTopicId: conversation.topicId,
+        inputMessage: '',
+        portalThreadId: undefined,
+      }
+    : state;
   // Full clear fence (global + topic tombstone): topic deletion never bumps the
   // global epoch, so only the resolved fence detects it before registration.
   const requestedClearFence = resolveConversationClearGeneration(
@@ -214,8 +235,8 @@ async function runCompactionFromStore(
     isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
     get().conversationClearGeneration === requestedGeneration &&
     get().memoryCompactionInvalidationGeneration === requestedInvalidationGeneration &&
-    get().activeId === requestedSessionId &&
-    get().activeTopicId === requestedTopicId &&
+    (!pinToActiveConversation ||
+      (get().activeId === requestedSessionId && get().activeTopicId === requestedTopicId)) &&
     isConversationClearFenceCurrent(
       get(),
       requestedClearFence,
@@ -315,10 +336,10 @@ async function runCompactionFromStore(
   if (!requestedSessionId || !requestedTopicId || !isCurrentRequest()) {
     return finish('ineligible', { reason: 'no_active_topic' });
   }
-  if (!isRegularTopicCompaction(state)) {
+  if (!isRegularTopicCompaction(scopedState)) {
     return finish('ineligible', { reason: 'threads_and_groups_are_not_supported' });
   }
-  if (chatSelectors.isAIGenerating(state)) {
+  if (chatSelectors.isAIGenerating(scopedState)) {
     return finish('ineligible', { reason: 'generation_in_progress' });
   }
 
@@ -339,10 +360,10 @@ async function runCompactionFromStore(
     return finish('ineligible', { reason: 'token_auto_compaction_is_disabled' });
   }
 
-  const topic = topicSelectors.currentActiveTopic(state);
+  const topic = topicSelectors.currentActiveTopic(scopedState);
   if (!topic) return finish('ineligible', { reason: 'topic_not_loaded' });
 
-  const mainMessages = chatSelectors.mainTopicAIChats(state);
+  const mainMessages = chatSelectors.mainTopicAIChats(scopedState);
   const pending = resolvePendingCompactionHistory({
     cursorId: topic.metadata?.historySummaryLastMessageId,
     historySummary: topic.historySummary,
@@ -374,7 +395,10 @@ async function runCompactionFromStore(
     }
   }
 
-  const beforeEstimate = await estimateContextUsageAsync({ agentState, chatState: state });
+  const beforeEstimate = await estimateContextUsageAsync({
+    agentState,
+    chatState: scopedState,
+  });
   debug.beforeEstimate = beforeEstimate;
   debug.slicedMessageCount = beforeEstimate.contextMessages.length;
   debug.effectiveHistoryCount = beforeEstimate.effectiveHistoryCount;
@@ -624,9 +648,22 @@ async function runCompactionFromStore(
         { at: Date.now(), summaryExcerpt: archiveExcerpt, trigger },
       ]
     : previousArchives;
+  const latestState = get();
+  const afterChatState: ChatStore = conversation
+    ? {
+        ...latestState,
+        activeId: requestedSessionId,
+        activeSessionType:
+          latestState.activeSessionType === 'group' ? undefined : latestState.activeSessionType,
+        activeThreadId: undefined,
+        activeTopicId: requestedTopicId,
+        inputMessage: '',
+        portalThreadId: undefined,
+      }
+    : latestState;
   const afterEstimate = await estimateContextUsageAsync({
     agentState,
-    chatState: get(),
+    chatState: afterChatState,
     overrides: {
       historySummary,
       historySummaryLastMessageId: compactedThroughMessageId,
@@ -734,6 +771,7 @@ async function runCompactionFromStore(
         value: { historySummary, metadata: nextMetadata },
       },
       'memoryCompaction',
+      requestedSessionId,
     );
   }
 
@@ -752,14 +790,17 @@ const triggerCompaction = async (
   get: () => ChatStore,
   trigger: MemoryCompactionTrigger,
   abortController?: AbortController,
+  conversation?: MemoryCompactionConversationScope,
 ): Promise<MemoryCompactionResult> => {
   const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
   const state = get();
-  if (!accountMutationSnapshot || !state.activeId || !state.activeTopicId) {
+  const sessionId = conversation?.sessionId ?? state.activeId;
+  const topicId = conversation?.topicId ?? state.activeTopicId;
+  if (!accountMutationSnapshot || !sessionId || !topicId) {
     return compactionResult('ineligible', { reason: 'no_active_topic' });
   }
 
-  const key = `${accountMutationSnapshot.scope}:${state.activeId}:${state.activeTopicId}`;
+  const key = `${accountMutationSnapshot.scope}:${sessionId}:${topicId}`;
   const running = compactionJobs.get(key);
   if (running) {
     // An abortable caller (pre-send) may join a job started without a controller (e.g. the
@@ -788,6 +829,7 @@ const triggerCompaction = async (
     trigger,
     accountMutationSnapshot,
     abortController,
+    conversation,
   ).catch(() => compactionResult('failed', { reason: 'compaction_exception' }));
   compactionJobs.set(key, job);
   try {
@@ -852,9 +894,9 @@ export const chatMemory: StateCreator<
   },
 
   triggerManualMemoryCompaction: () => triggerCompaction(set, get, 'manual'),
-  triggerMessageCountMemoryCompaction: (abortController) =>
-    triggerCompaction(set, get, 'message_count', abortController),
+  triggerMessageCountMemoryCompaction: (abortController, conversation) =>
+    triggerCompaction(set, get, 'message_count', abortController, conversation),
   triggerScheduledMemoryCompaction: () => triggerCompaction(set, get, 'scheduled'),
-  triggerTokenThresholdMemoryCompaction: (abortController) =>
-    triggerCompaction(set, get, 'token_threshold', abortController),
+  triggerTokenThresholdMemoryCompaction: (abortController, conversation) =>
+    triggerCompaction(set, get, 'token_threshold', abortController, conversation),
 });

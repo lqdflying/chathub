@@ -184,7 +184,13 @@ describe('chatMessage actions', () => {
           await result.current.sendMessage({ message: TEST_CONTENT.USER_MESSAGE });
         });
 
-        expect(compactionSpy).toHaveBeenCalledWith(expect.any(AbortController));
+        expect(compactionSpy).toHaveBeenCalledWith(
+          expect.any(AbortController),
+          expect.objectContaining({
+            sessionId: TEST_IDS.SESSION_ID,
+            topicId: TEST_IDS.TOPIC_ID,
+          }),
+        );
         expect(result.current.internal_execAgentRuntime).toHaveBeenCalled();
       });
 
@@ -203,7 +209,13 @@ describe('chatMessage actions', () => {
           await result.current.sendMessage({ message: TEST_CONTENT.USER_MESSAGE });
         });
 
-        expect(compactionSpy).toHaveBeenCalledWith(expect.any(AbortController));
+        expect(compactionSpy).toHaveBeenCalledWith(
+          expect.any(AbortController),
+          expect.objectContaining({
+            sessionId: TEST_IDS.SESSION_ID,
+            topicId: TEST_IDS.TOPIC_ID,
+          }),
+        );
         expect(result.current.internal_execAgentRuntime).not.toHaveBeenCalled();
         expect(result.current.isCreatingMessage).toBe(false);
       });
@@ -245,7 +257,13 @@ describe('chatMessage actions', () => {
           await result.current.sendMessage({ message: TEST_CONTENT.USER_MESSAGE });
         });
 
-        expect(compactionSpy).toHaveBeenCalledWith(expect.any(AbortController));
+        expect(compactionSpy).toHaveBeenCalledWith(
+          expect.any(AbortController),
+          expect.objectContaining({
+            sessionId: TEST_IDS.SESSION_ID,
+            topicId: TEST_IDS.TOPIC_ID,
+          }),
+        );
         expect(result.current.internal_execAgentRuntime).toHaveBeenCalled();
       });
 
@@ -265,7 +283,13 @@ describe('chatMessage actions', () => {
           await result.current.sendMessage({ message: TEST_CONTENT.USER_MESSAGE });
         });
 
-        expect(compactionSpy).toHaveBeenCalledWith(expect.any(AbortController));
+        expect(compactionSpy).toHaveBeenCalledWith(
+          expect.any(AbortController),
+          expect.objectContaining({
+            sessionId: TEST_IDS.SESSION_ID,
+            topicId: TEST_IDS.TOPIC_ID,
+          }),
+        );
         expect(result.current.internal_execAgentRuntime).toHaveBeenCalled();
       });
     });
@@ -428,6 +452,7 @@ describe('chatMessage actions', () => {
 
           useChatStore.setState({
             activeTopicId: undefined,
+            createTopic: vi.fn(async () => TEST_IDS.NEW_TOPIC_ID),
             messagesMap: {
               [messageMapKey(TEST_IDS.SESSION_ID)]: createMockMessages(TOPIC_THRESHOLD),
             },
@@ -442,9 +467,8 @@ describe('chatMessage actions', () => {
 
         expect(aiChatService.sendMessageInServer).toHaveBeenCalledWith(
           expect.objectContaining({
-            newTopic: expect.objectContaining({
-              topicMessageIds: expect.any(Array),
-            }),
+            newTopic: undefined,
+            topicId: TEST_IDS.NEW_TOPIC_ID,
           }),
           expect.anything(),
         );
@@ -455,11 +479,11 @@ describe('chatMessage actions', () => {
       });
 
       it('does not continue auto-topic creation after ownership invalidates', async () => {
-        let resolveServerSend!: (response: any) => void;
-        const serverSendPromise = new Promise<any>((resolve) => {
-          resolveServerSend = resolve;
+        let resolveCreatedTopic!: (topicId: string) => void;
+        const createdTopicPromise = new Promise<string>((resolve) => {
+          resolveCreatedTopic = resolve;
         });
-        vi.mocked(aiChatService.sendMessageInServer).mockReturnValueOnce(serverSendPromise);
+        const createTopic = vi.fn(async () => createdTopicPromise);
         const switchTopicMock = vi.fn();
 
         act(() => {
@@ -471,6 +495,7 @@ describe('chatMessage actions', () => {
           });
           useChatStore.setState({
             activeTopicId: undefined,
+            createTopic,
             messagesMap: {
               [messageMapKey(TEST_IDS.SESSION_ID)]: createMockMessages(TOPIC_THRESHOLD),
             },
@@ -482,22 +507,16 @@ describe('chatMessage actions', () => {
           .getState()
           .sendMessage({ message: TEST_CONTENT.USER_MESSAGE });
         await vi.waitFor(() => {
-          expect(aiChatService.sendMessageInServer).toHaveBeenCalled();
+          expect(createTopic).toHaveBeenCalled();
         });
 
         act(() => {
           useUserStore.setState({ ownershipInvalidationGeneration: 1 });
         });
-        resolveServerSend({
-          assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
-          isCreateNewTopic: true,
-          messages: [],
-          topicId: TEST_IDS.NEW_TOPIC_ID,
-          topics: [],
-          userMessageId: TEST_IDS.USER_MESSAGE_ID,
-        });
+        resolveCreatedTopic(TEST_IDS.NEW_TOPIC_ID);
         await sendPromise;
 
+        expect(aiChatService.sendMessageInServer).not.toHaveBeenCalled();
         expect(switchTopicMock).not.toHaveBeenCalled();
       });
     });
@@ -601,7 +620,8 @@ describe('chatMessage actions', () => {
         expect(toggleMessageLoadingSpy).toHaveBeenCalledWith(true, 'temp-id');
         expect(aiChatService.sendMessageInServer).toHaveBeenCalledWith(
           expect.objectContaining({
-            newTopic: expect.objectContaining({ topicMessageIds: expect.any(Array) }),
+            newTopic: undefined,
+            topicId: TEST_IDS.NEW_TOPIC_ID,
           }),
           expect.anything(),
         );
@@ -647,6 +667,7 @@ describe('chatMessage actions', () => {
         });
 
         const { result } = renderHook(() => useChatStore());
+        vi.spyOn(result.current, 'createTopic').mockRejectedValue(new Error('create failed'));
         vi.spyOn(result.current, 'internal_createTmpMessage').mockReturnValue('temp-id');
         const toggleLoadingSpy = vi.spyOn(result.current, 'internal_toggleMessageLoading');
         const updateTopicLoadingSpy = vi.spyOn(result.current, 'internal_updateTopicLoading');
@@ -658,10 +679,10 @@ describe('chatMessage actions', () => {
           await result.current.sendMessage({ message: TEST_CONTENT.USER_MESSAGE });
         });
 
-        expect(aiChatService.sendMessageInServer).toHaveBeenCalled();
-        expect(result.current.internal_execAgentRuntime).toHaveBeenCalled();
+        expect(aiChatService.sendMessageInServer).not.toHaveBeenCalled();
+        expect(result.current.internal_execAgentRuntime).not.toHaveBeenCalled();
         expect(updateTopicLoadingSpy).not.toHaveBeenCalled();
-        expect(toggleLoadingSpy).toHaveBeenCalled();
+        expect(toggleLoadingSpy).not.toHaveBeenCalled();
       });
     });
   });

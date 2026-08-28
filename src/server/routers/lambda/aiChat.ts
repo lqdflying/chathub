@@ -348,11 +348,12 @@ export const aiChatRouter = router({
             durableGeneration && topicId && !isCreateNewTopic
               ? await topicModel.findById(topicId)
               : undefined;
+          const forceTitle = Boolean(durableGeneration?.config.title?.force);
           const shouldGenerateTitle =
             Boolean(durableGeneration && topicId && !durableGeneration.config.isWelcomeQuestion) &&
-            (isCreateNewTopic || !currentTopic?.title?.trim());
+            (isCreateNewTopic || forceTitle || !currentTopic?.title?.trim());
           const titleConfig = shouldGenerateTitle
-            ? { force: isCreateNewTopic, topicId }
+            ? { force: isCreateNewTopic || forceTitle, topicId }
             : undefined;
 
           log('creating user message with content length: %d', input.newUserMessage.content.length);

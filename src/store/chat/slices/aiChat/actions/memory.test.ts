@@ -846,6 +846,55 @@ describe('chat memory actions', () => {
     );
   });
 
+  it('compacts an explicit conversation instead of the active topic', async () => {
+    const sourceTopicId = 'source-topic';
+    const otherTopicId = 'other-topic';
+    setConversation({
+      activeTopicId: otherTopicId,
+      messagesMap: {
+        [messageMapKey(SESSION_ID, sourceTopicId)]: messages,
+        [messageMapKey(SESSION_ID, otherTopicId)]: [
+          message('keep-u', 'user'),
+          message('keep-a', 'assistant'),
+        ],
+      },
+      topicMaps: {
+        [SESSION_ID]: [
+          {
+            createdAt: 1,
+            id: sourceTopicId,
+            title: 'Source',
+            updatedAt: 1,
+          },
+          {
+            createdAt: 1,
+            historySummary: 'leave-me',
+            id: otherTopicId,
+            title: 'Other',
+            updatedAt: 1,
+          },
+        ],
+      },
+    });
+
+    const result = await useChatStore
+      .getState()
+      .triggerMessageCountMemoryCompaction(new AbortController(), {
+        sessionId: SESSION_ID,
+        topicId: sourceTopicId,
+      });
+
+    expect(result.status).toBe('compacted');
+    expect(topicService.updateTopic).toHaveBeenCalledWith(
+      sourceTopicId,
+      expect.objectContaining({ historySummary: 'updated cumulative summary' }),
+    );
+    expect(
+      useChatStore.getState().topicMaps[SESSION_ID]?.find((topic) => topic.id === otherTopicId)
+        ?.historySummary,
+    ).toBe('leave-me');
+  });
+
   it('runs message_count compaction on the pre-send path when an AbortController is provided', async () => {
     vi.spyOn(compactionDebugClient, 'isCompactionDebugClientEnabled').mockReturnValue(true);
     const logSpy = vi.spyOn(compactionDebugClient, 'logCompactionDebugClientSafe');

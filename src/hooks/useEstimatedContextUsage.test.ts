@@ -1,7 +1,15 @@
 import { act, renderHook } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { serializeMessagesForContextEstimate } from '@/helpers/contextUsageEstimate';
+import { applyUserInputTemplate } from '@lobechat/context-engine';
+
+import {
+  LARGE_CONTEXT_WINDOW_TOKENS,
+  appendPendingUserInputForContextWindow,
+  getHistoryWindowDiagnostics,
+  resolveEffectiveHistoryWindow,
+  serializeMessagesForContextEstimate,
+} from '@/helpers/contextUsageEstimate';
 
 import { useEstimatedContextUsage } from './useEstimatedContextUsage';
 
@@ -23,6 +31,7 @@ const mocks = vi.hoisted(() => {
   let agentState = {
     enableHistoryCount: true,
     historyCount: 2,
+    inputTemplate: '',
   };
   const agentListeners = new Set<() => void>();
   const useChatStore = Object.assign(
@@ -39,11 +48,13 @@ const mocks = vi.hoisted(() => {
   const useUserStore = vi.fn((selector?: () => unknown) => (selector ? selector() : {}));
 
   return {
+    chatState,
     getAgentState: () => agentState,
     mainChats,
+    maxTokens: 1000,
     portalChats,
-    setAgentState: (nextState: typeof agentState) => {
-      agentState = nextState;
+    setAgentState: (nextState: Partial<typeof agentState>) => {
+      agentState = { ...agentState, ...nextState };
       agentListeners.forEach((listener) => listener());
     },
     subscribeAgent: (listener: () => void) => {
@@ -89,9 +100,10 @@ vi.mock('@/store/chat/selectors', () => ({
 
 vi.mock('@/store/agent/selectors', () => ({
   agentChatConfigSelectors: {
-    currentChatConfig: () => ({
+    currentChatConfig: (state: ReturnType<typeof mocks.getAgentState>) => ({
       enableCompressHistory: false,
       enableUserMemoryArchive: false,
+      inputTemplate: state.inputTemplate,
     }),
     enableAssistantMemory: () => true,
     enableHistoryCount: (state: ReturnType<typeof mocks.getAgentState>) => state.enableHistoryCount,
@@ -130,7 +142,7 @@ vi.mock('@/helpers/toolEngineering', () => ({
 }));
 
 vi.mock('@/hooks/useModelContextWindowTokens', () => ({
-  useModelContextWindowTokens: () => 1000,
+  useModelContextWindowTokens: () => mocks.maxTokens,
 }));
 
 vi.mock('@/hooks/useModelSupportToolUse', () => ({
@@ -146,6 +158,15 @@ vi.mock('@/services/chat/composeSystemRole', () => ({
 }));
 
 describe('useEstimatedContextUsage', () => {
+  beforeEach(() => {
+    mocks.chatState.inputMessage = '';
+    mocks.maxTokens = 1000;
+    mocks.setAgentState({
+      enableHistoryCount: true,
+      historyCount: 2,
+      inputTemplate: '',
+    });
+  });
   it('includes the active Knowledge Base request bucket in total usage', () => {
     const { result } = renderHook(() => useEstimatedContextUsage('main'));
 
@@ -183,5 +204,96 @@ describe('useEstimatedContextUsage', () => {
 
     const expected = serializeMessagesForContextEstimate([mocks.portalChats[2]] as any);
     expect(result.current.chatsToken).toBe(expected.length);
+  });
+
+  it('counts a duplicating pending-input template in the next-request history window', () => {
+    const pending = 'x'.repeat(80_000);
+    mocks.chatState.inputMessage = pending;
+    mocks.maxTokens = LARGE_CONTEXT_WINDOW_TOKENS;
+    mocks.setAgentState({
+      enableHistoryCount: true,
+      historyCount: 2,
+      inputTemplate: '{{text}}{{text}}',
+    });
+
+    const storedOnly = resolveEffectiveHistoryWindow({
+      enableHistoryCount: true,
+      historyCount: 2,
+      inputTemplate: '{{text}}{{text}}',
+      maxTokens: LARGE_CONTEXT_WINDOW_TOKENS,
+      messagesAfterCursor: mocks.mainChats as any,
+    });
+    const nextRequest = appendPendingUserInputForContextWindow(
+      mocks.mainChats as any,
+      pending,
+    );
+    const expected = resolveEffectiveHistoryWindow({
+      enableHistoryCount: true,
+      historyCount: 2,
+      inputTemplate: '{{text}}{{text}}',
+      maxTokens: LARGE_CONTEXT_WINDOW_TOKENS,
+      messagesAfterCursor: nextRequest,
+    });
+    const { result } = renderHook(() => useEstimatedContextUsage('main'));
+    const diagnostics = getHistoryWindowDiagnostics({
+      configuredHistoryCount: 2,
+      enableHistoryCount: true,
+      hasTopicSummary: false,
+      historyCount: 2,
+      inputTemplate: '{{text}}{{text}}',
+      maxTokens: LARGE_CONTEXT_WINDOW_TOKENS,
+      messages: mocks.mainChats as any,
+      pendingInput: pending,
+    });
+
+    expect(storedOnly.enableHistoryCount).toBe(false);
+    expect(expected.enableHistoryCount).toBe(true);
+    expect(result.current.historyWindow.enableHistoryCount).toBe(expected.enableHistoryCount);
+    expect(result.current.historyWindow.expanded).toBe(expected.expanded);
+    expect(result.current.historyWindow.topicMessageCount).toBe(diagnostics.topicMessageCount);
+    expect(result.current.inputTokenCount).toBe(
+      applyUserInputTemplate('{{text}}{{text}}', pending).length,
+    );
+  });
+
+  it('counts a prefix/suffix pending-input template once', () => {
+    const pending = 'hello world';
+    mocks.chatState.inputMessage = pending;
+    mocks.setAgentState({ inputTemplate: 'Ask: {{text}}' });
+
+    const { result } = renderHook(() => useEstimatedContextUsage('main'));
+    const templated = applyUserInputTemplate('Ask: {{text}}', pending);
+
+    expect(result.current.inputTokenCount).toBe(templated.length);
+    expect(result.current.chatsToken).toBeGreaterThan(
+      serializeMessagesForContextEstimate(mocks.mainChats as any, 'Ask: {{text}}').length,
+    );
+    expect(result.current.chatsToken).toBe(
+      serializeMessagesForContextEstimate(
+        appendPendingUserInputForContextWindow(mocks.mainChats as any, pending),
+        'Ask: {{text}}',
+      ).length,
+    );
+  });
+
+  it('does not invent a pending user row for empty input', () => {
+    mocks.chatState.inputMessage = '';
+    mocks.maxTokens = LARGE_CONTEXT_WINDOW_TOKENS;
+    mocks.setAgentState({ inputTemplate: '{{text}}{{text}}' });
+
+    const { result } = renderHook(() => useEstimatedContextUsage('main'));
+    const expected = getHistoryWindowDiagnostics({
+      configuredHistoryCount: 2,
+      enableHistoryCount: true,
+      hasTopicSummary: false,
+      historyCount: 2,
+      inputTemplate: '{{text}}{{text}}',
+      maxTokens: LARGE_CONTEXT_WINDOW_TOKENS,
+      messages: mocks.mainChats as any,
+    });
+
+    expect(result.current.inputTokenCount).toBe(0);
+    expect(result.current.historyWindow.enableHistoryCount).toBe(expected.enableHistoryCount);
+    expect(result.current.historyWindow.topicMessageCount).toBe(1);
   });
 });
