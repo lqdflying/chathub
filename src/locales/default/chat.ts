@@ -535,6 +535,7 @@ export default {
       excludedByHistoryCount: '超出历史窗口',
       includedOfTopic: '下次请求消息 {{included}} / {{topic}}',
       limit: '历史条数上限 {{count}}',
+      expandedLimit: '大上下文已扩至 {{count}}',
       title: '历史窗口',
       topicChats: '话题会话估算',
       warnUncovered: '有较早轮次不会进入下次请求，且当前总结尚未覆盖这些轮次。',

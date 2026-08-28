@@ -195,8 +195,14 @@ const Token = memo<TokenTagProps>(({ conversationSource }) => {
           </div>
           <div style={{ color: theme.colorTextSecondary, fontSize: 12 }}>
             {t('tokenDetails.historyWindow.limit', {
-              count: historyWindow.effectiveHistoryCount,
+              count: historyWindow.configuredHistoryCount,
             })}
+            {historyWindow.expanded &&
+            historyWindow.effectiveHistoryCount > historyWindow.configuredHistoryCount
+              ? ` · ${t('tokenDetails.historyWindow.expandedLimit', {
+                  count: historyWindow.effectiveHistoryCount,
+                })}`
+              : ''}
             {historyWindow.excludedByCursor > 0
               ? ` · ${t('tokenDetails.historyWindow.excludedByCursor')}: ${historyWindow.excludedByCursor}`
               : ''}

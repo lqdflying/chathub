@@ -490,6 +490,7 @@
       "excludedByHistoryCount": "Outside history window",
       "includedOfTopic": "Next-request messages {{included}} / {{topic}}",
       "limit": "History limit {{count}}",
+      "expandedLimit": "Large-context expanded to {{count}}",
       "title": "History window",
       "topicChats": "Topic chat estimate",
       "warnUncovered": "Older turns will not be in the next request, and the current summary does not cover them yet."

@@ -70,6 +70,26 @@ describe('contextUsageEstimate', () => {
     expect(result.expanded).toBe(true);
   });
 
+  it('keeps configured history limit separate from effective count when truncate is off', () => {
+    const messages = [
+      message('u1', 'user', 'short'),
+      message('a1', 'assistant', 'short'),
+      message('u2', 'user', 'short'),
+    ];
+    const diagnostics = getHistoryWindowDiagnostics({
+      configuredHistoryCount: 100,
+      enableHistoryCount: true,
+      hasTopicSummary: false,
+      historyCount: 100,
+      maxTokens: LARGE_CONTEXT_WINDOW_TOKENS,
+      messages,
+    });
+
+    expect(diagnostics.configuredHistoryCount).toBe(100);
+    expect(diagnostics.effectiveHistoryCount).toBe(messages.length);
+    expect(diagnostics.expanded).toBe(true);
+  });
+
   it('reports uncovered exclusions when history was dropped without a summary', () => {
     const messages = [
       message('u1', 'user'),
