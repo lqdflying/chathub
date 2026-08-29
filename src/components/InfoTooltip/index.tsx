@@ -13,7 +13,17 @@ const InfoTooltip = memo<InfoTooltipProps>(({ size, iconStyle, ...res }) => {
   const theme = useTheme();
   return (
     <Tooltip trigger={['hover', 'click']} {...res}>
-      <span className={'chathub-form-label-tooltip'}>
+      <span
+        className={'chathub-form-label-tooltip'}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+        }}
+        onMouseDown={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+        }}
+      >
         <Icon
           icon={CircleHelp}
           size={size}
