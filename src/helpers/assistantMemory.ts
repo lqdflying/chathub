@@ -517,37 +517,85 @@ interface MergedDreamPart {
   date: string;
 }
 
+/** Canonical overflow section header. Distinct from ordinary `[YYYY-MM-DD]` body lines. */
+const mergedPartHeaderLine = (date: string) => `[date:${date}]`;
+const CANONICAL_PART_MARKER = /^\[date:(\d{4}-\d{2}-\d{2})]$/;
+const LEGACY_PART_MARKER = /^\[(\d{4}-\d{2}-\d{2})]$/;
+/** Marker-shaped line, optionally already backslash-stuffed. */
+const MARKER_SHAPED_LINE = /^(\\*)(\[(?:date:)?\d{4}-\d{2}-\d{2}])$/;
+
+const splitMergedBodyLines = (text: string): string[] =>
+  text.split('\n').map((line) => line.replace(/\r$/, ''));
+
+const escapeMergedPartBody = (body: string): string =>
+  splitMergedBodyLines(body)
+    .map((line) => (MARKER_SHAPED_LINE.test(line) ? `\\${line}` : line))
+    .join('\n');
+
+const unescapeMergedPartBody = (body: string): string =>
+  splitMergedBodyLines(body)
+    .map((line) => {
+      const match = MARKER_SHAPED_LINE.exec(line);
+      return match && match[1]!.length > 0 ? line.slice(1) : line;
+    })
+    .join('\n');
+
 const formatMergedDreamBody = (parts: MergedDreamPart[]): string =>
   parts
-    .map(({ body, date }) => (body ? `[${date}]\n${body}` : `[${date}]`))
+    .map(({ body, date }) => {
+      const header = mergedPartHeaderLine(date);
+      const escaped = escapeMergedPartBody(body);
+      return escaped ? `${header}\n${escaped}` : header;
+    })
     .join('\n\n')
     .trim();
+
+const parseMergedRangeBounds = (tag: string): { end: string; start: string } => {
+  const [start, end] = tag.split('..');
+  return { end: end ?? start ?? tag, start: start ?? tag };
+};
+
+const consumeMergedPartLines = (
+  lines: string[],
+  marker: RegExp,
+  acceptDate: (date: string) => boolean,
+): MergedDreamPart[] => {
+  const parts: MergedDreamPart[] = [];
+  let current: MergedDreamPart | null = null;
+
+  for (const line of lines) {
+    const match = marker.exec(line);
+    if (match && acceptDate(match[1]!)) {
+      if (current) parts.push({ ...current, body: current.body.trim() });
+      current = { body: '', date: match[1]! };
+      continue;
+    }
+    if (current) {
+      current.body = current.body ? `${current.body}\n${line}` : line;
+    }
+  }
+  if (current) parts.push({ ...current, body: current.body.trim() });
+  return parts;
+};
 
 const expandMergedDreamBody = (entry: DreamMemoryEntry): MergedDreamPart[] => {
   if (!isDreamMergedTag(entry.dateTag)) {
     return [{ body: entry.body, date: entry.dateTag }];
   }
 
-  const parts: MergedDreamPart[] = [];
-  const segments = entry.body.split(/\n(?=\[\d{4}-\d{2}-\d{2}]\n?)/);
-  for (const segment of segments) {
-    const match = /^\[(\d{4}-\d{2}-\d{2})]\n?([\S\s]*)$/.exec(segment.trim());
-    if (match) {
-      parts.push({ body: match[2].trim(), date: match[1] });
-    } else if (segment.trim()) {
-      const [start, end] = entry.dateTag.split('..');
-      parts.push({ body: segment.trim(), date: start ?? entry.dateTag });
-      void end;
-    }
+  const { start, end } = parseMergedRangeBounds(entry.dateTag);
+  const inRange = (date: string) => date >= start && date <= end;
+  const lines = splitMergedBodyLines(entry.body);
+  const hasCanonical = lines.some((line) => CANONICAL_PART_MARKER.test(line));
+  const rawParts = hasCanonical
+    ? consumeMergedPartLines(lines, CANONICAL_PART_MARKER, inRange)
+    : consumeMergedPartLines(lines, LEGACY_PART_MARKER, inRange);
+
+  if (rawParts.length === 0 && entry.body.trim()) {
+    return [{ body: unescapeMergedPartBody(entry.body.trim()), date: start }];
   }
 
-  if (parts.length === 0 && entry.body.trim()) {
-    const [start, end] = entry.dateTag.split('..');
-    parts.push({ body: entry.body.trim(), date: start ?? entry.dateTag });
-    void end;
-  }
-
-  return parts;
+  return rawParts.map((part) => ({ ...part, body: unescapeMergedPartBody(part.body) }));
 };
 
 /** Total serialized dynamic-memory char budget: N single-day cards + one overflow slot. */
@@ -571,7 +619,7 @@ const trimMergedPartsToBudget = (parts: MergedDreamPart[], budget: number): Merg
   const prefixParts = next.length > 1 ? next.slice(0, -1) : [];
   const prefix = prefixParts.length > 0 ? formatMergedDreamBody(prefixParts) : '';
   const separator = prefix ? '\n\n' : '';
-  const dateHeader = `[${anchor.date}]\n`;
+  const dateHeader = `${mergedPartHeaderLine(anchor.date)}\n`;
   const overhead = prefix.length + separator.length + dateHeader.length;
   if (overhead >= budget) {
     if (dateHeader.length >= budget) return [];

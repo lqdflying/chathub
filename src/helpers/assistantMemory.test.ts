@@ -398,6 +398,8 @@ describe('dream memory entries', () => {
     const capped = capDreamMemoryDocument(doc, 14);
     const overflow = parseDreamMemoryEntries(capped)[0];
     expect(overflow?.dateTag).toBe('2026-08-01..2026-08-03');
+    expect(overflow?.body).toContain('[date:2026-08-01]');
+    expect(overflow?.body).toContain('[date:2026-08-03]');
     expect(overflow?.body).toContain('newest-day');
     expect(overflow?.regenerable).toBe(false);
   });
@@ -425,8 +427,89 @@ describe('dream memory entries', () => {
     expect(overflow?.body).toContain('B90');
     expect(overflow?.body).not.toContain('A01');
     expect(overflow?.dateTag.endsWith('2026-07-90')).toBe(true);
-    expect(overflow?.body).toContain(`[${overflow?.dateTag.split('..')[0]}]`);
-    expect(overflow?.body).toContain(`[${overflow?.dateTag.split('..')[1]}]`);
+    expect(overflow?.body).toContain(`[date:${overflow?.dateTag.split('..')[0]}]`);
+    expect(overflow?.body).toContain(`[date:${overflow?.dateTag.split('..')[1]}]`);
+  });
+
+  it('does not treat date-shaped body lines as overflow part markers', () => {
+    const doc = [
+      '#1 [2026-08-01]:\nremember launch date\n[2099-12-31]\nthis is ordinary body text',
+      '#2 [2026-08-02]:\nsecond old day',
+      '#3 [2026-08-03]:\nnewest keep',
+    ].join('\n');
+    const retained = enforceDreamMemoryRetention(doc, 1);
+    expect(capDreamMemoryDocument(retained, 1)).toBe(retained);
+    const overflow = parseDreamMemoryEntries(retained).find((entry) =>
+      /^\d{4}-\d{2}-\d{2}\.\.\d{4}-\d{2}-\d{2}$/.test(entry.dateTag),
+    );
+    expect(overflow?.dateTag).toBe('2026-08-01..2026-08-02');
+    const body = overflow?.body ?? '';
+    const firstDay = body.indexOf('[date:2026-08-01]');
+    const secondDay = body.indexOf('[date:2026-08-02]');
+    const spoof = body.indexOf('\\[2099-12-31]');
+    expect(firstDay).toBeGreaterThanOrEqual(0);
+    expect(secondDay).toBeGreaterThan(firstDay);
+    expect(spoof).toBeGreaterThan(firstDay);
+    expect(spoof).toBeLessThan(secondDay);
+    expect(body).not.toMatch(/\[date:2099-12-31]/);
+    expect(body).toContain('this is ordinary body text');
+    expect(body).toContain('second old day');
+    expect(retained).toContain('newest keep');
+  });
+
+  it('keeps genuine overflow when an older body contains a future date line under a tight cap', () => {
+    const doc = [
+      `#1 [2026-08-01]:\nremember launch date\n[2099-12-31]\nthis is ordinary body text\n${'a'.repeat(3140)}`,
+      `#2 [2026-08-02]:\nsecond old day\n${'b'.repeat(3140)}`,
+      '#3 [2026-08-03]:\nnewest keep',
+    ].join('\n');
+    const retained = enforceDreamMemoryRetention(doc, 1);
+    expect(retained.length).toBeLessThanOrEqual(dreamMemoryTotalCharBudget(1));
+    expect(capDreamMemoryDocument(retained, 1)).toBe(retained);
+    const overflow = parseDreamMemoryEntries(retained).find((entry) =>
+      /^\d{4}-\d{2}-\d{2}\.\.\d{4}-\d{2}-\d{2}$/.test(entry.dateTag),
+    );
+    expect(overflow?.dateTag).toBe('2026-08-02..2026-08-02');
+    expect(overflow?.body).toContain('second old day');
+    expect(overflow?.body).toContain('b');
+    expect(overflow?.body).not.toContain('remember launch date');
+    expect(overflow?.body).not.toMatch(/\[date:2099-12-31]/);
+    expect(overflow?.dateTag).not.toContain('2099');
+  });
+
+  it('escapes in-range date-shaped lines so they stay in the older day body', () => {
+    const doc = [
+      '#1 [2026-08-01]:\nnote from day one\n[2026-08-02]\nnot a new day',
+      '#2 [2026-08-02]:\nreal day two',
+      '#3 [2026-08-03]:\nnewest keep',
+    ].join('\n');
+    const retained = enforceDreamMemoryRetention(doc, 1);
+    const overflow = parseDreamMemoryEntries(retained).find((entry) =>
+      /^\d{4}-\d{2}-\d{2}\.\.\d{4}-\d{2}-\d{2}$/.test(entry.dateTag),
+    );
+    expect(overflow?.dateTag).toBe('2026-08-01..2026-08-02');
+    const body = overflow?.body ?? '';
+    const firstDay = body.indexOf('[date:2026-08-01]');
+    const realSecond = body.lastIndexOf('[date:2026-08-02]');
+    const spoof = body.indexOf('\\[2026-08-02]');
+    expect(firstDay).toBeGreaterThanOrEqual(0);
+    expect(spoof).toBeGreaterThan(firstDay);
+    expect(spoof).toBeLessThan(realSecond);
+    expect(body).toContain('not a new day');
+    expect(body).toContain('real day two');
+  });
+
+  it('does not widen a legacy overflow range when a body line looks like a date', () => {
+    const doc =
+      '#1 [2026-08-01..2026-08-02]:\n[2026-08-01]\nremember launch date\n[2099-12-31]\nthis is ordinary body text\n\n[2026-08-02]\nsecond old day';
+    const capped = capDreamMemoryDocument(doc, 14);
+    expect(capDreamMemoryDocument(capped, 14)).toBe(capped);
+    const overflow = parseDreamMemoryEntries(capped)[0];
+    expect(overflow?.dateTag).toBe('2026-08-01..2026-08-02');
+    expect(overflow?.body).toContain('[date:2026-08-01]');
+    expect(overflow?.body).toContain('\\[2099-12-31]');
+    expect(overflow?.body).not.toMatch(/\[date:2099-12-31]/);
+    expect(overflow?.body).toContain('second old day');
   });
 
   it('caps an oversized merged card body to the per-card limit', () => {
