@@ -597,16 +597,31 @@ const consumeMergedPartLines = (
   return parts;
 };
 
-const firstInRangeHeadingKind = (
+const countInRangeHeadings = (
+  lines: string[],
+  marker: RegExp,
+  inRange: (date: string) => boolean,
+): number =>
+  lines.reduce((count, line) => {
+    const match = marker.exec(line);
+    return match && inRange(match[1]!) ? count + 1 : count;
+  }, 0);
+
+/**
+ * Pick overflow grammar by native heading count, not first-line order.
+ * A leading ordinary `[YYYY-MM-DD]` in a canonical card must not select legacy
+ * framing; a later `[date:]` body line in a legacy card must not select canonical.
+ */
+const chooseMergedOverflowGrammar = (
   lines: string[],
   inRange: (date: string) => boolean,
 ): 'canonical' | 'legacy' | null => {
-  for (const line of lines) {
-    const canonical = CANONICAL_PART_MARKER.exec(line);
-    if (canonical && inRange(canonical[1]!)) return 'canonical';
-    const legacy = LEGACY_PART_MARKER.exec(line);
-    if (legacy && inRange(legacy[1]!)) return 'legacy';
-  }
+  const canonicalHeadings = countInRangeHeadings(lines, CANONICAL_PART_MARKER, inRange);
+  const legacyHeadings = countInRangeHeadings(lines, LEGACY_PART_MARKER, inRange);
+  if (canonicalHeadings > legacyHeadings) return 'canonical';
+  if (legacyHeadings > canonicalHeadings) return 'legacy';
+  if (canonicalHeadings > 0) return 'canonical';
+  if (legacyHeadings > 0) return 'legacy';
   return null;
 };
 
@@ -618,7 +633,7 @@ const expandMergedDreamBody = (entry: DreamMemoryEntry): MergedDreamPart[] => {
   const { start, end } = parseMergedRangeBounds(entry.dateTag);
   const inRange = (date: string) => date >= start && date <= end;
   const lines = splitMergedBodyLines(entry.body);
-  const grammar = firstInRangeHeadingKind(lines, inRange);
+  const grammar = chooseMergedOverflowGrammar(lines, inRange);
   const rawParts =
     grammar === 'canonical'
       ? consumeMergedPartLines(lines, CANONICAL_PART_MARKER, inRange, start)

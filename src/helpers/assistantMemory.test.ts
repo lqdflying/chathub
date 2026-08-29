@@ -597,6 +597,33 @@ describe('dream memory entries', () => {
     expect(capDreamMemoryDocument(manyCapped, 1)).toBe(manyCapped);
   });
 
+  it('does not treat a leading ordinary date line as legacy overflow framing', () => {
+    const originalBody =
+      '[2026-08-01]\n[date:2026-08-01]\nday one body\n\n[date:2026-08-02]\nday two body';
+    const doc = `#1 [2026-08-01..2026-08-02]:\n${originalBody}`;
+    const capped = capDreamMemoryDocument(doc, 14);
+    expect(capDreamMemoryDocument(capped, 14)).toBe(capped);
+    const overflow = parseDreamMemoryEntries(capped)[0];
+    expect(overflow?.dateTag).toBe('2026-08-01..2026-08-02');
+    const lines = (overflow?.body ?? '').split('\n');
+    expect(lines).toContain('[date:2026-08-01]');
+    expect(lines).toContain('[date:2026-08-02]');
+    expect(lines).toContain('\\[2026-08-01]');
+    expect(overflow?.body).toContain('day one body');
+    expect(overflow?.body).toContain('day two body');
+    expect(lines.indexOf('\\[2026-08-01]')).toBeGreaterThan(lines.indexOf('[date:2026-08-01]'));
+    expect(lines.indexOf('\\[2026-08-01]')).toBeLessThan(lines.indexOf('[date:2026-08-02]'));
+
+    const tightDoc = `#1 [2026-08-01..2026-08-02]:\n[2026-08-01]\n[date:2026-08-01]\n${'x'.repeat(3180)}\n\n[date:2026-08-02]\nREAL NEWEST DAY`;
+    const tight = capDreamMemoryDocument(tightDoc, 14);
+    expect(capDreamMemoryDocument(tight, 14)).toBe(tight);
+    const tightOverflow = parseDreamMemoryEntries(tight)[0];
+    expect(tightOverflow?.body.length).toBeLessThanOrEqual(ASSISTANT_MEMORY_MAX_CHARS);
+    expect(tightOverflow?.body).toContain('REAL NEWEST DAY');
+    expect(tightOverflow?.dateTag).toContain('2026-08-02');
+    expect(tightOverflow?.dateTag).not.toBe('2026-08-01..2026-08-01');
+  });
+
   it('caps an oversized merged card body to the per-card limit', () => {
     const parts = Array.from({ length: 10 }, (_, index) => {
       const day = String(index + 1).padStart(2, '0');
