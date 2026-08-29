@@ -5,23 +5,16 @@ import { InputNumber, Select, Switch } from 'antd';
 import { useThemeMode } from 'antd-style';
 import isEqual from 'fast-deep-equal';
 import { LayoutList, MessagesSquare } from 'lucide-react';
-import { memo, type ReactNode } from 'react';
+import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
-import InfoTooltip from '@/components/InfoTooltip';
+import { withTooltip } from '@/components/FormLabelWithTooltip';
 import { assistanceLevelToChatConfigPatch, type AssistanceLevel } from '@/const/assistanceLevel';
 import { FORM_STYLE } from '@/const/layoutTokens';
 import { imageUrl } from '@/const/url';
 
 import { selectors, useStore } from '../store';
-
-const withTooltip = (title: string, tooltip: string): ReactNode => (
-  <Flexbox align={'center'} gap={6} horizontal>
-    {title}
-    <InfoTooltip title={tooltip} />
-  </Flexbox>
-);
 
 const AgentChat = memo(() => {
   const { t } = useTranslation('setting');
@@ -70,11 +63,13 @@ const AgentChat = memo(() => {
       {
         children: <Switch />,
         desc: t('settingChat.enableAutoCreateTopic.desc'),
-        label: t('settingChat.enableAutoCreateTopic.title'),
+        label: withTooltip(
+          t('settingChat.enableAutoCreateTopic.title'),
+          t('settingChat.enableAutoCreateTopic.tooltip'),
+        ),
         layout: 'horizontal',
         minWidth: undefined,
         name: 'enableAutoCreateTopic',
-        tooltip: { title: t('settingChat.enableAutoCreateTopic.tooltip'), trigger: ['hover', 'click'] },
         valuePropName: 'checked',
       },
       {
@@ -87,11 +82,13 @@ const AgentChat = memo(() => {
       },
       {
         children: <Switch />,
-        label: t('settingChat.enableHistoryCount.title'),
+        label: withTooltip(
+          t('settingChat.enableHistoryCount.title'),
+          t('settingChat.enableHistoryCount.tooltip'),
+        ),
         layout: 'horizontal',
         minWidth: undefined,
         name: 'enableHistoryCount',
-        tooltip: { title: t('settingChat.enableHistoryCount.tooltip'), trigger: ['hover', 'click'] },
         valuePropName: 'checked',
       },
       {
@@ -105,11 +102,13 @@ const AgentChat = memo(() => {
       {
         children: <Switch />,
         hidden: !config.enableHistoryCount,
-        label: t('settingChat.enableCompressHistory.title'),
+        label: withTooltip(
+          t('settingChat.enableCompressHistory.title'),
+          t('settingChat.enableCompressHistory.tooltip'),
+        ),
         layout: 'horizontal',
         minWidth: undefined,
         name: 'enableCompressHistory',
-        tooltip: { title: t('settingChat.enableCompressHistory.tooltip'), trigger: ['hover', 'click'] },
         valuePropName: 'checked',
       },
     ],
@@ -138,14 +137,13 @@ const AgentChat = memo(() => {
       {
         children: <Switch />,
         desc: t('settingChatMemory.enableTokenThresholdAutoCompact.desc'),
-        label: t('settingChatMemory.enableTokenThresholdAutoCompact.title'),
+        label: withTooltip(
+          t('settingChatMemory.enableTokenThresholdAutoCompact.title'),
+          t('settingChatMemory.enableTokenThresholdAutoCompact.tooltip'),
+        ),
         layout: 'horizontal',
         minWidth: undefined,
         name: 'enableTokenThresholdAutoCompact',
-        tooltip: {
-          title: t('settingChatMemory.enableTokenThresholdAutoCompact.tooltip'),
-          trigger: ['hover', 'click'],
-        },
         valuePropName: 'checked',
       },
       {

@@ -381,6 +381,9 @@
     },
     "copy": "Copy",
     "copySuccess": "Copied",
+    "dreamingMemory": {
+      "sectionTooltip": "Topic snippets and Summarize history on Chat Preferences build compaction summaries; the memory dream runs on the server on a UTC schedule and incrementally writes durable facts into dynamic memory. Fixed memory is never modified."
+    },
     "dynamicMemory": {
       "empty": "No dynamic memory yet. Enable the memory dream and it will be generated at the scheduled time.",
       "hint": "Durable facts the model extracts from topic compaction summaries (preferences, standing rules, project state, open commitments), injected into every chat with this assistant. Updates are incremental and never pile up per-topic recaps. You can edit it and save; the memory dream updates it automatically when enabled.",
@@ -407,18 +410,18 @@
     },
     "enableUserMemoryArchive": {
       "desc": "Store short summary snippets on the topic for the model to reuse.",
-      "title": "Topic snippets"
+      "title": "Topic snippets",
+      "tooltip": "Stores short summary snippets in each topic's metadata for the model to reuse. Enable Limit history and Summarize history on Chat Preferences so compaction summaries can feed the memory dream."
     },
     "fixedMemory": {
       "addEntry": "Add memory",
       "addPlaceholder": "Write something this assistant should remember long-term…",
       "deleteConfirm": "Delete this memory? The remaining entries will be renumbered.",
       "freeformHint": "The document also contains free-form content outside the numbered entries — click Edit to view and modify the full document.",
-      "guide": "Fixed memory is curated by you; the assistant can also append entries (#1, #2, …) via its built-in memory tool. Automatic summarization and the memory dream never rewrite it.",
-      "guideTitle": "How to set up",
       "hint": "Durable content maintained by you (and the assistant's memory tool), injected into every chat with this assistant. Automatic summarization never modifies or overwrites it.",
       "placeholder": "Write down what this assistant should always remember: preferences, rules, project background…",
-      "title": "Fixed memory (user-curated)"
+      "title": "Fixed memory (user-curated)",
+      "tooltip": "Fixed memory is curated by you; the assistant can also append entries (#1, #2, …) via its built-in memory tool. Automatic summarization and the memory dream never rewrite it."
     },
     "memoryDreamSchedule": {
       "frequency": {
@@ -436,7 +439,6 @@
         "title": "Run at (UTC)"
       },
       "title": "Daily memory dream",
-      "tooltip": "Learns how you work with this assistant (tone, format, tool habits, standing preferences) from topic summaries that were active on the previous UTC calendar day, and writes durable customization into dynamic memory. Not a recap, and it does not compact topics. Runs on the server at the configured UTC time — no open browser required.",
       "weekday": {
         "0": "Sunday",
         "1": "Monday",
@@ -449,7 +451,7 @@
         "title": "Weekday (UTC)"
       }
     },
-    "memoryGroupTitle": "Memory",
+    "memoryGroupTitle": "Dreaming Memory",
     "notActiveAgentTooltip": "Available only while this assistant is the active session",
     "reconcileFailedRetry": "Could not confirm whether the save landed ({{reason}}). Your edits are still here — click Save to retry.",
     "regenerate": "Regenerate now",

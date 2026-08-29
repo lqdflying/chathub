@@ -2,7 +2,7 @@
 
 import { ActionIcon, Button, Form } from '@lobehub/ui';
 import { EditableMessage } from '@lobehub/ui/chat';
-import { Alert, App, Input, Popconfirm } from 'antd';
+import { App, Input, Popconfirm } from 'antd';
 import { createStyles } from 'antd-style';
 import { PenLineIcon, PencilIcon, PlusIcon, Trash2Icon } from 'lucide-react';
 import { memo, useState } from 'react';
@@ -10,6 +10,7 @@ import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
 import { FORM_STYLE } from '@/const/layoutTokens';
+import { withTooltip } from '@/components/FormLabelWithTooltip';
 import Tokens from '@/features/AgentSetting/AgentPrompt/TokenTag';
 import {
   type FixedMemoryEntry,
@@ -244,12 +245,6 @@ const FixedMemory = memo(() => {
 
   return (
     <Flexbox gap={12}>
-      <Alert
-        description={t('settingChatMemory.fixedMemory.guide')}
-        message={t('settingChatMemory.fixedMemory.guideTitle')}
-        showIcon
-        type={'info'}
-      />
       <Form
         items={[
           {
@@ -279,7 +274,10 @@ const FixedMemory = memo(() => {
           ),
           desc: t('settingChatMemory.fixedMemory.hint'),
           extra: editButton,
-          title: t('settingChatMemory.fixedMemory.title'),
+          title: withTooltip(
+            t('settingChatMemory.fixedMemory.title'),
+            t('settingChatMemory.fixedMemory.tooltip'),
+          ),
         },
       ]}
       itemsType={'group'}

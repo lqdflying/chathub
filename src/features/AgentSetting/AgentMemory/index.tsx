@@ -15,6 +15,7 @@ import {
   resolveMemoryDreamSchedule,
   scheduleTimeToDayjs,
 } from '@/helpers/assistantMemory';
+import { withTooltip } from '@/components/FormLabelWithTooltip';
 import { FORM_STYLE } from '@/const/layoutTokens';
 
 import { selectors, useStore } from '../store';
@@ -52,7 +53,10 @@ const AgentMemory = memo(() => {
       {
         children: <Switch />,
         desc: t('settingChatMemory.enableUserMemoryArchive.desc'),
-        label: t('settingChatMemory.enableUserMemoryArchive.title'),
+        label: withTooltip(
+          t('settingChatMemory.enableUserMemoryArchive.title'),
+          t('settingChatMemory.enableUserMemoryArchive.tooltip'),
+        ),
         layout: 'horizontal',
         minWidth: undefined,
         name: 'enableUserMemoryArchive',
@@ -73,10 +77,6 @@ const AgentMemory = memo(() => {
         hidden: !memoryEnabled,
         label: t('settingChatMemory.memoryDreamSchedule.title'),
         name: 'memoryDreamScheduleFrequency',
-        tooltip: {
-          title: t('settingChatMemory.memoryDreamSchedule.tooltip'),
-          trigger: ['hover', 'click'],
-        },
       },
       {
         children: <TimePicker format={'HH:mm'} needConfirm={false} showNow={false} />,
@@ -123,8 +123,17 @@ const AgentMemory = memo(() => {
         hidden: !memoryEnabled || frequency === 'off',
         label: t('settingChatMemory.memoryDreamSchedule.lastRunLabel'),
       },
+      {
+        children: <DynamicMemory />,
+        divider: false,
+        hidden: !memoryEnabled,
+        minWidth: undefined,
+      },
     ],
-    title: t('settingChatMemory.memoryGroupTitle'),
+    title: withTooltip(
+      t('settingChatMemory.memoryGroupTitle'),
+      t('settingChatMemory.dreamingMemory.sectionTooltip'),
+    ),
   };
 
   return (
@@ -158,7 +167,6 @@ const AgentMemory = memo(() => {
         />
       </Flexbox>
       {memoryEnabled && <FixedMemory />}
-      {memoryEnabled && <DynamicMemory />}
       <Form
         footer={
           <Form.SubmitFooter
