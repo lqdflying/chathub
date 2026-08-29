@@ -21,6 +21,7 @@ import {
   renumberFixedMemoryEntries,
   resolveLastDreamStatus,
   serializeDreamMemoryPriorForPrompt,
+  serializeVisibleDreamMemoryDocument,
   updateDreamMemoryEntry,
   updateFixedMemoryEntry,
   visibleDreamMemoryBody,
@@ -648,17 +649,69 @@ describe('dream memory entries', () => {
     expect(tightOverflow?.dateTag).not.toBe('2026-08-01..2026-08-01');
   });
 
-  it('keeps legacy two-day overflow when ordinary [date:] lines outnumber bare headings', () => {
+  it('keeps the true newest legacy day when day one contains an ordinary [date:start] line', () => {
+    const filler = 'x'.repeat(3000);
     const doc = [
       '#1 [2026-08-01..2026-08-02]:',
       '[2026-08-01]',
-      'day one',
       '[date:2026-08-01]',
-      'looks canonical a',
+      filler,
+      '[2026-08-02]',
+      'REAL NEWEST DAY',
+    ].join('\n');
+    const capped = capDreamMemoryDocument(doc, 14);
+    expect(capDreamMemoryDocument(capped, 14)).toBe(capped);
+    const overflow = parseDreamMemoryEntries(capped)[0];
+    expect(overflow?.dateTag).toBe('2026-08-01..2026-08-02');
+    expect(overflow?.dateTag).not.toBe('2026-08-01..2026-08-01');
+    expect(overflow?.body.length).toBeLessThanOrEqual(ASSISTANT_MEMORY_MAX_CHARS);
+    expect(overflow?.body).toContain('\\[date:2026-08-01]');
+    expect(overflow?.body).toContain('REAL NEWEST DAY');
+    expect(visibleDreamMemoryBody(overflow!)).toContain('[date:2026-08-01]');
+    expect(visibleDreamMemoryBody(overflow!)).toContain('REAL NEWEST DAY');
+  });
+
+  it('keeps a user-authored leading [overflow:v1] line as visible range-card content', () => {
+    const stored = [
+      '#1 [2026-08-01..2026-08-02]:',
+      '[overflow:v1]',
+      '[date:2026-08-01]',
+      'day one body',
+      '',
       '[date:2026-08-02]',
-      'looks canonical b',
-      '[date:2026-08-02]',
-      'looks canonical c',
+      'day two body',
+    ].join('\n');
+    const entry = parseDreamMemoryEntries(stored)[0]!;
+    const edited = `[overflow:v1]\n${visibleDreamMemoryBody(entry)}`;
+    const updated = updateDreamMemoryEntry(
+      stored,
+      1,
+      'day one body',
+      edited,
+      '2026-08-01..2026-08-02',
+    );
+    expect('doc' in updated).toBe(true);
+    if (!('doc' in updated)) return;
+
+    const capped = capDreamMemoryDocument(updated.doc, 14);
+    expect(capDreamMemoryDocument(capped, 14)).toBe(capped);
+    const overflow = parseDreamMemoryEntries(capped)[0];
+    expect(overflow?.dateTag).toBe('2026-08-01..2026-08-02');
+    expect(overflow?.body.startsWith('[overflow:v1]\n')).toBe(true);
+    expect(overflow?.body).toContain('\\[overflow:v1]');
+    const visible = visibleDreamMemoryBody(overflow!);
+    expect(visible).toContain('[overflow:v1]');
+    expect(visible.split('\n').filter((line) => line === '[overflow:v1]').length).toBe(1);
+    expect(serializeVisibleDreamMemoryDocument(capped)).toContain('[overflow:v1]');
+    expect(serializeVisibleDreamMemoryDocument(capped)).toContain('day one body');
+  });
+
+  it('migrates a pre-sentinel legacy range whose first line is [overflow:v1]', () => {
+    const doc = [
+      '#1 [2026-08-01..2026-08-02]:',
+      '[overflow:v1]',
+      '[2026-08-01]',
+      'day one',
       '[2026-08-02]',
       'day two',
     ].join('\n');
@@ -666,11 +719,13 @@ describe('dream memory entries', () => {
     expect(capDreamMemoryDocument(capped, 14)).toBe(capped);
     const overflow = parseDreamMemoryEntries(capped)[0];
     expect(overflow?.dateTag).toBe('2026-08-01..2026-08-02');
+    expect(overflow?.body).toContain('\\[overflow:v1]');
     expect(overflow?.body).toContain('day one');
-    expect(overflow?.body).toContain('looks canonical a');
-    expect(overflow?.body).toContain('looks canonical b');
-    expect(overflow?.body).toContain('looks canonical c');
     expect(overflow?.body).toContain('day two');
+    const visible = visibleDreamMemoryBody(overflow!);
+    expect(visible).toContain('[overflow:v1]');
+    expect(visible).toContain('day one');
+    expect(visible).toContain('day two');
   });
 
   it('caps an oversized merged card body to the per-card limit', () => {

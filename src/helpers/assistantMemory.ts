@@ -355,6 +355,14 @@ export const isDreamMergedTag = (tag: string) => DREAM_MERGED_TAG.test(tag);
 /** Leading magic line for canonical overflow. Not part of any day's body. */
 export const DREAM_OVERFLOW_SENTINEL = '[overflow:v1]';
 
+/** Re-attach the stored control marker so a user-typed leading sentinel stays content. */
+const restoreOverflowControlMarker = (previous: string, visible: string): string => {
+  const lines = previous.split('\n').map((line) => line.replace(/\r$/, ''));
+  const first = lines.findIndex((line) => line.length > 0);
+  if (first === -1 || lines[first] !== DREAM_OVERFLOW_SENTINEL) return visible;
+  return `${DREAM_OVERFLOW_SENTINEL}\n${visible}`;
+};
+
 /** Non-scheduled tags such as `[legacy]` or pre-feature custom labels. */
 export const isDreamCustomTag = (tag: string) =>
   tag !== 'legacy' && !isDreamMergedTag(tag) && !isDreamSingleDayTag(tag);
@@ -469,7 +477,9 @@ export const replaceDreamMemoryEntryBody = (
     return { entries, error: 'mismatch' };
   }
 
-  const nextBody = body.trim();
+  const nextBody = isDreamMergedTag(target.dateTag)
+    ? restoreOverflowControlMarker(target.body, body.trim())
+    : body.trim();
   const nextEntries = entries.map((entry) =>
     entry.index === index ? { ...entry, body: nextBody } : entry,
   );
@@ -525,7 +535,7 @@ const mergedPartHeaderLine = (date: string) => `[date:${date}]`;
 const CANONICAL_PART_MARKER = /^\[date:(\d{4}-\d{2}-\d{2})]$/;
 const LEGACY_PART_MARKER = /^\[(\d{4}-\d{2}-\d{2})]$/;
 /** Marker-shaped line, optionally already backslash-stuffed. */
-const MARKER_SHAPED_LINE = /^(\\*)(\[(?:date:)?\d{4}-\d{2}-\d{2}])$/;
+const MARKER_SHAPED_LINE = /^(\\*)(\[(?:date:)?\d{4}-\d{2}-\d{2}]|\[overflow:v1])$/;
 
 const splitMergedBodyLines = (text: string): string[] =>
   text.split('\n').map((line) => line.replace(/\r$/, ''));
@@ -562,9 +572,23 @@ export const stripDreamOverflowSentinel = (body: string): string => {
   return lines.slice(first + 1).join('\n').replace(/^\n+/, '');
 };
 
+const remainderHasCanonicalHeading = (lines: string[]): boolean =>
+  lines.some((line) => CANONICAL_PART_MARKER.test(line));
+
 export const visibleDreamMemoryBody = (
   entry: Pick<DreamMemoryEntry, 'body' | 'dateTag'>,
-): string => (isDreamMergedTag(entry.dateTag) ? stripDreamOverflowSentinel(entry.body) : entry.body);
+): string =>
+  isDreamMergedTag(entry.dateTag)
+    ? unescapeMergedPartBody(stripDreamOverflowSentinel(entry.body))
+    : entry.body;
+
+export const serializeVisibleDreamMemoryDocument = (doc: string | null | undefined): string =>
+  serializeDreamMemoryEntries(
+    parseDreamMemoryEntries(doc).map((entry) => ({
+      ...entry,
+      body: visibleDreamMemoryBody(entry),
+    })),
+  );
 
 const parseMergedRangeBounds = (tag: string): { end: string; start: string } => {
   const [start, end] = tag.split('..');
@@ -619,30 +643,49 @@ const splitOverflowBodyLines = (
   const lines = splitMergedBodyLines(body);
   const first = lines.findIndex((line) => line.length > 0);
   if (first >= 0 && lines[first] === DREAM_OVERFLOW_SENTINEL) {
-    return { forceCanonical: true, lines: lines.slice(first + 1) };
+    const rest = lines.slice(first + 1);
+    if (remainderHasCanonicalHeading(rest)) {
+      return { forceCanonical: true, lines: rest };
+    }
   }
   return { forceCanonical: false, lines };
 };
 
-const chooseMergedOverflowGrammar = (
+const rangeTagOfParts = (parts: MergedDreamPart[]): string =>
+  parts.length === 0 ? '' : `${parts[0]!.date}..${parts.at(-1)!.date}`;
+
+const lastNonEmptyLine = (lines: string[]): string => {
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const line = lines[index]!;
+    if (line.trim()) return line;
+  }
+  return '';
+};
+
+const pickPreSentinelOverflowParts = (
+  canonical: MergedDreamPart[],
+  legacy: MergedDreamPart[],
+  outer: string,
   lines: string[],
-  inRange: (date: string) => boolean,
-  forceCanonical: boolean,
-): 'canonical' | 'legacy' | null => {
-  if (forceCanonical) return 'canonical';
-  if (lines.some((line) => {
-    const match = CANONICAL_PART_MARKER.exec(line);
-    return Boolean(match && inRange(match[1]!));
-  })) {
-    return 'canonical';
+): MergedDreamPart[] => {
+  const matchesOuter = (parts: MergedDreamPart[]) =>
+    parts.length > 0 && rangeTagOfParts(parts) === outer;
+  const eligible = [canonical, legacy].filter(matchesOuter);
+  if (eligible.length === 1) return eligible[0]!;
+  if (eligible.length === 2) {
+    const [left, right] = eligible as [MergedDreamPart[], MergedDreamPart[]];
+    if (left.length !== right.length) return left.length < right.length ? left : right;
+    const tail = lastNonEmptyLine(lines);
+    if (tail) {
+      const leftHas = left.at(-1)!.body.includes(tail);
+      const rightHas = right.at(-1)!.body.includes(tail);
+      if (leftHas !== rightHas) return leftHas ? left : right;
+    }
+    return legacy;
   }
-  if (lines.some((line) => {
-    const match = LEGACY_PART_MARKER.exec(line);
-    return Boolean(match && inRange(match[1]!));
-  })) {
-    return 'legacy';
-  }
-  return null;
+  if (legacy.length === 0) return canonical;
+  if (canonical.length === 0) return legacy;
+  return legacy.length >= canonical.length ? legacy : canonical;
 };
 
 const expandMergedDreamBody = (entry: DreamMemoryEntry): MergedDreamPart[] => {
@@ -653,16 +696,22 @@ const expandMergedDreamBody = (entry: DreamMemoryEntry): MergedDreamPart[] => {
   const { start, end } = parseMergedRangeBounds(entry.dateTag);
   const inRange = (date: string) => date >= start && date <= end;
   const { forceCanonical, lines } = splitOverflowBodyLines(entry.body);
-  const grammar = chooseMergedOverflowGrammar(lines, inRange, forceCanonical);
-  const rawParts =
-    grammar === 'canonical'
-      ? consumeMergedPartLines(lines, CANONICAL_PART_MARKER, inRange, start)
-      : grammar === 'legacy'
-        ? consumeMergedPartLines(lines, LEGACY_PART_MARKER, inRange, start)
-        : [];
+  const rawParts = forceCanonical
+    ? consumeMergedPartLines(lines, CANONICAL_PART_MARKER, inRange, start)
+    : pickPreSentinelOverflowParts(
+        consumeMergedPartLines(lines, CANONICAL_PART_MARKER, inRange, start),
+        consumeMergedPartLines(lines, LEGACY_PART_MARKER, inRange, start),
+        `${start}..${end}`,
+        lines,
+      );
 
   if (rawParts.length === 0 && entry.body.trim()) {
-    return [{ body: unescapeMergedPartBody(stripDreamOverflowSentinel(entry.body).trim()), date: start }];
+    return [
+      {
+        body: unescapeMergedPartBody(stripDreamOverflowSentinel(entry.body).trim()),
+        date: start,
+      },
+    ];
   }
 
   return rawParts.map((part) => ({ ...part, body: unescapeMergedPartBody(part.body) }));

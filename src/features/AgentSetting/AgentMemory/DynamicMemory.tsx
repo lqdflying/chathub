@@ -16,6 +16,7 @@ import {
   isDreamMergedTag,
   normalizeDreamMemoryDocument,
   parseDreamMemoryEntries,
+  serializeVisibleDreamMemoryDocument,
   visibleDreamMemoryBody,
 } from '@/helpers/assistantMemory';
 import { agentService } from '@/services/agent';
@@ -254,7 +255,7 @@ const DynamicMemory = memo(() => {
 
   const onCopy = async () => {
     if (!doc) return;
-    await navigator.clipboard.writeText(doc);
+    await navigator.clipboard.writeText(serializeVisibleDreamMemoryDocument(doc));
     message.success(t('settingChatMemory.copySuccess'));
   };
 
