@@ -83,6 +83,16 @@ const collectUnhandledRejections = () => {
   };
 };
 
+const createDeferred = <T = void>() => {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, reject, resolve };
+};
+
 describe('DynamicMemory failed-write reconciliation', () => {
   it('failed Save refetches and restores the persisted memory', async () => {
     const user = userEvent.setup();
@@ -279,6 +289,87 @@ describe('DynamicMemory failed-write reconciliation', () => {
 
     await waitFor(() => {
       expect((getEditor() as HTMLTextAreaElement).value).toBe('edited memory');
+      expect(getSaveButton().hasAttribute('disabled')).toBe(false);
+    });
+    expect(unhandled.reasons).toEqual([]);
+    unhandled.stop();
+  });
+
+  it('failed Save plus failed refresh keeps later in-flight typing', async () => {
+    const user = userEvent.setup();
+    const unhandled = collectUnhandledRejections();
+    const write = createDeferred();
+    const refresh = createDeferred();
+    const onSaveWrite = vi.fn(() => write.promise);
+    const onRefreshConfig = vi.fn(() => refresh.promise);
+
+    render(
+      <Harness
+        initialMemory={'persisted memory'}
+        onRefreshConfig={onRefreshConfig}
+        onSaveWrite={onSaveWrite}
+      />,
+    );
+
+    const editor = await screen.findByDisplayValue('persisted memory');
+    await user.clear(editor);
+    await user.type(editor, 'edited memory');
+    await user.click(screen.getByRole('button', { name: 'settingChatMemory.dynamicMemory.save' }));
+
+    await waitFor(() => {
+      expect(onSaveWrite).toHaveBeenCalledTimes(1);
+    });
+    await user.clear(getEditor());
+    await user.type(getEditor(), 'newer edits');
+
+    write.reject(new Error('network down'));
+    await waitFor(() => {
+      expect(onRefreshConfig).toHaveBeenCalledTimes(1);
+    });
+    refresh.reject(new Error('refresh down'));
+
+    await waitFor(() => {
+      expect((getEditor() as HTMLTextAreaElement).value).toBe('newer edits');
+      expect(getSaveButton().hasAttribute('disabled')).toBe(false);
+    });
+    expect(unhandled.reasons).toEqual([]);
+    unhandled.stop();
+  });
+
+  it('failed Clear plus failed refresh keeps later in-flight typing', async () => {
+    const user = userEvent.setup();
+    const unhandled = collectUnhandledRejections();
+    const write = createDeferred();
+    const refresh = createDeferred();
+    const onSaveWrite = vi.fn(() => write.promise);
+    const onRefreshConfig = vi.fn(() => refresh.promise);
+
+    render(
+      <Harness
+        initialMemory={'persisted memory'}
+        onRefreshConfig={onRefreshConfig}
+        onSaveWrite={onSaveWrite}
+      />,
+    );
+
+    await screen.findByDisplayValue('persisted memory');
+    await user.click(screen.getByRole('button', { name: 'settingChatMemory.clear' }));
+    const modal = await screen.findByRole('dialog');
+    await user.click(within(modal).getByRole('button', { name: 'settingChatMemory.clear' }));
+
+    await waitFor(() => {
+      expect(onSaveWrite).toHaveBeenCalledTimes(1);
+    });
+    await user.type(getEditor(), 'typed after clear');
+
+    write.reject(new Error('network down'));
+    await waitFor(() => {
+      expect(onRefreshConfig).toHaveBeenCalledTimes(1);
+    });
+    refresh.reject(new Error('refresh down'));
+
+    await waitFor(() => {
+      expect((getEditor() as HTMLTextAreaElement).value).toBe('typed after clear');
       expect(getSaveButton().hasAttribute('disabled')).toBe(false);
     });
     expect(unhandled.reasons).toEqual([]);

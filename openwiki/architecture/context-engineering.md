@@ -379,9 +379,11 @@ optimistically, report success/failure via toast, and on failure refetch the age
 converge on the database truth. The refetch goes through the scoped store's `onRefreshConfig`
 callback, which every settings surface wires to its own source (the workspace drawer and mobile
 chat settings page refresh the displayed agent via `internal_refreshAgentConfig`; the defaults
-page re-reads user state via `refreshUserState`). If that refetch also fails (or is not wired),
-the intended draft stays visible and marked dirty so Save remains retryable — the client does
-not roll back to a stale local copy, because the original write may already have committed.
+page re-reads user state via `refreshUserState`). If that refetch also fails (or is not wired), the **current local draft** stays
+visible and marked dirty so Save remains retryable — including edits typed while
+the write or refetch was in flight. The client does not restore the operation's
+snapshot or roll back to a stale copy, because the original write may already
+have committed.
 `updateAgentConfig` releases the shared abort
 slot when its request
 settles, so completed requests can no longer be aborted retroactively; aborting a genuinely

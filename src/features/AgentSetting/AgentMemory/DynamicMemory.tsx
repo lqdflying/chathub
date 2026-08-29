@@ -45,28 +45,21 @@ const DynamicMemory = memo(() => {
 
   // after a failed write the client cannot tell whether the server committed
   // (an abort can land post-commit) — refetch so the UI converges on DB truth.
-  // if the refetch itself fails (or is not wired), keep the intended draft and
-  // mark it dirty so Save stays retryable; do not roll back to a stale client
-  // copy, because the write may already have committed.
-  const reconcileAfterError = useCallback(
-    async (desiredDraft: string) => {
-      if (!onRefreshConfig) {
-        setDraft(desiredDraft);
-        setDirty(true);
-        return;
-      }
-      try {
-        await onRefreshConfig();
-      } catch (error) {
-        setDraft(desiredDraft);
-        setDirty(true);
-        message.error(
-          t('settingChatMemory.reconcileFailedRetry', { reason: errorReason(error) }),
-        );
-      }
-    },
-    [onRefreshConfig, message, t],
-  );
+  // if the refetch itself fails (or is not wired), mark the current draft dirty
+  // so Save stays retryable. do not restore the operation snapshot: the editor
+  // stays enabled while the request is in flight, and any newer typing must win.
+  const reconcileAfterError = useCallback(async () => {
+    if (!onRefreshConfig) {
+      setDirty(true);
+      return;
+    }
+    try {
+      await onRefreshConfig();
+    } catch (error) {
+      setDirty(true);
+      message.error(t('settingChatMemory.reconcileFailedRetry', { reason: errorReason(error) }));
+    }
+  }, [onRefreshConfig, message, t]);
 
   const onSave = useCallback(async () => {
     setSaving(true);
@@ -78,7 +71,7 @@ const DynamicMemory = memo(() => {
       message.success(t('settingChatMemory.saveSuccess'));
     } catch (error) {
       message.error(t('settingChatMemory.saveFailedWithReason', { reason: errorReason(error) }));
-      await reconcileAfterError(next);
+      await reconcileAfterError();
     } finally {
       setSaving(false);
     }
@@ -103,7 +96,7 @@ const DynamicMemory = memo(() => {
             message.error(
               t('settingChatMemory.saveFailedWithReason', { reason: errorReason(error) }),
             );
-            await reconcileAfterError('');
+            await reconcileAfterError();
           } finally {
             setSaving(false);
           }
