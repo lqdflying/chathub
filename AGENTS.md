@@ -34,8 +34,10 @@ and troubleshooting changes require a GitHub Wiki evaluation and update when
 applicable. Internal architecture and maintainer behavior require OpenWiki when
 applicable; changes affecting both audiences update both surfaces. The GitHub
 Wiki clone (`wiki/`) is a separate repository on branch `master`; verify it with
-`git -C wiki branch -avv` before edits and preserve unrelated wiki work. If
-`wiki/` is absent, note that it was unavailable rather than cloning it implicitly.
+`git -C wiki branch -avv` before edits and preserve unrelated wiki work. **`wiki/` is
+gitignored** — do not treat empty Grep/Glob results as "unavailable"; run
+`test -d wiki/.git` first. If `wiki/` is absent on disk, note that it was unavailable
+rather than cloning it implicitly.
 
 ## OpenWiki
 

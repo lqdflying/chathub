@@ -143,8 +143,11 @@ The GitHub wiki is a **completely separate git repository** from the main codeba
 
 ### Sanity check — always verify before any wiki git operation
 
+`wiki/` is gitignored in the main repo — **workspace search cannot see it**. Use
+the shell, not Grep/Glob, to confirm the clone exists:
+
 ```bash
-cd wiki && git branch -avv
+test -d wiki/.git && git -C wiki branch -avv
 ```
 
 Must show `* master` and `remotes/origin/master` pointing to `.wiki.git`. If it shows `main` or main-repo branches like `docs/tally-v3-to-v4`, the clone is **broken** — `.git` is missing or invalid and git commands are falling through to the parent repo. Fix by re-cloning (see below).

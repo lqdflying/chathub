@@ -81,6 +81,9 @@ delete the bad tag and have the user push the next `N`. Docs-only commits never 
 The wiki (`lqdflying/chathub.wiki`) is the local `wiki/` clone on branch `master`; see
 `AGENTS.md` / `.cursor/rules/documentation-policy.mdc`.
 
+**`wiki/` is gitignored** in the main repo — workspace search tools cannot list it.
+Before assuming the clone is missing, run `test -d wiki/.git && git -C wiki branch -avv`.
+
 **Edit and commit the `wiki/` clone directly.** Whenever the clone is present, that is the
 normal path: change the pages in place and commit them there, exactly as in the main
 repository. Do **not** generate a `format-patch` file as the routine deliverable — a patch
@@ -95,8 +98,8 @@ feature canary flow*; in a cloud session the wiki push is denied, so list the un
 for the user alongside the tag commands instead). Having write access is not permission to
 use it. Report the commit and let the user decide.
 
-- **`wiki/` present**: edit, commit, report the SHA. Stop there.
-- **`wiki/` absent**: report that it is unavailable. Never clone it implicitly.
+- **`wiki/` present** (confirmed via `test -d wiki/.git`): edit, commit, report the SHA. Stop there.
+- **`wiki/` absent** on disk (shell check, not search): report that it is unavailable. Never clone it implicitly.
 - **Told to push, and the push is denied** (HTTP 403 — a cloud session, whose credentials
   are scoped to the main repo): only then fall back to the patch handoff below. The patch
   exists for a *blocked* push, not as a substitute for committing in place.

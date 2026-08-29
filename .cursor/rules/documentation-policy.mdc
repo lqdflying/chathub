@@ -42,10 +42,32 @@ short story plus procedure index. Feature procedures stay on wiki pages.
 
 ## GitHub Wiki handling
 
-- If `wiki/` exists, verify `git -C wiki branch -avv` before editing; it must be
+### Wiki availability — do not trust workspace search
+
+`wiki/` is **gitignored** in the main repository. Cursor **Grep**, **Glob**,
+**SemanticSearch**, and similar tools **do not index it**. An empty search result
+does **not** mean the clone is missing.
+
+Before reporting the wiki as unavailable, run from the workspace root:
+
+```bash
+test -d wiki/.git && git -C wiki branch -avv
+```
+
+| Result | Action |
+| --- | --- |
+| `wiki/.git` exists, `* master`, `remotes/origin/master` → `.wiki.git` | Wiki is **available** — edit pages in `wiki/` and commit there |
+| `wiki/` or `wiki/.git` missing | Wiki is **unavailable** — note in the plan; do not clone implicitly |
+| `wiki/` exists but branch is `main`, or shows main-repo branch names | Clone is **broken** — see `project.mdc` re-clone steps; do not edit until fixed |
+
+Never mark documentation complete with "wiki unavailable" based only on search tools.
+
+- If `wiki/` is available, verify `git -C wiki branch -avv` before editing; it must be
   the separate wiki repository on `master`.
 - Preserve unrelated wiki changes and stage only files for the current task.
 - If `wiki/` is absent, report that it is unavailable; do not clone it implicitly.
+  **Do not infer absence from Grep/Glob** — `wiki/` is gitignored; use
+  `test -d wiki/.git && git -C wiki branch -avv` (see *Wiki availability* above).
 - **Edit the pages in the `wiki/` clone directly**, then commit them there once
   the associated fix/feature is complete — never hand over a `format-patch` file
   as the routine deliverable, since the files are already on the user's disk and
