@@ -20,7 +20,7 @@ import DynamicMemory from './DynamicMemory';
 
 interface HarnessProps {
   initialMemory: string;
-  onRefreshConfig: () => Promise<void> | void;
+  onRefreshConfig?: () => Promise<void> | void;
   // rejects like a failed/aborted write; may also flip `persisted` first to
   // simulate a post-commit abort (server kept the new value)
   onSaveWrite: (nextMemory: string, persisted: { current: string }) => Promise<void>;
@@ -51,10 +51,14 @@ const Harness = ({ initialMemory, onRefreshConfig, onSaveWrite }: HarnessProps) 
             await new Promise((resolve) => setTimeout(resolve, 0));
             await onSaveWrite(next.assistantMemory, persisted);
           }}
-          onRefreshConfig={async () => {
-            await onRefreshConfig();
-            setMemory(persisted.current);
-          }}
+          onRefreshConfig={
+            onRefreshConfig
+              ? async () => {
+                  await onRefreshConfig();
+                  setMemory(persisted.current);
+                }
+              : undefined
+          }
         >
           <DynamicMemory />
         </AgentSettingsProvider>
@@ -64,6 +68,20 @@ const Harness = ({ initialMemory, onRefreshConfig, onSaveWrite }: HarnessProps) 
 };
 
 const getEditor = () => screen.getByPlaceholderText('settingChatMemory.dynamicMemory.empty');
+const getSaveButton = () =>
+  screen.getByRole('button', { name: /settingChatMemory\.dynamicMemory\.save/ });
+
+const collectUnhandledRejections = () => {
+  const reasons: unknown[] = [];
+  const onUnhandled = (reason: unknown) => {
+    reasons.push(reason);
+  };
+  process.on('unhandledRejection', onUnhandled);
+  return {
+    reasons,
+    stop: () => process.off('unhandledRejection', onUnhandled),
+  };
+};
 
 describe('DynamicMemory failed-write reconciliation', () => {
   it('failed Save refetches and restores the persisted memory', async () => {
@@ -165,5 +183,105 @@ describe('DynamicMemory failed-write reconciliation', () => {
     await waitFor(() => {
       expect((getEditor() as HTMLTextAreaElement).value).toBe('committed anyway');
     });
+  });
+
+  it('failed Save plus failed refresh keeps the draft retryable', async () => {
+    const user = userEvent.setup();
+    const unhandled = collectUnhandledRejections();
+    const onSaveWrite = vi.fn(async () => {
+      throw new Error('network down');
+    });
+    const onRefreshConfig = vi.fn(async () => {
+      throw new Error('refresh down');
+    });
+
+    render(
+      <Harness
+        initialMemory={'persisted memory'}
+        onRefreshConfig={onRefreshConfig}
+        onSaveWrite={onSaveWrite}
+      />,
+    );
+
+    const editor = await screen.findByDisplayValue('persisted memory');
+    await user.clear(editor);
+    await user.type(editor, 'edited memory');
+    await user.click(screen.getByRole('button', { name: 'settingChatMemory.dynamicMemory.save' }));
+
+    await waitFor(() => {
+      expect(onRefreshConfig).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => {
+      expect((getEditor() as HTMLTextAreaElement).value).toBe('edited memory');
+      expect(getSaveButton().hasAttribute('disabled')).toBe(false);
+    });
+    expect(unhandled.reasons).toEqual([]);
+    unhandled.stop();
+
+    await user.click(getSaveButton());
+    await waitFor(() => {
+      expect(onSaveWrite).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it('failed Clear plus failed refresh keeps the empty draft retryable', async () => {
+    const user = userEvent.setup();
+    const unhandled = collectUnhandledRejections();
+    const onSaveWrite = vi.fn(async () => {
+      throw new Error('network down');
+    });
+    const onRefreshConfig = vi.fn(async () => {
+      throw new Error('refresh down');
+    });
+
+    render(
+      <Harness
+        initialMemory={'persisted memory'}
+        onRefreshConfig={onRefreshConfig}
+        onSaveWrite={onSaveWrite}
+      />,
+    );
+
+    await screen.findByDisplayValue('persisted memory');
+    await user.click(screen.getByRole('button', { name: 'settingChatMemory.clear' }));
+    const modal = await screen.findByRole('dialog');
+    await user.click(within(modal).getByRole('button', { name: 'settingChatMemory.clear' }));
+
+    await waitFor(() => {
+      expect(onRefreshConfig).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => {
+      expect((getEditor() as HTMLTextAreaElement).value).toBe('');
+      expect(getSaveButton().hasAttribute('disabled')).toBe(false);
+    });
+    expect(unhandled.reasons).toEqual([]);
+    unhandled.stop();
+
+    await user.click(getSaveButton());
+    await waitFor(() => {
+      expect(onSaveWrite).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it('failed Save with no refresh callback keeps the draft retryable', async () => {
+    const user = userEvent.setup();
+    const unhandled = collectUnhandledRejections();
+    const onSaveWrite = vi.fn(async () => {
+      throw new Error('network down');
+    });
+
+    render(<Harness initialMemory={'persisted memory'} onSaveWrite={onSaveWrite} />);
+
+    const editor = await screen.findByDisplayValue('persisted memory');
+    await user.clear(editor);
+    await user.type(editor, 'edited memory');
+    await user.click(screen.getByRole('button', { name: 'settingChatMemory.dynamicMemory.save' }));
+
+    await waitFor(() => {
+      expect((getEditor() as HTMLTextAreaElement).value).toBe('edited memory');
+      expect(getSaveButton().hasAttribute('disabled')).toBe(false);
+    });
+    expect(unhandled.reasons).toEqual([]);
+    unhandled.stop();
   });
 });

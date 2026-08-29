@@ -451,6 +451,7 @@
     },
     "memoryGroupTitle": "Memory",
     "notActiveAgentTooltip": "Available only while this assistant is the active session",
+    "reconcileFailedRetry": "Could not confirm whether the save landed ({{reason}}). Your edits are still here — click Save to retry.",
     "regenerate": "Regenerate now",
     "restorePrevious": "Restore previous",
     "restoreSuccess": "Previous dynamic memory restored (click again to undo the restore).",

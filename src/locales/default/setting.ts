@@ -464,6 +464,7 @@ export default {
     },
     memoryGroupTitle: '记忆',
     notActiveAgentTooltip: '仅当该助手为当前会话时可用',
+    reconcileFailedRetry: '无法确认是否已保存（{{reason}}）。编辑仍保留，请点击保存重试。',
     regenerate: '立即重新生成',
     restorePrevious: '恢复上一版',
     restoreSuccess: '已恢复上一版动态记忆（再次点击可撤销恢复）',
