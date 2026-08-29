@@ -40,7 +40,6 @@ const AgentMemory = memo(() => {
   const updateConfig = useStore((s) => s.setChatConfig);
   const onRefreshConfig = useStore((s) => s.onRefreshConfig);
   const agentId = useStore((s) => s.config.id);
-  const assistantMemory = useStore((s) => s.config.assistantMemory ?? '');
   const config = useStore(selectors.currentChatConfig, isEqual);
   const rawChatConfig = useStore((s) => s.config.chatConfig);
   const assistantMemoryMeta = useStore((s) => s.config.assistantMemoryMeta);
@@ -57,26 +56,33 @@ const AgentMemory = memo(() => {
   const maxEntries = resolveMemoryDreamMaxEntries(rawChatConfig);
 
   const handleMemoryFormFinish = async (values: Partial<LobeAgentChatConfig>) => {
-    const prevMax = resolveMemoryDreamMaxEntries(rawChatConfig);
-    const nextMax = resolveMemoryDreamMaxEntries(values);
-
-    if (assistantMemory && nextMax < prevMax && agentId) {
-      const retention = await agentService.applyDreamMemoryRetention({
-        agentId,
-        maxEntries: nextMax,
-      });
-      if (retention.status !== 'success') {
-        message.error(
-          t('settingChatMemory.saveFailedWithReason', {
-            reason: retention.reason ?? 'stale_conflict',
-          }),
-        );
-        return;
-      }
-      await onRefreshConfig?.();
+    if (!agentId) {
+      await updateConfig(values);
+      return;
     }
 
-    await updateConfig(values);
+    const result = await agentService.saveDreamMemorySettings({
+      agentId,
+      chatConfig: {
+        enableUserMemoryArchive: values.enableUserMemoryArchive,
+        memoryDreamMaxEntries: values.memoryDreamMaxEntries,
+        memoryDreamScheduleFrequency: values.memoryDreamScheduleFrequency,
+        memoryDreamScheduleTime: values.memoryDreamScheduleTime,
+        memoryDreamScheduleWeekday: values.memoryDreamScheduleWeekday,
+      },
+    });
+
+    if (result.status !== 'success') {
+      message.error(
+        t('settingChatMemory.saveFailedWithReason', {
+          reason: result.reason ?? 'stale_conflict',
+        }),
+      );
+      return;
+    }
+
+    form.setFieldsValue(values);
+    await onRefreshConfig?.();
   };
 
   const memoryGroup: FormGroupItemType = {

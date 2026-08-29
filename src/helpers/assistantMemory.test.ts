@@ -5,6 +5,7 @@ import {
   appendFixedMemoryEntry,
   appendDreamMemoryEntry,
   capAssistantMemoryByTokensAsync,
+  capDreamMemoryDocument,
   deleteDreamMemoryEntry,
   deleteFixedMemoryEntry,
   dreamMemoryTotalCharBudget,
@@ -346,12 +347,67 @@ describe('dream memory entries', () => {
   it('caps the serialized document to the total char budget', () => {
     const cards = Array.from({ length: 20 }, (_, index) => {
       const day = String(index + 1).padStart(2, '0');
-      return `#${index + 1} [2026-08-${day}]:\n${'x'.repeat(3200)}`;
+      return `#${index + 1} [2026-08-${day}]:\nDAY${day}\n${'x'.repeat(3100)}`;
     }).join('\n');
     const capped = enforceDreamMemoryRetention(cards, 14);
     expect(capped.length).toBeLessThanOrEqual(dreamMemoryTotalCharBudget(14));
-    expect(capped).toContain('#14 [2026-08-20]');
+    expect(capped).toContain('[2026-08-20]');
     expect(capped).not.toContain('#1 [2026-08-01]:');
+    const entries = parseDreamMemoryEntries(capped);
+    const overflow = entries.find((entry) => entry.dateTag.includes('..'));
+    expect(overflow).toBeDefined();
+    expect(overflow?.dateTag).toContain('2026-08-06');
+    expect(overflow?.body).toContain('DAY06');
+    expect(overflow?.body).not.toContain('DAY01');
+    expect(overflow?.regenerable).toBe(false);
+  });
+
+  it('caps oversized single-day and legacy cards to the per-card limit', () => {
+    const oversized = `#1 [2026-08-27]:\n${'x'.repeat(100_000)}`;
+    const capped = capDreamMemoryDocument(oversized, 1);
+    expect(capped.length).toBeLessThanOrEqual(dreamMemoryTotalCharBudget(1));
+    expect(parseDreamMemoryEntries(capped)[0]?.body.length).toBeLessThanOrEqual(
+      ASSISTANT_MEMORY_MAX_CHARS,
+    );
+
+    const legacy = capDreamMemoryDocument(`#1 [legacy]:\n${'y'.repeat(100_000)}`, 14);
+    expect(parseDreamMemoryEntries(legacy)[0]?.body.length).toBeLessThanOrEqual(
+      ASSISTANT_MEMORY_MAX_CHARS,
+    );
+  });
+
+  it('preserves custom-tagged structured memory through cap and retention', () => {
+    const doc = '#1 [important]:\nkeep me';
+    expect(capDreamMemoryDocument(doc, 14)).toContain('keep me');
+    expect(enforceDreamMemoryRetention(doc, 14)).toContain('keep me');
+  });
+
+  it('terminates and stays in budget for multiple max-sized custom tags', () => {
+    const doc = ['alpha', 'beta', 'gamma']
+      .map((tag, index) => `#${index + 1} [${tag}]:\n${tag.toUpperCase()}\n${'x'.repeat(3200)}`)
+      .join('\n');
+    const started = Date.now();
+    const capped = capDreamMemoryDocument(doc, 1);
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(capped.length).toBeLessThanOrEqual(dreamMemoryTotalCharBudget(1));
+    expect(capped).toContain('GAMMA');
+  });
+
+  it('shrinks a later long single-day card when the oldest body is already one character', () => {
+    const doc = [
+      '#1 [2026-08-01]:\nx',
+      `#2 [2026-08-02]:\n${'y'.repeat(20_000)}`,
+      `#3 [2026-08-03]:\n${'z'.repeat(20_000)}`,
+    ].join('\n');
+    const capped = capDreamMemoryDocument(doc, 1);
+    expect(capped.length).toBeLessThanOrEqual(dreamMemoryTotalCharBudget(1));
+    expect(capped).toContain('z');
+  });
+
+  it('never exceeds the budget for many one-character custom entries', () => {
+    const doc = Array.from({ length: 500 }, (_, index) => `#${index + 1} [c${index}]:\nx`).join('\n');
+    const capped = capDreamMemoryDocument(doc, 1);
+    expect(capped.length).toBeLessThanOrEqual(dreamMemoryTotalCharBudget(1));
   });
 
   it('orders prior prompt context with newest single-day cards first', () => {

@@ -7,6 +7,7 @@ import {
   capDreamMemoryDocument,
   deleteDreamMemoryEntry,
   enforceDreamMemoryRetention,
+  normalizeAssistantMemoryText,
   normalizeDreamMemoryDocument,
   resolveMemoryDreamMaxEntries,
   updateDreamMemoryEntry,
@@ -23,16 +24,19 @@ type AgentSnapshot = {
   updatedAt: Date;
 };
 
-const writeAssistantMemoryIfUnchanged = async (
+const writeAgentIfUnchanged = async (
   db: LobeChatDatabase,
   agentId: string,
   userId: string,
   snapshot: AgentSnapshot,
-  assistantMemory: string,
+  patch: {
+    assistantMemory?: string | null;
+    chatConfig?: LobeAgentChatConfig;
+  },
 ) => {
   const updated = await db
     .update(agents)
-    .set({ assistantMemory })
+    .set(patch)
     .where(
       and(
         eq(agents.id, agentId),
@@ -44,6 +48,15 @@ const writeAssistantMemoryIfUnchanged = async (
 
   return updated.length > 0;
 };
+
+const writeAssistantMemoryIfUnchanged = async (
+  db: LobeChatDatabase,
+  agentId: string,
+  userId: string,
+  snapshot: AgentSnapshot,
+  assistantMemory: string,
+) =>
+  writeAgentIfUnchanged(db, agentId, userId, snapshot, { assistantMemory });
 
 const loadAgentSnapshot = async (
   db: LobeChatDatabase,
@@ -93,7 +106,13 @@ export const updateDreamMemoryCardOnServer = async ({
   if (!snapshot) return { reason: 'no_agent', status: 'failed' };
 
   const doc = normalizeDreamMemoryDocument(snapshot.assistantMemory);
-  const outcome = updateDreamMemoryEntry(doc, index, match, body, dateTag);
+  const outcome = updateDreamMemoryEntry(
+    doc,
+    index,
+    match,
+    normalizeAssistantMemoryText(body),
+    dateTag,
+  );
   if ('error' in outcome) return { reason: outcome.error, status: 'failed' };
 
   const maxEntries = resolveMemoryDreamMaxEntries(snapshot.chatConfig);
@@ -165,5 +184,36 @@ export const applyDreamMemoryRetentionOnServer = async ({
   if (nextDoc === doc) return { status: 'success' };
 
   const wrote = await writeAssistantMemoryIfUnchanged(db, agentId, userId, snapshot, nextDoc);
+  return wrote ? { status: 'success' } : { reason: 'stale_conflict', status: 'stale_conflict' };
+};
+
+/** Atomically persist dream-memory settings and apply retention under one CAS write. */
+export const saveDreamMemorySettingsOnServer = async ({
+  agentId,
+  chatConfigPatch,
+  db,
+  userId,
+}: {
+  agentId: string;
+  chatConfigPatch: Partial<LobeAgentChatConfig>;
+  db: LobeChatDatabase;
+  userId: string;
+}): Promise<DreamMemoryDocumentMutationResult> => {
+  const snapshot = await loadAgentSnapshot(db, agentId, userId);
+  if (!snapshot) return { reason: 'no_agent', status: 'failed' };
+
+  const nextChatConfig = {
+    ...snapshot.chatConfig,
+    ...chatConfigPatch,
+  } as LobeAgentChatConfig;
+  const nextMax = resolveMemoryDreamMaxEntries(nextChatConfig);
+  const doc = normalizeDreamMemoryDocument(snapshot.assistantMemory);
+  const nextDoc = doc ? finalizeDreamDocument(doc, nextMax) : '';
+
+  const wrote = await writeAgentIfUnchanged(db, agentId, userId, snapshot, {
+    assistantMemory: nextDoc,
+    chatConfig: nextChatConfig,
+  });
+
   return wrote ? { status: 'success' } : { reason: 'stale_conflict', status: 'stale_conflict' };
 };

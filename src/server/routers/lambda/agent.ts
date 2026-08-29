@@ -1,4 +1,5 @@
 import { DEFAULT_AGENT_CONFIG, INBOX_SESSION_ID } from '@lobechat/const';
+import { ASSISTANT_MEMORY_MAX_CHARS } from '@lobechat/prompts';
 import { KnowledgeItem, KnowledgeType } from '@lobechat/types';
 import { z } from 'zod';
 
@@ -16,8 +17,10 @@ import {
   applyDreamMemoryRetentionOnServer,
   clearDreamMemoryOnServer,
   deleteDreamMemoryCardOnServer,
+  saveDreamMemorySettingsOnServer,
   updateDreamMemoryCardOnServer,
 } from '@/server/services/assistantMemoryDream/mutateDocument';
+import { saveDreamMemorySettingsInputSchema } from '@/server/services/assistantMemoryDream/settingsSchema';
 
 const agentProcedure = authedProcedure.use(serverDatabase).use(async (opts) => {
   const { ctx } = opts;
@@ -216,6 +219,17 @@ export const agentRouter = router({
       });
     }),
 
+  saveDreamMemorySettings: agentProcedure
+    .input(saveDreamMemorySettingsInputSchema)
+    .mutation(async ({ input, ctx }) => {
+      return saveDreamMemorySettingsOnServer({
+        agentId: input.agentId,
+        chatConfigPatch: input.chatConfig,
+        db: ctx.serverDB,
+        userId: ctx.userId!,
+      });
+    }),
+
   toggleFile: agentProcedure
     .input(
       z.object({
@@ -248,7 +262,7 @@ export const agentRouter = router({
     .input(
       z.object({
         agentId: z.string(),
-        body: z.string().min(1),
+        body: z.string().min(1).max(ASSISTANT_MEMORY_MAX_CHARS),
         dateTag: z.string().min(1),
         index: z.number().int().min(1),
         match: z.string().min(1),

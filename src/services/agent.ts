@@ -80,6 +80,19 @@ class AgentService {
   applyDreamMemoryRetention = async (input: { agentId: string; maxEntries: number }) => {
     return lambdaClient.agent.applyDreamMemoryRetention.mutate(input);
   };
+
+  saveDreamMemorySettings = async (input: {
+    agentId: string;
+    chatConfig: {
+      enableUserMemoryArchive?: boolean;
+      memoryDreamMaxEntries?: number;
+      memoryDreamScheduleFrequency?: 'daily' | 'off' | 'weekly';
+      memoryDreamScheduleTime?: string;
+      memoryDreamScheduleWeekday?: number;
+    };
+  }) => {
+    return lambdaClient.agent.saveDreamMemorySettings.mutate(input);
+  };
 }
 
 export const agentService = new AgentService();

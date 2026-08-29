@@ -351,6 +351,10 @@ export type DreamMemoryMutationError = 'mismatch' | 'not_found';
 const isDreamSingleDayTag = (tag: string) => DREAM_SINGLE_DAY_TAG.test(tag);
 const isDreamMergedTag = (tag: string) => tag.includes('..');
 
+/** Non-scheduled tags such as `[legacy]` or pre-feature custom labels. */
+export const isDreamCustomTag = (tag: string) =>
+  tag !== 'legacy' && !isDreamMergedTag(tag) && !isDreamSingleDayTag(tag);
+
 /** Numbered dream cards (`#N [date]:` blocks) in document order. */
 export const parseDreamMemoryEntries = (doc: string | null | undefined): DreamMemoryEntry[] => {
   const text = (doc ?? '').trim();
@@ -550,69 +554,206 @@ export const dreamMemoryTotalCharBudget = (maxEntries: number) =>
   (maxEntries + 1) * ASSISTANT_MEMORY_MAX_CHARS;
 
 const trimMergedPartsToBudget = (parts: MergedDreamPart[], budget: number): MergedDreamPart[] => {
-  if (budget <= 0) return [];
+  if (parts.length === 0 || budget <= 0) return [];
+
   let next = [...parts];
   let body = formatMergedDreamBody(next);
-  while (next.length > 0 && body.length > budget) {
+
+  while (next.length > 1 && body.length > budget) {
     next = next.slice(1);
     body = formatMergedDreamBody(next);
   }
-  if (body.length > budget) {
-    return [{ body: capAtReadableBoundary(body, budget), date: next[0]?.date ?? parts[0]!.date }];
+
+  const anchor = next.at(-1);
+  if (!anchor || body.length <= budget) return next;
+
+  const prefixParts = next.length > 1 ? next.slice(0, -1) : [];
+  const prefix = prefixParts.length > 0 ? formatMergedDreamBody(prefixParts) : '';
+  const separator = prefix ? '\n\n' : '';
+  const dateHeader = `[${anchor.date}]\n`;
+  const overhead = prefix.length + separator.length + dateHeader.length;
+  if (overhead >= budget) {
+    if (dateHeader.length >= budget) return [];
+    return [
+      {
+        body: capAtReadableBoundary(anchor.body, Math.max(0, budget - dateHeader.length)),
+        date: anchor.date,
+      },
+    ];
+  }
+
+  const truncated = {
+    body: capAtReadableBoundary(anchor.body, Math.max(0, budget - overhead)),
+    date: anchor.date,
+  };
+
+  return prefixParts.length > 0 ? [...prefixParts, truncated] : [truncated];
+};
+
+const capDreamMemoryEntryBody = (entry: DreamMemoryEntry): DreamMemoryEntry => ({
+  ...entry,
+  body: capAtReadableBoundary(entry.body, ASSISTANT_MEMORY_MAX_CHARS),
+});
+
+const dreamDocumentLength = (entries: DreamMemoryEntry[]) =>
+  serializeDreamMemoryEntries(renumberDreamMemoryEntries(entries)).length;
+
+const rebuildMergedEntry = (
+  entry: DreamMemoryEntry,
+  parts: MergedDreamPart[],
+): DreamMemoryEntry | undefined => {
+  if (parts.length === 0) return undefined;
+  const rangeStart = parts[0]!.date;
+  const rangeEnd = parts.at(-1)!.date;
+  return {
+    ...entry,
+    body: formatMergedDreamBody(parts),
+    dateTag: `${rangeStart}..${rangeEnd}`,
+    regenerable: false,
+  };
+};
+
+const compactMergedEntries = (
+  entries: DreamMemoryEntry[],
+  partsFor: (entry: DreamMemoryEntry) => MergedDreamPart[],
+): DreamMemoryEntry[] => {
+  const next: DreamMemoryEntry[] = [];
+  for (const entry of entries) {
+    const rebuilt = rebuildMergedEntry(entry, partsFor(entry));
+    if (rebuilt) next.push(rebuilt);
   }
   return next;
 };
 
 /**
+ * Shrink or drop `bucket[0]` so the assembled document can move toward `budget`.
+ * Returns true when this call made progress (smaller body or fewer entries).
+ */
+const shrinkOrDropOldest = (
+  bucket: DreamMemoryEntry[],
+  assemble: () => DreamMemoryEntry[],
+  budget: number,
+): boolean => {
+  if (bucket.length === 0) return false;
+  const target = bucket[0]!;
+  const without = assemble().filter((entry) => entry !== target);
+
+  if (dreamDocumentLength([...without, target]) <= budget) return false;
+
+  const empty = { ...target, body: '' };
+  if (dreamDocumentLength([...without, empty]) > budget) {
+    bucket.shift();
+    return true;
+  }
+
+  let lo = 0;
+  let hi = target.body.length;
+  let fittedBody = '';
+  while (lo <= hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    const candidate = { ...target, body: target.body.slice(0, mid) };
+    if (dreamDocumentLength([...without, candidate]) <= budget) {
+      fittedBody = candidate.body;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+
+  const nextBody = fittedBody.trimEnd();
+  if (nextBody === target.body) {
+    bucket.shift();
+    return true;
+  }
+
+  bucket[0] = { ...target, body: nextBody };
+  return true;
+};
+
+/**
  * Enforce a hard total serialized budget after retention. Newest single-day cards
- * are preserved; overflow/legacy bodies are trimmed from the oldest folded dates first.
+ * are preserved first; overflow is trimmed from the oldest folded dates first;
+ * custom/legacy cards are reduced before single-day cards. Entry headers count.
  */
 export const capDreamMemoryDocument = (
   doc: string | null | undefined,
   maxEntries: number,
 ): string => {
   const normalized = normalizeDreamMemoryDocument(doc);
-  const entries = parseDreamMemoryEntries(normalized);
-  if (entries.length === 0) return '';
+  if (!normalized) return '';
 
   const budget = dreamMemoryTotalCharBudget(maxEntries);
-  const legacy = entries.filter((entry) => entry.dateTag === 'legacy');
-  const merged = entries.filter((entry) => isDreamMergedTag(entry.dateTag));
-  const singleDay = entries.filter((entry) => entry.regenerable);
+  const parsed = parseDreamMemoryEntries(normalized);
+  let custom = parsed.filter((entry) => isDreamCustomTag(entry.dateTag)).map(capDreamMemoryEntryBody);
+  let legacy = parsed.filter((entry) => entry.dateTag === 'legacy').map(capDreamMemoryEntryBody);
+  let singleDay = parsed.filter((entry) => entry.regenerable).map(capDreamMemoryEntryBody);
+  let merged = compactMergedEntries(
+    parsed.filter((entry) => isDreamMergedTag(entry.dateTag)),
+    (entry) => expandMergedDreamBody(entry),
+  );
 
-  const fixedEntries = [...legacy, ...singleDay];
-  const fixedDoc = serializeDreamMemoryEntries(renumberDreamMemoryEntries(fixedEntries));
-  let remaining = budget - fixedDoc.length;
+  const assemble = () => [...legacy, ...custom, ...merged, ...singleDay];
 
-  const nextMerged: DreamMemoryEntry[] = [];
-  for (const entry of merged) {
-    const trimmedParts = trimMergedPartsToBudget(expandMergedDreamBody(entry), remaining);
-    if (trimmedParts.length === 0) continue;
-    const body = formatMergedDreamBody(trimmedParts);
-    const rangeStart = trimmedParts[0]!.date;
-    const rangeEnd = trimmedParts.at(-1)!.date;
-    nextMerged.push({
-      body,
-      dateTag: `${rangeStart}..${rangeEnd}`,
-      index: 1,
-      regenerable: false,
-    });
-    remaining -= body.length;
+  const trimMergedToRemaining = () => {
+    const othersLength = dreamDocumentLength([...legacy, ...custom, ...singleDay]);
+    const remaining = budget - othersLength - 40;
+    merged = compactMergedEntries(merged, (entry) =>
+      trimMergedPartsToBudget(expandMergedDreamBody(entry), remaining),
+    );
+  };
+
+  trimMergedToRemaining();
+
+  let guard = 0;
+  const maxIterations = Math.max(parsed.length * 8, 32);
+  while (dreamDocumentLength(assemble()) > budget && guard < maxIterations) {
+    guard += 1;
+    if (shrinkOrDropOldest(custom, assemble, budget)) continue;
+    if (shrinkOrDropOldest(legacy, assemble, budget)) continue;
+    if (merged.length > 0) {
+      const parts = expandMergedDreamBody(merged[0]!);
+      if (parts.length > 1) {
+        const rebuilt = rebuildMergedEntry(merged[0]!, parts.slice(1));
+        if (rebuilt) merged[0] = rebuilt;
+        else merged.shift();
+        continue;
+      }
+      if (shrinkOrDropOldest(merged, assemble, budget)) continue;
+    }
+    if (shrinkOrDropOldest(singleDay, assemble, budget)) continue;
+    if (custom.length > 0) {
+      custom.shift();
+      continue;
+    }
+    if (legacy.length > 0) {
+      legacy.shift();
+      continue;
+    }
+    if (merged.length > 0) {
+      merged.shift();
+      continue;
+    }
+    if (singleDay.length > 0) {
+      singleDay.shift();
+      continue;
+    }
+    break;
   }
 
-  const combined = [...legacy, ...nextMerged, ...singleDay];
-  return serializeDreamMemoryEntries(renumberDreamMemoryEntries(combined));
+  const serialized = serializeDreamMemoryEntries(renumberDreamMemoryEntries(assemble()));
+  return serialized.length <= budget ? serialized : capAtReadableBoundary(serialized, budget);
 };
 
 /** Prior dream cards for the model prompt — newest single-day cards first, then capped. */
 export const serializeDreamMemoryPriorForPrompt = (doc: string | null | undefined): string => {
   const entries = parseDreamMemoryEntries(normalizeDreamMemoryDocument(doc));
   const legacy = entries.filter((entry) => entry.dateTag === 'legacy');
+  const custom = entries.filter((entry) => isDreamCustomTag(entry.dateTag));
   const merged = entries.filter((entry) => isDreamMergedTag(entry.dateTag));
   const singleDay = entries
     .filter((entry) => entry.regenerable)
     .sort((a, b) => b.dateTag.localeCompare(a.dateTag));
-  const ordered = [...singleDay, ...merged, ...legacy];
+  const ordered = [...singleDay, ...merged, ...custom, ...legacy];
   const serialized = serializeDreamMemoryEntries(renumberDreamMemoryEntries(ordered));
   return capAtReadableBoundary(serialized, ASSISTANT_MEMORY_MAX_CHARS);
 };
@@ -630,6 +771,7 @@ export const enforceDreamMemoryRetention = (
   if (entries.length === 0) return '';
 
   const legacy = entries.filter((entry) => entry.dateTag === 'legacy');
+  const custom = entries.filter((entry) => isDreamCustomTag(entry.dateTag));
   const merged = entries.filter((entry) => isDreamMergedTag(entry.dateTag));
   const singleDay = entries
     .filter((entry) => entry.regenerable)
@@ -659,7 +801,7 @@ export const enforceDreamMemoryRetention = (
     regenerable: false,
   };
 
-  const next = [...legacy, mergedEntry, ...keep];
+  const next = [...legacy, ...custom, mergedEntry, ...keep];
   return capDreamMemoryDocument(
     serializeDreamMemoryEntries(renumberDreamMemoryEntries(next)),
     maxEntries,

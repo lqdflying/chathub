@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
 import Tokens from '@/features/AgentSetting/AgentPrompt/TokenTag';
+import { ASSISTANT_MEMORY_MAX_CHARS } from '@lobechat/prompts';
 import {
   type DreamMemoryEntry,
   normalizeDreamMemoryDocument,
@@ -270,6 +271,7 @@ const DynamicMemory = memo(() => {
                 <Input.TextArea
                   autoFocus
                   autoSize={{ maxRows: 8, minRows: 2 }}
+                  maxLength={ASSISTANT_MEMORY_MAX_CHARS}
                   onChange={(e) => setEditDraft(e.target.value)}
                   value={editDraft}
                 />
