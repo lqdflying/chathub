@@ -6,7 +6,7 @@
 
 **ChatHub 2.0** is the current GA. v1.0.0 (May 2026) was a rebranded, self-hosted LobeChat: credentials login, an extended model bank, Tools Hub, MCP OAuth, and per-provider gear. Twenty-eight patch releases later, the runtime contract is different. Closing the tab does not cancel the turn. Knowledge Base is a real RAG stack with its own embedding keys. Python and document conversion are optional sidecars. There is no Electron app and no browser-local database — browsers and PWAs talk to the server; durable data lives in PostgreSQL.
 
-Upgrade from any 1.x image the same way as a patch: pull `:latest` or `2.0.0`, restart, let migrations run. [Release notes](https://github.com/lqdflying/chathub/releases/tag/v2.0.0) · [Wiki](https://github.com/lqdflying/chathub/wiki)
+Upgrade from any 1.x or 2.0.0 image the same way as a patch: pull `:latest` or `2.0.1`, restart, let migrations run. [Release notes](https://github.com/lqdflying/chathub/releases/tag/v2.0.1) · [Wiki](https://github.com/lqdflying/chathub/wiki)
 
 ---
 
@@ -22,7 +22,7 @@ These are the differences that matter if you used 1.0 or are choosing ChatHub ov
 
 **Images and documents outlived the chat bubble.** In-chat Image generation is a server task (slow 4K renders survive proxies). Finished pictures live in an Artifacts gallery, matched back to the prompt that created them. SVG, full HTML pages, and Mermaid in replies render inline. [Image Generation](https://github.com/lqdflying/chathub/wiki/Image-Generation) · [Artifacts](https://github.com/lqdflying/chathub/wiki/Artifacts) · [Inline diagrams](https://github.com/lqdflying/chathub/wiki/Inline-SVG-Diagrams)
 
-**Long context is operated, not hoped for.** Topic compaction waits for a high watermark. Assistants have two-tier memory (fixed cards you curate, dynamic rollups the model maintains). Compatible gateways (OpenAI- and Anthropic-style) are first-class, with a prompt-cache matrix so multi-turn hits stay stable. Skills are `SKILL.md` bundles with lazy `load_skill`. Huge pastes become compact **PASTED** chips instead of a wall of text. [Memory and compaction](https://github.com/lqdflying/chathub/wiki/Memory-and-Context-Compaction) · [Cache matrix](https://github.com/lqdflying/chathub/wiki/OpenAI-Compatible-Cache-Matrix) · [Skills](https://github.com/lqdflying/chathub/wiki/Skills) · [Pasted text](https://github.com/lqdflying/chathub/wiki/Pasted-Text)
+**Long context is operated, not hoped for.** Topic compaction waits for a high watermark; Assist preset and auto-compact live under Chat Preference. Assistants have two-tier memory (fixed cards you curate, dynamic memory the scheduled **memory dream** updates on the server at UTC time — no open browser). Compatible gateways (OpenAI- and Anthropic-style) are first-class, with a prompt-cache matrix so multi-turn hits stay stable. Skills are `SKILL.md` bundles with lazy `load_skill`. Huge pastes become compact **PASTED** chips instead of a wall of text. [Memory and compaction](https://github.com/lqdflying/chathub/wiki/Memory-and-Context-Compaction) · [Cache matrix](https://github.com/lqdflying/chathub/wiki/OpenAI-Compatible-Cache-Matrix) · [Skills](https://github.com/lqdflying/chathub/wiki/Skills) · [Pasted text](https://github.com/lqdflying/chathub/wiki/Pasted-Text)
 
 What 1.0 already was, and 2.0 still is: Docker + PostgreSQL only, built-in username/password login, Tools Hub (Picbed, API Tester), MCP OAuth 2.1, and per-provider model options. Those are table stakes now, not the 2.0 story. The full map is [wiki Home](https://github.com/lqdflying/chathub/wiki).
 
@@ -162,7 +162,7 @@ Repo layout: [Architecture Overview](https://github.com/lqdflying/chathub/wiki/A
 
 ## Docker Release
 
-GitHub Actions builds `docker.io/lqdflying/chathub` on version tags. GA `v*.*.*` updates `:latest`. Canaries (`v*.*.*-canary.*`) do not. Current GA is **v2.0.0**; the next canary is `v2.0.1-canary.N`. [Release Workflow](https://github.com/lqdflying/chathub/wiki/Release-Workflow)
+GitHub Actions builds `docker.io/lqdflying/chathub` on version tags. GA `v*.*.*` updates `:latest`. Canaries (`v*.*.*-canary.*`) do not. Current GA is **v2.0.1**; the next canary is `v2.0.2-canary.N`. [Release Workflow](https://github.com/lqdflying/chathub/wiki/Release-Workflow)
 
 ---
 
