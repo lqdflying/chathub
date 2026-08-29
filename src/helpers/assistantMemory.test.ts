@@ -354,7 +354,7 @@ describe('dream memory entries', () => {
     expect(capped).toContain('[2026-08-20]');
     expect(capped).not.toContain('#1 [2026-08-01]:');
     const entries = parseDreamMemoryEntries(capped);
-    const overflow = entries.find((entry) => entry.dateTag.includes('..'));
+    const overflow = entries.find((entry) => /^\d{4}-\d{2}-\d{2}\.\.\d{4}-\d{2}-\d{2}$/.test(entry.dateTag));
     expect(overflow).toBeDefined();
     expect(overflow?.dateTag).toContain('2026-08-06');
     expect(overflow?.body).toContain('DAY06');
@@ -380,6 +380,67 @@ describe('dream memory entries', () => {
     const doc = '#1 [important]:\nkeep me';
     expect(capDreamMemoryDocument(doc, 14)).toContain('keep me');
     expect(enforceDreamMemoryRetention(doc, 14)).toContain('keep me');
+  });
+
+  it('does not treat custom tags that contain .. as date ranges', () => {
+    const doc = '#1 [important..notes]:\nkeep me';
+    const capped = capDreamMemoryDocument(doc, 14);
+    expect(capped).toContain('#1 [important..notes]:');
+    expect(capped).toContain('keep me');
+    expect(capped).not.toContain('[important]');
+    expect(capDreamMemoryDocument(capped, 14)).toBe(capped);
+    expect(enforceDreamMemoryRetention(doc, 14)).toContain('[important..notes]:');
+  });
+
+  it('still expands a genuine YYYY-MM-DD..YYYY-MM-DD overflow card', () => {
+    const doc =
+      '#1 [2026-08-01..2026-08-03]:\n[2026-08-01]\nold\n\n[2026-08-03]\nnewest-day';
+    const capped = capDreamMemoryDocument(doc, 14);
+    const overflow = parseDreamMemoryEntries(capped)[0];
+    expect(overflow?.dateTag).toBe('2026-08-01..2026-08-03');
+    expect(overflow?.body).toContain('newest-day');
+    expect(overflow?.regenerable).toBe(false);
+  });
+
+  it('consolidates multiple range cards and keeps the newest overflow', () => {
+    const buildRange = (index: number, month: string, marker: string, count: number) => {
+      const parts = Array.from({ length: count }, (_, partIndex) => {
+        const day = String(partIndex + 1).padStart(2, '0');
+        return `[2026-${month}-${day}]\n${marker}${day}\n${'x'.repeat(80)}`;
+      });
+      const start = `2026-${month}-01`;
+      const end = `2026-${month}-${String(count).padStart(2, '0')}`;
+      return `#${index} [${start}..${end}]:\n${parts.join('\n\n')}`;
+    };
+
+    const doc = `${buildRange(1, '06', 'A', 90)}\n${buildRange(2, '07', 'B', 90)}`;
+    const capped = capDreamMemoryDocument(doc, 1);
+    expect(capped.length).toBeLessThanOrEqual(dreamMemoryTotalCharBudget(1));
+    expect(capDreamMemoryDocument(capped, 1)).toBe(capped);
+    const overflow = parseDreamMemoryEntries(capped).find((entry) =>
+      /^\d{4}-\d{2}-\d{2}\.\.\d{4}-\d{2}-\d{2}$/.test(entry.dateTag),
+    );
+    expect(overflow).toBeDefined();
+    expect(overflow?.body.length).toBeLessThanOrEqual(ASSISTANT_MEMORY_MAX_CHARS);
+    expect(overflow?.body).toContain('B90');
+    expect(overflow?.body).not.toContain('A01');
+    expect(overflow?.dateTag.endsWith('2026-07-90')).toBe(true);
+    expect(overflow?.body).toContain(`[${overflow?.dateTag.split('..')[0]}]`);
+    expect(overflow?.body).toContain(`[${overflow?.dateTag.split('..')[1]}]`);
+  });
+
+  it('caps an oversized merged card body to the per-card limit', () => {
+    const parts = Array.from({ length: 10 }, (_, index) => {
+      const day = String(index + 1).padStart(2, '0');
+      return `[2026-08-${day}]\nDAY${day}\n${'x'.repeat(3000)}`;
+    });
+    const doc = `#1 [2026-08-01..2026-08-10]:\n${parts.join('\n\n')}`;
+    const capped = capDreamMemoryDocument(doc, 14);
+    const overflow = parseDreamMemoryEntries(capped)[0];
+    expect(overflow?.body.length).toBeLessThanOrEqual(ASSISTANT_MEMORY_MAX_CHARS);
+    expect(overflow?.body).toContain('DAY10');
+    expect(overflow?.body).not.toContain('DAY01');
+    expect(overflow?.dateTag).toContain('2026-08-10');
   });
 
   it('terminates and stays in budget for multiple max-sized custom tags', () => {

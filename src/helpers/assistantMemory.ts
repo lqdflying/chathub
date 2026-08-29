@@ -349,7 +349,8 @@ export interface DreamMemoryEntry {
 export type DreamMemoryMutationError = 'mismatch' | 'not_found';
 
 const isDreamSingleDayTag = (tag: string) => DREAM_SINGLE_DAY_TAG.test(tag);
-const isDreamMergedTag = (tag: string) => tag.includes('..');
+const DREAM_MERGED_TAG = /^\d{4}-\d{2}-\d{2}\.\.\d{4}-\d{2}-\d{2}$/;
+const isDreamMergedTag = (tag: string) => DREAM_MERGED_TAG.test(tag);
 
 /** Non-scheduled tags such as `[legacy]` or pre-feature custom labels. */
 export const isDreamCustomTag = (tag: string) =>
@@ -613,17 +614,25 @@ const rebuildMergedEntry = (
   };
 };
 
-const compactMergedEntries = (
-  entries: DreamMemoryEntry[],
-  partsFor: (entry: DreamMemoryEntry) => MergedDreamPart[],
-): DreamMemoryEntry[] => {
-  const next: DreamMemoryEntry[] = [];
+const collectMergedParts = (entries: DreamMemoryEntry[]): MergedDreamPart[] => {
+  const parts: MergedDreamPart[] = [];
   for (const entry of entries) {
-    const rebuilt = rebuildMergedEntry(entry, partsFor(entry));
-    if (rebuilt) next.push(rebuilt);
+    parts.push(...expandMergedDreamBody(entry));
   }
-  return next;
+  parts.sort((a, b) => a.date.localeCompare(b.date));
+  return parts;
 };
+
+const buildOverflowCard = (parts: MergedDreamPart[]): DreamMemoryEntry[] => {
+  const rebuilt = rebuildMergedEntry(
+    { body: '', dateTag: '1970-01-01..1970-01-01', index: 1, regenerable: false },
+    parts,
+  );
+  return rebuilt ? [rebuilt] : [];
+};
+
+const overflowBodyBudget = (othersLength: number, budget: number) =>
+  Math.max(0, Math.min(ASSISTANT_MEMORY_MAX_CHARS, budget - othersLength - 40));
 
 /**
  * Shrink or drop `bucket[0]` so the assembled document can move toward `budget`.
@@ -687,22 +696,14 @@ export const capDreamMemoryDocument = (
   let custom = parsed.filter((entry) => isDreamCustomTag(entry.dateTag)).map(capDreamMemoryEntryBody);
   let legacy = parsed.filter((entry) => entry.dateTag === 'legacy').map(capDreamMemoryEntryBody);
   let singleDay = parsed.filter((entry) => entry.regenerable).map(capDreamMemoryEntryBody);
-  let merged = compactMergedEntries(
-    parsed.filter((entry) => isDreamMergedTag(entry.dateTag)),
-    (entry) => expandMergedDreamBody(entry),
+  let merged = buildOverflowCard(
+    trimMergedPartsToBudget(
+      collectMergedParts(parsed.filter((entry) => isDreamMergedTag(entry.dateTag))),
+      overflowBodyBudget(dreamDocumentLength([...legacy, ...custom, ...singleDay]), budget),
+    ),
   );
 
   const assemble = () => [...legacy, ...custom, ...merged, ...singleDay];
-
-  const trimMergedToRemaining = () => {
-    const othersLength = dreamDocumentLength([...legacy, ...custom, ...singleDay]);
-    const remaining = budget - othersLength - 40;
-    merged = compactMergedEntries(merged, (entry) =>
-      trimMergedPartsToBudget(expandMergedDreamBody(entry), remaining),
-    );
-  };
-
-  trimMergedToRemaining();
 
   let guard = 0;
   const maxIterations = Math.max(parsed.length * 8, 32);
@@ -711,14 +712,23 @@ export const capDreamMemoryDocument = (
     if (shrinkOrDropOldest(custom, assemble, budget)) continue;
     if (shrinkOrDropOldest(legacy, assemble, budget)) continue;
     if (merged.length > 0) {
-      const parts = expandMergedDreamBody(merged[0]!);
-      if (parts.length > 1) {
-        const rebuilt = rebuildMergedEntry(merged[0]!, parts.slice(1));
-        if (rebuilt) merged[0] = rebuilt;
-        else merged.shift();
+      const before = merged[0]!;
+      const next = buildOverflowCard(
+        trimMergedPartsToBudget(
+          collectMergedParts(merged),
+          overflowBodyBudget(dreamDocumentLength([...legacy, ...custom, ...singleDay]), budget),
+        ),
+      );
+      if (
+        next.length !== merged.length ||
+        next[0]?.dateTag !== before.dateTag ||
+        next[0]?.body !== before.body
+      ) {
+        merged = next;
         continue;
       }
-      if (shrinkOrDropOldest(merged, assemble, budget)) continue;
+      merged = [];
+      continue;
     }
     if (shrinkOrDropOldest(singleDay, assemble, budget)) continue;
     if (custom.length > 0) {
@@ -740,8 +750,7 @@ export const capDreamMemoryDocument = (
     break;
   }
 
-  const serialized = serializeDreamMemoryEntries(renumberDreamMemoryEntries(assemble()));
-  return serialized.length <= budget ? serialized : capAtReadableBoundary(serialized, budget);
+  return serializeDreamMemoryEntries(renumberDreamMemoryEntries(assemble()));
 };
 
 /** Prior dream cards for the model prompt — newest single-day cards first, then capped. */

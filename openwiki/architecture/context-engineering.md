@@ -339,9 +339,9 @@ cards and fixed memory are read-only do-not-duplicate context in the prompt.
 ```
 
 - Single-day tag `YYYY-MM-DD` — one successful dream for that history day; user **Regenerate** re-runs the dream for that UTC day only (`executeAssistantMemoryDream` `mode: 'regenerate'`).
-- Range tag `YYYY-MM-DD..YYYY-MM-DD` (including `date..date` when only one day was folded) — merged overflow from **Keep dream cards** retention; edit/delete allowed, no regenerate.
+- Range tag `YYYY-MM-DD..YYYY-MM-DD` only (including `date..date` when one day was folded) — merged overflow from **Keep dream cards** retention; edit/delete allowed, no regenerate. Labels that merely contain `..` (for example `important..notes`) stay custom cards and are not expanded as ranges.
 - Legacy unnumbered blobs are wrapped once as `#1 [legacy]:` on first append.
-- Helpers: `parseDreamMemoryEntries`, `appendDreamMemoryEntry`, `enforceDreamMemoryRetention` (`memoryDreamMaxEntries`, default 14, clamp 1–90), `capDreamMemoryDocument` (lossy total **serialized** budget of `(N+1) × ASSISTANT_MEMORY_MAX_CHARS`, including entry headers). Per-card bodies are capped at `ASSISTANT_MEMORY_MAX_CHARS`. Overflow folds into one range card and **drops oldest folded dates first**, keeping the newest overflow (partial last day if needed). If the document is still over budget, custom/legacy cards shrink or drop before single-day cards. Scheduled runs skip append when a single-day card for that history date already exists (in addition to `lastDreamMarker`).
+- Helpers: `parseDreamMemoryEntries`, `appendDreamMemoryEntry`, `enforceDreamMemoryRetention` (`memoryDreamMaxEntries`, default 14, clamp 1–90), `capDreamMemoryDocument` (lossy total **serialized** budget of `(N+1) × ASSISTANT_MEMORY_MAX_CHARS`, including entry headers). **Every** card body, including the single overflow range card, is capped at `ASSISTANT_MEMORY_MAX_CHARS`. Multiple migrated range cards are concatenated by date, then trimmed oldest-first into one overflow card whose tag matches the retained dates. Scheduled runs skip append when a single-day card for that history date already exists (in addition to `lastDreamMarker`).
 
 **Markers and backoff.** Success and genuine no-op skips (`no_active_topics_yesterday`,
 `no_summaries`, `no_changes`) write `assistantMemoryMeta.lastDreamMarker` (`YYYY-MM-DD` or
