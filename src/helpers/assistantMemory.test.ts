@@ -1,5 +1,6 @@
 import { ASSISTANT_MEMORY_MAX_CHARS } from '@lobechat/prompts';
 import { describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 
 import {
   appendFixedMemoryEntry,
@@ -20,6 +21,7 @@ import {
   renumberFixedMemoryEntries,
   resolveLastDreamStatus,
   serializeDreamMemoryPriorForPrompt,
+  updateDreamMemoryEntry,
   updateFixedMemoryEntry,
 } from './assistantMemory';
 
@@ -510,6 +512,89 @@ describe('dream memory entries', () => {
     expect(overflow?.body).toContain('\\[2099-12-31]');
     expect(overflow?.body).not.toMatch(/\[date:2099-12-31]/);
     expect(overflow?.body).toContain('second old day');
+  });
+
+  it('keeps text prepended before the first overflow heading', () => {
+    const originalBody = '[date:2026-08-01]\nday one body\n\n[date:2026-08-02]\nday two body';
+    const doc = `#1 [2026-08-01..2026-08-02]:\n${originalBody}`;
+    const edited = `USER PREPENDED NOTE\n${originalBody}`;
+    const updated = updateDreamMemoryEntry(
+      doc,
+      1,
+      'day one body',
+      edited,
+      '2026-08-01..2026-08-02',
+    );
+    expect('doc' in updated).toBe(true);
+    if (!('doc' in updated)) return;
+
+    const capped = capDreamMemoryDocument(updated.doc, 14);
+    expect(capDreamMemoryDocument(capped, 14)).toBe(capped);
+    const overflow = parseDreamMemoryEntries(capped)[0];
+    expect(overflow?.dateTag).toBe('2026-08-01..2026-08-02');
+    const body = overflow?.body ?? '';
+    const firstDay = body.indexOf('[date:2026-08-01]');
+    const note = body.indexOf('USER PREPENDED NOTE');
+    const secondDay = body.indexOf('[date:2026-08-02]');
+    expect(firstDay).toBeGreaterThanOrEqual(0);
+    expect(note).toBeGreaterThan(firstDay);
+    expect(note).toBeLessThan(secondDay);
+    expect(body).toContain('day one body');
+    expect(body).toContain('day two body');
+  });
+
+  it('does not switch a legacy overflow grammar because a body line looks canonical', () => {
+    const doc =
+      '#1 [2026-08-01..2026-08-02]:\n[2026-08-01]\nday one\n[date:2026-08-02]\nordinary line\n\n[2026-08-02]\nday two';
+    const capped = capDreamMemoryDocument(doc, 14);
+    expect(capDreamMemoryDocument(capped, 14)).toBe(capped);
+    const overflow = parseDreamMemoryEntries(capped)[0];
+    expect(overflow?.dateTag).toBe('2026-08-01..2026-08-02');
+    const body = overflow?.body ?? '';
+    expect(body).toContain('day one');
+    expect(body).toContain('ordinary line');
+    expect(body).toContain('day two');
+    const lines = body.split('\n');
+    expect(lines).toContain('[date:2026-08-01]');
+    expect(lines).toContain('\\[date:2026-08-02]');
+    expect(lines).toContain('[date:2026-08-02]');
+    expect(lines.indexOf('\\[date:2026-08-02]')).toBeGreaterThan(lines.indexOf('[date:2026-08-01]'));
+    expect(lines.lastIndexOf('[date:2026-08-02]')).toBeGreaterThan(
+      lines.indexOf('\\[date:2026-08-02]'),
+    );
+  });
+
+  it('caps stuffed overflow bodies to the per-card edit limit', () => {
+    const cardBodySchema = z.string().min(1).max(ASSISTANT_MEMORY_MAX_CHARS);
+    const marker = '[2099-12-31]';
+    const oneMarkerBody = `${marker}\n${'x'.repeat(3183 - marker.length - 1)}`;
+    expect(oneMarkerBody.length).toBe(3183);
+
+    const oneMarkerDoc = [`#1 [2026-08-01]:\n${oneMarkerBody}`, '#2 [2026-08-02]:\nkeep newest'].join(
+      '\n',
+    );
+    const oneMarkerCapped = enforceDreamMemoryRetention(oneMarkerDoc, 1);
+    const oneOverflow = parseDreamMemoryEntries(oneMarkerCapped).find((entry) =>
+      /^\d{4}-\d{2}-\d{2}\.\.\d{4}-\d{2}-\d{2}$/.test(entry.dateTag),
+    );
+    expect(oneOverflow?.body.length).toBeLessThanOrEqual(ASSISTANT_MEMORY_MAX_CHARS);
+    expect(cardBodySchema.safeParse(oneOverflow?.body).success).toBe(true);
+    expect(oneOverflow?.body).toContain('x');
+    expect(oneMarkerCapped).toContain('keep newest');
+    expect(capDreamMemoryDocument(oneMarkerCapped, 1)).toBe(oneMarkerCapped);
+
+    const manyMarkers = Array.from({ length: 80 }, () => '[2099-12-31]').join('\n');
+    const manyBody = `${manyMarkers}\n${'z'.repeat(2000)}`;
+    const manyDoc = [`#1 [2026-08-01]:\n${manyBody}`, '#2 [2026-08-02]:\nkeep newest'].join('\n');
+    const manyCapped = enforceDreamMemoryRetention(manyDoc, 1);
+    const manyOverflow = parseDreamMemoryEntries(manyCapped).find((entry) =>
+      /^\d{4}-\d{2}-\d{2}\.\.\d{4}-\d{2}-\d{2}$/.test(entry.dateTag),
+    );
+    expect(manyOverflow?.body.length).toBeLessThanOrEqual(ASSISTANT_MEMORY_MAX_CHARS);
+    expect(cardBodySchema.safeParse(manyOverflow?.body).success).toBe(true);
+    expect(manyOverflow?.dateTag).toContain('2026-08-01');
+    expect(manyCapped).toContain('keep newest');
+    expect(capDreamMemoryDocument(manyCapped, 1)).toBe(manyCapped);
   });
 
   it('caps an oversized merged card body to the per-card limit', () => {

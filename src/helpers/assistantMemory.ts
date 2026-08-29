@@ -559,23 +559,55 @@ const consumeMergedPartLines = (
   lines: string[],
   marker: RegExp,
   acceptDate: (date: string) => boolean,
+  startDate: string,
 ): MergedDreamPart[] => {
   const parts: MergedDreamPart[] = [];
   let current: MergedDreamPart | null = null;
+  const preamble: string[] = [];
+
+  const flushPreamble = () => {
+    const text = preamble.join('\n').trim();
+    preamble.length = 0;
+    return text;
+  };
 
   for (const line of lines) {
     const match = marker.exec(line);
     if (match && acceptDate(match[1]!)) {
+      const headingDate = match[1]!;
       if (current) parts.push({ ...current, body: current.body.trim() });
-      current = { body: '', date: match[1]! };
+      const pending = flushPreamble();
+      if (pending && headingDate !== startDate && parts.length === 0) {
+        parts.push({ body: pending, date: startDate });
+        current = { body: '', date: headingDate };
+      } else {
+        current = { body: pending, date: headingDate };
+      }
       continue;
     }
     if (current) {
       current.body = current.body ? `${current.body}\n${line}` : line;
+    } else {
+      preamble.push(line);
     }
   }
   if (current) parts.push({ ...current, body: current.body.trim() });
+  const leftover = flushPreamble();
+  if (!current && leftover) parts.push({ body: leftover, date: startDate });
   return parts;
+};
+
+const firstInRangeHeadingKind = (
+  lines: string[],
+  inRange: (date: string) => boolean,
+): 'canonical' | 'legacy' | null => {
+  for (const line of lines) {
+    const canonical = CANONICAL_PART_MARKER.exec(line);
+    if (canonical && inRange(canonical[1]!)) return 'canonical';
+    const legacy = LEGACY_PART_MARKER.exec(line);
+    if (legacy && inRange(legacy[1]!)) return 'legacy';
+  }
+  return null;
 };
 
 const expandMergedDreamBody = (entry: DreamMemoryEntry): MergedDreamPart[] => {
@@ -586,10 +618,13 @@ const expandMergedDreamBody = (entry: DreamMemoryEntry): MergedDreamPart[] => {
   const { start, end } = parseMergedRangeBounds(entry.dateTag);
   const inRange = (date: string) => date >= start && date <= end;
   const lines = splitMergedBodyLines(entry.body);
-  const hasCanonical = lines.some((line) => CANONICAL_PART_MARKER.test(line));
-  const rawParts = hasCanonical
-    ? consumeMergedPartLines(lines, CANONICAL_PART_MARKER, inRange)
-    : consumeMergedPartLines(lines, LEGACY_PART_MARKER, inRange);
+  const grammar = firstInRangeHeadingKind(lines, inRange);
+  const rawParts =
+    grammar === 'canonical'
+      ? consumeMergedPartLines(lines, CANONICAL_PART_MARKER, inRange, start)
+      : grammar === 'legacy'
+        ? consumeMergedPartLines(lines, LEGACY_PART_MARKER, inRange, start)
+        : [];
 
   if (rawParts.length === 0 && entry.body.trim()) {
     return [{ body: unescapeMergedPartBody(entry.body.trim()), date: start }];
@@ -602,41 +637,53 @@ const expandMergedDreamBody = (entry: DreamMemoryEntry): MergedDreamPart[] => {
 export const dreamMemoryTotalCharBudget = (maxEntries: number) =>
   (maxEntries + 1) * ASSISTANT_MEMORY_MAX_CHARS;
 
+const mergedBodyFitsBudget = (parts: MergedDreamPart[], budget: number) =>
+  formatMergedDreamBody(parts).length <= budget;
+
+const shrinkNewestMergedPart = (
+  parts: MergedDreamPart[],
+  budget: number,
+): MergedDreamPart[] => {
+  const anchor = parts.at(-1);
+  if (!anchor) return [];
+
+  const prefixParts = parts.slice(0, -1);
+  const withBody = (body: string) => [...prefixParts, { body, date: anchor.date }];
+  if (mergedBodyFitsBudget(withBody(anchor.body), budget)) return withBody(anchor.body);
+  if (!mergedBodyFitsBudget(withBody(''), budget)) {
+    return prefixParts.length > 0 ? shrinkNewestMergedPart([anchor], budget) : [];
+  }
+
+  let lo = 0;
+  let hi = anchor.body.length;
+  let bestLen = 0;
+  while (lo <= hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    const sliced = anchor.body.slice(0, mid);
+    if (mergedBodyFitsBudget(withBody(sliced), budget)) {
+      bestLen = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+
+  const sliced = anchor.body.slice(0, bestLen);
+  const readable = capAtReadableBoundary(anchor.body, bestLen);
+  const body = mergedBodyFitsBudget(withBody(readable), budget) ? readable : sliced.trimEnd();
+  return withBody(body);
+};
+
 const trimMergedPartsToBudget = (parts: MergedDreamPart[], budget: number): MergedDreamPart[] => {
   if (parts.length === 0 || budget <= 0) return [];
 
   let next = [...parts];
-  let body = formatMergedDreamBody(next);
-
-  while (next.length > 1 && body.length > budget) {
+  while (next.length > 1 && !mergedBodyFitsBudget(next, budget)) {
     next = next.slice(1);
-    body = formatMergedDreamBody(next);
   }
 
-  const anchor = next.at(-1);
-  if (!anchor || body.length <= budget) return next;
-
-  const prefixParts = next.length > 1 ? next.slice(0, -1) : [];
-  const prefix = prefixParts.length > 0 ? formatMergedDreamBody(prefixParts) : '';
-  const separator = prefix ? '\n\n' : '';
-  const dateHeader = `${mergedPartHeaderLine(anchor.date)}\n`;
-  const overhead = prefix.length + separator.length + dateHeader.length;
-  if (overhead >= budget) {
-    if (dateHeader.length >= budget) return [];
-    return [
-      {
-        body: capAtReadableBoundary(anchor.body, Math.max(0, budget - dateHeader.length)),
-        date: anchor.date,
-      },
-    ];
-  }
-
-  const truncated = {
-    body: capAtReadableBoundary(anchor.body, Math.max(0, budget - overhead)),
-    date: anchor.date,
-  };
-
-  return prefixParts.length > 0 ? [...prefixParts, truncated] : [truncated];
+  if (mergedBodyFitsBudget(next, budget)) return next;
+  return shrinkNewestMergedPart(next, budget);
 };
 
 const capDreamMemoryEntryBody = (entry: DreamMemoryEntry): DreamMemoryEntry => ({
@@ -652,11 +699,18 @@ const rebuildMergedEntry = (
   parts: MergedDreamPart[],
 ): DreamMemoryEntry | undefined => {
   if (parts.length === 0) return undefined;
-  const rangeStart = parts[0]!.date;
-  const rangeEnd = parts.at(-1)!.date;
+  let next = parts;
+  let body = formatMergedDreamBody(next);
+  if (body.length > ASSISTANT_MEMORY_MAX_CHARS) {
+    next = trimMergedPartsToBudget(next, ASSISTANT_MEMORY_MAX_CHARS);
+    if (next.length === 0) return undefined;
+    body = formatMergedDreamBody(next);
+  }
+  const rangeStart = next[0]!.date;
+  const rangeEnd = next.at(-1)!.date;
   return {
     ...entry,
-    body: formatMergedDreamBody(parts),
+    body,
     dateTag: `${rangeStart}..${rangeEnd}`,
     regenerable: false,
   };
