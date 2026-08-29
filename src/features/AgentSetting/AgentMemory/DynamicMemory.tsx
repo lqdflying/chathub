@@ -11,9 +11,12 @@ import { Flexbox } from 'react-layout-kit';
 import Tokens from '@/features/AgentSetting/AgentPrompt/TokenTag';
 import { ASSISTANT_MEMORY_MAX_CHARS } from '@lobechat/prompts';
 import {
+  DREAM_OVERFLOW_SENTINEL,
   type DreamMemoryEntry,
+  isDreamMergedTag,
   normalizeDreamMemoryDocument,
   parseDreamMemoryEntries,
+  visibleDreamMemoryBody,
 } from '@/helpers/assistantMemory';
 import { agentService } from '@/services/agent';
 
@@ -138,9 +141,10 @@ const DynamicMemory = memo(() => {
   };
 
   const onSaveEntry = async (entry: DreamMemoryEntry) => {
+    const visible = visibleDreamMemoryBody(entry);
     const next = editDraft.trim();
     setEditingIndex(null);
-    if (!next || next === entry.body || !agentId) return;
+    if (!next || next === visible || !agentId) return;
 
     try {
       const result = await agentService.updateDreamMemoryCard({
@@ -271,7 +275,11 @@ const DynamicMemory = memo(() => {
                 <Input.TextArea
                   autoFocus
                   autoSize={{ maxRows: 8, minRows: 2 }}
-                  maxLength={ASSISTANT_MEMORY_MAX_CHARS}
+                  maxLength={
+                    isDreamMergedTag(entry.dateTag)
+                      ? ASSISTANT_MEMORY_MAX_CHARS - DREAM_OVERFLOW_SENTINEL.length - 1
+                      : ASSISTANT_MEMORY_MAX_CHARS
+                  }
                   onChange={(e) => setEditDraft(e.target.value)}
                   value={editDraft}
                 />
@@ -289,7 +297,7 @@ const DynamicMemory = memo(() => {
                 <span className={styles.index}>#{entry.index}</span>
                 <Flexbox flex={1} gap={6} style={{ minWidth: 0 }}>
                   <Tag style={{ width: 'fit-content' }}>{formatDateTag(entry.dateTag)}</Tag>
-                  <div className={styles.content}>{entry.body}</div>
+                  <div className={styles.content}>{visibleDreamMemoryBody(entry)}</div>
                 </Flexbox>
                 <Flexbox gap={2} horizontal>
                   {entry.regenerable && (
@@ -304,7 +312,7 @@ const DynamicMemory = memo(() => {
                   <ActionIcon
                     icon={PencilIcon}
                     onClick={() => {
-                      setEditDraft(entry.body);
+                      setEditDraft(visibleDreamMemoryBody(entry));
                       setEditingIndex(entry.index);
                     }}
                     size={'small'}

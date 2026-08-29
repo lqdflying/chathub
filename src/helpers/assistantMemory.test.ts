@@ -23,6 +23,7 @@ import {
   serializeDreamMemoryPriorForPrompt,
   updateDreamMemoryEntry,
   updateFixedMemoryEntry,
+  visibleDreamMemoryBody,
 } from './assistantMemory';
 
 const { encodeAsync } = vi.hoisted(() => ({ encodeAsync: vi.fn() }));
@@ -550,18 +551,10 @@ describe('dream memory entries', () => {
     expect(capDreamMemoryDocument(capped, 14)).toBe(capped);
     const overflow = parseDreamMemoryEntries(capped)[0];
     expect(overflow?.dateTag).toBe('2026-08-01..2026-08-02');
-    const body = overflow?.body ?? '';
-    expect(body).toContain('day one');
-    expect(body).toContain('ordinary line');
-    expect(body).toContain('day two');
-    const lines = body.split('\n');
-    expect(lines).toContain('[date:2026-08-01]');
-    expect(lines).toContain('\\[date:2026-08-02]');
-    expect(lines).toContain('[date:2026-08-02]');
-    expect(lines.indexOf('\\[date:2026-08-02]')).toBeGreaterThan(lines.indexOf('[date:2026-08-01]'));
-    expect(lines.lastIndexOf('[date:2026-08-02]')).toBeGreaterThan(
-      lines.indexOf('\\[date:2026-08-02]'),
-    );
+    expect(overflow?.body).toContain('day one');
+    expect(overflow?.body).toContain('ordinary line');
+    expect(overflow?.body).toContain('day two');
+    expect(visibleDreamMemoryBody(overflow!)).not.toContain('[overflow:v1]');
   });
 
   it('caps stuffed overflow bodies to the per-card edit limit', () => {
@@ -622,6 +615,62 @@ describe('dream memory entries', () => {
     expect(tightOverflow?.body).toContain('REAL NEWEST DAY');
     expect(tightOverflow?.dateTag).toContain('2026-08-02');
     expect(tightOverflow?.dateTag).not.toBe('2026-08-01..2026-08-01');
+  });
+
+  it('does not let extra ordinary date lines outvote canonical overflow headings', () => {
+    const originalBody = [
+      '[2026-08-01]',
+      '[2026-08-02]',
+      '[2026-08-01]',
+      '[date:2026-08-01]',
+      'day one body',
+      '',
+      '[date:2026-08-02]',
+      'day two body',
+    ].join('\n');
+    const doc = `#1 [2026-08-01..2026-08-02]:\n${originalBody}`;
+    const capped = capDreamMemoryDocument(doc, 14);
+    expect(capDreamMemoryDocument(capped, 14)).toBe(capped);
+    const overflow = parseDreamMemoryEntries(capped)[0];
+    expect(overflow?.dateTag).toBe('2026-08-01..2026-08-02');
+    expect(overflow?.body.startsWith('[overflow:v1]\n')).toBe(true);
+    expect(overflow?.body).toContain('day one body');
+    expect(overflow?.body).toContain('day two body');
+    expect(visibleDreamMemoryBody(overflow!)).not.toContain('[overflow:v1]');
+
+    const tightDoc = `#1 [2026-08-01..2026-08-02]:\n[2026-08-01]\n[2026-08-02]\n[2026-08-01]\n[date:2026-08-01]\n${'x'.repeat(3140)}\n\n[date:2026-08-02]\nREAL NEWEST DAY`;
+    const tight = capDreamMemoryDocument(tightDoc, 14);
+    expect(capDreamMemoryDocument(tight, 14)).toBe(tight);
+    const tightOverflow = parseDreamMemoryEntries(tight)[0];
+    expect(tightOverflow?.body.length).toBeLessThanOrEqual(ASSISTANT_MEMORY_MAX_CHARS);
+    expect(tightOverflow?.body).toContain('REAL NEWEST DAY');
+    expect(tightOverflow?.dateTag).toContain('2026-08-02');
+    expect(tightOverflow?.dateTag).not.toBe('2026-08-01..2026-08-01');
+  });
+
+  it('keeps legacy two-day overflow when ordinary [date:] lines outnumber bare headings', () => {
+    const doc = [
+      '#1 [2026-08-01..2026-08-02]:',
+      '[2026-08-01]',
+      'day one',
+      '[date:2026-08-01]',
+      'looks canonical a',
+      '[date:2026-08-02]',
+      'looks canonical b',
+      '[date:2026-08-02]',
+      'looks canonical c',
+      '[2026-08-02]',
+      'day two',
+    ].join('\n');
+    const capped = capDreamMemoryDocument(doc, 14);
+    expect(capDreamMemoryDocument(capped, 14)).toBe(capped);
+    const overflow = parseDreamMemoryEntries(capped)[0];
+    expect(overflow?.dateTag).toBe('2026-08-01..2026-08-02');
+    expect(overflow?.body).toContain('day one');
+    expect(overflow?.body).toContain('looks canonical a');
+    expect(overflow?.body).toContain('looks canonical b');
+    expect(overflow?.body).toContain('looks canonical c');
+    expect(overflow?.body).toContain('day two');
   });
 
   it('caps an oversized merged card body to the per-card limit', () => {

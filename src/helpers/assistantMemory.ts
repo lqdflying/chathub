@@ -350,7 +350,10 @@ export type DreamMemoryMutationError = 'mismatch' | 'not_found';
 
 const isDreamSingleDayTag = (tag: string) => DREAM_SINGLE_DAY_TAG.test(tag);
 const DREAM_MERGED_TAG = /^\d{4}-\d{2}-\d{2}\.\.\d{4}-\d{2}-\d{2}$/;
-const isDreamMergedTag = (tag: string) => DREAM_MERGED_TAG.test(tag);
+export const isDreamMergedTag = (tag: string) => DREAM_MERGED_TAG.test(tag);
+
+/** Leading magic line for canonical overflow. Not part of any day's body. */
+export const DREAM_OVERFLOW_SENTINEL = '[overflow:v1]';
 
 /** Non-scheduled tags such as `[legacy]` or pre-feature custom labels. */
 export const isDreamCustomTag = (tag: string) =>
@@ -540,8 +543,8 @@ const unescapeMergedPartBody = (body: string): string =>
     })
     .join('\n');
 
-const formatMergedDreamBody = (parts: MergedDreamPart[]): string =>
-  parts
+const formatMergedDreamBody = (parts: MergedDreamPart[]): string => {
+  const inner = parts
     .map(({ body, date }) => {
       const header = mergedPartHeaderLine(date);
       const escaped = escapeMergedPartBody(body);
@@ -549,6 +552,19 @@ const formatMergedDreamBody = (parts: MergedDreamPart[]): string =>
     })
     .join('\n\n')
     .trim();
+  return inner ? `${DREAM_OVERFLOW_SENTINEL}\n${inner}` : DREAM_OVERFLOW_SENTINEL;
+};
+
+export const stripDreamOverflowSentinel = (body: string): string => {
+  const lines = splitMergedBodyLines(body);
+  const first = lines.findIndex((line) => line.length > 0);
+  if (first === -1 || lines[first] !== DREAM_OVERFLOW_SENTINEL) return body;
+  return lines.slice(first + 1).join('\n').replace(/^\n+/, '');
+};
+
+export const visibleDreamMemoryBody = (
+  entry: Pick<DreamMemoryEntry, 'body' | 'dateTag'>,
+): string => (isDreamMergedTag(entry.dateTag) ? stripDreamOverflowSentinel(entry.body) : entry.body);
 
 const parseMergedRangeBounds = (tag: string): { end: string; start: string } => {
   const [start, end] = tag.split('..');
@@ -597,31 +613,35 @@ const consumeMergedPartLines = (
   return parts;
 };
 
-const countInRangeHeadings = (
-  lines: string[],
-  marker: RegExp,
-  inRange: (date: string) => boolean,
-): number =>
-  lines.reduce((count, line) => {
-    const match = marker.exec(line);
-    return match && inRange(match[1]!) ? count + 1 : count;
-  }, 0);
+const splitOverflowBodyLines = (
+  body: string,
+): { forceCanonical: boolean; lines: string[] } => {
+  const lines = splitMergedBodyLines(body);
+  const first = lines.findIndex((line) => line.length > 0);
+  if (first >= 0 && lines[first] === DREAM_OVERFLOW_SENTINEL) {
+    return { forceCanonical: true, lines: lines.slice(first + 1) };
+  }
+  return { forceCanonical: false, lines };
+};
 
-/**
- * Pick overflow grammar by native heading count, not first-line order.
- * A leading ordinary `[YYYY-MM-DD]` in a canonical card must not select legacy
- * framing; a later `[date:]` body line in a legacy card must not select canonical.
- */
 const chooseMergedOverflowGrammar = (
   lines: string[],
   inRange: (date: string) => boolean,
+  forceCanonical: boolean,
 ): 'canonical' | 'legacy' | null => {
-  const canonicalHeadings = countInRangeHeadings(lines, CANONICAL_PART_MARKER, inRange);
-  const legacyHeadings = countInRangeHeadings(lines, LEGACY_PART_MARKER, inRange);
-  if (canonicalHeadings > legacyHeadings) return 'canonical';
-  if (legacyHeadings > canonicalHeadings) return 'legacy';
-  if (canonicalHeadings > 0) return 'canonical';
-  if (legacyHeadings > 0) return 'legacy';
+  if (forceCanonical) return 'canonical';
+  if (lines.some((line) => {
+    const match = CANONICAL_PART_MARKER.exec(line);
+    return Boolean(match && inRange(match[1]!));
+  })) {
+    return 'canonical';
+  }
+  if (lines.some((line) => {
+    const match = LEGACY_PART_MARKER.exec(line);
+    return Boolean(match && inRange(match[1]!));
+  })) {
+    return 'legacy';
+  }
   return null;
 };
 
@@ -632,8 +652,8 @@ const expandMergedDreamBody = (entry: DreamMemoryEntry): MergedDreamPart[] => {
 
   const { start, end } = parseMergedRangeBounds(entry.dateTag);
   const inRange = (date: string) => date >= start && date <= end;
-  const lines = splitMergedBodyLines(entry.body);
-  const grammar = chooseMergedOverflowGrammar(lines, inRange);
+  const { forceCanonical, lines } = splitOverflowBodyLines(entry.body);
+  const grammar = chooseMergedOverflowGrammar(lines, inRange, forceCanonical);
   const rawParts =
     grammar === 'canonical'
       ? consumeMergedPartLines(lines, CANONICAL_PART_MARKER, inRange, start)
@@ -642,7 +662,7 @@ const expandMergedDreamBody = (entry: DreamMemoryEntry): MergedDreamPart[] => {
         : [];
 
   if (rawParts.length === 0 && entry.body.trim()) {
-    return [{ body: unescapeMergedPartBody(entry.body.trim()), date: start }];
+    return [{ body: unescapeMergedPartBody(stripDreamOverflowSentinel(entry.body).trim()), date: start }];
   }
 
   return rawParts.map((part) => ({ ...part, body: unescapeMergedPartBody(part.body) }));
