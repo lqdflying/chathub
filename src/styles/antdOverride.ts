@@ -42,10 +42,16 @@ export default ({ token }: { prefixCls: string; token: Theme }) => css`
   /*
    * Settings switches: only the control toggles — not the full row label.
    * Ant Design associates horizontal Form.Item labels with the switch input.
+   * Keep native Form.Item tooltips (.ant-form-item-tooltip) interactive and
+   * inline next to the title so help icons do not float mid-row.
    */
   .${token.prefixCls}-form-item:has(.${token.prefixCls}-switch)
     .${token.prefixCls}-form-item-label
     > label {
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+
     cursor: default;
     pointer-events: none;
   }

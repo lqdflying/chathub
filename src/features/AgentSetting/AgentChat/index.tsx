@@ -63,13 +63,14 @@ const AgentChat = memo(() => {
       {
         children: <Switch />,
         desc: t('settingChat.enableAutoCreateTopic.desc'),
-        label: withTooltip(
-          t('settingChat.enableAutoCreateTopic.title'),
-          t('settingChat.enableAutoCreateTopic.tooltip'),
-        ),
+        label: t('settingChat.enableAutoCreateTopic.title'),
         layout: 'horizontal',
         minWidth: undefined,
         name: 'enableAutoCreateTopic',
+        tooltip: {
+          title: t('settingChat.enableAutoCreateTopic.tooltip'),
+          trigger: ['hover', 'click'],
+        },
         valuePropName: 'checked',
       },
       {
@@ -82,13 +83,14 @@ const AgentChat = memo(() => {
       },
       {
         children: <Switch />,
-        label: withTooltip(
-          t('settingChat.enableHistoryCount.title'),
-          t('settingChat.enableHistoryCount.tooltip'),
-        ),
+        label: t('settingChat.enableHistoryCount.title'),
         layout: 'horizontal',
         minWidth: undefined,
         name: 'enableHistoryCount',
+        tooltip: {
+          title: t('settingChat.enableHistoryCount.tooltip'),
+          trigger: ['hover', 'click'],
+        },
         valuePropName: 'checked',
       },
       {
@@ -102,13 +104,14 @@ const AgentChat = memo(() => {
       {
         children: <Switch />,
         hidden: !config.enableHistoryCount,
-        label: withTooltip(
-          t('settingChat.enableCompressHistory.title'),
-          t('settingChat.enableCompressHistory.tooltip'),
-        ),
+        label: t('settingChat.enableCompressHistory.title'),
         layout: 'horizontal',
         minWidth: undefined,
         name: 'enableCompressHistory',
+        tooltip: {
+          title: t('settingChat.enableCompressHistory.tooltip'),
+          trigger: ['hover', 'click'],
+        },
         valuePropName: 'checked',
       },
     ],
@@ -137,13 +140,14 @@ const AgentChat = memo(() => {
       {
         children: <Switch />,
         desc: t('settingChatMemory.enableTokenThresholdAutoCompact.desc'),
-        label: withTooltip(
-          t('settingChatMemory.enableTokenThresholdAutoCompact.title'),
-          t('settingChatMemory.enableTokenThresholdAutoCompact.tooltip'),
-        ),
+        label: t('settingChatMemory.enableTokenThresholdAutoCompact.title'),
         layout: 'horizontal',
         minWidth: undefined,
         name: 'enableTokenThresholdAutoCompact',
+        tooltip: {
+          title: t('settingChatMemory.enableTokenThresholdAutoCompact.tooltip'),
+          trigger: ['hover', 'click'],
+        },
         valuePropName: 'checked',
       },
       {

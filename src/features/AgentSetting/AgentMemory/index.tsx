@@ -53,13 +53,14 @@ const AgentMemory = memo(() => {
       {
         children: <Switch />,
         desc: t('settingChatMemory.enableUserMemoryArchive.desc'),
-        label: withTooltip(
-          t('settingChatMemory.enableUserMemoryArchive.title'),
-          t('settingChatMemory.enableUserMemoryArchive.tooltip'),
-        ),
+        label: t('settingChatMemory.enableUserMemoryArchive.title'),
         layout: 'horizontal',
         minWidth: undefined,
         name: 'enableUserMemoryArchive',
+        tooltip: {
+          title: t('settingChatMemory.enableUserMemoryArchive.tooltip'),
+          trigger: ['hover', 'click'],
+        },
         valuePropName: 'checked',
       },
       {
