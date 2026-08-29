@@ -15,12 +15,14 @@ import { agents } from '@/database/schemas';
 import {
   appendDreamMemoryEntry,
   capAssistantMemoryByTokensAsync,
+  capDreamMemoryDocument,
   enforceDreamMemoryRetention,
   hasDreamMemoryEntryForDate,
   normalizeAssistantMemoryText,
   normalizeDreamMemoryDocument,
   replaceDreamMemoryEntryBody,
   resolveMemoryDreamMaxEntries,
+  serializeDreamMemoryPriorForPrompt,
 } from '@/helpers/assistantMemory';
 import { buildSimpleCompletionSampling } from '@/helpers/contextCompaction';
 import { logCompactionDebugSafe } from '@/libs/logger/compactionDebug';
@@ -237,14 +239,8 @@ export const executeAssistantMemoryDream = async ({
       settle({ ...result, activityWindowEnd: windowEnd, activityWindowStart: windowStart, trigger });
       return result;
     }
-
-    if (hasDreamMemoryEntryForDate(priorDoc, historyDate)) {
-      const result = { reason: 'already_has_card', status: 'skipped' as const };
-      settle({ ...result, activityWindowEnd: windowEnd, activityWindowStart: windowStart, trigger });
-      return result;
-    }
   } else {
-    if (!historyDate || replaceIndex == null || !match) {
+    if (!historyDate || replaceIndex === undefined || !match) {
       const result = { reason: 'invalid_regenerate', status: 'failed' as const };
       settle({ ...result, activityWindowEnd: windowEnd, activityWindowStart: windowStart, trigger });
       return result;
@@ -278,6 +274,17 @@ export const executeAssistantMemoryDream = async ({
     });
     return wrote;
   };
+
+  if (!isRegenerate && hasDreamMemoryEntryForDate(priorDoc, historyDate)) {
+    if (!(await writeMarker())) {
+      const result = { reason: 'stale_conflict', status: 'skipped' as const };
+      settle({ ...result, activityWindowEnd: windowEnd, activityWindowStart: windowStart, trigger });
+      return result;
+    }
+    const result = { reason: 'already_has_card', status: 'skipped' as const };
+    settle({ ...result, activityWindowEnd: windowEnd, activityWindowStart: windowStart, trigger });
+    return result;
+  }
 
   if (!isRegenerate && activeTopicCount === 0) {
     if (!(await writeMarker())) {
@@ -337,7 +344,7 @@ export const executeAssistantMemoryDream = async ({
       fixed,
       historyDate,
       model,
-      prior: priorDoc,
+      prior: serializeDreamMemoryPriorForPrompt(priorDoc),
       provider,
       topics: topics.map((topic) => ({
         historySummary: topic.historySummary,
@@ -435,6 +442,9 @@ export const executeAssistantMemoryDream = async ({
     return result;
   }
 
+  const finalizeDreamDocument = (doc: string) =>
+    capDreamMemoryDocument(enforceDreamMemoryRetention(doc, maxEntries), maxEntries);
+
   let nextDoc: string;
   if (isRegenerate) {
     const replaced = replaceDreamMemoryEntryBody(
@@ -455,10 +465,10 @@ export const executeAssistantMemoryDream = async ({
       });
       return result;
     }
-    nextDoc = enforceDreamMemoryRetention(replaced.doc, maxEntries);
+    nextDoc = finalizeDreamDocument(replaced.doc);
   } else {
     const appended = appendDreamMemoryEntry(priorDoc, historyDate, nextBody);
-    nextDoc = enforceDreamMemoryRetention(appended.doc, maxEntries);
+    nextDoc = finalizeDreamDocument(appended.doc);
   }
 
   const wrote = await writeAgentMemoryIfUnchanged(db, agentId, userId, snapshot, {

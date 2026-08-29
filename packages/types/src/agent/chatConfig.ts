@@ -154,6 +154,12 @@ export interface LobeAgentChatConfig {
   enablePeriodicAssistantMemoryRollup?: boolean;
 
   /**
+   * Keep the newest N single-day dream-memory cards; older single-day cards merge
+   * into one range-tagged card. Default 14; range 1–90.
+   */
+  memoryDreamMaxEntries?: number;
+
+  /**
    * Server-side memory dream schedule. Times are UTC.
    * `'off'` (default) / `'daily'` / `'weekly'`.
    */
@@ -164,12 +170,6 @@ export interface LobeAgentChatConfig {
 
   /** UTC weekday (0 = Sunday … 6 = Saturday) when frequency is `'weekly'`. Default 0. */
   memoryDreamScheduleWeekday?: number;
-
-  /**
-   * Keep the newest N single-day dream-memory cards; older single-day cards merge
-   * into one range-tagged card. Default 14; range 1–90.
-   */
-  memoryDreamMaxEntries?: number;
 
   /** Append snapshot excerpts to topic metadata on compaction; optional prompt injection */
   enableUserMemoryArchive?: boolean;
@@ -204,13 +204,13 @@ export const AgentChatConfigSchema = z.object({
     .enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])
     .optional(),
   historyCount: z.number().optional(),
+  memoryDreamMaxEntries: z.number().int().min(1).max(90).optional(),
   memoryDreamScheduleFrequency: z.enum(['daily', 'off', 'weekly']).optional(),
   memoryDreamScheduleTime: z
     .string()
     .regex(/^([01]\d|2[0-3]):([0-5]\d)$/)
     .optional(),
   memoryDreamScheduleWeekday: z.number().int().min(0).max(6).optional(),
-  memoryDreamMaxEntries: z.number().int().min(1).max(90).optional(),
   minimaxReasoningSplit: z.boolean().optional(),
   moonshotPreservedReasoning: z.boolean().optional(),
   reasoningBudgetToken: z.number().optional(),

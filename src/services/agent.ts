@@ -53,6 +53,33 @@ class AgentService {
   }) => {
     return lambdaClient.agent.regenerateDreamMemory.mutate(input);
   };
+
+  updateDreamMemoryCard = async (input: {
+    agentId: string;
+    body: string;
+    dateTag: string;
+    index: number;
+    match: string;
+  }) => {
+    return lambdaClient.agent.updateDreamMemoryCard.mutate(input);
+  };
+
+  deleteDreamMemoryCard = async (input: {
+    agentId: string;
+    dateTag: string;
+    index: number;
+    match: string;
+  }) => {
+    return lambdaClient.agent.deleteDreamMemoryCard.mutate(input);
+  };
+
+  clearDreamMemory = async (input: { agentId: string }) => {
+    return lambdaClient.agent.clearDreamMemory.mutate(input);
+  };
+
+  applyDreamMemoryRetention = async (input: { agentId: string; maxEntries: number }) => {
+    return lambdaClient.agent.applyDreamMemoryRetention.mutate(input);
+  };
 }
 
 export const agentService = new AgentService();

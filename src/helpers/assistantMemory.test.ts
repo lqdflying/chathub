@@ -7,15 +7,18 @@ import {
   capAssistantMemoryByTokensAsync,
   deleteDreamMemoryEntry,
   deleteFixedMemoryEntry,
+  dreamMemoryTotalCharBudget,
   enforceDreamMemoryRetention,
   formatFixedMemoryEntries,
   hashText,
   hasDreamMemoryEntryForDate,
   normalizeAssistantMemoryText,
   normalizeDreamMemoryDocument,
+  parseDreamMemoryEntries,
   parseFixedMemoryEntries,
   renumberFixedMemoryEntries,
   resolveLastDreamStatus,
+  serializeDreamMemoryPriorForPrompt,
   updateFixedMemoryEntry,
 } from './assistantMemory';
 
@@ -324,6 +327,40 @@ describe('dream memory entries', () => {
     expect(merged).toContain('#2 [2026-08-27]');
     expect(merged).toContain('#3 [2026-08-28]');
     expect(merged).not.toContain('#1 [2026-08-25]:');
+  });
+
+  it('keeps overflow non-regenerable at the N+1 boundary', () => {
+    const doc = [
+      '#1 [2026-08-25]:\na',
+      '#2 [2026-08-26]:\nb',
+      '#3 [2026-08-27]:\nc',
+    ].join('\n');
+    const merged = enforceDreamMemoryRetention(doc, 2);
+    const entries = parseDreamMemoryEntries(merged);
+    expect(entries).toHaveLength(3);
+    expect(entries.filter((entry) => entry.regenerable)).toHaveLength(2);
+    expect(entries[0]?.dateTag).toBe('2026-08-25..2026-08-25');
+    expect(entries[0]?.regenerable).toBe(false);
+  });
+
+  it('caps the serialized document to the total char budget', () => {
+    const cards = Array.from({ length: 20 }, (_, index) => {
+      const day = String(index + 1).padStart(2, '0');
+      return `#${index + 1} [2026-08-${day}]:\n${'x'.repeat(3200)}`;
+    }).join('\n');
+    const capped = enforceDreamMemoryRetention(cards, 14);
+    expect(capped.length).toBeLessThanOrEqual(dreamMemoryTotalCharBudget(14));
+    expect(capped).toContain('#14 [2026-08-20]');
+    expect(capped).not.toContain('#1 [2026-08-01]:');
+  });
+
+  it('orders prior prompt context with newest single-day cards first', () => {
+    const doc = [
+      '#1 [2026-08-25]:\nold',
+      '#2 [2026-08-27]:\nnew',
+    ].join('\n');
+    const prior = serializeDreamMemoryPriorForPrompt(doc);
+    expect(prior.indexOf('new')).toBeLessThan(prior.indexOf('old'));
   });
 
   it('detects an existing card for a history date', () => {

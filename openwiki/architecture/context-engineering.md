@@ -339,9 +339,9 @@ cards and fixed memory are read-only do-not-duplicate context in the prompt.
 ```
 
 - Single-day tag `YYYY-MM-DD` — one successful dream for that history day; user **Regenerate** re-runs the dream for that UTC day only (`executeAssistantMemoryDream` `mode: 'regenerate'`).
-- Range tag `YYYY-MM-DD..YYYY-MM-DD` — merged overflow from **Keep dream cards** retention; edit/delete allowed, no regenerate.
+- Range tag `YYYY-MM-DD..YYYY-MM-DD` (including `date..date` when only one day was folded) — merged overflow from **Keep dream cards** retention; edit/delete allowed, no regenerate.
 - Legacy unnumbered blobs are wrapped once as `#1 [legacy]:` on first append.
-- Helpers: `parseDreamMemoryEntries`, `appendDreamMemoryEntry`, `enforceDreamMemoryRetention` (`memoryDreamMaxEntries`, default 14, clamp 1–90). Scheduled runs skip append when a single-day card for that history date already exists (in addition to `lastDreamMarker`).
+- Helpers: `parseDreamMemoryEntries`, `appendDreamMemoryEntry`, `enforceDreamMemoryRetention` (`memoryDreamMaxEntries`, default 14, clamp 1–90), `capDreamMemoryDocument` (hard total budget of `(N+1) × ASSISTANT_MEMORY_MAX_CHARS`, trimming oldest folded overflow first). Scheduled runs skip append when a single-day card for that history date already exists (in addition to `lastDreamMarker`).
 
 **Markers and backoff.** Success and genuine no-op skips (`no_active_topics_yesterday`,
 `no_summaries`, `no_changes`) write `assistantMemoryMeta.lastDreamMarker` (`YYYY-MM-DD` or

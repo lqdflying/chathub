@@ -11,10 +11,8 @@ import { Flexbox } from 'react-layout-kit';
 import Tokens from '@/features/AgentSetting/AgentPrompt/TokenTag';
 import {
   type DreamMemoryEntry,
-  deleteDreamMemoryEntry,
   normalizeDreamMemoryDocument,
   parseDreamMemoryEntries,
-  updateDreamMemoryEntry,
 } from '@/helpers/assistantMemory';
 import { agentService } from '@/services/agent';
 
@@ -50,6 +48,9 @@ const useStyles = createStyles(({ css, token }) => ({
 
 const matchSnippet = (body: string) => body.trim().slice(0, 80);
 
+const errorReason = (error: unknown) =>
+  (error as Error)?.message || String(error ?? 'unknown error');
+
 const formatDateTag = (tag: string) => {
   if (tag === 'legacy') return 'legacy';
   if (tag.includes('..')) return tag.replace('..', ' – ');
@@ -65,10 +66,9 @@ const DynamicMemory = memo(() => {
   const { message, modal } = App.useApp();
   const { styles } = useStyles();
 
-  const [assistantMemory, agentId, updateConfig, onRefreshConfig] = useStore((s) => [
+  const [assistantMemory, agentId, onRefreshConfig] = useStore((s) => [
     s.config.assistantMemory ?? '',
     s.config.id,
-    s.setAgentConfig,
     s.onRefreshConfig,
   ]);
 
@@ -80,43 +80,82 @@ const DynamicMemory = memo(() => {
   const doc = useMemo(() => normalizeDreamMemoryDocument(assistantMemory), [assistantMemory]);
   const entries = useMemo(() => parseDreamMemoryEntries(doc), [doc]);
 
-  const persist = useCallback(
-    (nextDoc: string) => {
-      Promise.resolve(updateConfig({ assistantMemory: nextDoc }))
-        .then(() => {
-          message.success(t('settingChatMemory.saveSuccess'));
-        })
-        .catch((error) => {
-          message.error(
-            t('settingChatMemory.saveFailedWithReason', {
-              reason: (error as Error)?.message || String(error ?? 'unknown error'),
-            }),
-          );
-        });
+  const reconcileAfterError = useCallback(async () => {
+    if (!onRefreshConfig) {
+      message.error(
+        t('settingChatMemory.reconcileFailedRetry', { reason: 'refresh unavailable' }),
+      );
+      return;
+    }
+    try {
+      await onRefreshConfig();
+    } catch (error) {
+      message.error(
+        t('settingChatMemory.reconcileFailedRetry', { reason: errorReason(error) }),
+      );
+    }
+  }, [message, onRefreshConfig, t]);
+
+  const handleMutationResult = useCallback(
+    async (result: { reason?: string; status: string }) => {
+      if (result.status === 'success') {
+        await onRefreshConfig?.();
+        message.success(t('settingChatMemory.saveSuccess'));
+        return;
+      }
+      if (result.status === 'stale_conflict') {
+        message.warning(t('settingChatMemory.regenerateStaleConflict'));
+        await reconcileAfterError();
+        return;
+      }
+      message.error(
+        t('settingChatMemory.saveFailedWithReason', {
+          reason: result.reason ?? 'unknown',
+        }),
+      );
+      await reconcileAfterError();
     },
-    [message, t, updateConfig],
+    [message, onRefreshConfig, reconcileAfterError, t],
   );
 
-  const onDeleteEntry = (entry: DreamMemoryEntry) => {
-    const outcome = deleteDreamMemoryEntry(doc, entry.index, matchSnippet(entry.body));
-    if ('error' in outcome) {
-      message.error(t('settingChatMemory.saveFailedWithReason', { reason: outcome.error }));
-      return;
+  const onDeleteEntry = async (entry: DreamMemoryEntry) => {
+    if (!agentId) return;
+    try {
+      const result = await agentService.deleteDreamMemoryCard({
+        agentId,
+        dateTag: entry.dateTag,
+        index: entry.index,
+        match: matchSnippet(entry.body),
+      });
+      await handleMutationResult(result);
+    } catch (error) {
+      message.error(
+        t('settingChatMemory.saveFailedWithReason', { reason: errorReason(error) }),
+      );
+      await reconcileAfterError();
     }
-    persist(outcome.doc);
   };
 
-  const onSaveEntry = (entry: DreamMemoryEntry) => {
+  const onSaveEntry = async (entry: DreamMemoryEntry) => {
     const next = editDraft.trim();
     setEditingIndex(null);
-    if (!next || next === entry.body) return;
+    if (!next || next === entry.body || !agentId) return;
 
-    const outcome = updateDreamMemoryEntry(doc, entry.index, matchSnippet(entry.body), next);
-    if ('error' in outcome) {
-      message.error(t('settingChatMemory.saveFailedWithReason', { reason: outcome.error }));
-      return;
+    try {
+      const result = await agentService.updateDreamMemoryCard({
+        agentId,
+        body: next,
+        dateTag: entry.dateTag,
+        index: entry.index,
+        match: matchSnippet(entry.body),
+      });
+      await handleMutationResult(result);
+    } catch (error) {
+      message.error(
+        t('settingChatMemory.saveFailedWithReason', { reason: errorReason(error) }),
+      );
+      await reconcileAfterError();
     }
-    persist(outcome.doc);
   };
 
   const onRegenerate = async (entry: DreamMemoryEntry) => {
@@ -131,27 +170,45 @@ const DynamicMemory = memo(() => {
         match: matchSnippet(entry.body),
       });
 
-      if (result.status === 'success') {
-        message.success(t('settingChatMemory.rollupSuccess'));
-        await onRefreshConfig?.();
-      } else if (result.reason === 'no_changes') {
-        message.info(t('settingChatMemory.rollupNoChanges'));
-      } else if (result.reason === 'no_summaries') {
-        message.warning(t('settingChatMemory.rollupSkipped'));
-      } else if (result.reason === 'stale_conflict') {
-        message.warning(t('settingChatMemory.regenerateStaleConflict'));
-        await onRefreshConfig?.();
-      } else {
-        message.error(
-          t('settingChatMemory.rollupFailedWithReason', {
-            reason: result.reason ?? 'unknown',
-          }),
-        );
+      switch (result.status) {
+        case 'success': {
+          message.success(t('settingChatMemory.rollupSuccess'));
+          await onRefreshConfig?.();
+          break;
+        }
+        case 'skipped': {
+          switch (result.reason) {
+            case 'no_changes': {
+              message.info(t('settingChatMemory.rollupNoChanges'));
+              break;
+            }
+            case 'no_summaries': {
+              message.warning(t('settingChatMemory.rollupSkipped'));
+              break;
+            }
+            case 'stale_conflict': {
+              message.warning(t('settingChatMemory.regenerateStaleConflict'));
+              await reconcileAfterError();
+              break;
+            }
+            default: {
+              break;
+            }
+          }
+          break;
+        }
+        default: {
+          message.error(
+            t('settingChatMemory.rollupFailedWithReason', {
+              reason: result.reason ?? 'unknown',
+            }),
+          );
+        }
       }
     } catch (error) {
       message.error(
         t('settingChatMemory.rollupFailedWithReason', {
-          reason: (error as Error)?.message || String(error ?? 'unknown error'),
+          reason: errorReason(error),
         }),
       );
     } finally {
@@ -165,17 +222,22 @@ const DynamicMemory = memo(() => {
       okButtonProps: { danger: true },
       okText: t('settingChatMemory.clear'),
       onOk: () => {
+        if (!agentId) return;
         setClearing(true);
         void (async () => {
           try {
-            await updateConfig({ assistantMemory: '' });
-            message.success(t('settingChatMemory.clearSuccess'));
+            const result = await agentService.clearDreamMemory({ agentId });
+            if (result.status === 'success') {
+              await onRefreshConfig?.();
+              message.success(t('settingChatMemory.clearSuccess'));
+            } else {
+              await handleMutationResult(result);
+            }
           } catch (error) {
             message.error(
-              t('settingChatMemory.saveFailedWithReason', {
-                reason: (error as Error)?.message || String(error ?? 'unknown error'),
-              }),
+              t('settingChatMemory.saveFailedWithReason', { reason: errorReason(error) }),
             );
+            await reconcileAfterError();
           } finally {
             setClearing(false);
           }
@@ -215,7 +277,7 @@ const DynamicMemory = memo(() => {
                   <Button onClick={() => setEditingIndex(null)} size={'small'}>
                     {t('cancel', { ns: 'common' })}
                   </Button>
-                  <Button onClick={() => onSaveEntry(entry)} size={'small'} type={'primary'}>
+                  <Button onClick={() => void onSaveEntry(entry)} size={'small'} type={'primary'}>
                     {t('ok', { ns: 'common' })}
                   </Button>
                 </Flexbox>
@@ -249,7 +311,7 @@ const DynamicMemory = memo(() => {
                   <Popconfirm
                     cancelText={t('cancel', { ns: 'common' })}
                     okText={t('ok', { ns: 'common' })}
-                    onConfirm={() => onDeleteEntry(entry)}
+                    onConfirm={() => void onDeleteEntry(entry)}
                     title={t('settingChatMemory.dynamicMemory.deleteConfirm')}
                   >
                     <ActionIcon

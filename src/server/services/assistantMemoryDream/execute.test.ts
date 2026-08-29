@@ -233,6 +233,15 @@ describe('executeAssistantMemoryDream', () => {
 
     expect(result).toMatchObject({ reason: 'already_has_card', status: 'skipped' });
     expect(chat).not.toHaveBeenCalled();
+    expect(updateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        assistantMemoryMeta: expect.objectContaining({
+          lastDreamMarker: PERIOD,
+          lastDreamStatus: 'completed',
+        }),
+      }),
+    );
+    expect(updateSet.mock.calls[0][0].assistantMemory).toBeUndefined();
   });
 
   it('does not overwrite memory when the agent row changed during the model call', async () => {

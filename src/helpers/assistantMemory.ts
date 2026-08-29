@@ -335,7 +335,7 @@ export const resolveMemoryDreamMaxEntries = (
   return Math.min(MEMORY_DREAM_MAX_ENTRIES_MAX, Math.max(MEMORY_DREAM_MAX_ENTRIES_MIN, raw));
 };
 
-const DREAM_MEMORY_HEADER = /^#(\d+) \[([^\]]+)\]:\s*(.*)$/;
+const DREAM_MEMORY_HEADER = /^#(\d+) \[([^\]]+)]:\s*(.*)$/;
 const DREAM_SINGLE_DAY_TAG = /^\d{4}-\d{2}-\d{2}$/;
 
 export interface DreamMemoryEntry {
@@ -473,12 +473,14 @@ export const updateDreamMemoryEntry = (
   index: number,
   match: string,
   body: string,
+  dateTag?: string,
 ):
   | { doc: string; entry: DreamMemoryEntry }
   | { entries: DreamMemoryEntry[]; error: DreamMemoryMutationError } => {
   const entries = parseDreamMemoryEntries(doc);
   const target = findDreamEntry(entries, index);
   if (!target) return { entries, error: 'not_found' };
+  if (dateTag && target.dateTag !== dateTag) return { entries, error: 'mismatch' };
   if (!target.body.includes(match.trim())) return { entries, error: 'mismatch' };
 
   return replaceDreamMemoryEntryBody(doc, index, target.dateTag, match, body);
@@ -488,12 +490,14 @@ export const deleteDreamMemoryEntry = (
   doc: string | null | undefined,
   index: number,
   match: string,
+  dateTag?: string,
 ):
   | { doc: string; removed: DreamMemoryEntry }
   | { entries: DreamMemoryEntry[]; error: DreamMemoryMutationError } => {
   const entries = parseDreamMemoryEntries(doc);
   const target = findDreamEntry(entries, index);
   if (!target) return { entries, error: 'not_found' };
+  if (dateTag && target.dateTag !== dateTag) return { entries, error: 'mismatch' };
   if (!target.body.includes(match.trim())) return { entries, error: 'mismatch' };
 
   const remaining = entries.filter((entry) => entry.index !== index);
@@ -503,21 +507,26 @@ export const deleteDreamMemoryEntry = (
   };
 };
 
-const formatMergedDreamBody = (parts: Array<{ date: string; body: string }>): string =>
+interface MergedDreamPart {
+  body: string;
+  date: string;
+}
+
+const formatMergedDreamBody = (parts: MergedDreamPart[]): string =>
   parts
     .map(({ body, date }) => (body ? `[${date}]\n${body}` : `[${date}]`))
     .join('\n\n')
     .trim();
 
-const expandMergedDreamBody = (entry: DreamMemoryEntry): Array<{ date: string; body: string }> => {
+const expandMergedDreamBody = (entry: DreamMemoryEntry): MergedDreamPart[] => {
   if (!isDreamMergedTag(entry.dateTag)) {
     return [{ body: entry.body, date: entry.dateTag }];
   }
 
-  const parts: Array<{ date: string; body: string }> = [];
-  const segments = entry.body.split(/\n(?=\[\d{4}-\d{2}-\d{2}\]\n?)/);
+  const parts: MergedDreamPart[] = [];
+  const segments = entry.body.split(/\n(?=\[\d{4}-\d{2}-\d{2}]\n?)/);
   for (const segment of segments) {
-    const match = /^\[(\d{4}-\d{2}-\d{2})\]\n?([\s\S]*)$/.exec(segment.trim());
+    const match = /^\[(\d{4}-\d{2}-\d{2})]\n?([\S\s]*)$/.exec(segment.trim());
     if (match) {
       parts.push({ body: match[2].trim(), date: match[1] });
     } else if (segment.trim()) {
@@ -534,6 +543,78 @@ const expandMergedDreamBody = (entry: DreamMemoryEntry): Array<{ date: string; b
   }
 
   return parts;
+};
+
+/** Total serialized dynamic-memory char budget: N single-day cards + one overflow slot. */
+export const dreamMemoryTotalCharBudget = (maxEntries: number) =>
+  (maxEntries + 1) * ASSISTANT_MEMORY_MAX_CHARS;
+
+const trimMergedPartsToBudget = (parts: MergedDreamPart[], budget: number): MergedDreamPart[] => {
+  if (budget <= 0) return [];
+  let next = [...parts];
+  let body = formatMergedDreamBody(next);
+  while (next.length > 0 && body.length > budget) {
+    next = next.slice(1);
+    body = formatMergedDreamBody(next);
+  }
+  if (body.length > budget) {
+    return [{ body: capAtReadableBoundary(body, budget), date: next[0]?.date ?? parts[0]!.date }];
+  }
+  return next;
+};
+
+/**
+ * Enforce a hard total serialized budget after retention. Newest single-day cards
+ * are preserved; overflow/legacy bodies are trimmed from the oldest folded dates first.
+ */
+export const capDreamMemoryDocument = (
+  doc: string | null | undefined,
+  maxEntries: number,
+): string => {
+  const normalized = normalizeDreamMemoryDocument(doc);
+  const entries = parseDreamMemoryEntries(normalized);
+  if (entries.length === 0) return '';
+
+  const budget = dreamMemoryTotalCharBudget(maxEntries);
+  const legacy = entries.filter((entry) => entry.dateTag === 'legacy');
+  const merged = entries.filter((entry) => isDreamMergedTag(entry.dateTag));
+  const singleDay = entries.filter((entry) => entry.regenerable);
+
+  const fixedEntries = [...legacy, ...singleDay];
+  const fixedDoc = serializeDreamMemoryEntries(renumberDreamMemoryEntries(fixedEntries));
+  let remaining = budget - fixedDoc.length;
+
+  const nextMerged: DreamMemoryEntry[] = [];
+  for (const entry of merged) {
+    const trimmedParts = trimMergedPartsToBudget(expandMergedDreamBody(entry), remaining);
+    if (trimmedParts.length === 0) continue;
+    const body = formatMergedDreamBody(trimmedParts);
+    const rangeStart = trimmedParts[0]!.date;
+    const rangeEnd = trimmedParts.at(-1)!.date;
+    nextMerged.push({
+      body,
+      dateTag: `${rangeStart}..${rangeEnd}`,
+      index: 1,
+      regenerable: false,
+    });
+    remaining -= body.length;
+  }
+
+  const combined = [...legacy, ...nextMerged, ...singleDay];
+  return serializeDreamMemoryEntries(renumberDreamMemoryEntries(combined));
+};
+
+/** Prior dream cards for the model prompt — newest single-day cards first, then capped. */
+export const serializeDreamMemoryPriorForPrompt = (doc: string | null | undefined): string => {
+  const entries = parseDreamMemoryEntries(normalizeDreamMemoryDocument(doc));
+  const legacy = entries.filter((entry) => entry.dateTag === 'legacy');
+  const merged = entries.filter((entry) => isDreamMergedTag(entry.dateTag));
+  const singleDay = entries
+    .filter((entry) => entry.regenerable)
+    .sort((a, b) => b.dateTag.localeCompare(a.dateTag));
+  const ordered = [...singleDay, ...merged, ...legacy];
+  const serialized = serializeDreamMemoryEntries(renumberDreamMemoryEntries(ordered));
+  return capAtReadableBoundary(serialized, ASSISTANT_MEMORY_MAX_CHARS);
 };
 
 /**
@@ -555,26 +636,32 @@ export const enforceDreamMemoryRetention = (
     .sort((a, b) => a.dateTag.localeCompare(b.dateTag));
 
   if (singleDay.length <= maxEntries) {
-    return serializeDreamMemoryEntries(renumberDreamMemoryEntries(entries));
+    return capDreamMemoryDocument(
+      serializeDreamMemoryEntries(renumberDreamMemoryEntries(entries)),
+      maxEntries,
+    );
   }
 
   const keep = singleDay.slice(-maxEntries);
   const fold = singleDay.slice(0, singleDay.length - maxEntries);
-  const foldedParts: Array<{ date: string; body: string }> = [];
+  const foldedParts: MergedDreamPart[] = [];
 
   for (const entry of merged) foldedParts.push(...expandMergedDreamBody(entry));
   for (const entry of fold) foldedParts.push({ body: entry.body, date: entry.dateTag });
 
   foldedParts.sort((a, b) => a.date.localeCompare(b.date));
   const rangeStart = foldedParts[0]!.date;
-  const rangeEnd = foldedParts[foldedParts.length - 1]!.date;
+  const rangeEnd = foldedParts.at(-1)!.date;
   const mergedEntry: DreamMemoryEntry = {
     body: formatMergedDreamBody(foldedParts),
-    dateTag: rangeStart === rangeEnd ? rangeStart : `${rangeStart}..${rangeEnd}`,
+    dateTag: `${rangeStart}..${rangeEnd}`,
     index: 1,
-    regenerable: rangeStart === rangeEnd,
+    regenerable: false,
   };
 
   const next = [...legacy, mergedEntry, ...keep];
-  return serializeDreamMemoryEntries(renumberDreamMemoryEntries(next));
+  return capDreamMemoryDocument(
+    serializeDreamMemoryEntries(renumberDreamMemoryEntries(next)),
+    maxEntries,
+  );
 };

@@ -11,12 +11,12 @@ import { Flexbox } from 'react-layout-kit';
 
 import {
   dayjsToScheduleTime,
-  enforceDreamMemoryRetention,
   resolveLastDreamStatus,
   resolveMemoryDreamMaxEntries,
   resolveMemoryDreamSchedule,
   scheduleTimeToDayjs,
 } from '@/helpers/assistantMemory';
+import { agentService } from '@/services/agent';
 import { withTooltip } from '@/components/FormLabelWithTooltip';
 import { FORM_STYLE } from '@/const/layoutTokens';
 
@@ -38,7 +38,8 @@ const AgentMemory = memo(() => {
   const theme = useTheme();
   const [form] = Form.useForm();
   const updateConfig = useStore((s) => s.setChatConfig);
-  const updateAgentConfig = useStore((s) => s.setAgentConfig);
+  const onRefreshConfig = useStore((s) => s.onRefreshConfig);
+  const agentId = useStore((s) => s.config.id);
   const assistantMemory = useStore((s) => s.config.assistantMemory ?? '');
   const config = useStore(selectors.currentChatConfig, isEqual);
   const rawChatConfig = useStore((s) => s.config.chatConfig);
@@ -58,14 +59,21 @@ const AgentMemory = memo(() => {
   const handleMemoryFormFinish = async (values: Partial<LobeAgentChatConfig>) => {
     const prevMax = resolveMemoryDreamMaxEntries(rawChatConfig);
     const nextMax = resolveMemoryDreamMaxEntries(values);
-    const retained =
-      assistantMemory && nextMax < prevMax
-        ? enforceDreamMemoryRetention(assistantMemory, nextMax)
-        : undefined;
 
-    if (retained != null && retained !== assistantMemory) {
-      await updateAgentConfig({ assistantMemory: retained, chatConfig: values });
-      return;
+    if (assistantMemory && nextMax < prevMax && agentId) {
+      const retention = await agentService.applyDreamMemoryRetention({
+        agentId,
+        maxEntries: nextMax,
+      });
+      if (retention.status !== 'success') {
+        message.error(
+          t('settingChatMemory.saveFailedWithReason', {
+            reason: retention.reason ?? 'stale_conflict',
+          }),
+        );
+        return;
+      }
+      await onRefreshConfig?.();
     }
 
     await updateConfig(values);

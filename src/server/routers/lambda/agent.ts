@@ -12,6 +12,12 @@ import { authedProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { AgentService } from '@/server/services/agent';
 import { executeAssistantMemoryDream } from '@/server/services/assistantMemoryDream';
+import {
+  applyDreamMemoryRetentionOnServer,
+  clearDreamMemoryOnServer,
+  deleteDreamMemoryCardOnServer,
+  updateDreamMemoryCardOnServer,
+} from '@/server/services/assistantMemoryDream/mutateDocument';
 
 const agentProcedure = authedProcedure.use(serverDatabase).use(async (opts) => {
   const { ctx } = opts;
@@ -28,6 +34,32 @@ const agentProcedure = authedProcedure.use(serverDatabase).use(async (opts) => {
 });
 
 export const agentRouter = router({
+  applyDreamMemoryRetention: agentProcedure
+    .input(
+      z.object({
+        agentId: z.string(),
+        maxEntries: z.number().int().min(1).max(90),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      return applyDreamMemoryRetentionOnServer({
+        agentId: input.agentId,
+        db: ctx.serverDB,
+        maxEntries: input.maxEntries,
+        userId: ctx.userId!,
+      });
+    }),
+
+  clearDreamMemory: agentProcedure
+    .input(z.object({ agentId: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      return clearDreamMemoryOnServer({
+        agentId: input.agentId,
+        db: ctx.serverDB,
+        userId: ctx.userId!,
+      });
+    }),
+
   createAgentFiles: agentProcedure
     .input(
       z.object({
@@ -76,6 +108,26 @@ export const agentRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       return ctx.agentModel.deleteAgentKnowledgeBase(input.agentId, input.knowledgeBaseId);
+    }),
+
+  deleteDreamMemoryCard: agentProcedure
+    .input(
+      z.object({
+        agentId: z.string(),
+        dateTag: z.string().min(1),
+        index: z.number().int().min(1),
+        match: z.string().min(1),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      return deleteDreamMemoryCardOnServer({
+        agentId: input.agentId,
+        dateTag: input.dateTag,
+        db: ctx.serverDB,
+        index: input.index,
+        match: input.match,
+        userId: ctx.userId!,
+      });
     }),
 
   getAgentConfig: agentProcedure
@@ -190,5 +242,27 @@ export const agentRouter = router({
         input.knowledgeBaseId,
         input.enabled,
       );
+    }),
+
+  updateDreamMemoryCard: agentProcedure
+    .input(
+      z.object({
+        agentId: z.string(),
+        body: z.string().min(1),
+        dateTag: z.string().min(1),
+        index: z.number().int().min(1),
+        match: z.string().min(1),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      return updateDreamMemoryCardOnServer({
+        agentId: input.agentId,
+        body: input.body,
+        dateTag: input.dateTag,
+        db: ctx.serverDB,
+        index: input.index,
+        match: input.match,
+        userId: ctx.userId!,
+      });
     }),
 });
