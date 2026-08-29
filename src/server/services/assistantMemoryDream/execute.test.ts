@@ -119,7 +119,9 @@ describe('executeAssistantMemoryDream', () => {
       expect.objectContaining({
         assistantMemory: expect.stringContaining('Prefers tables'),
         assistantMemoryMeta: expect.objectContaining({
+          lastDreamAt: expect.any(String),
           lastDreamMarker: PERIOD,
+          lastDreamStatus: 'completed',
           lastError: null,
         }),
       }),
@@ -141,7 +143,12 @@ describe('executeAssistantMemoryDream', () => {
     expect(result).toMatchObject({ reason: 'no_changes', status: 'skipped' });
     expect(updateSet).toHaveBeenCalledWith(
       expect.objectContaining({
-        assistantMemoryMeta: expect.objectContaining({ lastDreamMarker: PERIOD, lastError: null }),
+        assistantMemoryMeta: expect.objectContaining({
+          lastDreamAt: expect.any(String),
+          lastDreamMarker: PERIOD,
+          lastDreamStatus: 'completed',
+          lastError: null,
+        }),
       }),
     );
     expect(updateSet.mock.calls[0][0].assistantMemory).toBeUndefined();
@@ -187,6 +194,8 @@ describe('executeAssistantMemoryDream', () => {
     expect(updateSet).toHaveBeenCalledWith(
       expect.objectContaining({
         assistantMemoryMeta: expect.objectContaining({
+          lastDreamAt: expect.any(String),
+          lastDreamStatus: 'failed',
           lastError: expect.objectContaining({ message: 'upstream' }),
         }),
       }),

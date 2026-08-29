@@ -53,6 +53,9 @@ const EditPage = memo(() => {
         meta={meta}
         onConfigChange={updateAgentConfig}
         onMetaChange={updateAgentMeta}
+        onRefreshConfig={() =>
+          id ? useAgentStore.getState().internal_refreshAgentConfig(id) : undefined
+        }
         tab={tab}
       />
     </>

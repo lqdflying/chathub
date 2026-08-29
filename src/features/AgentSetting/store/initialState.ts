@@ -14,6 +14,12 @@ export interface State {
   /** May return a promise; `dispatchConfig` awaits it so write failures propagate to callers. */
   onConfigChange?: (config: LobeAgentConfig) => Promise<void> | void;
   onMetaChange?: (meta: MetaData) => void;
+  /**
+   * Refetch the displayed agent's config from the server. Surfaces wire this so
+   * optimistic editors can converge on database truth after a failed write (a
+   * rejection can also mean the write committed but the response was aborted).
+   */
+  onRefreshConfig?: () => Promise<void> | void;
 }
 
 export const initialState: State = {

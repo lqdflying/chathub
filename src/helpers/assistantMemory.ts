@@ -1,5 +1,5 @@
 import { ASSISTANT_MEMORY_MAX_CHARS, ASSISTANT_MEMORY_TARGET_TOKENS } from '@lobechat/prompts';
-import type { LobeAgentChatConfig } from '@lobechat/types';
+import type { AssistantMemoryMeta, LobeAgentChatConfig } from '@lobechat/types';
 import dayjs, { type Dayjs } from 'dayjs';
 
 const PREAMBLE_PATTERNS = [
@@ -296,3 +296,26 @@ export const scheduleTimeToDayjs = (value: string | undefined): Dayjs => {
 
 export const dayjsToScheduleTime = (value: Dayjs | null | undefined): string =>
   value?.format('HH:mm') ?? '02:00';
+
+export interface LastDreamStatus {
+  /** ISO timestamp of the latest committed dream attempt. */
+  at?: string;
+  /** True when the latest committed dream attempt failed (backs off and retries). */
+  failed: boolean;
+  /** True once any scheduled dream attempt has committed an outcome. */
+  ran: boolean;
+}
+
+/**
+ * Dream-specific status for the settings UI. Reads only `lastDreamAt` /
+ * `lastDreamStatus`, which the scheduled dream writes on every committed
+ * attempt — legacy/manual rollup fields (`lastRollupAt`, `lastError`) are
+ * deliberately ignored so a historical manual Regenerate is never presented
+ * as a dream run, and a failed attempt never pairs a stale success time with
+ * a failure hint.
+ */
+export const resolveLastDreamStatus = (meta?: AssistantMemoryMeta | null): LastDreamStatus => {
+  const at = meta?.lastDreamAt;
+  if (!at) return { failed: false, ran: false };
+  return { at, failed: meta?.lastDreamStatus === 'failed', ran: true };
+};

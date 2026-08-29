@@ -65,6 +65,7 @@ const Page = memo((props: AgentPageType) => {
         onMetaChange={(meta) => {
           updateAgent({ meta });
         }}
+        onRefreshConfig={() => useUserStore.getState().refreshUserState()}
         tab={activeTab}
       />
     </>

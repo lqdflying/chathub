@@ -11,6 +11,7 @@ import { Flexbox } from 'react-layout-kit';
 
 import {
   dayjsToScheduleTime,
+  resolveLastDreamStatus,
   resolveMemoryDreamSchedule,
   scheduleTimeToDayjs,
 } from '@/helpers/assistantMemory';
@@ -41,8 +42,10 @@ const AgentMemory = memo(() => {
     schedule.frequency;
 
   const memoryEnabled = config.enableAssistantMemory !== false;
-  const lastDreamRun = formatTime(assistantMemoryMeta?.lastRollupAt);
-  const lastDreamError = assistantMemoryMeta?.lastError?.message;
+  // dream-specific status: only the scheduled dream writes these fields, so a
+  // legacy/manual rollup timestamp is never misattributed as a dream run
+  const lastDream = resolveLastDreamStatus(assistantMemoryMeta);
+  const lastDreamRun = formatTime(lastDream.at);
 
   const memoryGroup: FormGroupItemType = {
     children: [
@@ -70,7 +73,10 @@ const AgentMemory = memo(() => {
         hidden: !memoryEnabled,
         label: t('settingChatMemory.memoryDreamSchedule.title'),
         name: 'memoryDreamScheduleFrequency',
-        tooltip: { title: t('settingChatMemory.memoryDreamSchedule.tooltip') },
+        tooltip: {
+          title: t('settingChatMemory.memoryDreamSchedule.tooltip'),
+          trigger: ['hover', 'click'],
+        },
       },
       {
         children: <TimePicker format={'HH:mm'} needConfirm={false} showNow={false} />,
@@ -107,7 +113,7 @@ const AgentMemory = memo(() => {
                 ? t('settingChatMemory.memoryDreamSchedule.lastRun', { time: lastDreamRun })
                 : t('settingChatMemory.memoryDreamSchedule.lastRunNever')}
             </Typography.Text>
-            {!!lastDreamError && (
+            {lastDream.failed && (
               <Typography.Text style={{ fontSize: 12 }} type={'danger'}>
                 {t('settingChatMemory.memoryDreamSchedule.lastRunError')}
               </Typography.Text>

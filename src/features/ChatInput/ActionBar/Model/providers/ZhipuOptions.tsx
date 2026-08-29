@@ -33,15 +33,14 @@ const ZhipuOptions = memo(() => {
     if (extendParams.includes('enableReasoning')) {
       result.push({
         children: <Switch />,
-        label: (
-          <>
-            {t('extendParams.zhipuReasoning.title')}
-            <InfoTooltip size={'small'} title={t('extendParams.zhipuReasoning.desc')} />
-          </>
-        ),
+        label: t('extendParams.zhipuReasoning.title'),
         layout: isNarrow ? 'vertical' : 'horizontal',
         minWidth: undefined,
         name: 'enableReasoning',
+        tooltip: {
+          title: t('extendParams.zhipuReasoning.desc'),
+          trigger: ['hover', 'click'],
+        },
       });
     }
 
@@ -82,15 +81,14 @@ const ZhipuOptions = memo(() => {
     if (showPreservedThinking) {
       result.push({
         children: <Switch />,
-        label: (
-          <>
-            {t('extendParams.zhipuPreservedThinking.title')}
-            <InfoTooltip size={'small'} title={t('extendParams.zhipuPreservedThinking.desc')} />
-          </>
-        ),
+        label: t('extendParams.zhipuPreservedThinking.title'),
         layout: isNarrow ? 'vertical' : 'horizontal',
         minWidth: undefined,
         name: 'zhipuPreservedThinking',
+        tooltip: {
+          title: t('extendParams.zhipuPreservedThinking.desc'),
+          trigger: ['hover', 'click'],
+        },
         valuePropName: 'checked',
       });
     }

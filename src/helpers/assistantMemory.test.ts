@@ -10,6 +10,7 @@ import {
   normalizeAssistantMemoryText,
   parseFixedMemoryEntries,
   renumberFixedMemoryEntries,
+  resolveLastDreamStatus,
   updateFixedMemoryEntry,
 } from './assistantMemory';
 
@@ -226,5 +227,67 @@ describe('scheduleTimeToDayjs', () => {
     const { scheduleTimeToDayjs } = await import('./assistantMemory');
 
     expect(scheduleTimeToDayjs('invalid').format('HH:mm')).toBe('02:00');
+  });
+});
+
+describe('resolveLastDreamStatus', () => {
+  it('ignores legacy/manual rollup fields when no dream ever ran', () => {
+    // a historical manual Regenerate writes lastRollupAt/lastError only
+    const status = resolveLastDreamStatus({
+      lastError: { at: '2026-08-01T02:00:00.000Z', attempts: 1, message: 'manual failure' },
+      lastRollupAt: '2026-08-01T02:00:00.000Z',
+    });
+
+    expect(status).toEqual({ failed: false, ran: false });
+    expect(resolveLastDreamStatus(undefined)).toEqual({ failed: false, ran: false });
+    expect(resolveLastDreamStatus({})).toEqual({ failed: false, ran: false });
+  });
+
+  it('reports a first failed dream attempt at its own time', () => {
+    const status = resolveLastDreamStatus({
+      lastDreamAt: '2026-08-28T02:00:00.000Z',
+      lastDreamStatus: 'failed',
+      lastError: { at: '2026-08-28T02:00:00.000Z', attempts: 1, message: 'upstream' },
+    });
+
+    expect(status).toEqual({
+      at: '2026-08-28T02:00:00.000Z',
+      failed: true,
+      ran: true,
+    });
+  });
+
+  it('reports the latest attempt when a failure follows a success', () => {
+    // success at T1 wrote lastRollupAt; the later failed attempt moved
+    // lastDreamAt to T2 — the pair must stay consistent (T2 + failed)
+    const status = resolveLastDreamStatus({
+      lastDreamAt: '2026-08-29T02:00:00.000Z',
+      lastDreamMarker: '2026-08-28',
+      lastDreamStatus: 'failed',
+      lastError: { at: '2026-08-29T02:00:00.000Z', attempts: 1, message: 'upstream' },
+      lastRollupAt: '2026-08-28T02:00:00.000Z',
+    });
+
+    expect(status).toEqual({
+      at: '2026-08-29T02:00:00.000Z',
+      failed: true,
+      ran: true,
+    });
+  });
+
+  it('reports a successful no-op dream as completed', () => {
+    const status = resolveLastDreamStatus({
+      lastDreamAt: '2026-08-28T02:00:00.000Z',
+      lastDreamMarker: '2026-08-28',
+      lastDreamStatus: 'completed',
+      lastError: null,
+      lastRollupAt: '2026-08-28T02:00:00.000Z',
+    });
+
+    expect(status).toEqual({
+      at: '2026-08-28T02:00:00.000Z',
+      failed: false,
+      ran: true,
+    });
   });
 });

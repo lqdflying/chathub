@@ -34,10 +34,24 @@ export interface AssistantMemoryLastError {
  */
 export interface AssistantMemoryMeta {
   /**
+   * ISO timestamp of the latest scheduled dream attempt that committed an
+   * outcome. Dream-specific — the browser manual-rollup action never writes
+   * it, so the settings UI can show dream status without misattributing
+   * legacy/manual `lastRollupAt` values.
+   */
+  lastDreamAt?: string;
+  /**
    * UTC period stamp of the last completed dream (`YYYY-MM-DD` or `YYYY-Www`).
    * Written on success and genuine no-op skips; left unchanged on failure/backoff.
    */
   lastDreamMarker?: string | null;
+  /**
+   * Outcome of the latest scheduled dream attempt: `completed` covers success
+   * and genuine no-op skips (nothing to roll up); `failed` means the attempt
+   * recorded `lastError` and backs off. Always written together with
+   * `lastDreamAt`.
+   */
+  lastDreamStatus?: 'completed' | 'failed';
   lastError?: AssistantMemoryLastError | null;
   /** ISO timestamp of the last rollup that advanced the watermarks. */
   lastRollupAt?: string;

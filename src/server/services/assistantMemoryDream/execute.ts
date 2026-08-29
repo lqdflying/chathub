@@ -225,7 +225,9 @@ export const executeAssistantMemoryDream = async ({
     const wrote = await writeAgentMemoryIfUnchanged(db, agentId, userId, snapshot, {
       assistantMemoryMeta: {
         ...snapshot.assistantMemoryMeta,
+        lastDreamAt: nowISO(),
         lastDreamMarker: periodStamp,
+        lastDreamStatus: 'completed',
         lastError: null,
         lastRollupAt: nowISO(),
         ...extra,
@@ -325,6 +327,8 @@ export const executeAssistantMemoryDream = async ({
     const wrote = await writeAgentMemoryIfUnchanged(db, agentId, userId, snapshot, {
       assistantMemoryMeta: {
         ...snapshot.assistantMemoryMeta,
+        lastDreamAt: nowISO(),
+        lastDreamStatus: 'failed',
         lastError: {
           at: nowISO(),
           attempts: (snapshot.assistantMemoryMeta.lastError?.attempts ?? 0) + 1,
@@ -356,7 +360,9 @@ export const executeAssistantMemoryDream = async ({
     assistantMemory: next,
     assistantMemoryMeta: {
       ...snapshot.assistantMemoryMeta,
+      lastDreamAt: nowISO(),
       lastDreamMarker: periodStamp,
+      lastDreamStatus: 'completed',
       lastError: null,
       lastRollupAt: nowISO(),
       previousMemory: prior

@@ -74,7 +74,7 @@ const AgentChat = memo(() => {
         layout: 'horizontal',
         minWidth: undefined,
         name: 'enableAutoCreateTopic',
-        tooltip: { title: t('settingChat.enableAutoCreateTopic.tooltip') },
+        tooltip: { title: t('settingChat.enableAutoCreateTopic.tooltip'), trigger: ['hover', 'click'] },
         valuePropName: 'checked',
       },
       {
@@ -91,7 +91,7 @@ const AgentChat = memo(() => {
         layout: 'horizontal',
         minWidth: undefined,
         name: 'enableHistoryCount',
-        tooltip: { title: t('settingChat.enableHistoryCount.tooltip') },
+        tooltip: { title: t('settingChat.enableHistoryCount.tooltip'), trigger: ['hover', 'click'] },
         valuePropName: 'checked',
       },
       {
@@ -109,7 +109,7 @@ const AgentChat = memo(() => {
         layout: 'horizontal',
         minWidth: undefined,
         name: 'enableCompressHistory',
-        tooltip: { title: t('settingChat.enableCompressHistory.tooltip') },
+        tooltip: { title: t('settingChat.enableCompressHistory.tooltip'), trigger: ['hover', 'click'] },
         valuePropName: 'checked',
       },
     ],
@@ -142,7 +142,10 @@ const AgentChat = memo(() => {
         layout: 'horizontal',
         minWidth: undefined,
         name: 'enableTokenThresholdAutoCompact',
-        tooltip: { title: t('settingChatMemory.enableTokenThresholdAutoCompact.tooltip') },
+        tooltip: {
+          title: t('settingChatMemory.enableTokenThresholdAutoCompact.tooltip'),
+          trigger: ['hover', 'click'],
+        },
         valuePropName: 'checked',
       },
       {

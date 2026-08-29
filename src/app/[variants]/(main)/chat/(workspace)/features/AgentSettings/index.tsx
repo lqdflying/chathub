@@ -96,6 +96,26 @@ const AgentSettings = memo<AgentSettingsProps>(({ agentId, onClose, open }) => {
     }
   };
 
+  // Refetch the displayed agent's config so failed optimistic writes converge
+  // back to database truth (a rejection can also mean a post-commit abort).
+  const refreshAgentConfig = async () => {
+    if (agentId) {
+      const sessions = useSessionStore.getState().sessions || [];
+      const agentSession = sessions.find(
+        (session) => session.type === LobeSessionType.Agent && session.config?.id === agentId,
+      );
+
+      if (agentSession) {
+        await useAgentStore.getState().internal_refreshAgentConfig(agentSession.id);
+      }
+      return;
+    }
+
+    if (id) {
+      await useAgentStore.getState().internal_refreshAgentConfig(id);
+    }
+  };
+
   const updateAgentMeta = async (meta: any) => {
     if (agentId) {
       // Find the agent session ID from the agent ID
@@ -131,6 +151,7 @@ const AgentSettings = memo<AgentSettingsProps>(({ agentId, onClose, open }) => {
       meta={meta}
       onConfigChange={updateAgentConfig}
       onMetaChange={updateAgentMeta}
+      onRefreshConfig={refreshAgentConfig}
     >
       <Drawer
         containerMaxWidth={1280}
@@ -171,6 +192,7 @@ const AgentSettings = memo<AgentSettingsProps>(({ agentId, onClose, open }) => {
           meta={meta}
           onConfigChange={updateAgentConfig}
           onMetaChange={updateAgentMeta}
+          onRefreshConfig={refreshAgentConfig}
           tab={tab}
         />
         <Footer />

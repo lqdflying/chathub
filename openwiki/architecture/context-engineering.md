@@ -346,8 +346,12 @@ was removed, `planner_settled` with `trigger=scheduled` on a topic path is a reg
 
 The settings Memory tab no longer exposes manual **Regenerate** or **Restore previous**:
 dynamic memory is an edit-only surface (Save, Copy, Clear), and the dream schedule block
-shows the last dream run (`assistantMemoryMeta.lastRollupAt`) plus a failure hint when
-`lastError` is set. The store-level `rollupAssistantMemory` /
+shows the last scheduled dream attempt (`assistantMemoryMeta.lastDreamAt`) plus a failure
+hint when that attempt recorded `lastDreamStatus: 'failed'`. Both fields are written only
+by the scheduled dream on every committed attempt (success, genuine no-op skip, or
+failure), so a legacy/manual rollup timestamp (`lastRollupAt`) is never misattributed as
+a dream run and a failed attempt never pairs a stale success time with the failure hint.
+The store-level `rollupAssistantMemory` /
 `restoreAssistantMemoryBackup` actions remain for tests and future callers.
 
 Assistant-wide memory rollup is an agent-store action, while `ChatService` reads the agent store when
@@ -372,7 +376,11 @@ Memory UI actions do not gate their visible state on the write promise: config w
 abort-controller slot that a newer write may abort after the server already committed, so the
 promise alone cannot distinguish "failed" from "superseded post-commit". Actions apply local state
 optimistically, report success/failure via toast, and on failure refetch the agent config to
-converge on the database truth. `updateAgentConfig` releases the shared abort slot when its request
+converge on the database truth. The refetch goes through the scoped store's `onRefreshConfig`
+callback, which every settings surface wires to its own source (the workspace drawer and mobile
+chat settings page refresh the displayed agent via `internal_refreshAgentConfig`; the defaults
+page re-reads user state via `refreshUserState`). `updateAgentConfig` releases the shared abort
+slot when its request
 settles, so completed requests can no longer be aborted retroactively; aborting a genuinely
 in-flight previous write (rapid slider edits) is preserved. The scoped store's `onConfigChange` may
 return a promise and is awaited, so write failures propagate to the settings UI on every surface.

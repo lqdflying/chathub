@@ -28,9 +28,10 @@ const DynamicMemory = memo(() => {
   const { t } = useTranslation('setting');
   const { message, modal } = App.useApp();
 
-  const [assistantMemory, updateConfig] = useStore((s) => [
+  const [assistantMemory, updateConfig, onRefreshConfig] = useStore((s) => [
     s.config.assistantMemory ?? '',
     s.setAgentConfig,
+    s.onRefreshConfig,
   ]);
 
   const [draft, setDraft] = useState(assistantMemory);
@@ -42,6 +43,12 @@ const DynamicMemory = memo(() => {
     if (!dirty) setDraft(assistantMemory);
   }, [assistantMemory, dirty]);
 
+  // after a failed write the client cannot tell whether the server committed
+  // (an abort can land post-commit) — refetch so the UI converges on DB truth
+  const reconcileAfterError = useCallback(async () => {
+    await onRefreshConfig?.();
+  }, [onRefreshConfig]);
+
   const onSave = useCallback(async () => {
     setSaving(true);
     const next = normalizeAssistantMemoryText(draft);
@@ -52,10 +59,11 @@ const DynamicMemory = memo(() => {
       message.success(t('settingChatMemory.saveSuccess'));
     } catch (error) {
       message.error(t('settingChatMemory.saveFailedWithReason', { reason: errorReason(error) }));
+      await reconcileAfterError();
     } finally {
       setSaving(false);
     }
-  }, [draft, updateConfig, message, t]);
+  }, [draft, updateConfig, message, t, reconcileAfterError]);
 
   const onClear = useCallback(() => {
     modal.confirm({
@@ -76,6 +84,7 @@ const DynamicMemory = memo(() => {
             message.error(
               t('settingChatMemory.saveFailedWithReason', { reason: errorReason(error) }),
             );
+            await reconcileAfterError();
           } finally {
             setSaving(false);
           }
@@ -83,7 +92,7 @@ const DynamicMemory = memo(() => {
       },
       title: t('settingChatMemory.clear'),
     });
-  }, [modal, message, t, updateConfig]);
+  }, [modal, message, t, updateConfig, reconcileAfterError]);
 
   const onCopy = useCallback(async () => {
     if (!assistantMemory) return;
