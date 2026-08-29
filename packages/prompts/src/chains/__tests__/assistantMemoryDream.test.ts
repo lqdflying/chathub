@@ -32,14 +32,14 @@ describe('buildAssistantMemoryDreamUserContent', () => {
     expect(body).not.toContain('summary-30');
   });
 
-  it('includes fixed memory as read-only context when provided', () => {
+  it('includes the UTC history day in the user content', () => {
     const body = buildAssistantMemoryDreamUserContent(
       'prior',
       [{ historySummary: 'hello', sessionId: 's1', title: 'A' }],
-      { fixedMemory: 'user is vegetarian' },
+      { historyDate: '2026-08-27' },
     );
-    expect(body).toContain('read-only context');
-    expect(body).toContain('user is vegetarian');
+    expect(body).toContain('UTC day 2026-08-27');
+    expect(body).toContain('Prior dream memory cards');
   });
 });
 
@@ -64,7 +64,13 @@ describe('chainAssistantMemoryDream', () => {
     const prompt = system();
     expect(prompt).toContain('Per-topic recaps');
     expect(prompt).toContain('one-off questions');
-    expect(prompt).toContain('never by topic');
+    expect(prompt).toContain('Topic N:');
+  });
+
+  it('asks for a new card body only, not a full rewrite', () => {
+    const prompt = system();
+    expect(prompt).toContain('ONE new dream-memory card');
+    expect(prompt).toContain('Do NOT rewrite');
   });
 
   it('keeps the NO_CHANGES sentinel contract', () => {

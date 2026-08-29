@@ -117,7 +117,7 @@ describe('executeAssistantMemoryDream', () => {
     expect(result).toMatchObject({ status: 'success', topicsWithSummary: 1 });
     expect(updateSet).toHaveBeenCalledWith(
       expect.objectContaining({
-        assistantMemory: expect.stringContaining('Prefers tables'),
+        assistantMemory: expect.stringMatching(/#2 \[2026-08-27\]:[\s\S]*Prefers tables/),
         assistantMemoryMeta: expect.objectContaining({
           lastDreamAt: expect.any(String),
           lastDreamMarker: PERIOD,
@@ -216,6 +216,23 @@ describe('executeAssistantMemoryDream', () => {
     expect(result).toMatchObject({ reason: 'stale_job', status: 'skipped' });
     expect(listTopics).not.toHaveBeenCalled();
     expect(updateSet).not.toHaveBeenCalled();
+  });
+
+  it('skips append when a card for that history date already exists', async () => {
+    const db = createDb({
+      ...agentRow,
+      assistantMemory: '#1 [2026-08-27]:\nexisting',
+    });
+    const result = await executeAssistantMemoryDream({
+      agentId: 'agent-1',
+      db,
+      now: NOW,
+      periodStamp: PERIOD,
+      userId: 'user-1',
+    });
+
+    expect(result).toMatchObject({ reason: 'already_has_card', status: 'skipped' });
+    expect(chat).not.toHaveBeenCalled();
   });
 
   it('does not overwrite memory when the agent row changed during the model call', async () => {

@@ -44,6 +44,15 @@ class AgentService {
   getFilesAndKnowledgeBases = async (agentId: string) => {
     return lambdaClient.agent.getKnowledgeBasesAndFiles.query({ agentId });
   };
+
+  regenerateDreamMemory = async (input: {
+    agentId: string;
+    historyDate: string;
+    index: number;
+    match: string;
+  }) => {
+    return lambdaClient.agent.regenerateDreamMemory.mutate(input);
+  };
 }
 
 export const agentService = new AgentService();

@@ -393,11 +393,12 @@ export default {
     copySuccess: '已复制',
     dreamingMemory: {
       sectionTooltip:
-        '话题记忆片段与「对话偏好」中的历史总结共同形成话题压缩摘要；记忆梦境按 UTC 计划在服务器运行，将持久信息增量写入动态记忆。固定记忆永远不会被修改。',
+        '话题记忆片段与「对话偏好」中的历史总结共同形成话题压缩摘要；记忆梦境按 UTC 计划在服务器运行，每个成功周期追加一张带 UTC 日期标签的梦境卡片（#1、#2…）。固定记忆永远不会被修改。',
     },
     dynamicMemory: {
-      empty: '暂无动态记忆；开启记忆梦境后，将在设定时间自动汇总生成',
-      hint: '由模型从各话题压缩摘要中提炼的持久信息（偏好、规则、项目状态、未完成的承诺），注入与该助手的每次对话；只做增量更新，不会逐话题堆积会话内容。可手动编辑后保存；开启记忆梦境后由其自动更新。',
+      deleteConfirm: '删除这条梦境记忆？其余条目将重新编号。',
+      empty: '暂无动态记忆；开启记忆梦境后，将在设定时间自动追加卡片',
+      hint: '每次成功的记忆梦境会追加一张带 UTC 日期标签的卡片（#1、#2…），内容来自该 UTC 日活跃话题的压缩摘要。可逐条编辑、删除；单日卡片可针对该 UTC 日重新生成。超出保留条数的较早卡片会合并为一条范围卡片。',
       lastUpdated: '更新于 {{time}}',
       save: '保存修改',
       title: '动态记忆',
@@ -437,6 +438,11 @@ export default {
       tooltip:
         '「固定记忆」由你维护；助手也可通过内置记忆工具在对话中追加条目（#1、#2…）。自动汇总与记忆梦境永远不会改写它。',
     },
+    memoryDreamMaxEntries: {
+      desc: '保留最新的 N 张单日梦境卡片；更早的单日卡片合并为一条范围卡片（默认 14）',
+      title: '保留梦境卡片数',
+      tooltip: '仅统计带单日 UTC 日期标签的卡片。合并后的范围卡片不计入 N，但会保留最旧内容。',
+    },
     memoryDreamSchedule: {
       frequency: {
         daily: '每天',
@@ -468,7 +474,8 @@ export default {
     memoryGroupTitle: '梦境记忆',
     notActiveAgentTooltip: '仅当该助手为当前会话时可用',
     reconcileFailedRetry: '无法确认是否已保存（{{reason}}）。编辑仍保留，请点击保存重试。',
-    regenerate: '立即重新生成',
+    regenerate: '重新生成',
+    regenerateStaleConflict: '记忆在你操作期间已更新，已刷新为最新内容',
     restorePrevious: '恢复上一版',
     restoreSuccess: '已恢复上一版动态记忆（再次点击可撤销恢复）',
     restoreUnavailable: '没有可恢复的历史版本',

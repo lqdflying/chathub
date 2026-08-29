@@ -13,8 +13,14 @@ import { TopicModel } from '@/database/models/topic';
 import { UserModel } from '@/database/models/user';
 import { agents } from '@/database/schemas';
 import {
+  appendDreamMemoryEntry,
   capAssistantMemoryByTokensAsync,
+  enforceDreamMemoryRetention,
+  hasDreamMemoryEntryForDate,
   normalizeAssistantMemoryText,
+  normalizeDreamMemoryDocument,
+  replaceDreamMemoryEntryBody,
+  resolveMemoryDreamMaxEntries,
 } from '@/helpers/assistantMemory';
 import { buildSimpleCompletionSampling } from '@/helpers/contextCompaction';
 import { logCompactionDebugSafe } from '@/libs/logger/compactionDebug';
@@ -24,13 +30,17 @@ import { resolveConversationRuntimePayload } from '@/server/services/conversatio
 import { createConversationRuntimeChatOptions } from '@/server/services/conversationGeneration/runtimeChatOptions';
 import { consumeProtocolResponse } from '@/server/services/conversationGeneration/stream';
 
-import { isDreamDue, previousUtcDayWindow } from './schedule';
+import { isDreamDue, previousUtcDayWindow, utcDayWindow } from './schedule';
 
 export interface AssistantMemoryDreamExecuteInput {
   agentId: string;
   db: LobeChatDatabase;
+  historyDate?: string;
+  match?: string;
+  mode?: 'regenerate' | 'scheduled';
   now?: Date;
-  periodStamp: string;
+  periodStamp?: string;
+  replaceIndex?: number;
   userId: string;
 }
 
@@ -57,6 +67,7 @@ const settle = (
     reason?: string;
     status: AssistantMemoryDreamExecuteResult['status'];
     topicsWithSummary?: number;
+    trigger?: 'manual' | 'scheduled';
   },
 ) => {
   logCompactionDebugSafe('dream_scheduler_settled', {
@@ -67,7 +78,7 @@ const settle = (
     reason: fields.reason,
     status: fields.status,
     topicsWithSummary: fields.topicsWithSummary,
-    trigger: 'scheduled',
+    trigger: fields.trigger ?? 'scheduled',
   });
 };
 
@@ -76,7 +87,7 @@ const writeAgentMemoryIfUnchanged = async (
   agentId: string,
   userId: string,
   snapshot: AgentDreamSnapshot,
-  patch: { assistantMemory?: string; assistantMemoryMeta: AssistantMemoryMeta },
+  patch: { assistantMemory?: string; assistantMemoryMeta?: AssistantMemoryMeta },
 ) => {
   const updated = await db
     .update(agents)
@@ -111,6 +122,7 @@ const loadHistoryCompress = async (db: LobeChatDatabase, userId: string) => {
 const runDreamCompletion = async ({
   db,
   fixed,
+  historyDate,
   model,
   prior,
   provider,
@@ -119,6 +131,7 @@ const runDreamCompletion = async ({
 }: {
   db: LobeChatDatabase;
   fixed: string;
+  historyDate: string;
   model: string;
   prior: string;
   provider: string;
@@ -135,6 +148,7 @@ const runDreamCompletion = async ({
   const payload = {
     ...chainAssistantMemoryDream({
       fixedMemory: fixed || undefined,
+      historyDate,
       priorAssistantMemory: prior || undefined,
       topics,
     }),
@@ -160,14 +174,26 @@ const runDreamCompletion = async ({
 export const executeAssistantMemoryDream = async ({
   agentId,
   db,
+  historyDate: historyDateInput,
+  match,
+  mode = 'scheduled',
   now: nowInput,
   periodStamp,
+  replaceIndex,
   userId,
 }: AssistantMemoryDreamExecuteInput): Promise<AssistantMemoryDreamExecuteResult> => {
   const now = nowInput ?? new Date();
-  const { from, to } = previousUtcDayWindow(now);
-  const windowStart = from.toISOString().slice(0, 10);
-  const windowEnd = to.toISOString().slice(0, 10);
+  const isRegenerate = mode === 'regenerate';
+  const trigger = isRegenerate ? 'manual' : 'scheduled';
+
+  const scheduledWindow = previousUtcDayWindow(now);
+  const historyDate = isRegenerate
+    ? (historyDateInput ?? '')
+  : scheduledWindow.from.toISOString().slice(0, 10);
+
+  const activityWindow = isRegenerate ? utcDayWindow(historyDate) : scheduledWindow;
+  const windowStart = activityWindow.from.toISOString().slice(0, 10);
+  const windowEnd = activityWindow.to.toISOString().slice(0, 10);
 
   const [agent] = await db
     .select({
@@ -183,7 +209,7 @@ export const executeAssistantMemoryDream = async ({
 
   if (!agent) {
     const result = { reason: 'no_agent', status: 'failed' as const };
-    settle({ ...result, activityWindowEnd: windowEnd, activityWindowStart: windowStart });
+    settle({ ...result, activityWindowEnd: windowEnd, activityWindowStart: windowStart, trigger });
     return result;
   }
 
@@ -194,29 +220,46 @@ export const executeAssistantMemoryDream = async ({
     assistantMemoryMeta: meta,
     updatedAt: agent.updatedAt,
   };
-  const due = isDreamDue({ assistantMemoryMeta: meta, chatConfig, now });
+  const maxEntries = resolveMemoryDreamMaxEntries(chatConfig);
+  const priorDoc = normalizeDreamMemoryDocument(agent.assistantMemory);
 
-  if (!due.due) {
-    const result = { reason: due.skippedReason, status: 'skipped' as const };
-    settle({ ...result, activityWindowEnd: windowEnd, activityWindowStart: windowStart });
-    return result;
-  }
+  if (!isRegenerate) {
+    const due = isDreamDue({ assistantMemoryMeta: meta, chatConfig, now });
 
-  if (due.periodStamp !== periodStamp) {
-    const result = { reason: 'stale_job', status: 'skipped' as const };
-    settle({ ...result, activityWindowEnd: windowEnd, activityWindowStart: windowStart });
-    return result;
+    if (!due.due) {
+      const result = { reason: due.skippedReason, status: 'skipped' as const };
+      settle({ ...result, activityWindowEnd: windowEnd, activityWindowStart: windowStart, trigger });
+      return result;
+    }
+
+    if (periodStamp && due.periodStamp !== periodStamp) {
+      const result = { reason: 'stale_job', status: 'skipped' as const };
+      settle({ ...result, activityWindowEnd: windowEnd, activityWindowStart: windowStart, trigger });
+      return result;
+    }
+
+    if (hasDreamMemoryEntryForDate(priorDoc, historyDate)) {
+      const result = { reason: 'already_has_card', status: 'skipped' as const };
+      settle({ ...result, activityWindowEnd: windowEnd, activityWindowStart: windowStart, trigger });
+      return result;
+    }
+  } else {
+    if (!historyDate || replaceIndex == null || !match) {
+      const result = { reason: 'invalid_regenerate', status: 'failed' as const };
+      settle({ ...result, activityWindowEnd: windowEnd, activityWindowStart: windowStart, trigger });
+      return result;
+    }
   }
 
   const topicModel = new TopicModel(db, userId);
   const activeTopicCount = await topicModel.countTopicsForAssistantMemoryDream({
-    activityFrom: from,
-    activityTo: to,
+    activityFrom: activityWindow.from,
+    activityTo: activityWindow.to,
     agentId,
   });
   const topics = await topicModel.listTopicsForAssistantMemoryDream({
-    activityFrom: from,
-    activityTo: to,
+    activityFrom: activityWindow.from,
+    activityTo: activityWindow.to,
     agentId,
     limit: ASSISTANT_MEMORY_DREAM_MAX_TOPICS,
   });
@@ -226,7 +269,7 @@ export const executeAssistantMemoryDream = async ({
       assistantMemoryMeta: {
         ...snapshot.assistantMemoryMeta,
         lastDreamAt: nowISO(),
-        lastDreamMarker: periodStamp,
+        lastDreamMarker: isRegenerate ? snapshot.assistantMemoryMeta.lastDreamMarker : periodStamp,
         lastDreamStatus: 'completed',
         lastError: null,
         lastRollupAt: nowISO(),
@@ -236,10 +279,10 @@ export const executeAssistantMemoryDream = async ({
     return wrote;
   };
 
-  if (activeTopicCount === 0) {
+  if (!isRegenerate && activeTopicCount === 0) {
     if (!(await writeMarker())) {
       const result = { reason: 'stale_conflict', status: 'skipped' as const };
-      settle({ ...result, activityWindowEnd: windowEnd, activityWindowStart: windowStart });
+      settle({ ...result, activityWindowEnd: windowEnd, activityWindowStart: windowStart, trigger });
       return result;
     }
     const result = {
@@ -252,14 +295,25 @@ export const executeAssistantMemoryDream = async ({
       activityWindowEnd: windowEnd,
       activityWindowStart: windowStart,
       topicsWithSummary: 0,
+      trigger,
     });
     return result;
   }
 
   if (topics.length === 0) {
+    if (isRegenerate) {
+      const result = {
+        activeTopicCount,
+        reason: 'no_summaries',
+        status: 'skipped' as const,
+        topicsWithSummary: 0,
+      };
+      settle({ ...result, activityWindowEnd: windowEnd, activityWindowStart: windowStart, trigger });
+      return result;
+    }
     if (!(await writeMarker())) {
       const result = { reason: 'stale_conflict', status: 'skipped' as const };
-      settle({ ...result, activityWindowEnd: windowEnd, activityWindowStart: windowStart });
+      settle({ ...result, activityWindowEnd: windowEnd, activityWindowStart: windowStart, trigger });
       return result;
     }
     const result = {
@@ -268,11 +322,10 @@ export const executeAssistantMemoryDream = async ({
       status: 'skipped' as const,
       topicsWithSummary: 0,
     };
-    settle({ ...result, activityWindowEnd: windowEnd, activityWindowStart: windowStart });
+    settle({ ...result, activityWindowEnd: windowEnd, activityWindowStart: windowStart, trigger });
     return result;
   }
 
-  const prior = normalizeAssistantMemoryText(agent.assistantMemory);
   const fixed = (agent.fixedMemory ?? '').trim();
   const { model, provider } = await loadHistoryCompress(db, userId);
 
@@ -282,8 +335,9 @@ export const executeAssistantMemoryDream = async ({
     text = await runDreamCompletion({
       db,
       fixed,
+      historyDate,
       model,
-      prior,
+      prior: priorDoc,
       provider,
       topics: topics.map((topic) => ({
         historySummary: topic.historySummary,
@@ -302,6 +356,16 @@ export const executeAssistantMemoryDream = async ({
       normalizeAssistantMemoryText(text) === ASSISTANT_MEMORY_NO_CHANGES_SENTINEL);
 
   if (isNoChanges) {
+    if (isRegenerate) {
+      const result = {
+        activeTopicCount,
+        reason: 'no_changes',
+        status: 'skipped' as const,
+        topicsWithSummary: topics.length,
+      };
+      settle({ ...result, activityWindowEnd: windowEnd, activityWindowStart: windowStart, trigger });
+      return result;
+    }
     if (!(await writeMarker())) {
       const result = { reason: 'stale_conflict', status: 'skipped' as const };
       settle({
@@ -309,6 +373,7 @@ export const executeAssistantMemoryDream = async ({
         activityWindowEnd: windowEnd,
         activityWindowStart: windowStart,
         topicsWithSummary: topics.length,
+        trigger,
       });
       return result;
     }
@@ -318,12 +383,25 @@ export const executeAssistantMemoryDream = async ({
       status: 'skipped' as const,
       topicsWithSummary: topics.length,
     };
-    settle({ ...result, activityWindowEnd: windowEnd, activityWindowStart: windowStart });
+    settle({ ...result, activityWindowEnd: windowEnd, activityWindowStart: windowStart, trigger });
     return result;
   }
 
-  const next = failureMessage ? '' : await capAssistantMemoryByTokensAsync(normalizeAssistantMemoryText(text));
-  if (!next) {
+  const nextBody = failureMessage
+    ? ''
+    : await capAssistantMemoryByTokensAsync(normalizeAssistantMemoryText(text));
+
+  if (!nextBody) {
+    if (isRegenerate) {
+      const result = {
+        activeTopicCount,
+        reason: 'completion_failed',
+        status: 'failed' as const,
+        topicsWithSummary: topics.length,
+      };
+      settle({ ...result, activityWindowEnd: windowEnd, activityWindowStart: windowStart, trigger });
+      return result;
+    }
     const wrote = await writeAgentMemoryIfUnchanged(db, agentId, userId, snapshot, {
       assistantMemoryMeta: {
         ...snapshot.assistantMemoryMeta,
@@ -343,6 +421,7 @@ export const executeAssistantMemoryDream = async ({
         activityWindowEnd: windowEnd,
         activityWindowStart: windowStart,
         topicsWithSummary: topics.length,
+        trigger,
       });
       return result;
     }
@@ -352,23 +431,51 @@ export const executeAssistantMemoryDream = async ({
       status: 'failed' as const,
       topicsWithSummary: topics.length,
     };
-    settle({ ...result, activityWindowEnd: windowEnd, activityWindowStart: windowStart });
+    settle({ ...result, activityWindowEnd: windowEnd, activityWindowStart: windowStart, trigger });
     return result;
   }
 
+  let nextDoc: string;
+  if (isRegenerate) {
+    const replaced = replaceDreamMemoryEntryBody(
+      priorDoc,
+      replaceIndex!,
+      historyDate,
+      match!,
+      nextBody,
+    );
+    if ('error' in replaced) {
+      const result = { reason: replaced.error, status: 'failed' as const };
+      settle({
+        ...result,
+        activityWindowEnd: windowEnd,
+        activityWindowStart: windowStart,
+        topicsWithSummary: topics.length,
+        trigger,
+      });
+      return result;
+    }
+    nextDoc = enforceDreamMemoryRetention(replaced.doc, maxEntries);
+  } else {
+    const appended = appendDreamMemoryEntry(priorDoc, historyDate, nextBody);
+    nextDoc = enforceDreamMemoryRetention(appended.doc, maxEntries);
+  }
+
   const wrote = await writeAgentMemoryIfUnchanged(db, agentId, userId, snapshot, {
-    assistantMemory: next,
-    assistantMemoryMeta: {
-      ...snapshot.assistantMemoryMeta,
-      lastDreamAt: nowISO(),
-      lastDreamMarker: periodStamp,
-      lastDreamStatus: 'completed',
-      lastError: null,
-      lastRollupAt: nowISO(),
-      previousMemory: prior
-        ? { at: nowISO(), text: prior }
-        : snapshot.assistantMemoryMeta.previousMemory ?? null,
-    },
+    assistantMemory: nextDoc,
+    assistantMemoryMeta: isRegenerate
+      ? snapshot.assistantMemoryMeta
+      : {
+          ...snapshot.assistantMemoryMeta,
+          lastDreamAt: nowISO(),
+          lastDreamMarker: periodStamp,
+          lastDreamStatus: 'completed',
+          lastError: null,
+          lastRollupAt: nowISO(),
+          previousMemory: priorDoc
+            ? { at: nowISO(), text: priorDoc }
+            : snapshot.assistantMemoryMeta.previousMemory ?? null,
+        },
   });
   if (!wrote) {
     const result = { reason: 'stale_conflict', status: 'skipped' as const };
@@ -377,6 +484,7 @@ export const executeAssistantMemoryDream = async ({
       activityWindowEnd: windowEnd,
       activityWindowStart: windowStart,
       topicsWithSummary: topics.length,
+      trigger,
     });
     return result;
   }
@@ -386,6 +494,6 @@ export const executeAssistantMemoryDream = async ({
     status: 'success' as const,
     topicsWithSummary: topics.length,
   };
-  settle({ ...result, activityWindowEnd: windowEnd, activityWindowStart: windowStart });
+  settle({ ...result, activityWindowEnd: windowEnd, activityWindowStart: windowStart, trigger });
   return result;
 };

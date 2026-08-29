@@ -382,11 +382,12 @@
     "copy": "Copy",
     "copySuccess": "Copied",
     "dreamingMemory": {
-      "sectionTooltip": "Topic snippets and Summarize history on Chat Preferences build compaction summaries; the memory dream runs on the server on a UTC schedule and incrementally writes durable facts into dynamic memory. Fixed memory is never modified."
+      "sectionTooltip": "Topic snippets and Summarize history on Chat Preferences build compaction summaries; the memory dream runs on the server on a UTC schedule and appends one dated card (#1, #2, …) per successful run. Fixed memory is never modified."
     },
     "dynamicMemory": {
-      "empty": "No dynamic memory yet. Enable the memory dream and it will be generated at the scheduled time.",
-      "hint": "Durable facts the model extracts from topic compaction summaries (preferences, standing rules, project state, open commitments), injected into every chat with this assistant. Updates are incremental and never pile up per-topic recaps. You can edit it and save; the memory dream updates it automatically when enabled.",
+      "deleteConfirm": "Delete this dream memory? Remaining entries will be renumbered.",
+      "empty": "No dynamic memory yet. Enable the memory dream and cards will be appended at the scheduled time.",
+      "hint": "Each successful memory dream appends one UTC-dated card (#1, #2, …) from that UTC day's active topic summaries. Edit or delete cards individually; single-day cards can be regenerated for that UTC day only. Older single-day cards beyond the keep count merge into one range card.",
       "lastUpdated": "Updated {{time}}",
       "save": "Save changes",
       "title": "Dynamic memory"
@@ -423,6 +424,11 @@
       "title": "Fixed memory (user-curated)",
       "tooltip": "Fixed memory is curated by you; the assistant can also append entries (#1, #2, …) via its built-in memory tool. Automatic summarization and the memory dream never rewrite it."
     },
+    "memoryDreamMaxEntries": {
+      "desc": "Keep the newest N single-day dream cards; older single-day cards merge into one range card (default 14)",
+      "title": "Dream cards to keep",
+      "tooltip": "Counts only cards with a single UTC date tag. The merged range card is kept separately and does not count toward N."
+    },
     "memoryDreamSchedule": {
       "frequency": {
         "daily": "Daily",
@@ -454,7 +460,8 @@
     "memoryGroupTitle": "Dreaming Memory",
     "notActiveAgentTooltip": "Available only while this assistant is the active session",
     "reconcileFailedRetry": "Could not confirm whether the save landed ({{reason}}). Your edits are still here — click Save to retry.",
-    "regenerate": "Regenerate now",
+    "regenerate": "Regenerate",
+    "regenerateStaleConflict": "Memory changed while you were editing; refreshed to the latest version",
     "restorePrevious": "Restore previous",
     "restoreSuccess": "Previous dynamic memory restored (click again to undo the restore).",
     "restoreUnavailable": "No previous version to restore.",

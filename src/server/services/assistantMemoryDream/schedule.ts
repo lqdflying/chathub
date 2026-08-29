@@ -87,6 +87,20 @@ export const previousUtcDayWindow = (now: Date) => {
   };
 };
 
+/** `[start, end)` of the UTC calendar day `YYYY-MM-DD`. */
+export const utcDayWindow = (stamp: string) => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(stamp);
+  if (!match) throw new Error(`invalid utc day stamp: ${stamp}`);
+  const year = Number(match[1]);
+  const month = Number(match[2]) - 1;
+  const day = Number(match[3]);
+  const start = Date.UTC(year, month, day);
+  return {
+    from: new Date(start),
+    to: new Date(start + 86_400_000),
+  };
+};
+
 export const isDreamDue = ({
   assistantMemoryMeta,
   chatConfig,

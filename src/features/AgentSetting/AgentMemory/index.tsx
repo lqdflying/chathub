@@ -1,7 +1,7 @@
 'use client';
 
 import { Form, type FormGroupItemType } from '@lobehub/ui';
-import { App, Form as AntdForm, Select, Switch, TimePicker, Typography } from 'antd';
+import { App, Form as AntdForm, InputNumber, Select, Switch, TimePicker, Typography } from 'antd';
 import { useTheme } from 'antd-style';
 import { type Dayjs } from 'dayjs';
 import isEqual from 'fast-deep-equal';
@@ -11,7 +11,9 @@ import { Flexbox } from 'react-layout-kit';
 
 import {
   dayjsToScheduleTime,
+  enforceDreamMemoryRetention,
   resolveLastDreamStatus,
+  resolveMemoryDreamMaxEntries,
   resolveMemoryDreamSchedule,
   scheduleTimeToDayjs,
 } from '@/helpers/assistantMemory';
@@ -21,6 +23,8 @@ import { FORM_STYLE } from '@/const/layoutTokens';
 import { selectors, useStore } from '../store';
 import DynamicMemory from './DynamicMemory';
 import FixedMemory from './FixedMemory';
+
+import type { LobeAgentChatConfig } from '@/types/agent';
 
 const formatTime = (iso: string | undefined) => {
   if (!iso) return undefined;
@@ -34,6 +38,8 @@ const AgentMemory = memo(() => {
   const theme = useTheme();
   const [form] = Form.useForm();
   const updateConfig = useStore((s) => s.setChatConfig);
+  const updateAgentConfig = useStore((s) => s.setAgentConfig);
+  const assistantMemory = useStore((s) => s.config.assistantMemory ?? '');
   const config = useStore(selectors.currentChatConfig, isEqual);
   const rawChatConfig = useStore((s) => s.config.chatConfig);
   const assistantMemoryMeta = useStore((s) => s.config.assistantMemoryMeta);
@@ -47,6 +53,23 @@ const AgentMemory = memo(() => {
   // legacy/manual rollup timestamp is never misattributed as a dream run
   const lastDream = resolveLastDreamStatus(assistantMemoryMeta);
   const lastDreamRun = formatTime(lastDream.at);
+  const maxEntries = resolveMemoryDreamMaxEntries(rawChatConfig);
+
+  const handleMemoryFormFinish = async (values: Partial<LobeAgentChatConfig>) => {
+    const prevMax = resolveMemoryDreamMaxEntries(rawChatConfig);
+    const nextMax = resolveMemoryDreamMaxEntries(values);
+    const retained =
+      assistantMemory && nextMax < prevMax
+        ? enforceDreamMemoryRetention(assistantMemory, nextMax)
+        : undefined;
+
+    if (retained != null && retained !== assistantMemory) {
+      await updateAgentConfig({ assistantMemory: retained, chatConfig: values });
+      return;
+    }
+
+    await updateConfig(values);
+  };
 
   const memoryGroup: FormGroupItemType = {
     children: [
@@ -125,6 +148,16 @@ const AgentMemory = memo(() => {
         label: t('settingChatMemory.memoryDreamSchedule.lastRunLabel'),
       },
       {
+        children: <InputNumber max={90} min={1} style={{ width: '100%' }} />,
+        desc: t('settingChatMemory.memoryDreamMaxEntries.desc'),
+        hidden: !memoryEnabled || frequency === 'off',
+        label: withTooltip(
+          t('settingChatMemory.memoryDreamMaxEntries.title'),
+          t('settingChatMemory.memoryDreamMaxEntries.tooltip'),
+        ),
+        name: 'memoryDreamMaxEntries',
+      },
+      {
         children: <DynamicMemory />,
         divider: false,
         hidden: !memoryEnabled,
@@ -182,13 +215,14 @@ const AgentMemory = memo(() => {
         form={form}
         initialValues={{
           ...config,
+          memoryDreamMaxEntries: maxEntries,
           memoryDreamScheduleFrequency: schedule.frequency,
           memoryDreamScheduleTime: schedule.time,
           memoryDreamScheduleWeekday: schedule.weekday,
         }}
         items={[memoryGroup]}
         itemsType={'group'}
-        onFinish={updateConfig}
+        onFinish={handleMemoryFormFinish}
         variant={'borderless'}
         {...FORM_STYLE}
       />

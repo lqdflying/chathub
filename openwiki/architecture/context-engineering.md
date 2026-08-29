@@ -249,7 +249,8 @@ does not write a marker, so a topic is not accidentally suppressed for another s
 Each agent carries two memory tiers on the `agents` row. `fixed_memory` is a user-curated
 markdown document: always injected when non-empty, never rewritten by automation
 (it is passed to the rollup prompt only as do-not-duplicate context). `assistant_memory` is the
-dynamic tier: a small durable-facts document the rollup maintains, with its bookkeeping in the
+dynamic tier: a numbered, date-tagged card document the dream **appends** to (one card per
+successful scheduled run), with its bookkeeping in the
 `assistant_memory_meta` jsonb (per-topic watermarks, a one-slot previous-version backup, and
 last-error/backoff state). Both tiers are injected by `AgentMemoryProvider` inside an
 `<assistant_memory>` wrapper right after the agent system role — durable memory no longer ships
@@ -321,14 +322,30 @@ dispatcher). There is no per-user timezone field.
 
 **Scope.** The job lists topics linked to the agent whose `lastActivityAt` falls in the
 **previous UTC calendar day**, with a non-empty `historySummary`. It does not scan all
-assistant topics and does not compact topic history. The prompt
+assistant topics and does not compact topic history. Weekly schedule still uses the
+**previous UTC calendar day** per run (not the whole week). The prompt
 (`chainAssistantMemoryDream`) is a style-learning pass: communication style, interaction
-patterns, tool habits, standing preferences — never per-topic recaps. Output follows the
-same `NO_CHANGES` sentinel and size bounds as the manual rollup.
+patterns, tool habits, standing preferences — never per-topic recaps. The model outputs
+**only the new card body** (or `NO_CHANGES`), not a full document rewrite; prior dream
+cards and fixed memory are read-only do-not-duplicate context in the prompt.
+
+**Storage format.** Dynamic memory is one text field with numbered cards:
+
+```
+#1 [2026-08-27]:
+- Communication style: …
+#2 [2026-08-01..2026-08-13]:
+[2026-08-01] …
+```
+
+- Single-day tag `YYYY-MM-DD` — one successful dream for that history day; user **Regenerate** re-runs the dream for that UTC day only (`executeAssistantMemoryDream` `mode: 'regenerate'`).
+- Range tag `YYYY-MM-DD..YYYY-MM-DD` — merged overflow from **Keep dream cards** retention; edit/delete allowed, no regenerate.
+- Legacy unnumbered blobs are wrapped once as `#1 [legacy]:` on first append.
+- Helpers: `parseDreamMemoryEntries`, `appendDreamMemoryEntry`, `enforceDreamMemoryRetention` (`memoryDreamMaxEntries`, default 14, clamp 1–90). Scheduled runs skip append when a single-day card for that history date already exists (in addition to `lastDreamMarker`).
 
 **Markers and backoff.** Success and genuine no-op skips (`no_active_topics_yesterday`,
 `no_summaries`, `no_changes`) write `assistantMemoryMeta.lastDreamMarker` (`YYYY-MM-DD` or
-`YYYY-Www`). Failures record `lastError` and honor the same exponential backoff as rollup
+`YYYY-Www` for the **run period**, distinct from per-card `YYYY-MM-DD` history tags). Failures record `lastError` and honor the same exponential backoff as rollup
 (10 min base, 6 h cap). Graphile `job_key` is
 `assistant-memory-dream:<agentId>:<periodStamp>` with `unsafe_dedupe`.
 
@@ -344,14 +361,18 @@ overwriting newer memory or metadata.
 and `trigger=scheduled`. They are server-emitted. After the daily topic-note scheduler
 was removed, `planner_settled` with `trigger=scheduled` on a topic path is a regression.
 
-The settings Memory tab no longer exposes manual **Regenerate** or **Restore previous**:
-dynamic memory is an edit-only surface (Save, Copy, Clear), and the dream schedule block
+The settings Memory tab **Dreaming Memory** group exposes topic snippets, the UTC dream
+schedule, **Keep dream cards** (`memoryDreamMaxEntries`), and a **dynamic memory** card list
+(Fixed Memory pattern: per-card edit/delete, server-side **Regenerate** on single-day cards,
+Copy, Clear — no whole-document Save, no Add). The dream schedule block
 shows the last scheduled dream attempt (`assistantMemoryMeta.lastDreamAt`) plus a failure
 hint when that attempt recorded `lastDreamStatus: 'failed'`. Both fields are written only
 by the scheduled dream on every committed attempt (success, genuine no-op skip, or
 failure), so a legacy/manual rollup timestamp (`lastRollupAt`) is never misattributed as
 a dream run and a failed attempt never pairs a stale success time with the failure hint.
-The store-level `rollupAssistantMemory` /
+Per-card regenerate uses `agent.regenerateDreamMemory` tRPC → `executeAssistantMemoryDream`
+with `historyDate`, `replaceIndex`, and content `match` snippet (same stale_conflict CAS as
+scheduled runs). The store-level `rollupAssistantMemory` /
 `restoreAssistantMemoryBackup` actions remain for tests and future callers.
 
 Assistant-wide memory rollup is an agent-store action, while `ChatService` reads the agent store when

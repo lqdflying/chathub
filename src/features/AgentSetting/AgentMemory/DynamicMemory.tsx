@@ -1,116 +1,195 @@
 'use client';
 
-import { App, Button, Input, Typography } from 'antd';
-import { memo, useCallback, useEffect, useState } from 'react';
+import { ActionIcon } from '@lobehub/ui';
+import { App, Button, Input, Popconfirm, Tag, Typography } from 'antd';
+import { createStyles } from 'antd-style';
+import { PencilIcon, RefreshCwIcon, Trash2Icon } from 'lucide-react';
+import { memo, useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
 import Tokens from '@/features/AgentSetting/AgentPrompt/TokenTag';
-import { normalizeAssistantMemoryText } from '@/helpers/assistantMemory';
+import {
+  type DreamMemoryEntry,
+  deleteDreamMemoryEntry,
+  normalizeDreamMemoryDocument,
+  parseDreamMemoryEntries,
+  updateDreamMemoryEntry,
+} from '@/helpers/assistantMemory';
+import { agentService } from '@/services/agent';
 
 import { useStore } from '../store';
 
-const errorReason = (error: unknown) =>
-  (error as Error)?.message || String(error ?? 'unknown error');
+const useStyles = createStyles(({ css, token }) => ({
+  card: css`
+    padding: 12px 16px;
+    border: 1px solid ${token.colorBorderSecondary};
+    border-radius: ${token.borderRadiusLG}px;
+    background: ${token.colorBgContainer};
+  `,
+  content: css`
+    flex: 1;
+    min-width: 0;
+
+    font-size: 13px;
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+  `,
+  hint: css`
+    font-size: 12px;
+    color: ${token.colorTextDescription};
+  `,
+  index: css`
+    padding-top: 2px;
+    font-family: ${token.fontFamilyCode};
+    font-size: 12px;
+    color: ${token.colorTextQuaternary};
+  `,
+}));
+
+const matchSnippet = (body: string) => body.trim().slice(0, 80);
+
+const formatDateTag = (tag: string) => {
+  if (tag === 'legacy') return 'legacy';
+  if (tag.includes('..')) return tag.replace('..', ' – ');
+  return tag;
+};
 
 /**
- * Auto-summarized dynamic memory: the memory dream rewrites it incrementally;
- * the user can still inspect, edit, copy, clear, and save. Reads/writes go
- * through the scoped AgentSetting store so every surface (workspace drawer,
- * defaults page, group member) targets the agent it is actually showing.
- *
- * Every action reports success or failure via toast, and UI state is applied
- * optimistically instead of waiting on the write promise — a config write can
- * be aborted after the server committed it, so the promise alone is not a
- * reliable signal of what happened.
+ * Dated dream-memory cards: one card per successful dream run (or merged range).
+ * Edit/delete per card; regenerate re-runs the dream for that UTC history day only.
  */
 const DynamicMemory = memo(() => {
   const { t } = useTranslation('setting');
   const { message, modal } = App.useApp();
+  const { styles } = useStyles();
 
-  const [assistantMemory, updateConfig, onRefreshConfig] = useStore((s) => [
+  const [assistantMemory, agentId, updateConfig, onRefreshConfig] = useStore((s) => [
     s.config.assistantMemory ?? '',
+    s.config.id,
     s.setAgentConfig,
     s.onRefreshConfig,
   ]);
 
-  const [draft, setDraft] = useState(assistantMemory);
-  const [dirty, setDirty] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [editDraft, setEditDraft] = useState('');
+  const [regeneratingIndex, setRegeneratingIndex] = useState<number | null>(null);
+  const [clearing, setClearing] = useState(false);
 
-  useEffect(() => {
-    // background dream updates refresh the doc; only sync when not mid-edit
-    if (!dirty) setDraft(assistantMemory);
-  }, [assistantMemory, dirty]);
+  const doc = useMemo(() => normalizeDreamMemoryDocument(assistantMemory), [assistantMemory]);
+  const entries = useMemo(() => parseDreamMemoryEntries(doc), [doc]);
 
-  // after a failed write the client cannot tell whether the server committed
-  // (an abort can land post-commit) — refetch so the UI converges on DB truth.
-  // if the refetch itself fails (or is not wired), mark the current draft dirty
-  // so Save stays retryable. do not restore the operation snapshot: the editor
-  // stays enabled while the request is in flight, and any newer typing must win.
-  const reconcileAfterError = useCallback(async () => {
-    if (!onRefreshConfig) {
-      setDirty(true);
+  const persist = useCallback(
+    (nextDoc: string) => {
+      Promise.resolve(updateConfig({ assistantMemory: nextDoc }))
+        .then(() => {
+          message.success(t('settingChatMemory.saveSuccess'));
+        })
+        .catch((error) => {
+          message.error(
+            t('settingChatMemory.saveFailedWithReason', {
+              reason: (error as Error)?.message || String(error ?? 'unknown error'),
+            }),
+          );
+        });
+    },
+    [message, t, updateConfig],
+  );
+
+  const onDeleteEntry = (entry: DreamMemoryEntry) => {
+    const outcome = deleteDreamMemoryEntry(doc, entry.index, matchSnippet(entry.body));
+    if ('error' in outcome) {
+      message.error(t('settingChatMemory.saveFailedWithReason', { reason: outcome.error }));
       return;
     }
-    try {
-      await onRefreshConfig();
-    } catch (error) {
-      setDirty(true);
-      message.error(t('settingChatMemory.reconcileFailedRetry', { reason: errorReason(error) }));
-    }
-  }, [onRefreshConfig, message, t]);
+    persist(outcome.doc);
+  };
 
-  const onSave = useCallback(async () => {
-    setSaving(true);
-    const next = normalizeAssistantMemoryText(draft);
-    setDraft(next);
-    setDirty(false);
+  const onSaveEntry = (entry: DreamMemoryEntry) => {
+    const next = editDraft.trim();
+    setEditingIndex(null);
+    if (!next || next === entry.body) return;
+
+    const outcome = updateDreamMemoryEntry(doc, entry.index, matchSnippet(entry.body), next);
+    if ('error' in outcome) {
+      message.error(t('settingChatMemory.saveFailedWithReason', { reason: outcome.error }));
+      return;
+    }
+    persist(outcome.doc);
+  };
+
+  const onRegenerate = async (entry: DreamMemoryEntry) => {
+    if (!agentId || !entry.regenerable) return;
+
+    setRegeneratingIndex(entry.index);
     try {
-      await updateConfig({ assistantMemory: next });
-      message.success(t('settingChatMemory.saveSuccess'));
+      const result = await agentService.regenerateDreamMemory({
+        agentId,
+        historyDate: entry.dateTag,
+        index: entry.index,
+        match: matchSnippet(entry.body),
+      });
+
+      if (result.status === 'success') {
+        message.success(t('settingChatMemory.rollupSuccess'));
+        await onRefreshConfig?.();
+      } else if (result.reason === 'no_changes') {
+        message.info(t('settingChatMemory.rollupNoChanges'));
+      } else if (result.reason === 'no_summaries') {
+        message.warning(t('settingChatMemory.rollupSkipped'));
+      } else if (result.reason === 'stale_conflict') {
+        message.warning(t('settingChatMemory.regenerateStaleConflict'));
+        await onRefreshConfig?.();
+      } else {
+        message.error(
+          t('settingChatMemory.rollupFailedWithReason', {
+            reason: result.reason ?? 'unknown',
+          }),
+        );
+      }
     } catch (error) {
-      message.error(t('settingChatMemory.saveFailedWithReason', { reason: errorReason(error) }));
-      await reconcileAfterError();
+      message.error(
+        t('settingChatMemory.rollupFailedWithReason', {
+          reason: (error as Error)?.message || String(error ?? 'unknown error'),
+        }),
+      );
     } finally {
-      setSaving(false);
+      setRegeneratingIndex(null);
     }
-  }, [draft, updateConfig, message, t, reconcileAfterError]);
+  };
 
-  const onClear = useCallback(() => {
+  const onClear = () => {
     modal.confirm({
       content: t('settingChatMemory.clearConfirm'),
       okButtonProps: { danger: true },
       okText: t('settingChatMemory.clear'),
-      // returns void so the modal closes immediately; the write continues with
-      // its own loading state and reports via toast
       onOk: () => {
-        setDraft('');
-        setDirty(false);
-        setSaving(true);
+        setClearing(true);
         void (async () => {
           try {
             await updateConfig({ assistantMemory: '' });
             message.success(t('settingChatMemory.clearSuccess'));
           } catch (error) {
             message.error(
-              t('settingChatMemory.saveFailedWithReason', { reason: errorReason(error) }),
+              t('settingChatMemory.saveFailedWithReason', {
+                reason: (error as Error)?.message || String(error ?? 'unknown error'),
+              }),
             );
-            await reconcileAfterError();
           } finally {
-            setSaving(false);
+            setClearing(false);
           }
         })();
       },
       title: t('settingChatMemory.clear'),
     });
-  }, [modal, message, t, updateConfig, reconcileAfterError]);
+  };
 
-  const onCopy = useCallback(async () => {
-    if (!assistantMemory) return;
-    await navigator.clipboard.writeText(assistantMemory);
+  const onCopy = async () => {
+    if (!doc) return;
+    await navigator.clipboard.writeText(doc);
     message.success(t('settingChatMemory.copySuccess'));
-  }, [assistantMemory, message, t]);
+  };
 
   return (
     <Flexbox gap={8}>
@@ -120,26 +199,83 @@ const DynamicMemory = memo(() => {
       <Typography.Text type={'secondary'}>
         {t('settingChatMemory.dynamicMemory.hint')}
       </Typography.Text>
-      <Input.TextArea
-        onChange={(e) => {
-          setDraft(e.target.value);
-          setDirty(true);
-        }}
-        placeholder={t('settingChatMemory.dynamicMemory.empty')}
-        rows={8}
-        value={draft}
-      />
+
+      <Flexbox gap={8}>
+        {entries.map((entry) => (
+          <Flexbox className={styles.card} gap={8} key={`${entry.index}-${entry.dateTag}`}>
+            {editingIndex === entry.index ? (
+              <>
+                <Input.TextArea
+                  autoFocus
+                  autoSize={{ maxRows: 8, minRows: 2 }}
+                  onChange={(e) => setEditDraft(e.target.value)}
+                  value={editDraft}
+                />
+                <Flexbox gap={8} horizontal justify={'flex-end'}>
+                  <Button onClick={() => setEditingIndex(null)} size={'small'}>
+                    {t('cancel', { ns: 'common' })}
+                  </Button>
+                  <Button onClick={() => onSaveEntry(entry)} size={'small'} type={'primary'}>
+                    {t('ok', { ns: 'common' })}
+                  </Button>
+                </Flexbox>
+              </>
+            ) : (
+              <Flexbox align={'flex-start'} gap={12} horizontal>
+                <span className={styles.index}>#{entry.index}</span>
+                <Flexbox flex={1} gap={6} style={{ minWidth: 0 }}>
+                  <Tag style={{ width: 'fit-content' }}>{formatDateTag(entry.dateTag)}</Tag>
+                  <div className={styles.content}>{entry.body}</div>
+                </Flexbox>
+                <Flexbox gap={2} horizontal>
+                  {entry.regenerable && (
+                    <ActionIcon
+                      icon={RefreshCwIcon}
+                      loading={regeneratingIndex === entry.index}
+                      onClick={() => void onRegenerate(entry)}
+                      size={'small'}
+                      title={t('settingChatMemory.regenerate')}
+                    />
+                  )}
+                  <ActionIcon
+                    icon={PencilIcon}
+                    onClick={() => {
+                      setEditDraft(entry.body);
+                      setEditingIndex(entry.index);
+                    }}
+                    size={'small'}
+                    title={t('edit', { ns: 'common' })}
+                  />
+                  <Popconfirm
+                    cancelText={t('cancel', { ns: 'common' })}
+                    okText={t('ok', { ns: 'common' })}
+                    onConfirm={() => onDeleteEntry(entry)}
+                    title={t('settingChatMemory.dynamicMemory.deleteConfirm')}
+                  >
+                    <ActionIcon
+                      icon={Trash2Icon}
+                      size={'small'}
+                      title={t('delete', { ns: 'common' })}
+                    />
+                  </Popconfirm>
+                </Flexbox>
+              </Flexbox>
+            )}
+          </Flexbox>
+        ))}
+        {entries.length === 0 && (
+          <div className={styles.hint}>{t('settingChatMemory.dynamicMemory.empty')}</div>
+        )}
+      </Flexbox>
+
       <Flexbox align={'center'} gap={12} horizontal style={{ flexWrap: 'wrap' }}>
-        {!!assistantMemory && <Tokens value={assistantMemory} />}
+        {!!doc && <Tokens value={doc} />}
       </Flexbox>
       <Flexbox gap={8} horizontal style={{ flexWrap: 'wrap' }}>
-        <Button disabled={!dirty} loading={saving} onClick={onSave} type={'primary'}>
-          {t('settingChatMemory.dynamicMemory.save')}
-        </Button>
-        <Button disabled={!assistantMemory} onClick={onCopy}>
+        <Button disabled={!doc} onClick={() => void onCopy()}>
           {t('settingChatMemory.copy')}
         </Button>
-        <Button danger disabled={!assistantMemory && !draft} loading={saving} onClick={onClear}>
+        <Button danger disabled={!doc} loading={clearing} onClick={onClear}>
           {t('settingChatMemory.clear')}
         </Button>
       </Flexbox>

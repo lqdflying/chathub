@@ -319,3 +319,262 @@ export const resolveLastDreamStatus = (meta?: AssistantMemoryMeta | null): LastD
   if (!at) return { failed: false, ran: false };
   return { at, failed: meta?.lastDreamStatus === 'failed', ran: true };
 };
+
+/** Default keep-newest-N for dated dream-memory cards. */
+export const DEFAULT_MEMORY_DREAM_MAX_ENTRIES = 14;
+
+const MEMORY_DREAM_MAX_ENTRIES_MIN = 1;
+const MEMORY_DREAM_MAX_ENTRIES_MAX = 90;
+
+/** Resolve `memoryDreamMaxEntries` from chatConfig (default 14, clamped 1–90). */
+export const resolveMemoryDreamMaxEntries = (
+  chatConfig?: Partial<LobeAgentChatConfig> | null,
+): number => {
+  const raw = chatConfig?.memoryDreamMaxEntries;
+  if (typeof raw !== 'number' || !Number.isInteger(raw)) return DEFAULT_MEMORY_DREAM_MAX_ENTRIES;
+  return Math.min(MEMORY_DREAM_MAX_ENTRIES_MAX, Math.max(MEMORY_DREAM_MAX_ENTRIES_MIN, raw));
+};
+
+const DREAM_MEMORY_HEADER = /^#(\d+) \[([^\]]+)\]:\s*(.*)$/;
+const DREAM_SINGLE_DAY_TAG = /^\d{4}-\d{2}-\d{2}$/;
+
+export interface DreamMemoryEntry {
+  body: string;
+  dateTag: string;
+  index: number;
+  /** True when `dateTag` is a single UTC day (`YYYY-MM-DD`). */
+  regenerable: boolean;
+}
+
+export type DreamMemoryMutationError = 'mismatch' | 'not_found';
+
+const isDreamSingleDayTag = (tag: string) => DREAM_SINGLE_DAY_TAG.test(tag);
+const isDreamMergedTag = (tag: string) => tag.includes('..');
+
+/** Numbered dream cards (`#N [date]:` blocks) in document order. */
+export const parseDreamMemoryEntries = (doc: string | null | undefined): DreamMemoryEntry[] => {
+  const text = (doc ?? '').trim();
+  if (!text) return [];
+
+  const entries: DreamMemoryEntry[] = [];
+  let current: DreamMemoryEntry | null = null;
+
+  for (const line of text.split('\n')) {
+    const match = DREAM_MEMORY_HEADER.exec(line);
+    if (match) {
+      if (current) entries.push(current);
+      const bodyStart = match[3].trim();
+      const dateTag = match[2].trim();
+      current = {
+        body: bodyStart,
+        dateTag,
+        index: Number(match[1]),
+        regenerable: isDreamSingleDayTag(dateTag),
+      };
+    } else if (current) {
+      current.body = current.body ? `${current.body}\n${line}` : line;
+    }
+  }
+  if (current) entries.push({ ...current, body: current.body.trim() });
+
+  return entries;
+};
+
+export const serializeDreamMemoryEntries = (entries: DreamMemoryEntry[]): string =>
+  entries
+    .map((entry) => {
+      const header = `#${entry.index} [${entry.dateTag}]:`;
+      return entry.body ? `${header}\n${entry.body}` : header;
+    })
+    .join('\n')
+    .trim();
+
+/**
+ * Wrap a legacy free-text dynamic memory blob as `#1 [legacy]:` so dated cards can
+ * append without losing prior content.
+ */
+export const normalizeDreamMemoryDocument = (doc: string | null | undefined): string => {
+  const trimmed = (doc ?? '').trim();
+  if (!trimmed) return '';
+  if (parseDreamMemoryEntries(trimmed).length > 0) return trimmed;
+  return `#1 [legacy]:\n${trimmed}`;
+};
+
+const renumberDreamMemoryEntries = (entries: DreamMemoryEntry[]): DreamMemoryEntry[] =>
+  entries.map((entry, i) => ({ ...entry, index: i + 1 }));
+
+export const hasDreamMemoryEntryForDate = (
+  doc: string | null | undefined,
+  historyDate: string,
+): boolean =>
+  parseDreamMemoryEntries(doc).some(
+    (entry) => entry.regenerable && entry.dateTag === historyDate,
+  );
+
+/**
+ * Append one dated dream card. `historyDate` must be `YYYY-MM-DD`. Next index =
+ * highest existing `#N` + 1.
+ */
+export const appendDreamMemoryEntry = (
+  doc: string | null | undefined,
+  historyDate: string,
+  body: string,
+): { doc: string; entry: DreamMemoryEntry; index: number } => {
+  const base = normalizeDreamMemoryDocument(doc);
+  let maxIndex = 0;
+  for (const match of base.matchAll(/^#(\d+) \[/gm)) {
+    maxIndex = Math.max(maxIndex, Number(match[1]));
+  }
+  const index = maxIndex + 1;
+  const entry: DreamMemoryEntry = {
+    body: body.trim(),
+    dateTag: historyDate,
+    index,
+    regenerable: true,
+  };
+  const block = serializeDreamMemoryEntries([entry]);
+  return { doc: base ? `${base}\n${block}` : block, entry, index };
+};
+
+const findDreamEntry = (
+  entries: DreamMemoryEntry[],
+  index: number,
+): DreamMemoryEntry | undefined => entries.find((entry) => entry.index === index);
+
+/**
+ * Replace the body of entry `#index` after verifying `dateTag` and a `match` snippet
+ * of the current body (regenerate / manual edit).
+ */
+export const replaceDreamMemoryEntryBody = (
+  doc: string | null | undefined,
+  index: number,
+  dateTag: string,
+  match: string,
+  body: string,
+):
+  | { doc: string; entry: DreamMemoryEntry }
+  | { entries: DreamMemoryEntry[]; error: DreamMemoryMutationError } => {
+  const entries = parseDreamMemoryEntries(doc);
+  const target = findDreamEntry(entries, index);
+  if (!target) return { entries, error: 'not_found' };
+  if (target.dateTag !== dateTag || !target.body.includes(match.trim())) {
+    return { entries, error: 'mismatch' };
+  }
+
+  const nextBody = body.trim();
+  const nextEntries = entries.map((entry) =>
+    entry.index === index ? { ...entry, body: nextBody } : entry,
+  );
+  return { doc: serializeDreamMemoryEntries(nextEntries), entry: { ...target, body: nextBody } };
+};
+
+export const updateDreamMemoryEntry = (
+  doc: string | null | undefined,
+  index: number,
+  match: string,
+  body: string,
+):
+  | { doc: string; entry: DreamMemoryEntry }
+  | { entries: DreamMemoryEntry[]; error: DreamMemoryMutationError } => {
+  const entries = parseDreamMemoryEntries(doc);
+  const target = findDreamEntry(entries, index);
+  if (!target) return { entries, error: 'not_found' };
+  if (!target.body.includes(match.trim())) return { entries, error: 'mismatch' };
+
+  return replaceDreamMemoryEntryBody(doc, index, target.dateTag, match, body);
+};
+
+export const deleteDreamMemoryEntry = (
+  doc: string | null | undefined,
+  index: number,
+  match: string,
+):
+  | { doc: string; removed: DreamMemoryEntry }
+  | { entries: DreamMemoryEntry[]; error: DreamMemoryMutationError } => {
+  const entries = parseDreamMemoryEntries(doc);
+  const target = findDreamEntry(entries, index);
+  if (!target) return { entries, error: 'not_found' };
+  if (!target.body.includes(match.trim())) return { entries, error: 'mismatch' };
+
+  const remaining = entries.filter((entry) => entry.index !== index);
+  return {
+    doc: serializeDreamMemoryEntries(renumberDreamMemoryEntries(remaining)),
+    removed: target,
+  };
+};
+
+const formatMergedDreamBody = (parts: Array<{ date: string; body: string }>): string =>
+  parts
+    .map(({ body, date }) => (body ? `[${date}]\n${body}` : `[${date}]`))
+    .join('\n\n')
+    .trim();
+
+const expandMergedDreamBody = (entry: DreamMemoryEntry): Array<{ date: string; body: string }> => {
+  if (!isDreamMergedTag(entry.dateTag)) {
+    return [{ body: entry.body, date: entry.dateTag }];
+  }
+
+  const parts: Array<{ date: string; body: string }> = [];
+  const segments = entry.body.split(/\n(?=\[\d{4}-\d{2}-\d{2}\]\n?)/);
+  for (const segment of segments) {
+    const match = /^\[(\d{4}-\d{2}-\d{2})\]\n?([\s\S]*)$/.exec(segment.trim());
+    if (match) {
+      parts.push({ body: match[2].trim(), date: match[1] });
+    } else if (segment.trim()) {
+      const [start, end] = entry.dateTag.split('..');
+      parts.push({ body: segment.trim(), date: start ?? entry.dateTag });
+      void end;
+    }
+  }
+
+  if (parts.length === 0 && entry.body.trim()) {
+    const [start, end] = entry.dateTag.split('..');
+    parts.push({ body: entry.body.trim(), date: start ?? entry.dateTag });
+    void end;
+  }
+
+  return parts;
+};
+
+/**
+ * Keep the newest `maxEntries` single-day cards; fold older single-day cards (and any
+ * existing merged card) into one range-tagged card at the front (after legacy).
+ */
+export const enforceDreamMemoryRetention = (
+  doc: string | null | undefined,
+  maxEntries: number,
+): string => {
+  const normalized = normalizeDreamMemoryDocument(doc);
+  const entries = parseDreamMemoryEntries(normalized);
+  if (entries.length === 0) return '';
+
+  const legacy = entries.filter((entry) => entry.dateTag === 'legacy');
+  const merged = entries.filter((entry) => isDreamMergedTag(entry.dateTag));
+  const singleDay = entries
+    .filter((entry) => entry.regenerable)
+    .sort((a, b) => a.dateTag.localeCompare(b.dateTag));
+
+  if (singleDay.length <= maxEntries) {
+    return serializeDreamMemoryEntries(renumberDreamMemoryEntries(entries));
+  }
+
+  const keep = singleDay.slice(-maxEntries);
+  const fold = singleDay.slice(0, singleDay.length - maxEntries);
+  const foldedParts: Array<{ date: string; body: string }> = [];
+
+  for (const entry of merged) foldedParts.push(...expandMergedDreamBody(entry));
+  for (const entry of fold) foldedParts.push({ body: entry.body, date: entry.dateTag });
+
+  foldedParts.sort((a, b) => a.date.localeCompare(b.date));
+  const rangeStart = foldedParts[0]!.date;
+  const rangeEnd = foldedParts[foldedParts.length - 1]!.date;
+  const mergedEntry: DreamMemoryEntry = {
+    body: formatMergedDreamBody(foldedParts),
+    dateTag: rangeStart === rangeEnd ? rangeStart : `${rangeStart}..${rangeEnd}`,
+    index: 1,
+    regenerable: rangeStart === rangeEnd,
+  };
+
+  const next = [...legacy, mergedEntry, ...keep];
+  return serializeDreamMemoryEntries(renumberDreamMemoryEntries(next));
+};

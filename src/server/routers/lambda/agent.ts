@@ -11,6 +11,7 @@ import { pino } from '@/libs/logger';
 import { authedProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { AgentService } from '@/server/services/agent';
+import { executeAssistantMemoryDream } from '@/server/services/assistantMemoryDream';
 
 const agentProcedure = authedProcedure.use(serverDatabase).use(async (opts) => {
   const { ctx } = opts;
@@ -140,6 +141,27 @@ export const agentRouter = router({
           type: KnowledgeType.KnowledgeBase,
         })),
       ];
+    }),
+
+  regenerateDreamMemory: agentProcedure
+    .input(
+      z.object({
+        agentId: z.string(),
+        historyDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        index: z.number().int().min(1),
+        match: z.string().min(1),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      return executeAssistantMemoryDream({
+        agentId: input.agentId,
+        db: ctx.serverDB,
+        historyDate: input.historyDate,
+        match: input.match,
+        mode: 'regenerate',
+        replaceIndex: input.index,
+        userId: ctx.userId!,
+      });
     }),
 
   toggleFile: agentProcedure

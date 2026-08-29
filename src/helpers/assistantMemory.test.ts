@@ -3,11 +3,16 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   appendFixedMemoryEntry,
+  appendDreamMemoryEntry,
   capAssistantMemoryByTokensAsync,
+  deleteDreamMemoryEntry,
   deleteFixedMemoryEntry,
+  enforceDreamMemoryRetention,
   formatFixedMemoryEntries,
   hashText,
+  hasDreamMemoryEntryForDate,
   normalizeAssistantMemoryText,
+  normalizeDreamMemoryDocument,
   parseFixedMemoryEntries,
   renumberFixedMemoryEntries,
   resolveLastDreamStatus,
@@ -289,5 +294,41 @@ describe('resolveLastDreamStatus', () => {
       failed: false,
       ran: true,
     });
+  });
+});
+
+describe('dream memory entries', () => {
+  it('wraps legacy blobs and appends dated cards', () => {
+    const wrapped = normalizeDreamMemoryDocument('old prose');
+    expect(wrapped).toContain('#1 [legacy]:');
+    const { doc } = appendDreamMemoryEntry(wrapped, '2026-08-27', '- prefers tables');
+    expect(doc).toContain('#2 [2026-08-27]:');
+    expect(doc).toContain('prefers tables');
+  });
+
+  it('deletes and renumbers dream cards densely', () => {
+    const doc = '#1 [2026-08-25]:\na\n#2 [2026-08-26]:\nb\n#3 [2026-08-27]:\nc';
+    const outcome = deleteDreamMemoryEntry(doc, 2, 'b');
+    expect(outcome).toMatchObject({ doc: '#1 [2026-08-25]:\na\n#2 [2026-08-27]:\nc' });
+  });
+
+  it('merges older single-day cards when over the keep limit', () => {
+    const doc = [
+      '#1 [2026-08-25]:\na',
+      '#2 [2026-08-26]:\nb',
+      '#3 [2026-08-27]:\nc',
+      '#4 [2026-08-28]:\nd',
+    ].join('\n');
+    const merged = enforceDreamMemoryRetention(doc, 2);
+    expect(merged).toContain('[2026-08-25..2026-08-26]');
+    expect(merged).toContain('#2 [2026-08-27]');
+    expect(merged).toContain('#3 [2026-08-28]');
+    expect(merged).not.toContain('#1 [2026-08-25]:');
+  });
+
+  it('detects an existing card for a history date', () => {
+    const doc = '#1 [2026-08-27]:\nhello';
+    expect(hasDreamMemoryEntryForDate(doc, '2026-08-27')).toBe(true);
+    expect(hasDreamMemoryEntryForDate(doc, '2026-08-28')).toBe(false);
   });
 });
