@@ -1,7 +1,7 @@
 'use client';
 
 import { Form, type FormGroupItemType, ImageSelect, SliderWithInput, TextArea } from '@lobehub/ui';
-import { Switch } from 'antd';
+import { InputNumber, Select, Switch } from 'antd';
 import { useThemeMode } from 'antd-style';
 import isEqual from 'fast-deep-equal';
 import { LayoutList, MessagesSquare } from 'lucide-react';
@@ -10,6 +10,7 @@ import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
 import InfoTooltip from '@/components/InfoTooltip';
+import { assistanceLevelToChatConfigPatch, type AssistanceLevel } from '@/const/assistanceLevel';
 import { FORM_STYLE } from '@/const/layoutTokens';
 import { imageUrl } from '@/const/url';
 
@@ -69,13 +70,11 @@ const AgentChat = memo(() => {
       {
         children: <Switch />,
         desc: t('settingChat.enableAutoCreateTopic.desc'),
-        label: withTooltip(
-          t('settingChat.enableAutoCreateTopic.title'),
-          t('settingChat.enableAutoCreateTopic.tooltip'),
-        ),
+        label: t('settingChat.enableAutoCreateTopic.title'),
         layout: 'horizontal',
         minWidth: undefined,
         name: 'enableAutoCreateTopic',
+        tooltip: { title: t('settingChat.enableAutoCreateTopic.tooltip') },
         valuePropName: 'checked',
       },
       {
@@ -88,13 +87,11 @@ const AgentChat = memo(() => {
       },
       {
         children: <Switch />,
-        label: withTooltip(
-          t('settingChat.enableHistoryCount.title'),
-          t('settingChat.enableHistoryCount.tooltip'),
-        ),
+        label: t('settingChat.enableHistoryCount.title'),
         layout: 'horizontal',
         minWidth: undefined,
         name: 'enableHistoryCount',
+        tooltip: { title: t('settingChat.enableHistoryCount.tooltip') },
         valuePropName: 'checked',
       },
       {
@@ -108,17 +105,58 @@ const AgentChat = memo(() => {
       {
         children: <Switch />,
         hidden: !config.enableHistoryCount,
-        label: withTooltip(
-          t('settingChat.enableCompressHistory.title'),
-          t('settingChat.enableCompressHistory.tooltip'),
-        ),
+        label: t('settingChat.enableCompressHistory.title'),
         layout: 'horizontal',
         minWidth: undefined,
         name: 'enableCompressHistory',
+        tooltip: { title: t('settingChat.enableCompressHistory.tooltip') },
         valuePropName: 'checked',
       },
     ],
     title: t('settingChat.title'),
+  };
+
+  const compactionGroup: FormGroupItemType = {
+    children: [
+      {
+        children: (
+          <Select
+            options={(['minimal', 'balanced', 'rich'] as AssistanceLevel[]).map((value) => ({
+              label: t(`settingChatMemory.assistanceLevel.${value}`),
+              value,
+            }))}
+            popupMatchSelectWidth={false}
+          />
+        ),
+        desc: t('settingChatMemory.assistanceLevel.hint'),
+        label: withTooltip(
+          t('settingChatMemory.assistanceLevel.title'),
+          t('settingChatMemory.assistanceLevel.tooltip'),
+        ),
+        name: 'assistanceLevel',
+      },
+      {
+        children: <Switch />,
+        desc: t('settingChatMemory.enableTokenThresholdAutoCompact.desc'),
+        label: t('settingChatMemory.enableTokenThresholdAutoCompact.title'),
+        layout: 'horizontal',
+        minWidth: undefined,
+        name: 'enableTokenThresholdAutoCompact',
+        tooltip: { title: t('settingChatMemory.enableTokenThresholdAutoCompact.tooltip') },
+        valuePropName: 'checked',
+      },
+      {
+        children: <InputNumber max={0.99} min={0.5} step={0.01} style={{ width: '100%' }} />,
+        desc: t('settingChatMemory.contextCompactThreshold.desc'),
+        hidden: !config.enableTokenThresholdAutoCompact,
+        label: withTooltip(
+          t('settingChatMemory.contextCompactThreshold.title'),
+          t('settingChatMemory.contextCompactThreshold.tooltip'),
+        ),
+        name: 'contextCompactThreshold',
+      },
+    ],
+    title: t('settingChatMemory.compactionGroupTitle'),
   };
 
   return (
@@ -136,9 +174,17 @@ const AgentChat = memo(() => {
         }
         form={form}
         initialValues={config}
-        items={[chat]}
+        items={[chat, compactionGroup]}
         itemsType={'group'}
         onFinish={updateConfig}
+        onValuesChange={(changed: Partial<typeof config>) => {
+          if (Object.prototype.hasOwnProperty.call(changed, 'assistanceLevel')) {
+            const level = changed.assistanceLevel as AssistanceLevel | undefined;
+            if (level) {
+              form.setFieldsValue(assistanceLevelToChatConfigPatch(level));
+            }
+          }
+        }}
         variant={'borderless'}
         {...FORM_STYLE}
       />

@@ -2,7 +2,7 @@
 
 import { ActionIcon, Button, Form } from '@lobehub/ui';
 import { EditableMessage } from '@lobehub/ui/chat';
-import { App, Input, Popconfirm } from 'antd';
+import { Alert, App, Input, Popconfirm } from 'antd';
 import { createStyles } from 'antd-style';
 import { PenLineIcon, PencilIcon, PlusIcon, Trash2Icon } from 'lucide-react';
 import { memo, useState } from 'react';
@@ -243,10 +243,17 @@ const FixedMemory = memo(() => {
   );
 
   return (
-    <Form
-      items={[
-        {
-          children: editingDoc ? (
+    <Flexbox gap={12}>
+      <Alert
+        description={t('settingChatMemory.fixedMemory.guide')}
+        message={t('settingChatMemory.fixedMemory.guideTitle')}
+        showIcon
+        type={'info'}
+      />
+      <Form
+        items={[
+          {
+            children: editingDoc ? (
             <EditableMessage
               editing
               height={'auto'}
@@ -279,6 +286,7 @@ const FixedMemory = memo(() => {
       variant={'borderless'}
       {...FORM_STYLE}
     />
+    </Flexbox>
   );
 });
 

@@ -260,7 +260,7 @@ config rather than the host session's.
 
 The whole feature is gated per assistant by `chatConfig.enableAssistantMemory` (default on):
 when off, nothing is injected, estimators count zero, the scheduled memory dream
-and manual rollup skip (`disabled`), the save-memory tool is not offered, and the Memory tab collapses to the master
+skips (`disabled`), the save-memory tool is not offered, and the Memory tab collapses to the master
 switch. Stateless assistants opt out with one toggle.
 
 The model can also maintain fixed memory through an implicit builtin tool (`lobe-memory`,
@@ -287,7 +287,9 @@ would change behavior in a future unrelated conversation, requires category-orga
 (never per-topic digests), and allows an exact `NO_CHANGES` sentinel reply; a sentinel run
 advances watermarks without rewriting the document. Dirtiness is a hash of each topic's
 compaction summary text: unchanged topics are never re-fed to the model, and a fully clean pass
-costs zero LLM calls. Manual "regenerate" passes `force` for a full rebuild. Output is bounded
+costs zero LLM calls. The store-level `rollupAssistantMemory` action passes `force` for a full
+rebuild; it is no longer exposed in the settings UI (the dream is the only automatic writer) but
+remains available for tests and future callers. Output is bounded
 twice — `max_tokens` on the request and a token-based post-cap (CJK-safe, replacing the old
 char-only cap) — and multilingual preamble stripping guards the stored text. A refusal, error, or
 empty output never overwrites the document; it records `lastError`, whose attempt count drives an
@@ -295,12 +297,11 @@ exponential backoff (10 min base, 6 h cap) honored by scheduled runs. Successful
 prior document in the one-slot backup, and `restoreAssistantMemoryBackup` swaps it with the
 current text so restoring twice is a redo.
 
-Rollup runs are single-flight per account scope and agent; the Memory tab
-**Regenerate** button joins the in-flight job. Rollup currency is ACCOUNT-level only: the target session/agent is
+Rollup runs are single-flight per account scope and agent. Rollup currency is ACCOUNT-level only: the target session/agent is
 captured at start, so the user can navigate to other sessions while the rollup runs in the
 background and the result is still written to the captured agent — only an account switch or
 scope reset aborts. In-flight agent ids are exposed in store state
-(`assistantMemoryRollingAgentIds`) so the Regenerate spinner survives unmounts and navigation.
+(`assistantMemoryRollingAgentIds`) so callers can track the spinner across unmounts and navigation.
 Topic listing and rollup persistence always use the server database. After a successful write, every agent-config SWR key in the account
 scope is revalidated so sibling sessions bound to the same agent drop their stale copy.
 
@@ -334,7 +335,7 @@ same `NO_CHANGES` sentinel and size bounds as the manual rollup.
 **Concurrency.** Dream writes compare `agents.updatedAt` from the initial load and use a
 compare-and-swap update. `SessionModel.updateConfig` omits snapshot timestamp columns on
 write so Drizzle `$onUpdate` advances `updatedAt` on every user or rollup mutation. If the
-user edits dynamic memory, restores a backup, or runs manual **Regenerate** while the model
+user edits dynamic memory or restores a backup while the model
 call is in flight, the stale dream result is dropped as `stale_conflict` instead of
 overwriting newer memory or metadata.
 
@@ -343,8 +344,11 @@ overwriting newer memory or metadata.
 and `trigger=scheduled`. They are server-emitted. After the daily topic-note scheduler
 was removed, `planner_settled` with `trigger=scheduled` on a topic path is a regression.
 
-Manual **Regenerate** on the Dynamic memory panel still runs `rollupAssistantMemory`
-(dirty-scan across agent topics) in the browser and is unchanged.
+The settings Memory tab no longer exposes manual **Regenerate** or **Restore previous**:
+dynamic memory is an edit-only surface (Save, Copy, Clear), and the dream schedule block
+shows the last dream run (`assistantMemoryMeta.lastRollupAt`) plus a failure hint when
+`lastError` is set. The store-level `rollupAssistantMemory` /
+`restoreAssistantMemoryBackup` actions remain for tests and future callers.
 
 Assistant-wide memory rollup is an agent-store action, while `ChatService` reads the agent store when
 assembling requests. The action therefore lazy-loads `@/services/chat` only when a rollup runs; a
@@ -357,8 +361,9 @@ cumulative summary, so injection drops any excerpt already contained in the curr
 in a newer kept excerpt instead of repeating it.
 
 The settings Memory tab edits both tiers through the scoped AgentSetting store, so the defaults
-page and group-member drawers target the agent they display; rollup and restore act on the active
-session's agent and are disabled elsewhere. The topic compaction summary is topic-scoped and
+page and group-member drawers target the agent they display. The Compact group (Assist preset,
+auto-compact switch, threshold) lives on the **Chat Preference** tab, not the Memory tab. The
+topic compaction summary is topic-scoped and
 therefore lives outside assistant settings: a shared `TopicSummaryViewer` drawer (markdown +
 model tag + copy/export) opens from the token-badge popover for the active topic and from each
 topic's dropdown menu for any topic with a summary.

@@ -2,11 +2,7 @@ import { Icon, Tooltip, TooltipProps } from '@lobehub/ui';
 import { IconSizeType } from '@lobehub/ui/es/Icon';
 import { useTheme } from 'antd-style';
 import { CircleHelp } from 'lucide-react';
-import { CSSProperties, MouseEvent, memo } from 'react';
-
-const stopLabelActivation = (event: MouseEvent) => {
-  event.preventDefault();
-};
+import { CSSProperties, memo } from 'react';
 
 interface InfoTooltipProps extends Omit<TooltipProps, 'children'> {
   iconStyle?: CSSProperties;
@@ -16,8 +12,8 @@ interface InfoTooltipProps extends Omit<TooltipProps, 'children'> {
 const InfoTooltip = memo<InfoTooltipProps>(({ size, iconStyle, ...res }) => {
   const theme = useTheme();
   return (
-    <Tooltip {...res}>
-      <span className={'chathub-form-label-tooltip'} onClick={stopLabelActivation}>
+    <Tooltip trigger={['hover', 'click']} {...res}>
+      <span className={'chathub-form-label-tooltip'}>
         <Icon
           icon={CircleHelp}
           size={size}

@@ -17,24 +17,26 @@ vi.mock('antd-style', async (importOriginal) => {
 import InfoTooltip from './index';
 
 describe('InfoTooltip', () => {
-  it('opens on click without activating the associated switch', async () => {
+  it('opens on hover and on click', async () => {
     const user = userEvent.setup();
 
     render(
       <ConfigProvider>
-        <label htmlFor="setting-switch">
-          Auto compact
-          <InfoTooltip title="Compaction help" trigger="click" />
-        </label>
-        <input data-testid="setting-switch" id="setting-switch" type="checkbox" />
+        <InfoTooltip title="Compaction help" />
       </ConfigProvider>,
     );
 
-    await user.click(screen.getByRole('img', { hidden: true }).parentElement!);
+    const trigger = screen.getByRole('img', { hidden: true }).parentElement!;
 
+    await user.hover(trigger);
     await waitFor(() => {
       expect(screen.getByText('Compaction help')).toBeTruthy();
     });
-    expect((screen.getByTestId('setting-switch') as HTMLInputElement).checked).toBe(false);
+    await user.unhover(trigger);
+
+    await user.click(trigger);
+    await waitFor(() => {
+      expect(screen.getByText('Compaction help')).toBeTruthy();
+    });
   });
 });

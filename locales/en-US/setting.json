@@ -364,7 +364,7 @@
   "settingChatMemory": {
     "assistanceLevel": {
       "balanced": "Balanced",
-      "hint": "Applies suggested defaults for history and compression. You can still override in Chat preferences.",
+      "hint": "Applies suggested defaults for history and compression on this tab. You can still override individual fields.",
       "minimal": "Light",
       "rich": "Rich",
       "title": "Assist preset",
@@ -382,11 +382,11 @@
     "copy": "Copy",
     "copySuccess": "Copied",
     "dynamicMemory": {
-      "empty": "No dynamic memory yet. Wait for the automatic update, or click Regenerate now.",
-      "hint": "Durable facts the model extracts from topic compaction summaries (preferences, standing rules, project state, open commitments), injected into every chat with this assistant. Updates are incremental and never pile up per-topic recaps. You can edit it and save.",
+      "empty": "No dynamic memory yet. Enable the memory dream and it will be generated at the scheduled time.",
+      "hint": "Durable facts the model extracts from topic compaction summaries (preferences, standing rules, project state, open commitments), injected into every chat with this assistant. Updates are incremental and never pile up per-topic recaps. You can edit it and save; the memory dream updates it automatically when enabled.",
       "lastUpdated": "Updated {{time}}",
       "save": "Save changes",
-      "title": "Dynamic memory (auto-summarized)"
+      "title": "Dynamic memory"
     },
     "enableAssistantMemory": {
       "desc": "When off, this assistant injects no fixed/dynamic memory, never rolls up, and offers no save-memory tool (for stateless assistants).",
@@ -401,7 +401,7 @@
       "title": "Periodic dynamic memory update"
     },
     "enableTokenThresholdAutoCompact": {
-      "desc": "Requires Limit history and Summarize history in Chat preferences.",
+      "desc": "Requires Limit history and Summarize history on this tab.",
       "title": "Auto-compact when context is full",
       "tooltip": "Compacts the current topic when its context hits the threshold. Independent of the memory dream; it does not compact topics on a calendar schedule."
     },
@@ -414,12 +414,12 @@
       "addPlaceholder": "Write something this assistant should remember long-term…",
       "deleteConfirm": "Delete this memory? The remaining entries will be renumbered.",
       "freeformHint": "The document also contains free-form content outside the numbered entries — click Edit to view and modify the full document.",
+      "guide": "Fixed memory is curated by you; the assistant can also append entries (#1, #2, …) via its built-in memory tool. Automatic summarization and the memory dream never rewrite it.",
+      "guideTitle": "How to set up",
       "hint": "Durable content maintained by you (and the assistant's memory tool), injected into every chat with this assistant. Automatic summarization never modifies or overwrites it.",
       "placeholder": "Write down what this assistant should always remember: preferences, rules, project background…",
       "title": "Fixed memory (user-curated)"
     },
-    "guide": "1) Fixed memory is yours — the assistant can also append entries (#1, #2, …) via its built-in tool, and automatic summarization never rewrites it.\n2) Dynamic memory is distilled incrementally from topic compaction summaries; you can edit, regenerate, or restore the previous version at any time.\n3) Topic compaction requires Limit history messages and Summarize history in Chat preferences; in chat, click the green usage badge to inspect usage, view the topic summary, and compact manually.",
-    "guideTitle": "How to set up",
     "memoryDreamSchedule": {
       "frequency": {
         "daily": "Daily",
@@ -427,12 +427,16 @@
         "off": "Off",
         "weekly": "Weekly"
       },
+      "lastRun": "Last run: {{time}}",
+      "lastRunError": "Last run failed; it will retry on the next cycle",
+      "lastRunLabel": "Last dream run",
+      "lastRunNever": "Never run",
       "time": {
         "desc": "Earliest UTC time the dream may run (default 02:00 UTC)",
         "title": "Run at (UTC)"
       },
       "title": "Daily memory dream",
-      "tooltip": "Learns how you work with this assistant (tone, format, tool habits, standing preferences) from topic summaries that were active on the previous UTC calendar day, and writes durable customization into dynamic memory. Not a recap, and it does not compact topics. Runs on the server at the configured UTC time — no open browser required. Manual refresh remains Dynamic memory → Regenerate.",
+      "tooltip": "Learns how you work with this assistant (tone, format, tool habits, standing preferences) from topic summaries that were active on the previous UTC calendar day, and writes durable customization into dynamic memory. Not a recap, and it does not compact topics. Runs on the server at the configured UTC time — no open browser required.",
       "weekday": {
         "0": "Sunday",
         "1": "Monday",

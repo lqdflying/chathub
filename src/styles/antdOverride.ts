@@ -52,10 +52,7 @@ export default ({ token }: { prefixCls: string; token: Theme }) => css`
 
   .${token.prefixCls}-form-item:has(.${token.prefixCls}-switch)
     .${token.prefixCls}-form-item-label
-    .${token.prefixCls}-form-item-tooltip,
-  .${token.prefixCls}-form-item:has(.${token.prefixCls}-switch)
-    .${token.prefixCls}-form-item-label
-    .chathub-form-label-tooltip {
+    .${token.prefixCls}-form-item-tooltip {
     cursor: help;
     pointer-events: auto;
   }

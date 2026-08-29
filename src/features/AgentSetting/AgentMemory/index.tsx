@@ -1,33 +1,30 @@
 'use client';
 
 import { Form, type FormGroupItemType } from '@lobehub/ui';
-import { Alert, App, Form as AntdForm, InputNumber, Select, Switch, TimePicker } from 'antd';
+import { App, Form as AntdForm, Select, Switch, TimePicker, Typography } from 'antd';
 import { useTheme } from 'antd-style';
 import { type Dayjs } from 'dayjs';
 import isEqual from 'fast-deep-equal';
-import { memo, type ReactNode } from 'react';
+import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
-import InfoTooltip from '@/components/InfoTooltip';
-import { assistanceLevelToChatConfigPatch, type AssistanceLevel } from '@/const/assistanceLevel';
-import { FORM_STYLE } from '@/const/layoutTokens';
 import {
   dayjsToScheduleTime,
   resolveMemoryDreamSchedule,
   scheduleTimeToDayjs,
 } from '@/helpers/assistantMemory';
+import { FORM_STYLE } from '@/const/layoutTokens';
 
 import { selectors, useStore } from '../store';
 import DynamicMemory from './DynamicMemory';
 import FixedMemory from './FixedMemory';
 
-const withTooltip = (title: string, tooltip: string): ReactNode => (
-  <Flexbox align={'center'} gap={6} horizontal>
-    {title}
-    <InfoTooltip title={tooltip} />
-  </Flexbox>
-);
+const formatTime = (iso: string | undefined) => {
+  if (!iso) return undefined;
+  const time = new Date(iso);
+  return Number.isNaN(time.getTime()) ? undefined : time.toLocaleString();
+};
 
 const AgentMemory = memo(() => {
   const { t } = useTranslation('setting');
@@ -37,57 +34,15 @@ const AgentMemory = memo(() => {
   const updateConfig = useStore((s) => s.setChatConfig);
   const config = useStore(selectors.currentChatConfig, isEqual);
   const rawChatConfig = useStore((s) => s.config.chatConfig);
+  const assistantMemoryMeta = useStore((s) => s.config.assistantMemoryMeta);
   const schedule = resolveMemoryDreamSchedule(rawChatConfig);
   const frequency =
     (AntdForm.useWatch('memoryDreamScheduleFrequency', form) as string | undefined) ??
     schedule.frequency;
 
-  const compactionGroup: FormGroupItemType = {
-    children: [
-      {
-        children: (
-          <Select
-            options={(['minimal', 'balanced', 'rich'] as AssistanceLevel[]).map((value) => ({
-              label: t(`settingChatMemory.assistanceLevel.${value}`),
-              value,
-            }))}
-            popupMatchSelectWidth={false}
-          />
-        ),
-        desc: t('settingChatMemory.assistanceLevel.hint'),
-        label: withTooltip(
-          t('settingChatMemory.assistanceLevel.title'),
-          t('settingChatMemory.assistanceLevel.tooltip'),
-        ),
-        name: 'assistanceLevel',
-      },
-      {
-        children: <Switch />,
-        desc: t('settingChatMemory.enableTokenThresholdAutoCompact.desc'),
-        label: withTooltip(
-          t('settingChatMemory.enableTokenThresholdAutoCompact.title'),
-          t('settingChatMemory.enableTokenThresholdAutoCompact.tooltip'),
-        ),
-        layout: 'horizontal',
-        minWidth: undefined,
-        name: 'enableTokenThresholdAutoCompact',
-        valuePropName: 'checked',
-      },
-      {
-        children: <InputNumber max={0.99} min={0.5} step={0.01} style={{ width: '100%' }} />,
-        desc: t('settingChatMemory.contextCompactThreshold.desc'),
-        hidden: !config.enableTokenThresholdAutoCompact,
-        label: withTooltip(
-          t('settingChatMemory.contextCompactThreshold.title'),
-          t('settingChatMemory.contextCompactThreshold.tooltip'),
-        ),
-        name: 'contextCompactThreshold',
-      },
-    ],
-    title: t('settingChatMemory.compactionGroupTitle'),
-  };
-
   const memoryEnabled = config.enableAssistantMemory !== false;
+  const lastDreamRun = formatTime(assistantMemoryMeta?.lastRollupAt);
+  const lastDreamError = assistantMemoryMeta?.lastError?.message;
 
   const memoryGroup: FormGroupItemType = {
     children: [
@@ -113,11 +68,9 @@ const AgentMemory = memo(() => {
         ),
         desc: t('settingChatMemory.memoryDreamSchedule.frequency.desc'),
         hidden: !memoryEnabled,
-        label: withTooltip(
-          t('settingChatMemory.memoryDreamSchedule.title'),
-          t('settingChatMemory.memoryDreamSchedule.tooltip'),
-        ),
+        label: t('settingChatMemory.memoryDreamSchedule.title'),
         name: 'memoryDreamScheduleFrequency',
+        tooltip: { title: t('settingChatMemory.memoryDreamSchedule.tooltip') },
       },
       {
         children: <TimePicker format={'HH:mm'} needConfirm={false} showNow={false} />,
@@ -146,18 +99,30 @@ const AgentMemory = memo(() => {
         label: t('settingChatMemory.memoryDreamSchedule.weekday.title'),
         name: 'memoryDreamScheduleWeekday',
       },
+      {
+        children: (
+          <Flexbox gap={2}>
+            <Typography.Text type={'secondary'}>
+              {lastDreamRun
+                ? t('settingChatMemory.memoryDreamSchedule.lastRun', { time: lastDreamRun })
+                : t('settingChatMemory.memoryDreamSchedule.lastRunNever')}
+            </Typography.Text>
+            {!!lastDreamError && (
+              <Typography.Text style={{ fontSize: 12 }} type={'danger'}>
+                {t('settingChatMemory.memoryDreamSchedule.lastRunError')}
+              </Typography.Text>
+            )}
+          </Flexbox>
+        ),
+        hidden: !memoryEnabled || frequency === 'off',
+        label: t('settingChatMemory.memoryDreamSchedule.lastRunLabel'),
+      },
     ],
     title: t('settingChatMemory.memoryGroupTitle'),
   };
 
   return (
     <Flexbox gap={20}>
-      <Alert
-        description={t('settingChatMemory.guide')}
-        message={t('settingChatMemory.guideTitle')}
-        showIcon
-        type={'info'}
-      />
       <Flexbox
         align={'center'}
         gap={16}
@@ -206,17 +171,9 @@ const AgentMemory = memo(() => {
           memoryDreamScheduleTime: schedule.time,
           memoryDreamScheduleWeekday: schedule.weekday,
         }}
-        items={[compactionGroup, memoryGroup]}
+        items={[memoryGroup]}
         itemsType={'group'}
         onFinish={updateConfig}
-        onValuesChange={(changed: Partial<typeof config>) => {
-          if (Object.prototype.hasOwnProperty.call(changed, 'assistanceLevel')) {
-            const level = changed.assistanceLevel as AssistanceLevel | undefined;
-            if (level) {
-              form.setFieldsValue(assistanceLevelToChatConfigPatch(level));
-            }
-          }
-        }}
         variant={'borderless'}
         {...FORM_STYLE}
       />
