@@ -358,17 +358,34 @@ export const isDreamMergedTag = (tag: string) => DREAM_MERGED_TAG.test(tag);
 
 /** Leading magic line for canonical overflow. Not part of any day's body. */
 export const DREAM_OVERFLOW_SENTINEL = '[overflow:v1]';
+/** Leading magic line for opaque overflow. Payload is never dual-parsed as dated parts. */
+export const DREAM_OVERFLOW_OPAQUE_SENTINEL = '[overflow:opaque-v1]';
 const CANONICAL_PART_MARKER = /^\[date:(\d{4}-\d{2}-\d{2})]$/;
 
 const splitMergedBodyLines = (text: string): string[] =>
   text.split('\n').map((line) => line.replace(/\r$/, ''));
 
-const stripLeadingOverflowSentinelLine = (text: string): string => {
-  const lines = splitMergedBodyLines(text);
+const hasLeadingMagicLine = (body: string, sentinel: string): boolean => {
+  const lines = splitMergedBodyLines(body);
   const first = lines.findIndex((line) => line.length > 0);
-  if (first === -1 || lines[first] !== DREAM_OVERFLOW_SENTINEL) return text;
+  return first >= 0 && lines[first] === sentinel;
+};
+
+const stripLeadingMagicLine = (body: string, sentinel: string): string => {
+  const lines = splitMergedBodyLines(body);
+  const first = lines.findIndex((line) => line.length > 0);
+  if (first === -1 || lines[first] !== sentinel) return body;
   return lines.slice(first + 1).join('\n').replace(/^\n+/, '');
 };
+
+const stripLeadingOverflowSentinelLine = (text: string): string =>
+  stripLeadingMagicLine(text, DREAM_OVERFLOW_SENTINEL);
+
+export const hasOpaqueOverflowEnvelope = (body: string): boolean =>
+  hasLeadingMagicLine(body, DREAM_OVERFLOW_OPAQUE_SENTINEL);
+
+const stripOpaqueOverflowEnvelope = (body: string): string =>
+  stripLeadingMagicLine(body, DREAM_OVERFLOW_OPAQUE_SENTINEL);
 
 /** Non-scheduled tags such as `[legacy]` or pre-feature custom labels. */
 export const isDreamCustomTag = (tag: string) =>
@@ -494,7 +511,8 @@ interface MergedDreamPart {
 const mergedPartHeaderLine = (date: string) => `[date:${date}]`;
 const LEGACY_PART_MARKER = /^\[(\d{4}-\d{2}-\d{2})]$/;
 /** Marker-shaped line, optionally already backslash-stuffed. */
-const MARKER_SHAPED_LINE = /^(\\*)(\[(?:date:)?\d{4}-\d{2}-\d{2}]|\[overflow:v1])$/;
+const MARKER_SHAPED_LINE =
+  /^(\\*)(\[(?:date:)?\d{4}-\d{2}-\d{2}]|\[overflow:v1]|\[overflow:opaque-v1])$/;
 
 /** Logical n slashes ↔ stored n+1. Adds one slash to every marker-shaped line. */
 const escapeMergedPartBody = (body: string): string =>
@@ -618,10 +636,14 @@ export const hasDreamOverflowControlMarker = (body: string, dateTag?: string): b
 };
 
 /** Re-attach the stored control marker so a user-typed leading sentinel stays content. */
-const restoreOverflowControlMarker = (previous: string, visible: string, dateTag: string): string =>
-  hasDreamOverflowControlMarker(previous, dateTag)
+const restoreOverflowControlMarker = (previous: string, visible: string, dateTag: string): string => {
+  if (hasOpaqueOverflowEnvelope(previous)) {
+    return `${DREAM_OVERFLOW_OPAQUE_SENTINEL}\n${visible}`;
+  }
+  return hasDreamOverflowControlMarker(previous, dateTag)
     ? `${DREAM_OVERFLOW_SENTINEL}\n${restuffVisibleOverflowBody(visible)}`
     : visible;
+};
 
 /**
  * Replace the body of entry `#index` after verifying `dateTag` and a `match` snippet
@@ -677,10 +699,12 @@ export const stripDreamOverflowSentinel = (body: string, dateTag?: string): stri
 
 export const visibleDreamMemoryBody = (
   entry: Pick<DreamMemoryEntry, 'body' | 'dateTag'>,
-): string =>
-  isDreamMergedTag(entry.dateTag)
+): string => {
+  if (hasOpaqueOverflowEnvelope(entry.body)) return stripOpaqueOverflowEnvelope(entry.body);
+  return isDreamMergedTag(entry.dateTag)
     ? unescapeVisibleOverflowBody(stripDreamOverflowSentinel(entry.body, entry.dateTag))
     : entry.body;
+};
 
 export const serializeVisibleDreamMemoryDocument = (doc: string | null | undefined): string =>
   serializeDreamMemoryEntries(
@@ -713,6 +737,7 @@ const resolveOverflowExpansion = (entry: DreamMemoryEntry): OverflowExpansion =>
   if (!isDreamMergedTag(entry.dateTag)) {
     return { kind: 'parts', parts: [{ body: entry.body, date: entry.dateTag }] };
   }
+  if (hasOpaqueOverflowEnvelope(entry.body)) return { kind: 'opaque' };
 
   const { start, end } = parseMergedRangeBounds(entry.dateTag);
   const inRange = (date: string) => date >= start && date <= end;
@@ -860,10 +885,13 @@ const capOpaqueMergedEntries = (
       : `${starts.reduce((min, date) => (date < min ? date : min))}..${ends.reduce(
           (max, date) => (date > max ? date : max),
         )}`;
-  const joined = entries.map((entry) => entry.body).join('\n\n');
+  const joined = entries.map((entry) => stripOpaqueOverflowEnvelope(entry.body)).join('\n\n');
+  const envelopeOverhead = DREAM_OVERFLOW_OPAQUE_SENTINEL.length + 1;
+  const innerBudget = Math.max(0, maxBody - envelopeOverhead);
+  const inner = keepOverflowTail(joined, innerBudget);
   return [
     {
-      body: keepOverflowTail(joined, maxBody),
+      body: inner ? `${DREAM_OVERFLOW_OPAQUE_SENTINEL}\n${inner}` : DREAM_OVERFLOW_OPAQUE_SENTINEL,
       dateTag,
       index: 1,
       regenerable: false,
@@ -1115,6 +1143,7 @@ const concatOverflowEntry = (
 export const wrapOverflowSummaryBody = (summary: string, start: string, end: string): string => {
   let text = summary.trim().replace(/^#\d+\s+\[[^\n\]]+]:\s*/, '');
   text = stripLeadingOverflowSentinelLine(text).trim();
+  text = stripOpaqueOverflowEnvelope(text).trim();
   const parts: MergedDreamPart[] = [{ body: text, date: start }];
   if (end !== start) parts.push({ body: '', date: end });
   return formatMergedDreamBody(parts);
