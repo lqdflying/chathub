@@ -16,6 +16,7 @@ import {
   hasDreamMemoryEntryForDate,
   normalizeAssistantMemoryText,
   normalizeDreamMemoryDocument,
+  overflowSummaryTextBudget,
   parseDreamMemoryEntries,
   parseFixedMemoryEntries,
   renumberFixedMemoryEntries,
@@ -377,11 +378,14 @@ describe('dream memory entries', () => {
     expect(summary).toContain('standing preference: tables');
     expect(summary).toContain('[date:2026-08-10]');
 
+    const budget = overflowSummaryTextBudget('2026-08-01', '2026-08-10');
+    expect(budget).toBeLessThan(ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS);
+    const fitted = wrapOverflowSummaryBody('x'.repeat(budget), '2026-08-01', '2026-08-10');
+    expect(fitted.length).toBeLessThanOrEqual(ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS);
+
     const long = wrapOverflowSummaryBody('x'.repeat(8000), '2026-08-01', '2026-08-10');
-    expect(long.length).toBeLessThanOrEqual(ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS);
-    expect(long).toContain('x');
-    expect(long).toContain('[date:2026-08-01]');
-    expect(long).toContain('[date:2026-08-10]');
+    expect(long.length).toBeGreaterThan(ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS);
+    expect(long).toContain('x'.repeat(8000));
   });
 
   it('caps oversized single-day and legacy cards to the per-card limit', () => {

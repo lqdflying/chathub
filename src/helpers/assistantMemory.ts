@@ -1057,23 +1057,19 @@ const concatOverflowEntry = (
   };
 };
 
-/** Wrap an LLM overflow summary as a sentinel-bearing range card body. */
+/** Wrap an LLM overflow summary as a sentinel-bearing range card body. Does not trim. */
 export const wrapOverflowSummaryBody = (summary: string, start: string, end: string): string => {
   let text = summary.trim().replace(/^#\d+\s+\[[^\n\]]+]:\s*/, '');
   text = stripDreamOverflowSentinel(text).trim();
+  const parts: MergedDreamPart[] = [{ body: text, date: start }];
+  if (end !== start) parts.push({ body: '', date: end });
+  return formatMergedDreamBody(parts);
+};
 
-  const build = (body: string) => {
-    const parts: MergedDreamPart[] = [{ body, date: start }];
-    if (end !== start) parts.push({ body: '', date: end });
-    return formatMergedDreamBody(parts);
-  };
-
-  const wrapped = build(text);
-  if (wrapped.length <= ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS) return wrapped;
-
-  const overhead = wrapped.length - text.length;
-  const maxText = Math.max(0, ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS - overhead);
-  return build(capAtReadableBoundary(text, maxText));
+/** Max summary text so wrapOverflowSummaryBody stays within the 6400-character card cap. */
+export const overflowSummaryTextBudget = (start: string, end: string): number => {
+  const overhead = wrapOverflowSummaryBody('x', start, end).length - 1;
+  return Math.max(0, ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS - overhead);
 };
 
 export const assembleDreamMemoryAfterFold = (

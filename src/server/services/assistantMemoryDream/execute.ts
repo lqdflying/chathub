@@ -25,6 +25,7 @@ import {
   normalizeAssistantMemoryText,
   normalizeDreamMemoryDocument,
   overflowRangeForFold,
+  overflowSummaryTextBudget,
   planDreamMemoryRetention,
   replaceDreamMemoryEntryBody,
   resolveMemoryDreamMaxEntries,
@@ -185,7 +186,9 @@ const runOverflowFoldCompletion = async ({
   db,
   existingOverflow,
   foldedCards,
+  maxChars,
   model,
+  previousTooLong,
   provider,
   rangeEnd,
   rangeStart,
@@ -194,7 +197,9 @@ const runOverflowFoldCompletion = async ({
   db: LobeChatDatabase;
   existingOverflow?: string;
   foldedCards: Array<{ body: string; dateTag: string }>;
+  maxChars: number;
   model: string;
+  previousTooLong?: string;
   provider: string;
   rangeEnd: string;
   rangeStart: string;
@@ -211,6 +216,8 @@ const runOverflowFoldCompletion = async ({
     ...chainAssistantMemoryOverflowFold({
       existingOverflow,
       foldedCards,
+      maxChars,
+      previousTooLong,
       rangeEnd,
       rangeStart,
     }),
@@ -511,30 +518,50 @@ export const executeAssistantMemoryDream = async ({
     if (plan.fold.length === 0 || !range) return finalizeDreamDocument(appendedDoc);
 
     try {
-      const summary = await runOverflowFoldCompletion({
+      const maxChars = overflowSummaryTextBudget(range.start, range.end);
+      const foldArgs = {
         db,
         existingOverflow: plan.overflow.map((entry) => visibleDreamMemoryBody(entry)).join('\n\n'),
         foldedCards: plan.fold.map((entry) => ({ body: entry.body, dateTag: entry.dateTag })),
+        maxChars,
         model,
         provider,
         rangeEnd: range.end,
         rangeStart: range.start,
         userId,
-      });
-      const normalized = normalizeAssistantMemoryText(
-        summary,
-        ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS,
-      );
+      };
+      const wrapSummary = (raw: string) => {
+        const normalized = normalizeAssistantMemoryText(raw, Number.POSITIVE_INFINITY);
+        if (!normalized || normalized === ASSISTANT_MEMORY_NO_CHANGES_SENTINEL) {
+          return { normalized, wrapped: '' };
+        }
+        return {
+          normalized,
+          wrapped: wrapOverflowSummaryBody(normalized, range.start, range.end),
+        };
+      };
+
+      let { normalized, wrapped } = wrapSummary(await runOverflowFoldCompletion(foldArgs));
+      if (
+        normalized &&
+        normalized !== ASSISTANT_MEMORY_NO_CHANGES_SENTINEL &&
+        wrapped.length > ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS
+      ) {
+        ({ normalized, wrapped } = wrapSummary(
+          await runOverflowFoldCompletion({ ...foldArgs, previousTooLong: normalized }),
+        ));
+      }
       if (
         !normalized ||
-        normalized === ASSISTANT_MEMORY_NO_CHANGES_SENTINEL
+        normalized === ASSISTANT_MEMORY_NO_CHANGES_SENTINEL ||
+        wrapped.length > ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS
       ) {
         return finalizeDreamDocument(appendedDoc);
       }
       return assembleDreamMemoryAfterFold(
         plan,
         {
-          body: wrapOverflowSummaryBody(normalized, range.start, range.end),
+          body: wrapped,
           dateTag: `${range.start}..${range.end}`,
           index: 1,
           regenerable: false,

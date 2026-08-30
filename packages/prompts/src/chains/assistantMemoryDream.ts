@@ -127,15 +127,18 @@ export interface AssistantMemoryOverflowFoldCard {
   dateTag: string;
 }
 
-/** Request-level output cap for the overflow summary (post-capped to 6400 chars). */
+/** Request-level output cap. Character fit is enforced by the prompt + one rewrite, not truncation. */
 export const ASSISTANT_MEMORY_OVERFLOW_MAX_OUTPUT_TOKENS = 3200;
 
 export const chainAssistantMemoryOverflowFold = (params: {
   existingOverflow?: string;
   foldedCards: AssistantMemoryOverflowFoldCard[];
+  maxChars?: number;
+  previousTooLong?: string;
   rangeEnd: string;
   rangeStart: string;
 }): Partial<ChatStreamPayload> => {
+  const maxChars = params.maxChars ?? ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS;
   const overflow = capTopicSummaryText(
     params.existingOverflow ?? '',
     ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS,
@@ -146,6 +149,13 @@ export const chainAssistantMemoryOverflowFold = (params: {
       return `### Retired card [${card.dateTag}]\n\n${body || '(empty)'}`;
     })
     .join('\n\n---\n\n');
+  const previousTooLong = params.previousTooLong
+    ? capTopicSummaryText(params.previousTooLong, ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS)
+    : '';
+
+  const rewriteBlock = previousTooLong
+    ? `\n\n## Previous summary was too long (${params.previousTooLong!.length} characters; limit ${maxChars})\n\n${previousTooLong}\n\nRewrite a complete overflow body of at most ${maxChars} characters. Compress further. Do not append. Never output ${ASSISTANT_MEMORY_NO_CHANGES_SENTINEL}.`
+    : '';
 
   return {
     messages: [
@@ -157,14 +167,14 @@ Keep only durable signals that would change future replies: communication style,
 Output rules:
 - Output ONLY the overflow card body. Do NOT output card headers like "#N [date]:" or the magic line [overflow:v1].
 - Merge the existing overflow summary (if any) with the newly retired day cards. Prefer a compact standing summary over keeping every day verbatim.
-- Stay within ${ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS} characters. Shorter is better.
+- Your entire output MUST be at most ${maxChars} characters (the stored card cap is ${ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS} after the system adds date headers). Count characters. If you would go over, drop older or less durable signals — never emit a longer draft for someone else to trim.
 - Write in the dominant language of the input.
 
 Never output ${ASSISTANT_MEMORY_NO_CHANGES_SENTINEL}. Always produce a merged overflow body.`,
         role: 'system',
       },
       {
-        content: `## Existing overflow summary (may be empty)\n\n${overflow || '(empty)'}\n\n## Newly retired single-day cards\n\n${folded || '(none)'}\n\nWrite the merged overflow body for ${params.rangeStart} .. ${params.rangeEnd} now.`,
+        content: `## Existing overflow summary (may be empty)\n\n${overflow || '(empty)'}\n\n## Newly retired single-day cards\n\n${folded || '(none)'}${rewriteBlock}\n\nWrite the merged overflow body for ${params.rangeStart} .. ${params.rangeEnd} now. It must be at most ${maxChars} characters.`,
         role: 'user',
       },
     ],

@@ -102,8 +102,26 @@ describe('chainAssistantMemoryOverflowFold', () => {
     expect(system).toContain('overflow range card');
     expect(system).toContain(String(ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS));
     expect(system).toContain(`Never output ${ASSISTANT_MEMORY_NO_CHANGES_SENTINEL}`);
+    expect(system).toContain(`at most ${ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS} characters`);
     expect(user).toContain('old overflow');
     expect(user).toContain('retired day');
     expect(user).toContain('2026-08-01 .. 2026-08-10');
+    expect(user).toContain(`at most ${ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS} characters`);
+  });
+
+  it('asks for a rewrite when the previous summary was too long', () => {
+    const payload = chainAssistantMemoryOverflowFold({
+      existingOverflow: 'old overflow',
+      foldedCards: [{ body: 'retired day', dateTag: '2026-08-01' }],
+      maxChars: 100,
+      previousTooLong: 'x'.repeat(200),
+      rangeEnd: '2026-08-10',
+      rangeStart: '2026-08-01',
+    });
+    const user = String(payload.messages?.find((m) => m.role === 'user')?.content ?? '');
+    expect(user).toContain('Previous summary was too long');
+    expect(user).toContain('200 characters');
+    expect(user).toContain('limit 100');
+    expect(user).toContain('at most 100 characters');
   });
 });

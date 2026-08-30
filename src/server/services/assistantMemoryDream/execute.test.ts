@@ -275,6 +275,36 @@ describe('executeAssistantMemoryDream', () => {
     expect(stored).not.toContain('old day body');
   });
 
+  it('asks the model to rewrite an over-budget overflow summary instead of trimming it', async () => {
+    consume
+      .mockResolvedValueOnce({ content: '- Prefers tables\n', error: undefined })
+      .mockResolvedValueOnce({ content: `KEEP-THIS-TAIL ${'x'.repeat(8000)}`, error: undefined })
+      .mockResolvedValueOnce({ content: 'Compressed standing preference: bullets', error: undefined });
+    const db = createDb({
+      ...agentRow,
+      assistantMemory: '#1 [2026-08-26]:\nold day body',
+      chatConfig: {
+        memoryDreamMaxEntries: 1,
+        memoryDreamScheduleFrequency: 'daily',
+        memoryDreamScheduleTime: '02:00',
+      },
+    });
+    const result = await executeAssistantMemoryDream({
+      agentId: 'agent-1',
+      db,
+      now: NOW,
+      periodStamp: PERIOD,
+      userId: 'user-1',
+    });
+
+    expect(result).toMatchObject({ status: 'success' });
+    expect(chat).toHaveBeenCalledTimes(3);
+    const stored = updateSet.mock.calls[0][0].assistantMemory as string;
+    expect(stored).toContain('Compressed standing preference: bullets');
+    expect(stored).not.toContain('KEEP-THIS-TAIL');
+    expect(stored).not.toContain('x'.repeat(8000));
+  });
+
   it('falls back to concat when overflow re-summarize fails', async () => {
     consume
       .mockResolvedValueOnce({ content: '- Prefers tables\n', error: undefined })
