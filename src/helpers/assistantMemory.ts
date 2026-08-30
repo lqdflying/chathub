@@ -381,11 +381,39 @@ const stripLeadingMagicLine = (body: string, sentinel: string): string => {
 const stripLeadingOverflowSentinelLine = (text: string): string =>
   stripLeadingMagicLine(text, DREAM_OVERFLOW_SENTINEL);
 
-export const hasOpaqueOverflowEnvelope = (body: string): boolean =>
-  hasLeadingMagicLine(body, DREAM_OVERFLOW_OPAQUE_SENTINEL);
+export const hasOpaqueOverflowEnvelope = (body: string, dateTag?: string): boolean => {
+  if (dateTag !== undefined && !isDreamMergedTag(dateTag)) return false;
+  return hasLeadingMagicLine(body, DREAM_OVERFLOW_OPAQUE_SENTINEL);
+};
 
 const stripOpaqueOverflowEnvelope = (body: string): string =>
   stripLeadingMagicLine(body, DREAM_OVERFLOW_OPAQUE_SENTINEL);
+
+/** Logical n slashes ↔ stored n+1 for a payload copy of the opaque envelope line. */
+const OPAQUE_SENTINEL_LINE = /^(\\*)(\[overflow:opaque-v1])$/;
+
+const escapeOpaqueSentinelLines = (body: string): string =>
+  splitMergedBodyLines(body)
+    .map((line) => (OPAQUE_SENTINEL_LINE.test(line) ? `\\${line}` : line))
+    .join('\n');
+
+const unescapeOpaqueSentinelLines = (body: string): string =>
+  splitMergedBodyLines(body)
+    .map((line) => {
+      const match = OPAQUE_SENTINEL_LINE.exec(line);
+      return match && match[1]!.length > 0 ? line.slice(1) : line;
+    })
+    .join('\n');
+
+const opaquePayloadBody = (entry: Pick<DreamMemoryEntry, 'body' | 'dateTag'>): string => {
+  if (!hasOpaqueOverflowEnvelope(entry.body, entry.dateTag)) return entry.body;
+  return unescapeOpaqueSentinelLines(stripOpaqueOverflowEnvelope(entry.body));
+};
+
+const wrapOpaqueOverflowBody = (inner: string): string => {
+  const escaped = escapeOpaqueSentinelLines(inner);
+  return escaped ? `${DREAM_OVERFLOW_OPAQUE_SENTINEL}\n${escaped}` : DREAM_OVERFLOW_OPAQUE_SENTINEL;
+};
 
 /** Non-scheduled tags such as `[legacy]` or pre-feature custom labels. */
 export const isDreamCustomTag = (tag: string) =>
@@ -637,8 +665,8 @@ export const hasDreamOverflowControlMarker = (body: string, dateTag?: string): b
 
 /** Re-attach the stored control marker so a user-typed leading sentinel stays content. */
 const restoreOverflowControlMarker = (previous: string, visible: string, dateTag: string): string => {
-  if (hasOpaqueOverflowEnvelope(previous)) {
-    return `${DREAM_OVERFLOW_OPAQUE_SENTINEL}\n${visible}`;
+  if (hasOpaqueOverflowEnvelope(previous, dateTag)) {
+    return wrapOpaqueOverflowBody(visible);
   }
   return hasDreamOverflowControlMarker(previous, dateTag)
     ? `${DREAM_OVERFLOW_SENTINEL}\n${restuffVisibleOverflowBody(visible)}`
@@ -700,7 +728,9 @@ export const stripDreamOverflowSentinel = (body: string, dateTag?: string): stri
 export const visibleDreamMemoryBody = (
   entry: Pick<DreamMemoryEntry, 'body' | 'dateTag'>,
 ): string => {
-  if (hasOpaqueOverflowEnvelope(entry.body)) return stripOpaqueOverflowEnvelope(entry.body);
+  if (hasOpaqueOverflowEnvelope(entry.body, entry.dateTag)) {
+    return unescapeOpaqueSentinelLines(stripOpaqueOverflowEnvelope(entry.body));
+  }
   return isDreamMergedTag(entry.dateTag)
     ? unescapeVisibleOverflowBody(stripDreamOverflowSentinel(entry.body, entry.dateTag))
     : entry.body;
@@ -737,7 +767,7 @@ const resolveOverflowExpansion = (entry: DreamMemoryEntry): OverflowExpansion =>
   if (!isDreamMergedTag(entry.dateTag)) {
     return { kind: 'parts', parts: [{ body: entry.body, date: entry.dateTag }] };
   }
-  if (hasOpaqueOverflowEnvelope(entry.body)) return { kind: 'opaque' };
+  if (hasOpaqueOverflowEnvelope(entry.body, entry.dateTag)) return { kind: 'opaque' };
 
   const { start, end } = parseMergedRangeBounds(entry.dateTag);
   const inRange = (date: string) => date >= start && date <= end;
@@ -885,10 +915,10 @@ const capOpaqueMergedEntries = (
       : `${starts.reduce((min, date) => (date < min ? date : min))}..${ends.reduce(
           (max, date) => (date > max ? date : max),
         )}`;
-  const joined = entries.map((entry) => stripOpaqueOverflowEnvelope(entry.body)).join('\n\n');
+  const joined = entries.map((entry) => opaquePayloadBody(entry)).join('\n\n');
   const envelopeOverhead = DREAM_OVERFLOW_OPAQUE_SENTINEL.length + 1;
   const innerBudget = Math.max(0, maxBody - envelopeOverhead);
-  const inner = keepOverflowTail(joined, innerBudget);
+  const inner = keepOverflowTail(escapeOpaqueSentinelLines(joined), innerBudget);
   return [
     {
       body: inner ? `${DREAM_OVERFLOW_OPAQUE_SENTINEL}\n${inner}` : DREAM_OVERFLOW_OPAQUE_SENTINEL,
