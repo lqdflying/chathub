@@ -266,7 +266,7 @@ Compaction-debug (why compact ran before 80%, which window was used):
 
 - `trigger=message_count` / `manual` is expected and is not an 80% bug.
 - `trigger=scheduled` on a topic `path` (`pre_send` / `durable_enqueued` / `client_inline`) is a regression (the daily topic-note scheduler was removed).
-- Memory dream: `debug_event in ('dream_scheduler_tick','dream_scheduler_settled')` and `path == 'assistant_memory_rollup'`. Tick fields include `frequency`, `scheduleTime`, `due`, `skippedReason`. Settled fields include `status`, `reason`, `activeTopicCount`, `topicsWithSummary`, `activityWindowStart` / `activityWindowEnd` (UTC dates).
+- Memory dream: `debug_event in ('dream_scheduler_tick','dream_scheduler_settled')` and `path == 'assistant_memory_rollup'`. Tick fields include `frequency`, `scheduleTime`, `due`, `skippedReason`. Settled fields include `status`, `reason` (`already_has_card`, `invalid_regenerate`, `not_found`, `mismatch`, …), `historyDate`, `maxEntries`, keep-N counts (`keepCount`, `foldCount`, `singleDayCount`, `overflowCount`), `overflowEnvelope` (`none` / `overflow_v1` / `opaque_v3` / `opaque_payload`), `foldPath` (`none` / `llm` / `llm_rewrite` / `concat_fallback`), `foldFallbackReason` (concat only), `cardKind` on regenerate, and `activityWindowStart` / `activityWindowEnd` (UTC dates). Never query or log overflow text, card bodies, or marker strings.
 - `trigger=token_threshold` with `ratio>=0.8` and a small `maxTokens` is a model-card / OpenAI-compatible 258k window, not vendor context.
 - `watcher_armed.ratio` high then `planner_settled.reason=below_high_watermark` is in-flight Knowledge Base tokens on the watcher only.
 - Join durable compaction to generation-debug with the same `spanId` (`cd_...`).

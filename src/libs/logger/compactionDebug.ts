@@ -56,8 +56,15 @@ const COMPACTION_DEBUG_RESERVED_KEYS = new Set([
 const COMPACTION_DEBUG_ENUM_KEYS = [
   'activityWindowEnd',
   'activityWindowStart',
+  'cardKind',
+  'foldFallbackReason',
+  'foldPath',
   'frequency',
+  'historyDate',
   'outcome',
+  'overflowEnvelope',
+  'overflowRangeEnd',
+  'overflowRangeStart',
   'path',
   'reason',
   'scheduleTime',
@@ -131,22 +138,49 @@ export const COMPACTION_DEBUG_DREAM_SKIP_REASONS = [
 ] as const;
 
 export const COMPACTION_DEBUG_DREAM_SETTLE_REASONS = [
+  'already_has_card',
   'already_ran',
   'backoff',
   'before_time',
   'completion_failed',
   'disabled',
   'enqueue_failed',
+  'invalid_regenerate',
   'malformed_job',
+  'mismatch',
   'no_active_topics_yesterday',
   'no_agent',
   'no_changes',
   'no_summaries',
+  'not_found',
   'off',
   'stale_conflict',
   'stale_job',
   'wrong_weekday',
 ] as const;
+
+export const COMPACTION_DEBUG_DREAM_FOLD_PATHS = [
+  'concat_fallback',
+  'llm',
+  'llm_rewrite',
+  'none',
+] as const;
+
+export const COMPACTION_DEBUG_DREAM_FOLD_FALLBACK_REASONS = [
+  'completion_exception',
+  'empty_or_no_changes',
+  'over_char_budget',
+  'token_limit',
+] as const;
+
+export const COMPACTION_DEBUG_DREAM_OVERFLOW_ENVELOPES = [
+  'none',
+  'opaque_payload',
+  'opaque_v3',
+  'overflow_v1',
+] as const;
+
+export const COMPACTION_DEBUG_DREAM_CARD_KINDS = ['range', 'single_day'] as const;
 
 export const COMPACTION_DEBUG_DREAM_STATUSES = ['failed', 'skipped', 'success'] as const;
 
@@ -276,9 +310,24 @@ const dreamSchedulerSettledFieldsSchema = z
     activeTopicCount: optionalFiniteNumber,
     activityWindowEnd: optionalIsoDate,
     activityWindowStart: optionalIsoDate,
+    cardKind: optionalEnum(COMPACTION_DEBUG_DREAM_CARD_KINDS),
+    customCount: optionalFiniteNumber,
+    foldCount: optionalFiniteNumber,
+    foldFallbackReason: optionalEnum(COMPACTION_DEBUG_DREAM_FOLD_FALLBACK_REASONS),
+    foldPath: optionalEnum(COMPACTION_DEBUG_DREAM_FOLD_PATHS),
+    historyDate: optionalIsoDate,
+    keepCount: optionalFiniteNumber,
+    legacyCount: optionalFiniteNumber,
     markerKeyHash: optionalHash,
+    maxEntries: optionalFiniteNumber,
+    overflowChars: optionalFiniteNumber,
+    overflowCount: optionalFiniteNumber,
+    overflowEnvelope: optionalEnum(COMPACTION_DEBUG_DREAM_OVERFLOW_ENVELOPES),
+    overflowRangeEnd: optionalIsoDate,
+    overflowRangeStart: optionalIsoDate,
     path: optionalEnum(COMPACTION_DEBUG_PATHS),
     reason: optionalEnum(COMPACTION_DEBUG_DREAM_SETTLE_REASONS),
+    singleDayCount: optionalFiniteNumber,
     status: optionalEnum(COMPACTION_DEBUG_DREAM_STATUSES),
     topicsWithSummary: optionalFiniteNumber,
     trigger: optionalEnum(COMPACTION_DEBUG_TRIGGERS),

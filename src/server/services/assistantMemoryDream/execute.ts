@@ -20,6 +20,7 @@ import {
   assembleDreamMemoryAfterFold,
   capAssistantMemoryByTokensAsync,
   capDreamMemoryDocument,
+  dreamMemoryDebugSnapshot,
   enforceDreamMemoryRetention,
   hasDreamMemoryEntryForDate,
   normalizeAssistantMemoryText,
@@ -73,23 +74,58 @@ type AgentDreamSnapshot = {
 
 const nowISO = () => new Date().toISOString();
 
-const settle = (
-  fields: {
-    activeTopicCount?: number;
-    activityWindowEnd: string;
-    activityWindowStart: string;
-    reason?: string;
-    status: AssistantMemoryDreamExecuteResult['status'];
-    topicsWithSummary?: number;
-    trigger?: 'manual' | 'scheduled';
-  },
-) => {
+type DreamFoldPath = 'concat_fallback' | 'llm' | 'llm_rewrite' | 'none';
+type DreamFoldFallbackReason =
+  | 'completion_exception'
+  | 'empty_or_no_changes'
+  | 'over_char_budget'
+  | 'token_limit';
+
+type DreamSettleFields = {
+  activeTopicCount?: number;
+  activityWindowEnd: string;
+  activityWindowStart: string;
+  cardKind?: 'range' | 'single_day';
+  foldCount?: number;
+  foldFallbackReason?: DreamFoldFallbackReason;
+  foldPath?: DreamFoldPath;
+  historyDate?: string;
+  keepCount?: number;
+  maxEntries?: number;
+  memoryDoc?: string | null;
+  reason?: string;
+  status: AssistantMemoryDreamExecuteResult['status'];
+  topicsWithSummary?: number;
+  trigger?: 'manual' | 'scheduled';
+};
+
+const settle = (fields: DreamSettleFields) => {
+  const snapshot =
+    fields.maxEntries === undefined
+      ? undefined
+      : dreamMemoryDebugSnapshot(fields.memoryDoc, fields.maxEntries);
+  const overflow = snapshot?.overflowEnvelope === 'none' ? undefined : snapshot;
   logCompactionDebugSafe('dream_scheduler_settled', {
     activeTopicCount: fields.activeTopicCount,
     activityWindowEnd: fields.activityWindowEnd,
     activityWindowStart: fields.activityWindowStart,
+    cardKind: fields.cardKind,
+    customCount: snapshot?.customCount,
+    foldCount: fields.foldCount ?? snapshot?.foldCount,
+    foldFallbackReason: fields.foldFallbackReason,
+    foldPath: fields.foldPath ?? 'none',
+    historyDate: fields.historyDate,
+    keepCount: fields.keepCount ?? snapshot?.keepCount,
+    legacyCount: snapshot?.legacyCount,
+    maxEntries: fields.maxEntries,
+    overflowChars: overflow?.overflowChars,
+    overflowCount: snapshot?.overflowCount,
+    overflowEnvelope: snapshot?.overflowEnvelope,
+    overflowRangeEnd: overflow?.overflowRangeEnd,
+    overflowRangeStart: overflow?.overflowRangeStart,
     path: 'assistant_memory_rollup',
     reason: fields.reason,
+    singleDayCount: snapshot?.singleDayCount,
     status: fields.status,
     topicsWithSummary: fields.topicsWithSummary,
     trigger: fields.trigger ?? 'scheduled',
@@ -284,7 +320,13 @@ export const executeAssistantMemoryDream = async ({
 
   if (!agent) {
     const result = { reason: 'no_agent', status: 'failed' as const };
-    settle({ ...result, activityWindowEnd: windowEnd, activityWindowStart: windowStart, trigger });
+    settle({
+      ...result,
+      activityWindowEnd: windowEnd,
+      activityWindowStart: windowStart,
+      historyDate,
+      trigger,
+    });
     return result;
   }
 
@@ -298,24 +340,44 @@ export const executeAssistantMemoryDream = async ({
   const maxEntries = resolveMemoryDreamMaxEntries(chatConfig);
   const priorDoc = normalizeDreamMemoryDocument(agent.assistantMemory);
 
+  const emitSettle = (
+    fields: Omit<
+      DreamSettleFields,
+      'activityWindowEnd' | 'activityWindowStart' | 'historyDate' | 'maxEntries' | 'trigger'
+    > &
+      Partial<Pick<DreamSettleFields, 'foldPath' | 'memoryDoc' | 'trigger'>>,
+  ) => {
+    settle({
+      activityWindowEnd: windowEnd,
+      activityWindowStart: windowStart,
+      cardKind: isRegenerate ? 'single_day' : undefined,
+      foldPath: 'none',
+      historyDate,
+      maxEntries,
+      memoryDoc: priorDoc,
+      trigger,
+      ...fields,
+    });
+  };
+
   if (!isRegenerate) {
     const due = isDreamDue({ assistantMemoryMeta: meta, chatConfig, now });
 
     if (!due.due) {
       const result = { reason: due.skippedReason, status: 'skipped' as const };
-      settle({ ...result, activityWindowEnd: windowEnd, activityWindowStart: windowStart, trigger });
+      emitSettle(result);
       return result;
     }
 
     if (periodStamp && due.periodStamp !== periodStamp) {
       const result = { reason: 'stale_job', status: 'skipped' as const };
-      settle({ ...result, activityWindowEnd: windowEnd, activityWindowStart: windowStart, trigger });
+      emitSettle(result);
       return result;
     }
   } else {
     if (!historyDate || replaceIndex === undefined || !match) {
       const result = { reason: 'invalid_regenerate', status: 'failed' as const };
-      settle({ ...result, activityWindowEnd: windowEnd, activityWindowStart: windowStart, trigger });
+      emitSettle(result);
       return result;
     }
   }
@@ -351,18 +413,18 @@ export const executeAssistantMemoryDream = async ({
   if (!isRegenerate && hasDreamMemoryEntryForDate(priorDoc, historyDate)) {
     if (!(await writeMarker())) {
       const result = { reason: 'stale_conflict', status: 'skipped' as const };
-      settle({ ...result, activityWindowEnd: windowEnd, activityWindowStart: windowStart, trigger });
+      emitSettle(result);
       return result;
     }
     const result = { reason: 'already_has_card', status: 'skipped' as const };
-    settle({ ...result, activityWindowEnd: windowEnd, activityWindowStart: windowStart, trigger });
+    emitSettle(result);
     return result;
   }
 
   if (!isRegenerate && activeTopicCount === 0) {
     if (!(await writeMarker())) {
       const result = { reason: 'stale_conflict', status: 'skipped' as const };
-      settle({ ...result, activityWindowEnd: windowEnd, activityWindowStart: windowStart, trigger });
+      emitSettle(result);
       return result;
     }
     const result = {
@@ -370,13 +432,7 @@ export const executeAssistantMemoryDream = async ({
       reason: 'no_active_topics_yesterday',
       status: 'skipped' as const,
     };
-    settle({
-      ...result,
-      activityWindowEnd: windowEnd,
-      activityWindowStart: windowStart,
-      topicsWithSummary: 0,
-      trigger,
-    });
+    emitSettle({ ...result, topicsWithSummary: 0 });
     return result;
   }
 
@@ -388,12 +444,12 @@ export const executeAssistantMemoryDream = async ({
         status: 'skipped' as const,
         topicsWithSummary: 0,
       };
-      settle({ ...result, activityWindowEnd: windowEnd, activityWindowStart: windowStart, trigger });
+      emitSettle(result);
       return result;
     }
     if (!(await writeMarker())) {
       const result = { reason: 'stale_conflict', status: 'skipped' as const };
-      settle({ ...result, activityWindowEnd: windowEnd, activityWindowStart: windowStart, trigger });
+      emitSettle(result);
       return result;
     }
     const result = {
@@ -402,7 +458,7 @@ export const executeAssistantMemoryDream = async ({
       status: 'skipped' as const,
       topicsWithSummary: 0,
     };
-    settle({ ...result, activityWindowEnd: windowEnd, activityWindowStart: windowStart, trigger });
+    emitSettle(result);
     return result;
   }
 
@@ -443,18 +499,12 @@ export const executeAssistantMemoryDream = async ({
         status: 'skipped' as const,
         topicsWithSummary: topics.length,
       };
-      settle({ ...result, activityWindowEnd: windowEnd, activityWindowStart: windowStart, trigger });
+      emitSettle(result);
       return result;
     }
     if (!(await writeMarker())) {
       const result = { reason: 'stale_conflict', status: 'skipped' as const };
-      settle({
-        ...result,
-        activityWindowEnd: windowEnd,
-        activityWindowStart: windowStart,
-        topicsWithSummary: topics.length,
-        trigger,
-      });
+      emitSettle({ ...result, topicsWithSummary: topics.length });
       return result;
     }
     const result = {
@@ -463,7 +513,7 @@ export const executeAssistantMemoryDream = async ({
       status: 'skipped' as const,
       topicsWithSummary: topics.length,
     };
-    settle({ ...result, activityWindowEnd: windowEnd, activityWindowStart: windowStart, trigger });
+    emitSettle(result);
     return result;
   }
 
@@ -479,7 +529,7 @@ export const executeAssistantMemoryDream = async ({
         status: 'failed' as const,
         topicsWithSummary: topics.length,
       };
-      settle({ ...result, activityWindowEnd: windowEnd, activityWindowStart: windowStart, trigger });
+      emitSettle(result);
       return result;
     }
     const wrote = await writeAgentMemoryIfUnchanged(db, agentId, userId, snapshot, {
@@ -496,13 +546,7 @@ export const executeAssistantMemoryDream = async ({
     });
     if (!wrote) {
       const result = { reason: 'stale_conflict', status: 'skipped' as const };
-      settle({
-        ...result,
-        activityWindowEnd: windowEnd,
-        activityWindowStart: windowStart,
-        topicsWithSummary: topics.length,
-        trigger,
-      });
+      emitSettle({ ...result, topicsWithSummary: topics.length });
       return result;
     }
     const result = {
@@ -511,17 +555,28 @@ export const executeAssistantMemoryDream = async ({
       status: 'failed' as const,
       topicsWithSummary: topics.length,
     };
-    settle({ ...result, activityWindowEnd: windowEnd, activityWindowStart: windowStart, trigger });
+    emitSettle(result);
     return result;
   }
 
   const finalizeDreamDocument = (doc: string) =>
     capDreamMemoryDocument(enforceDreamMemoryRetention(doc, maxEntries), maxEntries);
 
-  const applyScheduledFold = async (appendedDoc: string): Promise<string> => {
+  const applyScheduledFold = async (
+    appendedDoc: string,
+  ): Promise<{
+    doc: string;
+    foldCount: number;
+    foldFallbackReason?: DreamFoldFallbackReason;
+    foldPath: DreamFoldPath;
+    keepCount: number;
+  }> => {
     const plan = planDreamMemoryRetention(appendedDoc, maxEntries);
+    const retention = { foldCount: plan.fold.length, keepCount: plan.keep.length };
     const range = overflowRangeForFold(plan);
-    if (plan.fold.length === 0 || !range) return finalizeDreamDocument(appendedDoc);
+    if (plan.fold.length === 0 || !range) {
+      return { doc: finalizeDreamDocument(appendedDoc), foldPath: 'none', ...retention };
+    }
 
     try {
       const maxChars = overflowSummaryTextBudget(range.start, range.end);
@@ -570,25 +625,49 @@ export const executeAssistantMemoryDream = async ({
         attempt.truncated ||
         attempt.wrapped.length > ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS
       ) {
-        return finalizeDreamDocument(appendedDoc);
+        const foldFallbackReason: DreamFoldFallbackReason =
+          !attempt.normalized || attempt.normalized === ASSISTANT_MEMORY_NO_CHANGES_SENTINEL
+            ? 'empty_or_no_changes'
+            : attempt.truncated
+              ? 'token_limit'
+              : 'over_char_budget';
+        return {
+          doc: finalizeDreamDocument(appendedDoc),
+          foldFallbackReason,
+          foldPath: 'concat_fallback',
+          ...retention,
+        };
       }
       const { wrapped } = attempt;
-      return assembleDreamMemoryAfterFold(
-        plan,
-        {
-          body: wrapped,
-          dateTag: `${range.start}..${range.end}`,
-          index: 1,
-          regenerable: false,
-        },
-        maxEntries,
-      );
+      return {
+        doc: assembleDreamMemoryAfterFold(
+          plan,
+          {
+            body: wrapped,
+            dateTag: `${range.start}..${range.end}`,
+            index: 1,
+            regenerable: false,
+          },
+          maxEntries,
+        ),
+        foldPath: needsRewrite ? 'llm_rewrite' : 'llm',
+        ...retention,
+      };
     } catch {
-      return finalizeDreamDocument(appendedDoc);
+      return {
+        doc: finalizeDreamDocument(appendedDoc),
+        foldFallbackReason: 'completion_exception',
+        foldPath: 'concat_fallback',
+        ...retention,
+      };
     }
   };
 
   let nextDoc: string;
+  let foldPath: DreamFoldPath = 'none';
+  let foldFallbackReason: DreamFoldFallbackReason | undefined;
+  let foldCount: number | undefined;
+  let keepCount: number | undefined;
   if (isRegenerate) {
     const replaced = replaceDreamMemoryEntryBody(
       priorDoc,
@@ -599,19 +678,18 @@ export const executeAssistantMemoryDream = async ({
     );
     if ('error' in replaced) {
       const result = { reason: replaced.error, status: 'failed' as const };
-      settle({
-        ...result,
-        activityWindowEnd: windowEnd,
-        activityWindowStart: windowStart,
-        topicsWithSummary: topics.length,
-        trigger,
-      });
+      emitSettle({ ...result, topicsWithSummary: topics.length });
       return result;
     }
     nextDoc = finalizeDreamDocument(replaced.doc);
   } else {
     const appended = appendDreamMemoryEntry(priorDoc, historyDate, nextBody);
-    nextDoc = await applyScheduledFold(appended.doc);
+    const folded = await applyScheduledFold(appended.doc);
+    nextDoc = folded.doc;
+    foldPath = folded.foldPath;
+    foldFallbackReason = folded.foldFallbackReason;
+    foldCount = folded.foldCount;
+    keepCount = folded.keepCount;
   }
 
   const wrote = await writeAgentMemoryIfUnchanged(db, agentId, userId, snapshot, {
@@ -632,13 +710,7 @@ export const executeAssistantMemoryDream = async ({
   });
   if (!wrote) {
     const result = { reason: 'stale_conflict', status: 'skipped' as const };
-    settle({
-      ...result,
-      activityWindowEnd: windowEnd,
-      activityWindowStart: windowStart,
-      topicsWithSummary: topics.length,
-      trigger,
-    });
+    emitSettle({ ...result, topicsWithSummary: topics.length });
     return result;
   }
 
@@ -647,6 +719,13 @@ export const executeAssistantMemoryDream = async ({
     status: 'success' as const,
     topicsWithSummary: topics.length,
   };
-  settle({ ...result, activityWindowEnd: windowEnd, activityWindowStart: windowStart, trigger });
+  emitSettle({
+    ...result,
+    foldCount,
+    foldFallbackReason,
+    foldPath,
+    keepCount,
+    memoryDoc: nextDoc,
+  });
   return result;
 };

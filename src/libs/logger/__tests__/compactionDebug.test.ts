@@ -320,6 +320,71 @@ describe('CHATHUB_COMPACTION_DEBUG emitter', () => {
         trigger: 'scheduled',
       });
     });
+
+    it.each(['already_has_card', 'invalid_regenerate', 'not_found', 'mismatch'] as const)(
+      'keeps dated-card settle reason %s readable',
+      (reason) => {
+        logCompactionDebugSafe('dream_scheduler_settled', {
+          historyDate: '2026-08-27',
+          maxEntries: 14,
+          path: 'assistant_memory_rollup',
+          reason,
+          status: reason === 'already_has_card' ? 'skipped' : 'failed',
+          trigger: reason === 'already_has_card' ? 'scheduled' : 'manual',
+        });
+
+        const record = JSON.parse(consoleLogSpy.mock.calls[0][1] as string);
+        expect(record.reason).toBe(reason);
+        expect(record.historyDate).toBe('2026-08-27');
+        expect(record.maxEntries).toBe(14);
+      },
+    );
+
+    it('keeps fold, envelope, and card-kind enums plus ISO range dates readable', () => {
+      logCompactionDebugSafe('dream_scheduler_settled', {
+        cardKind: 'single_day',
+        foldCount: 3,
+        foldFallbackReason: 'token_limit',
+        foldPath: 'concat_fallback',
+        keepCount: 14,
+        overflowChars: 6400,
+        overflowEnvelope: 'opaque_v3',
+        overflowRangeEnd: '2026-08-26',
+        overflowRangeStart: '2026-08-01',
+        path: 'assistant_memory_rollup',
+        status: 'success',
+        trigger: 'scheduled',
+      });
+
+      const record = JSON.parse(consoleLogSpy.mock.calls[0][1] as string);
+      expect(record).toMatchObject({
+        cardKind: 'single_day',
+        foldCount: 3,
+        foldFallbackReason: 'token_limit',
+        foldPath: 'concat_fallback',
+        keepCount: 14,
+        overflowChars: 6400,
+        overflowEnvelope: 'opaque_v3',
+        overflowRangeEnd: '2026-08-26',
+        overflowRangeStart: '2026-08-01',
+      });
+    });
+
+    it('drops unknown settle reasons and fold/envelope strings', () => {
+      logCompactionDebugSafe('dream_scheduler_settled', {
+        foldPath: 'secret_path',
+        overflowEnvelope: 'overflow_v2',
+        path: 'assistant_memory_rollup',
+        reason: 'not_a_real_reason',
+        status: 'skipped',
+      });
+
+      const record = JSON.parse(consoleLogSpy.mock.calls[0][1] as string);
+      expect(record).not.toHaveProperty('reason');
+      expect(record).not.toHaveProperty('foldPath');
+      expect(record).not.toHaveProperty('overflowEnvelope');
+      expect(record.status).toBe('skipped');
+    });
   });
 
   describe('verbose level', () => {

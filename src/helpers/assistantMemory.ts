@@ -676,6 +676,19 @@ export const hasDreamOverflowControlMarker = (body: string, dateTag?: string): b
   return uniqueCanonicalOverflowControl(lines.slice(first + 1), dateTag);
 };
 
+/** PII-safe overflow framing kind for compaction-debug. Never returns marker text. */
+export type DreamOverflowEnvelopeKind = 'none' | 'opaque_payload' | 'opaque_v3' | 'overflow_v1';
+
+export const classifyDreamOverflowEnvelope = (
+  body: string,
+  dateTag?: string,
+): DreamOverflowEnvelopeKind => {
+  if (!dateTag || !isDreamMergedTag(dateTag)) return 'none';
+  if (hasOpaqueOverflowEnvelope(body, dateTag)) return 'opaque_v3';
+  if (hasDreamOverflowControlMarker(body, dateTag)) return 'overflow_v1';
+  return 'opaque_payload';
+};
+
 /** Re-attach the stored control marker so a user-typed leading sentinel stays content. */
 const restoreOverflowControlMarker = (previous: string, visible: string, dateTag: string): string => {
   if (hasOpaqueOverflowEnvelope(previous, dateTag)) {
@@ -1125,6 +1138,43 @@ export const planDreamMemoryRetention = (
     keep: singleDay.slice(-maxEntries),
     legacy,
     overflow,
+  };
+};
+
+export interface DreamMemoryDebugSnapshot {
+  customCount: number;
+  foldCount: number;
+  keepCount: number;
+  legacyCount: number;
+  overflowChars?: number;
+  overflowCount: number;
+  overflowEnvelope: DreamOverflowEnvelopeKind;
+  overflowRangeEnd?: string;
+  overflowRangeStart?: string;
+  singleDayCount: number;
+}
+
+export const dreamMemoryDebugSnapshot = (
+  doc: string | null | undefined,
+  maxEntries: number,
+): DreamMemoryDebugSnapshot => {
+  const plan = planDreamMemoryRetention(doc, maxEntries);
+  const overflow = plan.overflow[0];
+  const overflowEnvelope = overflow
+    ? classifyDreamOverflowEnvelope(overflow.body, overflow.dateTag)
+    : 'none';
+  const bounds = overflow ? parseMergedRangeBounds(overflow.dateTag) : undefined;
+  return {
+    customCount: plan.custom.length,
+    foldCount: plan.fold.length,
+    keepCount: plan.keep.length,
+    legacyCount: plan.legacy.length,
+    overflowChars: overflow?.body.length,
+    overflowCount: plan.overflow.length,
+    overflowEnvelope,
+    overflowRangeEnd: bounds?.end,
+    overflowRangeStart: bounds?.start,
+    singleDayCount: plan.keep.length + plan.fold.length,
   };
 };
 

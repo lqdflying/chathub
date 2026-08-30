@@ -7,6 +7,7 @@ import {
   appendDreamMemoryEntry,
   capAssistantMemoryByTokensAsync,
   capDreamMemoryDocument,
+  classifyDreamOverflowEnvelope,
   DREAM_OVERFLOW_OPAQUE_V1_SENTINEL,
   DREAM_OVERFLOW_OPAQUE_V2_SENTINEL,
   DREAM_OVERFLOW_OPAQUE_V3_PREFIX,
@@ -399,6 +400,28 @@ describe('dream memory entries', () => {
     const long = wrapOverflowSummaryBody('x'.repeat(8000), '2026-08-01', '2026-08-10');
     expect(long.length).toBeGreaterThan(ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS);
     expect(long).toContain('x'.repeat(8000));
+  });
+
+  it('classifies overflow envelope kind without exposing marker text', () => {
+    expect(classifyDreamOverflowEnvelope('hello', '2026-08-05')).toBe('none');
+
+    const v1 = wrapOverflowSummaryBody('standing preference: tables', '2026-08-01', '2026-08-03');
+    expect(classifyDreamOverflowEnvelope(v1, '2026-08-01..2026-08-03')).toBe('overflow_v1');
+
+    const capped = capDreamMemoryDocument(
+      `#1 [2026-08-01..2026-08-03]:\n${'x'.repeat(6600)}\ntail`,
+      14,
+    );
+    const overflow = parseDreamMemoryEntries(capped)[0]!;
+    expectValidatedOpaqueEnvelope(overflow);
+    expect(classifyDreamOverflowEnvelope(overflow.body, overflow.dateTag)).toBe('opaque_v3');
+
+    expect(
+      classifyDreamOverflowEnvelope(
+        `${DREAM_OVERFLOW_OPAQUE_V2_SENTINEL}\nhello`,
+        '2026-08-01..2026-08-03',
+      ),
+    ).toBe('opaque_payload');
   });
 
   it('caps oversized single-day and legacy cards to the per-card limit', () => {

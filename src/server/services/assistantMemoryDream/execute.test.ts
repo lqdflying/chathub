@@ -64,6 +64,7 @@ vi.mock('@/helpers/assistantMemory', async (importOriginal) => {
   };
 });
 
+import { logCompactionDebugSafe } from '@/libs/logger/compactionDebug';
 import { executeAssistantMemoryDream } from './execute';
 
 const NOW = new Date('2026-08-28T03:00:00.000Z');
@@ -76,6 +77,14 @@ const agentRow = {
   chatConfig: { memoryDreamScheduleFrequency: 'daily', memoryDreamScheduleTime: '02:00' },
   fixedMemory: '',
   updatedAt: SNAPSHOT_UPDATED_AT,
+};
+
+const lastDreamSettle = () => {
+  const calls = vi.mocked(logCompactionDebugSafe).mock.calls.filter(
+    (call) => call[0] === 'dream_scheduler_settled',
+  );
+  expect(calls.length).toBeGreaterThan(0);
+  return calls.at(-1)![1] as Record<string, unknown>;
 };
 
 const createDb = (row: typeof agentRow | undefined = agentRow) =>
@@ -247,6 +256,47 @@ describe('executeAssistantMemoryDream', () => {
       }),
     );
     expect(updateSet.mock.calls[0][0].assistantMemory).toBeUndefined();
+    expect(lastDreamSettle()).toMatchObject({
+      historyDate: '2026-08-27',
+      maxEntries: 14,
+      path: 'assistant_memory_rollup',
+      reason: 'already_has_card',
+      status: 'skipped',
+      trigger: 'scheduled',
+    });
+  });
+
+  it('settles regenerate as a manual single-day rewrite without folding overflow', async () => {
+    const db = createDb({
+      ...agentRow,
+      assistantMemory: '#1 [2026-08-27]:\nexisting',
+    });
+    const result = await executeAssistantMemoryDream({
+      agentId: 'agent-1',
+      db,
+      historyDate: '2026-08-27',
+      match: 'existing',
+      mode: 'regenerate',
+      now: NOW,
+      replaceIndex: 1,
+      userId: 'user-1',
+    });
+
+    expect(result).toMatchObject({ status: 'success' });
+    expect(updateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        assistantMemory: expect.stringMatching(/#1 \[2026-08-27]:[\s\S]*Prefers tables/),
+      }),
+    );
+    expect(lastDreamSettle()).toMatchObject({
+      cardKind: 'single_day',
+      foldPath: 'none',
+      historyDate: '2026-08-27',
+      maxEntries: 14,
+      path: 'assistant_memory_rollup',
+      status: 'success',
+      trigger: 'manual',
+    });
   });
 
   it('re-summarizes overflow when a new day pushes past keep-N', async () => {
@@ -282,6 +332,14 @@ describe('executeAssistantMemoryDream', () => {
     expect(stored).toContain('2026-08-26..2026-08-26');
     expect(stored).toContain('Older standing preference: bullets');
     expect(stored).not.toContain('old day body');
+    expect(lastDreamSettle()).toMatchObject({
+      foldPath: 'llm',
+      historyDate: '2026-08-27',
+      maxEntries: 1,
+      overflowEnvelope: 'overflow_v1',
+      status: 'success',
+      trigger: 'scheduled',
+    });
   });
 
   it('asks the model to rewrite an over-budget overflow summary instead of trimming it', async () => {
@@ -312,6 +370,10 @@ describe('executeAssistantMemoryDream', () => {
     expect(stored).toContain('Compressed standing preference: bullets');
     expect(stored).not.toContain('KEEP-THIS-TAIL');
     expect(stored).not.toContain('x'.repeat(8000));
+    expect(lastDreamSettle()).toMatchObject({
+      foldPath: 'llm_rewrite',
+      status: 'success',
+    });
   });
 
   it('asks the model to rewrite a token-truncated overflow summary', async () => {
@@ -388,6 +450,11 @@ describe('executeAssistantMemoryDream', () => {
     expect(stored).toContain('Prefers tables');
     expect(stored).toContain('old day body');
     expect(stored).not.toContain('CUT-MID-SENTENCE');
+    expect(lastDreamSettle()).toMatchObject({
+      foldFallbackReason: 'token_limit',
+      foldPath: 'concat_fallback',
+      status: 'success',
+    });
   });
 
   it('falls back to concat when overflow re-summarize fails', async () => {
@@ -416,6 +483,11 @@ describe('executeAssistantMemoryDream', () => {
     expect(stored).toContain('[2026-08-27]');
     expect(stored).toContain('Prefers tables');
     expect(stored).toContain('old day body');
+    expect(lastDreamSettle()).toMatchObject({
+      foldFallbackReason: 'completion_exception',
+      foldPath: 'concat_fallback',
+      status: 'success',
+    });
   });
 
   it('does not overwrite memory when the agent row changed during the model call', async () => {

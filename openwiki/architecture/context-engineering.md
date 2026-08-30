@@ -374,9 +374,13 @@ call is in flight, the stale dream result is dropped as `stale_conflict` instead
 overwriting newer memory or metadata.
 
 **Debug.** Dream events share `CHATHUB_COMPACTION_DEBUG` / `chathub-compaction-debug`:
-`dream_scheduler_tick` and `dream_scheduler_settled` with `path=assistant_memory_rollup`
-and `trigger=scheduled`. They are server-emitted. After the daily topic-note scheduler
-was removed, `planner_settled` with `trigger=scheduled` on a topic path is a regression.
+`dream_scheduler_tick` and `dream_scheduler_settled` with `path=assistant_memory_rollup`.
+Scheduled Graphile jobs use `trigger=scheduled`; per-card regenerate uses `trigger=manual`.
+Settle records include keep-N counts, overflow envelope kind (`none` / `overflow_v1` /
+`opaque_v3` / `opaque_payload`), and fold path (`none` / `llm` / `llm_rewrite` /
+`concat_fallback`). They are server-emitted and never include card bodies or overflow
+text. After the daily topic-note scheduler was removed, `planner_settled` with
+`trigger=scheduled` on a topic path is a regression.
 
 The settings Memory tab **Dreaming Memory** group exposes topic snippets, the UTC dream
 schedule, **Keep dream cards** (`memoryDreamMaxEntries`), and a **dynamic memory** card list
