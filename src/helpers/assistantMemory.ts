@@ -358,8 +358,10 @@ export const isDreamMergedTag = (tag: string) => DREAM_MERGED_TAG.test(tag);
 
 /** Leading magic line for canonical overflow. Not part of any day's body. */
 export const DREAM_OVERFLOW_SENTINEL = '[overflow:v1]';
+/** Interim opaque envelope from `fedec80487`/`5a28abacf9`. Never framing; treat as payload. */
+export const DREAM_OVERFLOW_OPAQUE_V1_SENTINEL = '[overflow:opaque-v1]';
 /** Leading magic line for opaque overflow. Payload is never dual-parsed as dated parts. */
-export const DREAM_OVERFLOW_OPAQUE_SENTINEL = '[overflow:opaque-v1]';
+export const DREAM_OVERFLOW_OPAQUE_SENTINEL = '[overflow:opaque-v2]';
 const CANONICAL_PART_MARKER = /^\[date:(\d{4}-\d{2}-\d{2})]$/;
 
 const splitMergedBodyLines = (text: string): string[] =>
@@ -389,8 +391,8 @@ export const hasOpaqueOverflowEnvelope = (body: string, dateTag?: string): boole
 const stripOpaqueOverflowEnvelope = (body: string): string =>
   stripLeadingMagicLine(body, DREAM_OVERFLOW_OPAQUE_SENTINEL);
 
-/** Logical n slashes ↔ stored n+1 for a payload copy of the opaque envelope line. */
-const OPAQUE_SENTINEL_LINE = /^(\\*)(\[overflow:opaque-v1])$/;
+/** Logical n slashes ↔ stored n+1 for payload copies of opaque envelope lines. */
+const OPAQUE_SENTINEL_LINE = /^(\\*)(\[overflow:opaque-v\d+])$/;
 
 const escapeOpaqueSentinelLines = (body: string): string =>
   splitMergedBodyLines(body)
@@ -540,7 +542,7 @@ const mergedPartHeaderLine = (date: string) => `[date:${date}]`;
 const LEGACY_PART_MARKER = /^\[(\d{4}-\d{2}-\d{2})]$/;
 /** Marker-shaped line, optionally already backslash-stuffed. */
 const MARKER_SHAPED_LINE =
-  /^(\\*)(\[(?:date:)?\d{4}-\d{2}-\d{2}]|\[overflow:v1]|\[overflow:opaque-v1])$/;
+  /^(\\*)(\[(?:date:)?\d{4}-\d{2}-\d{2}]|\[overflow:v1]|\[overflow:opaque-v\d+])$/;
 
 /** Logical n slashes ↔ stored n+1. Adds one slash to every marker-shaped line. */
 const escapeMergedPartBody = (body: string): string =>
@@ -1173,6 +1175,7 @@ const concatOverflowEntry = (
 export const wrapOverflowSummaryBody = (summary: string, start: string, end: string): string => {
   let text = summary.trim().replace(/^#\d+\s+\[[^\n\]]+]:\s*/, '');
   text = stripLeadingOverflowSentinelLine(text).trim();
+  text = stripLeadingMagicLine(text, DREAM_OVERFLOW_OPAQUE_V1_SENTINEL).trim();
   text = stripOpaqueOverflowEnvelope(text).trim();
   const parts: MergedDreamPart[] = [{ body: text, date: start }];
   if (end !== start) parts.push({ body: '', date: end });
