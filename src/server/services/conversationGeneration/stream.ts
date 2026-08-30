@@ -6,9 +6,16 @@ export interface ProtocolStreamResult {
   error?: { body?: unknown; message: string; type: string };
   grounding?: unknown;
   reasoning?: ModelReasoning;
+  stopReason?: string;
   toolCalls?: MessageToolCall[];
   usage?: ModelUsage;
 }
+
+const TOKEN_LIMIT_STOP_REASONS = new Set(['length', 'max_tokens', 'max_output_tokens']);
+
+/** OpenAI `length`, Anthropic `max_tokens`, Gemini `MAX_TOKENS` — incomplete generation. */
+export const isIncompleteLengthStop = (reason?: string): boolean =>
+  !!reason && TOKEN_LIMIT_STOP_REASONS.has(reason.trim().toLowerCase());
 
 export interface ProtocolStreamHandlers {
   onReasoning?: (text: string, reasoning: ModelReasoning) => void | Promise<void>;
@@ -53,18 +60,24 @@ export const consumeProtocolResponse = async (
   let usage: ModelUsage | undefined;
   let grounding: unknown;
   let error: ProtocolStreamResult['error'];
+  let stopReason: string | undefined;
 
   const consumeEvents = async (complete: string) => {
     for (const ev of parseSseBlocks(complete)) {
-      if (!ev.data) continue;
+      if (!ev.data && ev.event !== 'stop') continue;
       let data: any;
       try {
-        data = JSON.parse(ev.data);
+        data = ev.data ? JSON.parse(ev.data) : '';
       } catch {
+        if (ev.event === 'stop') stopReason = ev.data;
         continue;
       }
 
       switch (ev.event) {
+        case 'stop': {
+          stopReason = typeof data === 'string' ? data : String(data ?? '');
+          break;
+        }
         case 'text': {
           if (!data) break;
           content += data;
@@ -150,5 +163,5 @@ export const consumeProtocolResponse = async (
       }
     : undefined;
 
-  return { content, error, grounding, reasoning, toolCalls, usage };
+  return { content, error, grounding, reasoning, stopReason, toolCalls, usage };
 };

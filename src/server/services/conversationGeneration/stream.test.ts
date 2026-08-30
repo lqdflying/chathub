@@ -1,7 +1,7 @@
 /** @vitest-environment node */
 import { describe, expect, it, vi } from 'vitest';
 
-import { consumeProtocolResponse } from './stream';
+import { consumeProtocolResponse, isIncompleteLengthStop } from './stream';
 
 const sseResponse = (chunks: string[]) => {
   const encoder = new TextEncoder();
@@ -83,4 +83,36 @@ describe('consumeProtocolResponse', () => {
     expect(onText).toHaveBeenCalledWith('hello', 'hello');
     expect(result.content).toBe('hello');
   });
+
+  it.each(['length', 'max_tokens', 'MAX_TOKENS'])(
+    'retains token-limit stop reason %s',
+    async (reason) => {
+      const result = await consumeProtocolResponse(
+        sseResponse([
+          'event: text\ndata: "partial summary cut mid-sentence"\n\n',
+          `event: stop\ndata: ${JSON.stringify(reason)}\n\n`,
+        ]),
+      );
+
+      expect(result.content).toBe('partial summary cut mid-sentence');
+      expect(result.stopReason).toBe(reason);
+      expect(isIncompleteLengthStop(result.stopReason)).toBe(true);
+    },
+  );
+
+  it.each(['stop', 'end_turn', 'completed', 'message_stop'])(
+    'does not treat %s as a token-limit stop',
+    async (reason) => {
+      const result = await consumeProtocolResponse(
+        sseResponse([
+          'event: text\ndata: "complete summary"\n\n',
+          `event: stop\ndata: ${JSON.stringify(reason)}\n\n`,
+        ]),
+      );
+
+      expect(result.content).toBe('complete summary');
+      expect(result.stopReason).toBe(reason);
+      expect(isIncompleteLengthStop(result.stopReason)).toBe(false);
+    },
+  );
 });

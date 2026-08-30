@@ -43,9 +43,14 @@ vi.mock('@/server/services/conversationGeneration/runtimeChatOptions', () => ({
   createConversationRuntimeChatOptions: vi.fn(() => ({})),
 }));
 
-vi.mock('@/server/services/conversationGeneration/stream', () => ({
-  consumeProtocolResponse: (...args: unknown[]) => consume(...args),
-}));
+vi.mock('@/server/services/conversationGeneration/stream', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@/server/services/conversationGeneration/stream')>();
+  return {
+    ...actual,
+    consumeProtocolResponse: (...args: unknown[]) => consume(...args),
+  };
+});
 
 vi.mock('@/libs/logger/compactionDebug', () => ({
   logCompactionDebugSafe: vi.fn(),
@@ -246,8 +251,12 @@ describe('executeAssistantMemoryDream', () => {
 
   it('re-summarizes overflow when a new day pushes past keep-N', async () => {
     consume
-      .mockResolvedValueOnce({ content: '- Prefers tables\n', error: undefined })
-      .mockResolvedValueOnce({ content: 'Older standing preference: bullets', error: undefined });
+      .mockResolvedValueOnce({ content: '- Prefers tables\n', error: undefined, stopReason: 'stop' })
+      .mockResolvedValueOnce({
+        content: 'Older standing preference: bullets',
+        error: undefined,
+        stopReason: 'stop',
+      });
     const db = createDb({
       ...agentRow,
       assistantMemory: '#1 [2026-08-26]:\nold day body',
@@ -303,6 +312,82 @@ describe('executeAssistantMemoryDream', () => {
     expect(stored).toContain('Compressed standing preference: bullets');
     expect(stored).not.toContain('KEEP-THIS-TAIL');
     expect(stored).not.toContain('x'.repeat(8000));
+  });
+
+  it('asks the model to rewrite a token-truncated overflow summary', async () => {
+    consume
+      .mockResolvedValueOnce({ content: '- Prefers tables\n', error: undefined, stopReason: 'stop' })
+      .mockResolvedValueOnce({
+        content: 'partial CUT-MID-SENTENCE',
+        error: undefined,
+        stopReason: 'length',
+      })
+      .mockResolvedValueOnce({
+        content: 'Compressed standing preference: bullets',
+        error: undefined,
+        stopReason: 'stop',
+      });
+    const db = createDb({
+      ...agentRow,
+      assistantMemory: '#1 [2026-08-26]:\nold day body',
+      chatConfig: {
+        memoryDreamMaxEntries: 1,
+        memoryDreamScheduleFrequency: 'daily',
+        memoryDreamScheduleTime: '02:00',
+      },
+    });
+    const result = await executeAssistantMemoryDream({
+      agentId: 'agent-1',
+      db,
+      now: NOW,
+      periodStamp: PERIOD,
+      userId: 'user-1',
+    });
+
+    expect(result).toMatchObject({ status: 'success' });
+    expect(chat).toHaveBeenCalledTimes(3);
+    const stored = updateSet.mock.calls[0][0].assistantMemory as string;
+    expect(stored).toContain('Compressed standing preference: bullets');
+    expect(stored).not.toContain('CUT-MID-SENTENCE');
+  });
+
+  it('falls back to concat when the overflow rewrite is also token-truncated', async () => {
+    consume
+      .mockResolvedValueOnce({ content: '- Prefers tables\n', error: undefined, stopReason: 'stop' })
+      .mockResolvedValueOnce({
+        content: 'partial CUT-MID-SENTENCE',
+        error: undefined,
+        stopReason: 'max_tokens',
+      })
+      .mockResolvedValueOnce({
+        content: 'still truncated CUT-MID-SENTENCE',
+        error: undefined,
+        stopReason: 'MAX_TOKENS',
+      });
+    const db = createDb({
+      ...agentRow,
+      assistantMemory: '#1 [2026-08-26]:\nold day body',
+      chatConfig: {
+        memoryDreamMaxEntries: 1,
+        memoryDreamScheduleFrequency: 'daily',
+        memoryDreamScheduleTime: '02:00',
+      },
+    });
+    const result = await executeAssistantMemoryDream({
+      agentId: 'agent-1',
+      db,
+      now: NOW,
+      periodStamp: PERIOD,
+      userId: 'user-1',
+    });
+
+    expect(result).toMatchObject({ status: 'success' });
+    expect(chat).toHaveBeenCalledTimes(3);
+    const stored = updateSet.mock.calls[0][0].assistantMemory as string;
+    expect(stored).toContain('[2026-08-27]');
+    expect(stored).toContain('Prefers tables');
+    expect(stored).toContain('old day body');
+    expect(stored).not.toContain('CUT-MID-SENTENCE');
   });
 
   it('falls back to concat when overflow re-summarize fails', async () => {

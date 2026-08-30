@@ -39,7 +39,10 @@ import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
 import { initModelRuntimeWithUserPayload } from '@/server/modules/ModelRuntime';
 import { resolveConversationRuntimePayload } from '@/server/services/conversationGeneration/credentials';
 import { createConversationRuntimeChatOptions } from '@/server/services/conversationGeneration/runtimeChatOptions';
-import { consumeProtocolResponse } from '@/server/services/conversationGeneration/stream';
+import {
+  consumeProtocolResponse,
+  isIncompleteLengthStop,
+} from '@/server/services/conversationGeneration/stream';
 
 import { isDreamDue, previousUtcDayWindow, utcDayWindow } from './schedule';
 
@@ -237,7 +240,10 @@ const runOverflowFoldCompletion = async ({
   if (result.error) {
     throw new Error(result.error.message || result.error.type || 'upstream_error');
   }
-  return result.content.trim();
+  return {
+    content: result.content.trim(),
+    truncated: isIncompleteLengthStop(result.stopReason),
+  };
 };
 
 export const executeAssistantMemoryDream = async ({
@@ -530,34 +536,43 @@ export const executeAssistantMemoryDream = async ({
         rangeStart: range.start,
         userId,
       };
-      const wrapSummary = (raw: string) => {
+      const wrapSummary = (raw: string, truncated: boolean) => {
         const normalized = normalizeAssistantMemoryText(raw, Number.POSITIVE_INFINITY);
         if (!normalized || normalized === ASSISTANT_MEMORY_NO_CHANGES_SENTINEL) {
-          return { normalized, wrapped: '' };
+          return { normalized, truncated, wrapped: '' };
         }
         return {
           normalized,
+          truncated,
           wrapped: wrapOverflowSummaryBody(normalized, range.start, range.end),
         };
       };
 
-      let { normalized, wrapped } = wrapSummary(await runOverflowFoldCompletion(foldArgs));
-      if (
-        normalized &&
-        normalized !== ASSISTANT_MEMORY_NO_CHANGES_SENTINEL &&
-        wrapped.length > ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS
-      ) {
-        ({ normalized, wrapped } = wrapSummary(
-          await runOverflowFoldCompletion({ ...foldArgs, previousTooLong: normalized }),
-        ));
+      const foldOnce = async (previousTooLong?: string) => {
+        const { content, truncated } = await runOverflowFoldCompletion({
+          ...foldArgs,
+          previousTooLong,
+        });
+        return wrapSummary(content, truncated);
+      };
+
+      let attempt = await foldOnce();
+      const needsRewrite =
+        !!attempt.normalized &&
+        attempt.normalized !== ASSISTANT_MEMORY_NO_CHANGES_SENTINEL &&
+        (attempt.truncated || attempt.wrapped.length > ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS);
+      if (needsRewrite) {
+        attempt = await foldOnce(attempt.normalized);
       }
       if (
-        !normalized ||
-        normalized === ASSISTANT_MEMORY_NO_CHANGES_SENTINEL ||
-        wrapped.length > ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS
+        !attempt.normalized ||
+        attempt.normalized === ASSISTANT_MEMORY_NO_CHANGES_SENTINEL ||
+        attempt.truncated ||
+        attempt.wrapped.length > ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS
       ) {
         return finalizeDreamDocument(appendedDoc);
       }
+      const { wrapped } = attempt;
       return assembleDreamMemoryAfterFold(
         plan,
         {

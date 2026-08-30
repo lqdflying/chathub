@@ -363,20 +363,12 @@ const CANONICAL_PART_MARKER = /^\[date:(\d{4}-\d{2}-\d{2})]$/;
 const splitMergedBodyLines = (text: string): string[] =>
   text.split('\n').map((line) => line.replace(/\r$/, ''));
 
-const remainderHasCanonicalHeading = (lines: string[]): boolean =>
-  lines.some((line) => CANONICAL_PART_MARKER.test(line));
-
-/** True only for the stored control marker, not a user-authored first line. */
-export const hasDreamOverflowControlMarker = (body: string): boolean => {
-  const lines = splitMergedBodyLines(body);
+const stripLeadingOverflowSentinelLine = (text: string): string => {
+  const lines = splitMergedBodyLines(text);
   const first = lines.findIndex((line) => line.length > 0);
-  if (first === -1 || lines[first] !== DREAM_OVERFLOW_SENTINEL) return false;
-  return remainderHasCanonicalHeading(lines.slice(first + 1));
+  if (first === -1 || lines[first] !== DREAM_OVERFLOW_SENTINEL) return text;
+  return lines.slice(first + 1).join('\n').replace(/^\n+/, '');
 };
-
-/** Re-attach the stored control marker so a user-typed leading sentinel stays content. */
-const restoreOverflowControlMarker = (previous: string, visible: string): string =>
-  hasDreamOverflowControlMarker(previous) ? `${DREAM_OVERFLOW_SENTINEL}\n${visible}` : visible;
 
 /** Non-scheduled tags such as `[legacy]` or pre-feature custom labels. */
 export const isDreamCustomTag = (tag: string) =>
@@ -472,53 +464,6 @@ const findDreamEntry = (
   index: number,
 ): DreamMemoryEntry | undefined => entries.find((entry) => entry.index === index);
 
-/**
- * Replace the body of entry `#index` after verifying `dateTag` and a `match` snippet
- * of the current body (regenerate / manual edit).
- */
-export const replaceDreamMemoryEntryBody = (
-  doc: string | null | undefined,
-  index: number,
-  dateTag: string,
-  match: string,
-  body: string,
-):
-  | { doc: string; entry: DreamMemoryEntry }
-  | { entries: DreamMemoryEntry[]; error: DreamMemoryMutationError } => {
-  const entries = parseDreamMemoryEntries(doc);
-  const target = findDreamEntry(entries, index);
-  if (!target) return { entries, error: 'not_found' };
-  if (target.dateTag !== dateTag || !target.body.includes(match.trim())) {
-    return { entries, error: 'mismatch' };
-  }
-
-  const nextBody = isDreamMergedTag(target.dateTag)
-    ? restoreOverflowControlMarker(target.body, body.trim())
-    : body.trim();
-  const nextEntries = entries.map((entry) =>
-    entry.index === index ? { ...entry, body: nextBody } : entry,
-  );
-  return { doc: serializeDreamMemoryEntries(nextEntries), entry: { ...target, body: nextBody } };
-};
-
-export const updateDreamMemoryEntry = (
-  doc: string | null | undefined,
-  index: number,
-  match: string,
-  body: string,
-  dateTag?: string,
-):
-  | { doc: string; entry: DreamMemoryEntry }
-  | { entries: DreamMemoryEntry[]; error: DreamMemoryMutationError } => {
-  const entries = parseDreamMemoryEntries(doc);
-  const target = findDreamEntry(entries, index);
-  if (!target) return { entries, error: 'not_found' };
-  if (dateTag && target.dateTag !== dateTag) return { entries, error: 'mismatch' };
-  if (!target.body.includes(match.trim())) return { entries, error: 'mismatch' };
-
-  return replaceDreamMemoryEntryBody(doc, index, target.dateTag, match, body);
-};
-
 export const deleteDreamMemoryEntry = (
   doc: string | null | undefined,
   index: number,
@@ -550,11 +495,11 @@ const mergedPartHeaderLine = (date: string) => `[date:${date}]`;
 const LEGACY_PART_MARKER = /^\[(\d{4}-\d{2}-\d{2})]$/;
 /** Marker-shaped line, optionally already backslash-stuffed. */
 const MARKER_SHAPED_LINE = /^(\\*)(\[(?:date:)?\d{4}-\d{2}-\d{2}]|\[overflow:v1])$/;
-const UNESCAPED_OVERFLOW_MARKER = /^(\[(?:date:)?\d{4}-\d{2}-\d{2}]|\[overflow:v1])$/;
 
+/** Logical n slashes ↔ stored n+1. Adds one slash to every marker-shaped line. */
 const escapeMergedPartBody = (body: string): string =>
   splitMergedBodyLines(body)
-    .map((line) => (UNESCAPED_OVERFLOW_MARKER.test(line) ? `\\${line}` : line))
+    .map((line) => (MARKER_SHAPED_LINE.test(line) ? `\\${line}` : line))
     .join('\n');
 
 const unescapeMergedPartBody = (body: string): string =>
@@ -576,6 +521,17 @@ const unescapeVisibleOverflowBody = (body: string): string =>
     })
     .join('\n');
 
+/** Inverse of unescapeVisibleOverflowBody for card save. */
+const restuffVisibleOverflowBody = (body: string): string =>
+  splitMergedBodyLines(body)
+    .map((line) => {
+      const match = MARKER_SHAPED_LINE.exec(line);
+      if (!match) return line;
+      if (match[2]!.startsWith('[date:')) return line;
+      return `\\${line}`;
+    })
+    .join('\n');
+
 const formatMergedDreamBody = (parts: MergedDreamPart[]): string => {
   const inner = parts
     .map(({ body, date }) => {
@@ -588,28 +544,6 @@ const formatMergedDreamBody = (parts: MergedDreamPart[]): string => {
   return inner ? `${DREAM_OVERFLOW_SENTINEL}\n${inner}` : DREAM_OVERFLOW_SENTINEL;
 };
 
-export const stripDreamOverflowSentinel = (body: string): string => {
-  if (!hasDreamOverflowControlMarker(body)) return body;
-  const lines = splitMergedBodyLines(body);
-  const first = lines.findIndex((line) => line.length > 0);
-  return lines.slice(first + 1).join('\n').replace(/^\n+/, '');
-};
-
-export const visibleDreamMemoryBody = (
-  entry: Pick<DreamMemoryEntry, 'body' | 'dateTag'>,
-): string =>
-  isDreamMergedTag(entry.dateTag)
-    ? unescapeVisibleOverflowBody(stripDreamOverflowSentinel(entry.body))
-    : entry.body;
-
-export const serializeVisibleDreamMemoryDocument = (doc: string | null | undefined): string =>
-  serializeDreamMemoryEntries(
-    parseDreamMemoryEntries(doc).map((entry) => ({
-      ...entry,
-      body: visibleDreamMemoryBody(entry),
-    })),
-  );
-
 const parseMergedRangeBounds = (tag: string): { end: string; start: string } => {
   const [start, end] = tag.split('..');
   return { end: end ?? start ?? tag, start: start ?? tag };
@@ -620,10 +554,11 @@ const consumeMergedPartLines = (
   marker: RegExp,
   acceptDate: (date: string) => boolean,
   startDate: string,
-): MergedDreamPart[] => {
+): { parts: MergedDreamPart[]; usedHeading: boolean } => {
   const parts: MergedDreamPart[] = [];
   let current: MergedDreamPart | null = null;
   const preamble: string[] = [];
+  let usedHeading = false;
 
   const flushPreamble = () => {
     const text = preamble.join('\n').trim();
@@ -634,6 +569,7 @@ const consumeMergedPartLines = (
   for (const line of lines) {
     const match = marker.exec(line);
     if (match && acceptDate(match[1]!)) {
+      usedHeading = true;
       const headingDate = match[1]!;
       if (current) parts.push({ ...current, body: current.body.trim() });
       const pending = flushPreamble();
@@ -654,22 +590,120 @@ const consumeMergedPartLines = (
   if (current) parts.push({ ...current, body: current.body.trim() });
   const leftover = flushPreamble();
   if (!current && leftover) parts.push({ body: leftover, date: startDate });
-  return parts;
+  return { parts, usedHeading };
 };
+
+const rangeTagOfParts = (parts: MergedDreamPart[]): string =>
+  parts.length === 0 ? '' : `${parts[0]!.date}..${parts.at(-1)!.date}`;
+
+const uniqueCanonicalOverflowControl = (restLines: string[], dateTag: string): boolean => {
+  if (!isDreamMergedTag(dateTag)) return false;
+  const { start, end } = parseMergedRangeBounds(dateTag);
+  const inRange = (date: string) => date >= start && date <= end;
+  const outer = `${start}..${end}`;
+  const matchesOuter = (result: { parts: MergedDreamPart[]; usedHeading: boolean }) =>
+    result.usedHeading && result.parts.length > 0 && rangeTagOfParts(result.parts) === outer;
+  const canonical = consumeMergedPartLines(restLines, CANONICAL_PART_MARKER, inRange, start);
+  const legacy = consumeMergedPartLines(restLines, LEGACY_PART_MARKER, inRange, start);
+  return matchesOuter(canonical) && !matchesOuter(legacy);
+};
+
+/** True only when a leading sentinel uniquely reconstructs the outer range as canonical overflow. */
+export const hasDreamOverflowControlMarker = (body: string, dateTag?: string): boolean => {
+  const lines = splitMergedBodyLines(body);
+  const first = lines.findIndex((line) => line.length > 0);
+  if (first === -1 || lines[first] !== DREAM_OVERFLOW_SENTINEL) return false;
+  if (!dateTag) return false;
+  return uniqueCanonicalOverflowControl(lines.slice(first + 1), dateTag);
+};
+
+/** Re-attach the stored control marker so a user-typed leading sentinel stays content. */
+const restoreOverflowControlMarker = (previous: string, visible: string, dateTag: string): string =>
+  hasDreamOverflowControlMarker(previous, dateTag)
+    ? `${DREAM_OVERFLOW_SENTINEL}\n${restuffVisibleOverflowBody(visible)}`
+    : visible;
+
+/**
+ * Replace the body of entry `#index` after verifying `dateTag` and a `match` snippet
+ * of the current body (regenerate / manual edit).
+ */
+export const replaceDreamMemoryEntryBody = (
+  doc: string | null | undefined,
+  index: number,
+  dateTag: string,
+  match: string,
+  body: string,
+):
+  | { doc: string; entry: DreamMemoryEntry }
+  | { entries: DreamMemoryEntry[]; error: DreamMemoryMutationError } => {
+  const entries = parseDreamMemoryEntries(doc);
+  const target = findDreamEntry(entries, index);
+  if (!target) return { entries, error: 'not_found' };
+  if (target.dateTag !== dateTag || !target.body.includes(match.trim())) {
+    return { entries, error: 'mismatch' };
+  }
+
+  const nextBody = isDreamMergedTag(target.dateTag)
+    ? restoreOverflowControlMarker(target.body, body.trim(), target.dateTag)
+    : body.trim();
+  const nextEntries = entries.map((entry) =>
+    entry.index === index ? { ...entry, body: nextBody } : entry,
+  );
+  return { doc: serializeDreamMemoryEntries(nextEntries), entry: { ...target, body: nextBody } };
+};
+
+export const updateDreamMemoryEntry = (
+  doc: string | null | undefined,
+  index: number,
+  match: string,
+  body: string,
+  dateTag?: string,
+):
+  | { doc: string; entry: DreamMemoryEntry }
+  | { entries: DreamMemoryEntry[]; error: DreamMemoryMutationError } => {
+  const entries = parseDreamMemoryEntries(doc);
+  const target = findDreamEntry(entries, index);
+  if (!target) return { entries, error: 'not_found' };
+  if (dateTag && target.dateTag !== dateTag) return { entries, error: 'mismatch' };
+  if (!target.body.includes(match.trim())) return { entries, error: 'mismatch' };
+
+  return replaceDreamMemoryEntryBody(doc, index, target.dateTag, match, body);
+};
+
+export const stripDreamOverflowSentinel = (body: string, dateTag?: string): string => {
+  if (!hasDreamOverflowControlMarker(body, dateTag)) return body;
+  return stripLeadingOverflowSentinelLine(body);
+};
+
+export const visibleDreamMemoryBody = (
+  entry: Pick<DreamMemoryEntry, 'body' | 'dateTag'>,
+): string =>
+  isDreamMergedTag(entry.dateTag)
+    ? unescapeVisibleOverflowBody(stripDreamOverflowSentinel(entry.body, entry.dateTag))
+    : entry.body;
+
+export const serializeVisibleDreamMemoryDocument = (doc: string | null | undefined): string =>
+  serializeDreamMemoryEntries(
+    parseDreamMemoryEntries(doc).map((entry) => ({
+      ...entry,
+      body: visibleDreamMemoryBody(entry),
+    })),
+  );
 
 const splitOverflowBodyLines = (
   body: string,
+  dateTag: string,
 ): { forceCanonical: boolean; lines: string[] } => {
   const lines = splitMergedBodyLines(body);
   const first = lines.findIndex((line) => line.length > 0);
-  if (first >= 0 && hasDreamOverflowControlMarker(body)) {
+  if (first >= 0 && hasDreamOverflowControlMarker(body, dateTag)) {
     return { forceCanonical: true, lines: lines.slice(first + 1) };
   }
   return { forceCanonical: false, lines };
 };
 
-const rangeTagOfParts = (parts: MergedDreamPart[]): string =>
-  parts.length === 0 ? '' : `${parts[0]!.date}..${parts.at(-1)!.date}`;
+const unescapeOverflowParts = (parts: MergedDreamPart[]): MergedDreamPart[] =>
+  parts.map((part) => ({ ...part, body: unescapeMergedPartBody(part.body) }));
 
 type OverflowExpansion =
   | { kind: 'opaque' }
@@ -682,34 +716,32 @@ const resolveOverflowExpansion = (entry: DreamMemoryEntry): OverflowExpansion =>
 
   const { start, end } = parseMergedRangeBounds(entry.dateTag);
   const inRange = (date: string) => date >= start && date <= end;
-  const { forceCanonical, lines } = splitOverflowBodyLines(entry.body);
+  const outer = `${start}..${end}`;
+  const { forceCanonical, lines } = splitOverflowBodyLines(entry.body, entry.dateTag);
   if (forceCanonical) {
-    const parts = consumeMergedPartLines(lines, CANONICAL_PART_MARKER, inRange, start).map(
-      (part) => ({ ...part, body: unescapeMergedPartBody(part.body) }),
+    const { parts, usedHeading } = consumeMergedPartLines(
+      lines,
+      CANONICAL_PART_MARKER,
+      inRange,
+      start,
     );
-    return parts.length > 0 ? { kind: 'parts', parts } : { kind: 'opaque' };
+    if (usedHeading && parts.length > 0 && rangeTagOfParts(parts) === outer) {
+      return { kind: 'parts', parts: unescapeOverflowParts(parts) };
+    }
+    return { kind: 'opaque' };
   }
 
   const canonical = consumeMergedPartLines(lines, CANONICAL_PART_MARKER, inRange, start);
   const legacy = consumeMergedPartLines(lines, LEGACY_PART_MARKER, inRange, start);
-  const outer = `${start}..${end}`;
-  const matchesOuter = (parts: MergedDreamPart[]) =>
-    parts.length > 0 && rangeTagOfParts(parts) === outer;
+  const matchesOuter = (result: { parts: MergedDreamPart[]; usedHeading: boolean }) =>
+    result.usedHeading && result.parts.length > 0 && rangeTagOfParts(result.parts) === outer;
   const canonicalOk = matchesOuter(canonical);
   const legacyOk = matchesOuter(legacy);
   if (canonicalOk === legacyOk) return { kind: 'opaque' };
-  const chosen = canonicalOk ? canonical : legacy;
   return {
     kind: 'parts',
-    parts: chosen.map((part) => ({ ...part, body: unescapeMergedPartBody(part.body) })),
+    parts: unescapeOverflowParts(canonicalOk ? canonical.parts : legacy.parts),
   };
-};
-
-const expandMergedDreamBody = (entry: DreamMemoryEntry): MergedDreamPart[] => {
-  const resolved = resolveOverflowExpansion(entry);
-  if (resolved.kind === 'parts') return resolved.parts;
-  const { start } = parseMergedRangeBounds(entry.dateTag);
-  return [{ body: entry.body, date: start }];
 };
 
 /** Total serialized dynamic-memory char budget: N single-day cards + one 6400 overflow slot. */
@@ -1044,23 +1076,45 @@ const concatOverflowEntry = (
   overflow: DreamMemoryEntry[],
   fold: DreamMemoryEntry[],
 ): DreamMemoryEntry | undefined => {
-  const foldedParts: MergedDreamPart[] = [];
-  for (const entry of overflow) foldedParts.push(...expandMergedDreamBody(entry));
-  for (const entry of fold) foldedParts.push({ body: entry.body, date: entry.dateTag });
-  if (foldedParts.length === 0) return undefined;
-  foldedParts.sort((a, b) => a.date.localeCompare(b.date));
-  return {
-    body: formatMergedDreamBody(foldedParts),
-    dateTag: `${foldedParts[0]!.date}..${foldedParts.at(-1)!.date}`,
-    index: 1,
-    regenerable: false,
-  };
+  if (overflow.length === 0 && fold.length === 0) return undefined;
+
+  const overflowSorted = [...overflow].sort((left, right) =>
+    parseMergedRangeBounds(left.dateTag).start.localeCompare(
+      parseMergedRangeBounds(right.dateTag).start,
+    ),
+  );
+  const foldSorted = [...fold].sort((left, right) => left.dateTag.localeCompare(right.dateTag));
+  const expansions = overflowSorted.map((entry) => resolveOverflowExpansion(entry));
+  const hasOpaque = expansions.some((expansion) => expansion.kind === 'opaque');
+
+  if (!hasOpaque) {
+    const foldedParts: MergedDreamPart[] = [];
+    for (const expansion of expansions) {
+      if (expansion.kind === 'parts') foldedParts.push(...expansion.parts);
+    }
+    for (const entry of foldSorted) foldedParts.push({ body: entry.body, date: entry.dateTag });
+    if (foldedParts.length === 0) return undefined;
+    foldedParts.sort((a, b) => a.date.localeCompare(b.date));
+    return {
+      body: formatMergedDreamBody(foldedParts),
+      dateTag: `${foldedParts[0]!.date}..${foldedParts.at(-1)!.date}`,
+      index: 1,
+      regenerable: false,
+    };
+  }
+
+  const combined = [
+    ...overflowSorted,
+    ...foldSorted.map((entry) => ({ ...entry, regenerable: false })),
+  ];
+  const [rebuilt] = capOpaqueMergedEntries(combined, ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS);
+  return rebuilt;
 };
 
 /** Wrap an LLM overflow summary as a sentinel-bearing range card body. Does not trim. */
 export const wrapOverflowSummaryBody = (summary: string, start: string, end: string): string => {
   let text = summary.trim().replace(/^#\d+\s+\[[^\n\]]+]:\s*/, '');
-  text = stripDreamOverflowSentinel(text).trim();
+  text = stripLeadingOverflowSentinelLine(text).trim();
   const parts: MergedDreamPart[] = [{ body: text, date: start }];
   if (end !== start) parts.push({ body: '', date: end });
   return formatMergedDreamBody(parts);
