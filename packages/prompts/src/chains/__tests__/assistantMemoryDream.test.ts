@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
-import { ASSISTANT_MEMORY_NO_CHANGES_SENTINEL } from '../assistantMemoryRollup';
+import {
+  ASSISTANT_MEMORY_NO_CHANGES_SENTINEL,
+  ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS,
+} from '../assistantMemoryRollup';
 import {
   ASSISTANT_MEMORY_DREAM_MAX_TOPICS,
   buildAssistantMemoryDreamUserContent,
   chainAssistantMemoryDream,
+  chainAssistantMemoryOverflowFold,
 } from '../assistantMemoryDream';
 
 describe('buildAssistantMemoryDreamUserContent', () => {
@@ -82,5 +86,24 @@ describe('chainAssistantMemoryDream', () => {
     });
     const userMessage = payload.messages?.find((m) => m.role === 'user');
     expect(String(userMessage?.content)).toContain(ASSISTANT_MEMORY_NO_CHANGES_SENTINEL);
+  });
+});
+
+describe('chainAssistantMemoryOverflowFold', () => {
+  it('asks for a merged overflow body and forbids NO_CHANGES', () => {
+    const payload = chainAssistantMemoryOverflowFold({
+      existingOverflow: 'old overflow',
+      foldedCards: [{ body: 'retired day', dateTag: '2026-08-01' }],
+      rangeEnd: '2026-08-10',
+      rangeStart: '2026-08-01',
+    });
+    const system = String(payload.messages?.find((m) => m.role === 'system')?.content ?? '');
+    const user = String(payload.messages?.find((m) => m.role === 'user')?.content ?? '');
+    expect(system).toContain('overflow range card');
+    expect(system).toContain(String(ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS));
+    expect(system).toContain(`Never output ${ASSISTANT_MEMORY_NO_CHANGES_SENTINEL}`);
+    expect(user).toContain('old overflow');
+    expect(user).toContain('retired day');
+    expect(user).toContain('2026-08-01 .. 2026-08-10');
   });
 });

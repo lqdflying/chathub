@@ -1,4 +1,4 @@
-import { ASSISTANT_MEMORY_MAX_CHARS } from '@lobechat/prompts';
+import { ASSISTANT_MEMORY_MAX_CHARS, ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS } from '@lobechat/prompts';
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 
@@ -25,6 +25,7 @@ import {
   updateDreamMemoryEntry,
   updateFixedMemoryEntry,
   visibleDreamMemoryBody,
+  wrapOverflowSummaryBody,
 } from './assistantMemory';
 
 const { encodeAsync } = vi.hoisted(() => ({ encodeAsync: vi.fn() }));
@@ -366,6 +367,23 @@ describe('dream memory entries', () => {
     expect(overflow?.regenerable).toBe(false);
   });
 
+  it('gives the overflow card a 6400-character slot in the total budget', () => {
+    expect(dreamMemoryTotalCharBudget(14)).toBe(
+      14 * ASSISTANT_MEMORY_MAX_CHARS + ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS,
+    );
+    const summary = wrapOverflowSummaryBody('standing preference: tables', '2026-08-01', '2026-08-10');
+    expect(summary.startsWith('[overflow:v1]\n')).toBe(true);
+    expect(summary).toContain('[date:2026-08-01]');
+    expect(summary).toContain('standing preference: tables');
+    expect(summary).toContain('[date:2026-08-10]');
+
+    const long = wrapOverflowSummaryBody('x'.repeat(8000), '2026-08-01', '2026-08-10');
+    expect(long.length).toBeLessThanOrEqual(ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS);
+    expect(long).toContain('x');
+    expect(long).toContain('[date:2026-08-01]');
+    expect(long).toContain('[date:2026-08-10]');
+  });
+
   it('caps oversized single-day and legacy cards to the per-card limit', () => {
     const oversized = `#1 [2026-08-27]:\n${'x'.repeat(100_000)}`;
     const capped = capDreamMemoryDocument(oversized, 1);
@@ -427,7 +445,7 @@ describe('dream memory entries', () => {
       /^\d{4}-\d{2}-\d{2}\.\.\d{4}-\d{2}-\d{2}$/.test(entry.dateTag),
     );
     expect(overflow).toBeDefined();
-    expect(overflow?.body.length).toBeLessThanOrEqual(ASSISTANT_MEMORY_MAX_CHARS);
+    expect(overflow?.body.length).toBeLessThanOrEqual(ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS);
     expect(overflow?.body).toContain('B90');
     expect(overflow?.body).not.toContain('A01');
     expect(overflow?.dateTag.endsWith('2026-07-90')).toBe(true);
@@ -559,7 +577,7 @@ describe('dream memory entries', () => {
   });
 
   it('caps stuffed overflow bodies to the per-card edit limit', () => {
-    const cardBodySchema = z.string().min(1).max(ASSISTANT_MEMORY_MAX_CHARS);
+    const cardBodySchema = z.string().min(1).max(ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS);
     const marker = '[2099-12-31]';
     const oneMarkerBody = `${marker}\n${'x'.repeat(3183 - marker.length - 1)}`;
     expect(oneMarkerBody.length).toBe(3183);
@@ -571,7 +589,7 @@ describe('dream memory entries', () => {
     const oneOverflow = parseDreamMemoryEntries(oneMarkerCapped).find((entry) =>
       /^\d{4}-\d{2}-\d{2}\.\.\d{4}-\d{2}-\d{2}$/.test(entry.dateTag),
     );
-    expect(oneOverflow?.body.length).toBeLessThanOrEqual(ASSISTANT_MEMORY_MAX_CHARS);
+    expect(oneOverflow?.body.length).toBeLessThanOrEqual(ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS);
     expect(cardBodySchema.safeParse(oneOverflow?.body).success).toBe(true);
     expect(oneOverflow?.body).toContain('x');
     expect(oneMarkerCapped).toContain('keep newest');
@@ -584,7 +602,7 @@ describe('dream memory entries', () => {
     const manyOverflow = parseDreamMemoryEntries(manyCapped).find((entry) =>
       /^\d{4}-\d{2}-\d{2}\.\.\d{4}-\d{2}-\d{2}$/.test(entry.dateTag),
     );
-    expect(manyOverflow?.body.length).toBeLessThanOrEqual(ASSISTANT_MEMORY_MAX_CHARS);
+    expect(manyOverflow?.body.length).toBeLessThanOrEqual(ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS);
     expect(cardBodySchema.safeParse(manyOverflow?.body).success).toBe(true);
     expect(manyOverflow?.dateTag).toContain('2026-08-01');
     expect(manyCapped).toContain('keep newest');
@@ -612,7 +630,7 @@ describe('dream memory entries', () => {
     const tight = capDreamMemoryDocument(tightDoc, 14);
     expect(capDreamMemoryDocument(tight, 14)).toBe(tight);
     const tightOverflow = parseDreamMemoryEntries(tight)[0];
-    expect(tightOverflow?.body.length).toBeLessThanOrEqual(ASSISTANT_MEMORY_MAX_CHARS);
+    expect(tightOverflow?.body.length).toBeLessThanOrEqual(ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS);
     expect(tightOverflow?.body).toContain('REAL NEWEST DAY');
     expect(tightOverflow?.dateTag).toContain('2026-08-02');
     expect(tightOverflow?.dateTag).not.toBe('2026-08-01..2026-08-01');
@@ -643,7 +661,7 @@ describe('dream memory entries', () => {
     const tight = capDreamMemoryDocument(tightDoc, 14);
     expect(capDreamMemoryDocument(tight, 14)).toBe(tight);
     const tightOverflow = parseDreamMemoryEntries(tight)[0];
-    expect(tightOverflow?.body.length).toBeLessThanOrEqual(ASSISTANT_MEMORY_MAX_CHARS);
+    expect(tightOverflow?.body.length).toBeLessThanOrEqual(ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS);
     expect(tightOverflow?.body).toContain('REAL NEWEST DAY');
     expect(tightOverflow?.dateTag).toContain('2026-08-02');
     expect(tightOverflow?.dateTag).not.toBe('2026-08-01..2026-08-01');
@@ -664,7 +682,7 @@ describe('dream memory entries', () => {
     const overflow = parseDreamMemoryEntries(capped)[0];
     expect(overflow?.dateTag).toBe('2026-08-01..2026-08-02');
     expect(overflow?.dateTag).not.toBe('2026-08-01..2026-08-01');
-    expect(overflow?.body.length).toBeLessThanOrEqual(ASSISTANT_MEMORY_MAX_CHARS);
+    expect(overflow?.body.length).toBeLessThanOrEqual(ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS);
     expect(overflow?.body).toContain('\\[date:2026-08-01]');
     expect(overflow?.body).toContain('REAL NEWEST DAY');
     expect(visibleDreamMemoryBody(overflow!)).toContain('[date:2026-08-01]');
@@ -689,7 +707,7 @@ describe('dream memory entries', () => {
     const overflow = parseDreamMemoryEntries(capped)[0];
     expect(overflow?.dateTag).toBe('2026-08-01..2026-08-03');
     expect(overflow?.dateTag).not.toBe('2026-08-03..2026-08-03');
-    expect(overflow?.body.length).toBeLessThanOrEqual(ASSISTANT_MEMORY_MAX_CHARS);
+    expect(overflow?.body.length).toBeLessThanOrEqual(ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS);
     expect(overflow?.body).toContain('REAL NEWEST DAY');
     expect(overflow?.body).toContain('FALSE TAIL');
     expect(overflow?.body).toContain('day three');
@@ -713,7 +731,7 @@ describe('dream memory entries', () => {
     const overflow = parseDreamMemoryEntries(capped)[0];
     expect(overflow?.dateTag).toBe('2026-08-01..2026-08-03');
     expect(overflow?.dateTag).not.toBe('2026-08-03..2026-08-03');
-    expect(overflow?.body.length).toBeLessThanOrEqual(ASSISTANT_MEMORY_MAX_CHARS);
+    expect(overflow?.body.length).toBeLessThanOrEqual(ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS);
     expect(overflow?.body).toContain('REAL NEWEST DAY');
     expect(overflow?.body).toContain('FALSE TAIL');
     expect(overflow?.body).toContain('day three');
@@ -858,7 +876,7 @@ describe('dream memory entries', () => {
     const doc = `#1 [2026-08-01..2026-08-10]:\n${parts.join('\n\n')}`;
     const capped = capDreamMemoryDocument(doc, 14);
     const overflow = parseDreamMemoryEntries(capped)[0];
-    expect(overflow?.body.length).toBeLessThanOrEqual(ASSISTANT_MEMORY_MAX_CHARS);
+    expect(overflow?.body.length).toBeLessThanOrEqual(ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS);
     expect(overflow?.body).toContain('DAY10');
     expect(overflow?.body).not.toContain('DAY01');
     expect(overflow?.dateTag).toContain('2026-08-10');

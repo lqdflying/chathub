@@ -1,4 +1,8 @@
-import { ASSISTANT_MEMORY_MAX_CHARS, ASSISTANT_MEMORY_TARGET_TOKENS } from '@lobechat/prompts';
+import {
+  ASSISTANT_MEMORY_MAX_CHARS,
+  ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS,
+  ASSISTANT_MEMORY_TARGET_TOKENS,
+} from '@lobechat/prompts';
 import type { AssistantMemoryMeta, LobeAgentChatConfig } from '@lobechat/types';
 import dayjs, { type Dayjs } from 'dayjs';
 
@@ -708,9 +712,9 @@ const expandMergedDreamBody = (entry: DreamMemoryEntry): MergedDreamPart[] => {
   return [{ body: entry.body, date: start }];
 };
 
-/** Total serialized dynamic-memory char budget: N single-day cards + one overflow slot. */
+/** Total serialized dynamic-memory char budget: N single-day cards + one 6400 overflow slot. */
 export const dreamMemoryTotalCharBudget = (maxEntries: number) =>
-  (maxEntries + 1) * ASSISTANT_MEMORY_MAX_CHARS;
+  maxEntries * ASSISTANT_MEMORY_MAX_CHARS + ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS;
 
 const mergedBodyFitsBudget = (parts: MergedDreamPart[], budget: number) =>
   formatMergedDreamBody(parts).length <= budget;
@@ -776,8 +780,8 @@ const rebuildMergedEntry = (
   if (parts.length === 0) return undefined;
   let next = parts;
   let body = formatMergedDreamBody(next);
-  if (body.length > ASSISTANT_MEMORY_MAX_CHARS) {
-    next = trimMergedPartsToBudget(next, ASSISTANT_MEMORY_MAX_CHARS);
+  if (body.length > ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS) {
+    next = trimMergedPartsToBudget(next, ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS);
     if (next.length === 0) return undefined;
     body = formatMergedDreamBody(next);
   }
@@ -815,7 +819,7 @@ const capOpaqueMergedEntries = (
   budget: number,
 ): DreamMemoryEntry[] => {
   if (entries.length === 0) return [];
-  const maxBody = Math.max(0, Math.min(ASSISTANT_MEMORY_MAX_CHARS, budget));
+  const maxBody = Math.max(0, Math.min(ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS, budget));
   const starts = entries.map((entry) => parseMergedRangeBounds(entry.dateTag).start);
   const ends = entries.map((entry) => parseMergedRangeBounds(entry.dateTag).end);
   const dateTag =
@@ -858,7 +862,7 @@ const rebuildOverflowFromEntries = (
 };
 
 const overflowBodyBudget = (othersLength: number, budget: number) =>
-  Math.max(0, Math.min(ASSISTANT_MEMORY_MAX_CHARS, budget - othersLength - 40));
+  Math.max(0, Math.min(ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS, budget - othersLength - 40));
 
 /**
  * Shrink or drop `bucket[0]` so the assembled document can move toward `budget`.
@@ -986,7 +990,102 @@ export const serializeDreamMemoryPriorForPrompt = (doc: string | null | undefine
     .sort((a, b) => b.dateTag.localeCompare(a.dateTag));
   const ordered = [...singleDay, ...merged, ...custom, ...legacy];
   const serialized = serializeDreamMemoryEntries(renumberDreamMemoryEntries(ordered));
-  return capAtReadableBoundary(serialized, ASSISTANT_MEMORY_MAX_CHARS);
+  return capAtReadableBoundary(serialized, ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS);
+};
+
+export interface DreamMemoryRetentionPlan {
+  custom: DreamMemoryEntry[];
+  fold: DreamMemoryEntry[];
+  keep: DreamMemoryEntry[];
+  legacy: DreamMemoryEntry[];
+  overflow: DreamMemoryEntry[];
+}
+
+export const planDreamMemoryRetention = (
+  doc: string | null | undefined,
+  maxEntries: number,
+): DreamMemoryRetentionPlan => {
+  const entries = parseDreamMemoryEntries(normalizeDreamMemoryDocument(doc));
+  const legacy = entries.filter((entry) => entry.dateTag === 'legacy');
+  const custom = entries.filter((entry) => isDreamCustomTag(entry.dateTag));
+  const overflow = entries.filter((entry) => isDreamMergedTag(entry.dateTag));
+  const singleDay = entries
+    .filter((entry) => entry.regenerable)
+    .sort((a, b) => a.dateTag.localeCompare(b.dateTag));
+
+  if (singleDay.length <= maxEntries) {
+    return { custom, fold: [], keep: singleDay, legacy, overflow };
+  }
+
+  return {
+    custom,
+    fold: singleDay.slice(0, singleDay.length - maxEntries),
+    keep: singleDay.slice(-maxEntries),
+    legacy,
+    overflow,
+  };
+};
+
+export const overflowRangeForFold = (
+  plan: DreamMemoryRetentionPlan,
+): { end: string; start: string } | undefined => {
+  const dates: string[] = [];
+  for (const entry of plan.overflow) {
+    const bounds = parseMergedRangeBounds(entry.dateTag);
+    dates.push(bounds.start, bounds.end);
+  }
+  for (const entry of plan.fold) dates.push(entry.dateTag);
+  if (dates.length === 0) return undefined;
+  dates.sort((left, right) => left.localeCompare(right));
+  return { end: dates.at(-1)!, start: dates[0]! };
+};
+
+const concatOverflowEntry = (
+  overflow: DreamMemoryEntry[],
+  fold: DreamMemoryEntry[],
+): DreamMemoryEntry | undefined => {
+  const foldedParts: MergedDreamPart[] = [];
+  for (const entry of overflow) foldedParts.push(...expandMergedDreamBody(entry));
+  for (const entry of fold) foldedParts.push({ body: entry.body, date: entry.dateTag });
+  if (foldedParts.length === 0) return undefined;
+  foldedParts.sort((a, b) => a.date.localeCompare(b.date));
+  return {
+    body: formatMergedDreamBody(foldedParts),
+    dateTag: `${foldedParts[0]!.date}..${foldedParts.at(-1)!.date}`,
+    index: 1,
+    regenerable: false,
+  };
+};
+
+/** Wrap an LLM overflow summary as a sentinel-bearing range card body. */
+export const wrapOverflowSummaryBody = (summary: string, start: string, end: string): string => {
+  let text = summary.trim().replace(/^#\d+\s+\[[^\n\]]+]:\s*/, '');
+  text = stripDreamOverflowSentinel(text).trim();
+
+  const build = (body: string) => {
+    const parts: MergedDreamPart[] = [{ body, date: start }];
+    if (end !== start) parts.push({ body: '', date: end });
+    return formatMergedDreamBody(parts);
+  };
+
+  const wrapped = build(text);
+  if (wrapped.length <= ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS) return wrapped;
+
+  const overhead = wrapped.length - text.length;
+  const maxText = Math.max(0, ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS - overhead);
+  return build(capAtReadableBoundary(text, maxText));
+};
+
+export const assembleDreamMemoryAfterFold = (
+  plan: DreamMemoryRetentionPlan,
+  overflowEntry: DreamMemoryEntry,
+  maxEntries: number,
+): string => {
+  const next = [...plan.legacy, ...plan.custom, overflowEntry, ...plan.keep];
+  return capDreamMemoryDocument(
+    serializeDreamMemoryEntries(renumberDreamMemoryEntries(next)),
+    maxEntries,
+  );
 };
 
 /**
@@ -1001,40 +1100,21 @@ export const enforceDreamMemoryRetention = (
   const entries = parseDreamMemoryEntries(normalized);
   if (entries.length === 0) return '';
 
-  const legacy = entries.filter((entry) => entry.dateTag === 'legacy');
-  const custom = entries.filter((entry) => isDreamCustomTag(entry.dateTag));
-  const merged = entries.filter((entry) => isDreamMergedTag(entry.dateTag));
-  const singleDay = entries
-    .filter((entry) => entry.regenerable)
-    .sort((a, b) => a.dateTag.localeCompare(b.dateTag));
-
-  if (singleDay.length <= maxEntries) {
+  const plan = planDreamMemoryRetention(normalized, maxEntries);
+  if (plan.fold.length === 0) {
     return capDreamMemoryDocument(
       serializeDreamMemoryEntries(renumberDreamMemoryEntries(entries)),
       maxEntries,
     );
   }
 
-  const keep = singleDay.slice(-maxEntries);
-  const fold = singleDay.slice(0, singleDay.length - maxEntries);
-  const foldedParts: MergedDreamPart[] = [];
+  const overflowEntry = concatOverflowEntry(plan.overflow, plan.fold);
+  if (!overflowEntry) {
+    return capDreamMemoryDocument(
+      serializeDreamMemoryEntries(renumberDreamMemoryEntries([...plan.legacy, ...plan.custom, ...plan.keep])),
+      maxEntries,
+    );
+  }
 
-  for (const entry of merged) foldedParts.push(...expandMergedDreamBody(entry));
-  for (const entry of fold) foldedParts.push({ body: entry.body, date: entry.dateTag });
-
-  foldedParts.sort((a, b) => a.date.localeCompare(b.date));
-  const rangeStart = foldedParts[0]!.date;
-  const rangeEnd = foldedParts.at(-1)!.date;
-  const mergedEntry: DreamMemoryEntry = {
-    body: formatMergedDreamBody(foldedParts),
-    dateTag: `${rangeStart}..${rangeEnd}`,
-    index: 1,
-    regenerable: false,
-  };
-
-  const next = [...legacy, ...custom, mergedEntry, ...keep];
-  return capDreamMemoryDocument(
-    serializeDreamMemoryEntries(renumberDreamMemoryEntries(next)),
-    maxEntries,
-  );
+  return assembleDreamMemoryAfterFold(plan, overflowEntry, maxEntries);
 };

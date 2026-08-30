@@ -244,6 +244,65 @@ describe('executeAssistantMemoryDream', () => {
     expect(updateSet.mock.calls[0][0].assistantMemory).toBeUndefined();
   });
 
+  it('re-summarizes overflow when a new day pushes past keep-N', async () => {
+    consume
+      .mockResolvedValueOnce({ content: '- Prefers tables\n', error: undefined })
+      .mockResolvedValueOnce({ content: 'Older standing preference: bullets', error: undefined });
+    const db = createDb({
+      ...agentRow,
+      assistantMemory: '#1 [2026-08-26]:\nold day body',
+      chatConfig: {
+        memoryDreamMaxEntries: 1,
+        memoryDreamScheduleFrequency: 'daily',
+        memoryDreamScheduleTime: '02:00',
+      },
+    });
+    const result = await executeAssistantMemoryDream({
+      agentId: 'agent-1',
+      db,
+      now: NOW,
+      periodStamp: PERIOD,
+      userId: 'user-1',
+    });
+
+    expect(result).toMatchObject({ status: 'success' });
+    expect(chat).toHaveBeenCalledTimes(2);
+    const stored = updateSet.mock.calls[0][0].assistantMemory as string;
+    expect(stored).toContain('[2026-08-27]');
+    expect(stored).toContain('Prefers tables');
+    expect(stored).toContain('2026-08-26..2026-08-26');
+    expect(stored).toContain('Older standing preference: bullets');
+    expect(stored).not.toContain('old day body');
+  });
+
+  it('falls back to concat when overflow re-summarize fails', async () => {
+    consume
+      .mockResolvedValueOnce({ content: '- Prefers tables\n', error: undefined })
+      .mockResolvedValueOnce({ content: '', error: { message: 'fold failed', type: 'error' } });
+    const db = createDb({
+      ...agentRow,
+      assistantMemory: '#1 [2026-08-26]:\nold day body',
+      chatConfig: {
+        memoryDreamMaxEntries: 1,
+        memoryDreamScheduleFrequency: 'daily',
+        memoryDreamScheduleTime: '02:00',
+      },
+    });
+    const result = await executeAssistantMemoryDream({
+      agentId: 'agent-1',
+      db,
+      now: NOW,
+      periodStamp: PERIOD,
+      userId: 'user-1',
+    });
+
+    expect(result).toMatchObject({ status: 'success' });
+    const stored = updateSet.mock.calls[0][0].assistantMemory as string;
+    expect(stored).toContain('[2026-08-27]');
+    expect(stored).toContain('Prefers tables');
+    expect(stored).toContain('old day body');
+  });
+
   it('does not overwrite memory when the agent row changed during the model call', async () => {
     updateReturning.mockResolvedValueOnce([]);
     const db = createDb();

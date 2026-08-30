@@ -1,5 +1,5 @@
 import { DEFAULT_AGENT_CONFIG, INBOX_SESSION_ID } from '@lobechat/const';
-import { ASSISTANT_MEMORY_MAX_CHARS } from '@lobechat/prompts';
+import { ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS } from '@lobechat/prompts';
 import { KnowledgeItem, KnowledgeType } from '@lobechat/types';
 import { z } from 'zod';
 
@@ -262,7 +262,7 @@ export const agentRouter = router({
     .input(
       z.object({
         agentId: z.string(),
-        body: z.string().min(1).max(ASSISTANT_MEMORY_MAX_CHARS),
+        body: z.string().min(1).max(ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS),
         dateTag: z.string().min(1),
         index: z.number().int().min(1),
         match: z.string().min(1),

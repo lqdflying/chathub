@@ -1,9 +1,10 @@
 import { ChatStreamPayload } from '@lobechat/types';
 
 import {
+  ASSISTANT_MEMORY_MAX_CHARS,
   ASSISTANT_MEMORY_NO_CHANGES_SENTINEL,
+  ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS,
   ASSISTANT_MEMORY_ROLLUP_MAX_FIXED_CHARS,
-  ASSISTANT_MEMORY_ROLLUP_MAX_PRIOR_CHARS,
   capTopicSummaryText,
 } from './assistantMemoryRollup';
 
@@ -41,7 +42,7 @@ export const buildAssistantMemoryDreamUserContent = (
   );
   const prior = capTopicSummaryText(
     priorAssistantMemory ?? '',
-    ASSISTANT_MEMORY_ROLLUP_MAX_PRIOR_CHARS,
+    ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS,
   );
   const withContent = topics
     .filter((t) => (t.historySummary ?? '').trim().length > 0)
@@ -115,6 +116,55 @@ Otherwise output only the new card body text, without preamble or explanation.`,
       },
       {
         content: `${userContent}\n\nWrite the new dream-memory card body for UTC day ${historyDate} now, or output ${ASSISTANT_MEMORY_NO_CHANGES_SENTINEL} if nothing durable changed.`,
+        role: 'user',
+      },
+    ],
+  };
+};
+
+export interface AssistantMemoryOverflowFoldCard {
+  body: string;
+  dateTag: string;
+}
+
+/** Request-level output cap for the overflow summary (post-capped to 6400 chars). */
+export const ASSISTANT_MEMORY_OVERFLOW_MAX_OUTPUT_TOKENS = 3200;
+
+export const chainAssistantMemoryOverflowFold = (params: {
+  existingOverflow?: string;
+  foldedCards: AssistantMemoryOverflowFoldCard[];
+  rangeEnd: string;
+  rangeStart: string;
+}): Partial<ChatStreamPayload> => {
+  const overflow = capTopicSummaryText(
+    params.existingOverflow ?? '',
+    ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS,
+  );
+  const folded = params.foldedCards
+    .map((card) => {
+      const body = capTopicSummaryText(card.body, ASSISTANT_MEMORY_MAX_CHARS);
+      return `### Retired card [${card.dateTag}]\n\n${body || '(empty)'}`;
+    })
+    .join('\n\n---\n\n');
+
+  return {
+    messages: [
+      {
+        content: `You maintain the overflow range card of an AI assistant's dynamic memory. Newest single-day cards stay as themselves. This pass folds older days (${params.rangeStart} .. ${params.rangeEnd}) into ONE overflow summary.
+
+Keep only durable signals that would change future replies: communication style, interaction patterns, tool/workflow habits, standing preferences. Drop per-topic recaps, one-off facts, and anything the retired cards duplicate.
+
+Output rules:
+- Output ONLY the overflow card body. Do NOT output card headers like "#N [date]:" or the magic line [overflow:v1].
+- Merge the existing overflow summary (if any) with the newly retired day cards. Prefer a compact standing summary over keeping every day verbatim.
+- Stay within ${ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS} characters. Shorter is better.
+- Write in the dominant language of the input.
+
+Never output ${ASSISTANT_MEMORY_NO_CHANGES_SENTINEL}. Always produce a merged overflow body.`,
+        role: 'system',
+      },
+      {
+        content: `## Existing overflow summary (may be empty)\n\n${overflow || '(empty)'}\n\n## Newly retired single-day cards\n\n${folded || '(none)'}\n\nWrite the merged overflow body for ${params.rangeStart} .. ${params.rangeEnd} now.`,
         role: 'user',
       },
     ],

@@ -8,6 +8,8 @@ export interface AssistantMemoryRollupTopicInput {
 
 export const ASSISTANT_MEMORY_TARGET_TOKENS = 800;
 export const ASSISTANT_MEMORY_MAX_CHARS = 3200;
+/** Overflow/range dream card: rolling summary of days outside the newest N. */
+export const ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS = 6400;
 export const ASSISTANT_MEMORY_ROLLUP_MAX_TOPICS = 40;
 export const ASSISTANT_MEMORY_ROLLUP_MAX_CHARS_PER_TOPIC = 1200;
 export const ASSISTANT_MEMORY_ROLLUP_MAX_PRIOR_CHARS = 3200;

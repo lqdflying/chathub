@@ -1,3 +1,4 @@
+import { ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS } from '@lobechat/prompts';
 import type { LobeChatDatabase } from '@lobechat/database';
 import type { LobeAgentChatConfig } from '@lobechat/types';
 import { and, eq } from 'drizzle-orm';
@@ -110,7 +111,7 @@ export const updateDreamMemoryCardOnServer = async ({
     doc,
     index,
     match,
-    normalizeAssistantMemoryText(body),
+    normalizeAssistantMemoryText(body, ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS),
     dateTag,
   );
   if ('error' in outcome) return { reason: outcome.error, status: 'failed' };

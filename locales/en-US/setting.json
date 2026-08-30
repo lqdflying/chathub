@@ -387,7 +387,7 @@
     "dynamicMemory": {
       "deleteConfirm": "Delete this dream memory? Remaining entries will be renumbered.",
       "empty": "No dynamic memory yet. Enable the memory dream and cards will be appended at the scheduled time.",
-      "hint": "Each successful memory dream appends one UTC-dated card (#1, #2, …) from that UTC day's active topic summaries. Edit or delete cards individually; single-day cards can be regenerated for that UTC day only. Older single-day cards beyond the keep count merge into one range card.",
+      "hint": "Each successful memory dream appends one UTC-dated card (#1, #2, …) from that UTC day's active topic summaries. Edit or delete cards individually; single-day cards can be regenerated for that UTC day only. Older single-day cards beyond the keep count are re-summarized into one range card of at most 6400 characters when the dream runs.",
       "lastUpdated": "Updated {{time}}",
       "save": "Save changes",
       "title": "Dynamic memory"
@@ -425,9 +425,9 @@
       "tooltip": "Fixed memory is curated by you; the assistant can also append entries (#1, #2, …) via its built-in memory tool. Automatic summarization and the memory dream never rewrite it."
     },
     "memoryDreamMaxEntries": {
-      "desc": "Keep the newest N single-day dream cards; older single-day cards merge into one range card (default 14)",
+      "desc": "Keep the newest N single-day dream cards; older single-day cards are re-summarized into one range card of at most 6400 characters when the dream runs (default 14)",
       "title": "Dream cards to keep",
-      "tooltip": "Counts only cards with a single UTC date tag. The merged range card is kept separately and does not count toward N."
+      "tooltip": "Counts only cards with a single UTC date tag. The range card does not count toward N, is capped at 6400 characters, and absorbs newly retired days over time."
     },
     "memoryDreamSchedule": {
       "frequency": {

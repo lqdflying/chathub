@@ -9,7 +9,7 @@ import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
 import Tokens from '@/features/AgentSetting/AgentPrompt/TokenTag';
-import { ASSISTANT_MEMORY_MAX_CHARS } from '@lobechat/prompts';
+import { ASSISTANT_MEMORY_MAX_CHARS, ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS } from '@lobechat/prompts';
 import {
   DREAM_OVERFLOW_SENTINEL,
   type DreamMemoryEntry,
@@ -278,7 +278,7 @@ const DynamicMemory = memo(() => {
                   autoSize={{ maxRows: 8, minRows: 2 }}
                   maxLength={
                     isDreamMergedTag(entry.dateTag)
-                      ? ASSISTANT_MEMORY_MAX_CHARS - DREAM_OVERFLOW_SENTINEL.length - 1
+                      ? ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS - DREAM_OVERFLOW_SENTINEL.length - 1
                       : ASSISTANT_MEMORY_MAX_CHARS
                   }
                   onChange={(e) => setEditDraft(e.target.value)}

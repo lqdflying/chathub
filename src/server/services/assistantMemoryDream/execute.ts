@@ -3,7 +3,10 @@ import {
   ASSISTANT_MEMORY_DREAM_MAX_OUTPUT_TOKENS,
   ASSISTANT_MEMORY_DREAM_MAX_TOPICS,
   ASSISTANT_MEMORY_NO_CHANGES_SENTINEL,
+  ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS,
+  ASSISTANT_MEMORY_OVERFLOW_MAX_OUTPUT_TOKENS,
   chainAssistantMemoryDream,
+  chainAssistantMemoryOverflowFold,
 } from '@lobechat/prompts';
 import type { AssistantMemoryMeta, LobeAgentChatConfig } from '@lobechat/types';
 import { and, eq } from 'drizzle-orm';
@@ -14,15 +17,20 @@ import { UserModel } from '@/database/models/user';
 import { agents } from '@/database/schemas';
 import {
   appendDreamMemoryEntry,
+  assembleDreamMemoryAfterFold,
   capAssistantMemoryByTokensAsync,
   capDreamMemoryDocument,
   enforceDreamMemoryRetention,
   hasDreamMemoryEntryForDate,
   normalizeAssistantMemoryText,
   normalizeDreamMemoryDocument,
+  overflowRangeForFold,
+  planDreamMemoryRetention,
   replaceDreamMemoryEntryBody,
   resolveMemoryDreamMaxEntries,
   serializeDreamMemoryPriorForPrompt,
+  visibleDreamMemoryBody,
+  wrapOverflowSummaryBody,
 } from '@/helpers/assistantMemory';
 import { buildSimpleCompletionSampling } from '@/helpers/contextCompaction';
 import { logCompactionDebugSafe } from '@/libs/logger/compactionDebug';
@@ -153,6 +161,58 @@ const runDreamCompletion = async ({
       historyDate,
       priorAssistantMemory: prior || undefined,
       topics,
+    }),
+    ...sampling,
+    model,
+    stream: true,
+  };
+  const response = await runtime.chat(
+    payload as any,
+    createConversationRuntimeChatOptions({
+      payload,
+      provider: runtimePayload.runtimeProvider ?? provider,
+      userId,
+    }),
+  );
+  const result = await consumeProtocolResponse(response);
+  if (result.error) {
+    throw new Error(result.error.message || result.error.type || 'upstream_error');
+  }
+  return result.content.trim();
+};
+
+const runOverflowFoldCompletion = async ({
+  db,
+  existingOverflow,
+  foldedCards,
+  model,
+  provider,
+  rangeEnd,
+  rangeStart,
+  userId,
+}: {
+  db: LobeChatDatabase;
+  existingOverflow?: string;
+  foldedCards: Array<{ body: string; dateTag: string }>;
+  model: string;
+  provider: string;
+  rangeEnd: string;
+  rangeStart: string;
+  userId: string;
+}) => {
+  const runtimePayload = await resolveConversationRuntimePayload({ db, provider, userId });
+  const runtime = initModelRuntimeWithUserPayload(provider, runtimePayload);
+  const sampling = buildSimpleCompletionSampling({
+    model,
+    provider,
+    summaryMaxTokens: ASSISTANT_MEMORY_OVERFLOW_MAX_OUTPUT_TOKENS,
+  });
+  const payload = {
+    ...chainAssistantMemoryOverflowFold({
+      existingOverflow,
+      foldedCards,
+      rangeEnd,
+      rangeStart,
     }),
     ...sampling,
     model,
@@ -445,6 +505,47 @@ export const executeAssistantMemoryDream = async ({
   const finalizeDreamDocument = (doc: string) =>
     capDreamMemoryDocument(enforceDreamMemoryRetention(doc, maxEntries), maxEntries);
 
+  const applyScheduledFold = async (appendedDoc: string): Promise<string> => {
+    const plan = planDreamMemoryRetention(appendedDoc, maxEntries);
+    const range = overflowRangeForFold(plan);
+    if (plan.fold.length === 0 || !range) return finalizeDreamDocument(appendedDoc);
+
+    try {
+      const summary = await runOverflowFoldCompletion({
+        db,
+        existingOverflow: plan.overflow.map((entry) => visibleDreamMemoryBody(entry)).join('\n\n'),
+        foldedCards: plan.fold.map((entry) => ({ body: entry.body, dateTag: entry.dateTag })),
+        model,
+        provider,
+        rangeEnd: range.end,
+        rangeStart: range.start,
+        userId,
+      });
+      const normalized = normalizeAssistantMemoryText(
+        summary,
+        ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS,
+      );
+      if (
+        !normalized ||
+        normalized === ASSISTANT_MEMORY_NO_CHANGES_SENTINEL
+      ) {
+        return finalizeDreamDocument(appendedDoc);
+      }
+      return assembleDreamMemoryAfterFold(
+        plan,
+        {
+          body: wrapOverflowSummaryBody(normalized, range.start, range.end),
+          dateTag: `${range.start}..${range.end}`,
+          index: 1,
+          regenerable: false,
+        },
+        maxEntries,
+      );
+    } catch {
+      return finalizeDreamDocument(appendedDoc);
+    }
+  };
+
   let nextDoc: string;
   if (isRegenerate) {
     const replaced = replaceDreamMemoryEntryBody(
@@ -468,7 +569,7 @@ export const executeAssistantMemoryDream = async ({
     nextDoc = finalizeDreamDocument(replaced.doc);
   } else {
     const appended = appendDreamMemoryEntry(priorDoc, historyDate, nextBody);
-    nextDoc = finalizeDreamDocument(appended.doc);
+    nextDoc = await applyScheduledFold(appended.doc);
   }
 
   const wrote = await writeAgentMemoryIfUnchanged(db, agentId, userId, snapshot, {
