@@ -165,7 +165,7 @@ export const chainAssistantMemoryOverflowFold = (params: {
 Keep only durable signals that would change future replies: communication style, interaction patterns, tool/workflow habits, standing preferences. Drop per-topic recaps, one-off facts, and anything the retired cards duplicate.
 
 Output rules:
-- Output ONLY the overflow card body. Do NOT output card headers like "#N [date]:" or the magic lines [overflow:v1], [overflow:opaque-v1], and [overflow:opaque-v2].
+- Output ONLY the overflow card body. Do NOT output card headers like "#N [date]:" or the magic lines [overflow:v1], [overflow:opaque-v1], [overflow:opaque-v2], or [overflow:opaque-v3 …].
 - Merge the existing overflow summary (if any) with the newly retired day cards. Prefer a compact standing summary over keeping every day verbatim.
 - Your entire output MUST be at most ${maxChars} characters (the stored card cap is ${ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS} after the system adds date headers). Count characters. If you would go over, drop older or less durable signals — never emit a longer draft for someone else to trim.
 - Write in the dominant language of the input.

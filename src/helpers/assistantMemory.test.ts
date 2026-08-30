@@ -7,8 +7,9 @@ import {
   appendDreamMemoryEntry,
   capAssistantMemoryByTokensAsync,
   capDreamMemoryDocument,
-  DREAM_OVERFLOW_OPAQUE_SENTINEL,
   DREAM_OVERFLOW_OPAQUE_V1_SENTINEL,
+  DREAM_OVERFLOW_OPAQUE_V2_SENTINEL,
+  DREAM_OVERFLOW_OPAQUE_V3_PREFIX,
   deleteDreamMemoryEntry,
   deleteFixedMemoryEntry,
   dreamMemoryTotalCharBudget,
@@ -17,6 +18,7 @@ import {
   hashText,
   hasDreamMemoryEntryForDate,
   hasDreamOverflowControlMarker,
+  hasOpaqueOverflowEnvelope,
   normalizeAssistantMemoryText,
   normalizeDreamMemoryDocument,
   overflowSummaryTextBudget,
@@ -35,6 +37,14 @@ import {
 const { encodeAsync } = vi.hoisted(() => ({ encodeAsync: vi.fn() }));
 
 vi.mock('@/utils/tokenizer', () => ({ encodeAsync }));
+
+const OPAQUE_V3_HEADER_LINE = /^\[overflow:opaque-v3 n=\d+ crc=[\da-f]{8}]$/;
+
+const expectValidatedOpaqueEnvelope = (entry: { body: string; dateTag: string }) => {
+  expect(hasOpaqueOverflowEnvelope(entry.body, entry.dateTag)).toBe(true);
+  expect(entry.body.startsWith(DREAM_OVERFLOW_OPAQUE_V3_PREFIX)).toBe(true);
+  expect(entry.body.split('\n')[0]).toMatch(OPAQUE_V3_HEADER_LINE);
+};
 
 describe('normalizeAssistantMemoryText', () => {
   it('strips wrapping fences and common assistant-memory preambles', () => {
@@ -958,13 +968,18 @@ describe('dream memory entries', () => {
     expect(overflow?.body).toContain('OPAQUE_NEWEST_TAIL');
     expect(overflow?.body).toContain('day four to fold');
     expect(overflow?.body.length).toBeLessThanOrEqual(ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS);
-    expect(overflow?.body.startsWith(`${DREAM_OVERFLOW_OPAQUE_SENTINEL}\n`)).toBe(true);
+    expectValidatedOpaqueEnvelope(overflow!);
     expect(overflow?.body.startsWith('[overflow:v1]\n')).toBe(false);
-    expect(visibleDreamMemoryBody(overflow!)).not.toContain(DREAM_OVERFLOW_OPAQUE_SENTINEL);
+    expect(visibleDreamMemoryBody(overflow!)).not.toContain(DREAM_OVERFLOW_OPAQUE_V3_PREFIX);
     expect(visibleDreamMemoryBody(overflow!)).toContain('OPAQUE_NEWEST_TAIL');
   });
 
-  it.each(['[date:2026-08-04]', '[2026-08-04]', '[overflow:opaque-v1]'] as const)(
+  it.each([
+    '[date:2026-08-04]',
+    '[2026-08-04]',
+    '[overflow:opaque-v1]',
+    '[overflow:opaque-v2]',
+  ] as const)(
     'keeps an opaque overflow tail when the folded day contains %s',
     (heading) => {
       const filler = 'x'.repeat(6600);
@@ -986,7 +1001,7 @@ describe('dream memory entries', () => {
       const keep = entries.find((entry) => entry.dateTag === '2026-08-05');
       expect(keep?.body).toContain('keep newest day');
       expect(overflow?.dateTag).toBe('2026-08-01..2026-08-04');
-      expect(overflow?.body.startsWith(`${DREAM_OVERFLOW_OPAQUE_SENTINEL}\n`)).toBe(true);
+      expectValidatedOpaqueEnvelope(overflow!);
       expect(overflow?.body).toContain('OPAQUE_NEWEST_TAIL');
       expect(overflow?.body).toContain('DAY4_CONTENT');
       expect(overflow?.body.length).toBeLessThanOrEqual(ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS);
@@ -994,14 +1009,13 @@ describe('dream memory entries', () => {
       expect(visible).toContain('OPAQUE_NEWEST_TAIL');
       expect(visible).toContain('DAY4_CONTENT');
 
-      if (heading === DREAM_OVERFLOW_OPAQUE_V1_SENTINEL) {
-        expect(overflow?.body.split('\n')[0]).toBe(DREAM_OVERFLOW_OPAQUE_SENTINEL);
-        expect(overflow?.body.split('\n').filter((line) => line === DREAM_OVERFLOW_OPAQUE_SENTINEL)).toHaveLength(
-          1,
-        );
-        expect(overflow?.body).toContain(`\\${heading}`);
+      if (
+        heading === DREAM_OVERFLOW_OPAQUE_V1_SENTINEL ||
+        heading === DREAM_OVERFLOW_OPAQUE_V2_SENTINEL
+      ) {
+        expect(overflow?.body.split('\n')).toContain(heading);
         expect(visible.split('\n').filter((line) => line === heading)).toHaveLength(1);
-        expect(visible).not.toContain(DREAM_OVERFLOW_OPAQUE_SENTINEL);
+        expect(visible).not.toContain(DREAM_OVERFLOW_OPAQUE_V3_PREFIX);
         expect(serializeVisibleDreamMemoryDocument(retained).split('\n')).toContain(heading);
 
         const updated = updateDreamMemoryEntry(
@@ -1018,15 +1032,14 @@ describe('dream memory entries', () => {
         const saved = parseDreamMemoryEntries(afterSave).find((entry) =>
           /^\d{4}-\d{2}-\d{2}\.\.\d{4}-\d{2}-\d{2}$/.test(entry.dateTag),
         );
-        expect(saved?.body.split('\n')[0]).toBe(DREAM_OVERFLOW_OPAQUE_SENTINEL);
-        expect(saved?.body.split('\n').filter((line) => line === DREAM_OVERFLOW_OPAQUE_SENTINEL)).toHaveLength(1);
-        expect(saved?.body).toContain(`\\${heading}`);
+        expectValidatedOpaqueEnvelope(saved!);
+        expect(saved?.body.split('\n')).toContain(heading);
         expect(saved?.body).toContain('DAY4_CONTENT');
         expect(visibleDreamMemoryBody(saved!).split('\n').filter((line) => line === heading)).toHaveLength(1);
-        expect(visibleDreamMemoryBody(saved!)).not.toContain(DREAM_OVERFLOW_OPAQUE_SENTINEL);
+        expect(visibleDreamMemoryBody(saved!)).not.toContain(DREAM_OVERFLOW_OPAQUE_V3_PREFIX);
       } else {
         expect(overflow?.body).toContain(heading);
-        expect(visible).not.toContain(DREAM_OVERFLOW_OPAQUE_SENTINEL);
+        expect(visible).not.toContain(DREAM_OVERFLOW_OPAQUE_V3_PREFIX);
       }
 
       const later = appendDreamMemoryEntry(retained, '2026-08-06', 'later keep day').doc;
@@ -1040,93 +1053,104 @@ describe('dream memory entries', () => {
       const laterKeep = secondEntries.find((entry) => entry.dateTag === '2026-08-06');
       expect(laterKeep?.body).toContain('later keep day');
       expect(secondOverflow?.dateTag).toBe('2026-08-01..2026-08-05');
-      expect(secondOverflow?.body.startsWith(`${DREAM_OVERFLOW_OPAQUE_SENTINEL}\n`)).toBe(true);
+      expectValidatedOpaqueEnvelope(secondOverflow!);
       expect(secondOverflow?.body).toContain('OPAQUE_NEWEST_TAIL');
       expect(secondOverflow?.body).toContain('DAY4_CONTENT');
       expect(secondOverflow?.body).toContain('keep newest day');
       expect(secondOverflow?.body.length).toBeLessThanOrEqual(ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS);
-      if (heading === DREAM_OVERFLOW_OPAQUE_V1_SENTINEL) {
-        expect(secondOverflow?.body).toContain(`\\${heading}`);
+      if (
+        heading === DREAM_OVERFLOW_OPAQUE_V1_SENTINEL ||
+        heading === DREAM_OVERFLOW_OPAQUE_V2_SENTINEL
+      ) {
+        expect(secondOverflow?.body.split('\n')).toContain(heading);
         expect(
           visibleDreamMemoryBody(secondOverflow!)
             .split('\n')
             .filter((line) => line === heading),
         ).toHaveLength(1);
-        expect(visibleDreamMemoryBody(secondOverflow!)).not.toContain(DREAM_OVERFLOW_OPAQUE_SENTINEL);
+        expect(visibleDreamMemoryBody(secondOverflow!)).not.toContain(DREAM_OVERFLOW_OPAQUE_V3_PREFIX);
       }
     },
   );
 
-  it('keeps a single-day leading [overflow:opaque-v1] line visible until fold', () => {
-    const entry = parseDreamMemoryEntries('#1 [2026-08-05]:\n[overflow:opaque-v1]\nkeep me')[0]!;
-    expect(visibleDreamMemoryBody(entry)).toContain(DREAM_OVERFLOW_OPAQUE_V1_SENTINEL);
+  it.each([
+    DREAM_OVERFLOW_OPAQUE_V1_SENTINEL,
+    DREAM_OVERFLOW_OPAQUE_V2_SENTINEL,
+  ] as const)('keeps a single-day leading %s line visible until fold', (token) => {
+    const doc = `#1 [2026-08-05]:\n${token}\nkeep me`;
+    const entry = parseDreamMemoryEntries(doc)[0]!;
+    expect(visibleDreamMemoryBody(entry)).toContain(token);
     expect(visibleDreamMemoryBody(entry)).toContain('keep me');
-    expect(serializeVisibleDreamMemoryDocument('#1 [2026-08-05]:\n[overflow:opaque-v1]\nkeep me')).toContain(
-      DREAM_OVERFLOW_OPAQUE_V1_SENTINEL,
-    );
+    expect(serializeVisibleDreamMemoryDocument(doc)).toContain(token);
   });
 
-  it('stuffs a pre-envelope opaque payload line [overflow:opaque-v1] on cap', () => {
+  it.each([
+    DREAM_OVERFLOW_OPAQUE_V1_SENTINEL,
+    DREAM_OVERFLOW_OPAQUE_V2_SENTINEL,
+  ] as const)('keeps a mid-body %s payload line after opaque cap', (token) => {
     const filler = 'x'.repeat(6600);
-    const doc = [
-      '#1 [2026-08-01..2026-08-03]:',
-      filler,
-      DREAM_OVERFLOW_OPAQUE_V1_SENTINEL,
-      'OPAQUE_NEWEST_TAIL',
-    ].join('\n');
+    const doc = ['#1 [2026-08-01..2026-08-03]:', filler, token, 'OPAQUE_NEWEST_TAIL'].join('\n');
     const before = parseDreamMemoryEntries(doc)[0]!;
-    expect(visibleDreamMemoryBody(before)).toContain(DREAM_OVERFLOW_OPAQUE_V1_SENTINEL);
+    expect(hasOpaqueOverflowEnvelope(before.body, before.dateTag)).toBe(false);
+    expect(visibleDreamMemoryBody(before)).toContain(token);
     expect(visibleDreamMemoryBody(before)).toContain('OPAQUE_NEWEST_TAIL');
-    expect(serializeVisibleDreamMemoryDocument(doc)).toContain(DREAM_OVERFLOW_OPAQUE_V1_SENTINEL);
+    expect(serializeVisibleDreamMemoryDocument(doc)).toContain(token);
 
     const capped = capDreamMemoryDocument(doc, 14);
     expect(capDreamMemoryDocument(capped, 14)).toBe(capped);
     const overflow = parseDreamMemoryEntries(capped)[0];
     expect(overflow?.dateTag).toBe('2026-08-01..2026-08-03');
-    expect(overflow?.body.startsWith(`${DREAM_OVERFLOW_OPAQUE_SENTINEL}\n`)).toBe(true);
-    expect(overflow?.body.split('\n').filter((line) => line === DREAM_OVERFLOW_OPAQUE_SENTINEL)).toHaveLength(1);
-    expect(overflow?.body).toContain(`\\${DREAM_OVERFLOW_OPAQUE_V1_SENTINEL}`);
+    expectValidatedOpaqueEnvelope(overflow!);
+    expect(overflow?.body.split('\n')).toContain(token);
     expect(overflow?.body).toContain('OPAQUE_NEWEST_TAIL');
     const visible = visibleDreamMemoryBody(overflow!);
-    expect(visible.split('\n').filter((line) => line === DREAM_OVERFLOW_OPAQUE_V1_SENTINEL)).toHaveLength(1);
-    expect(visible).not.toContain(DREAM_OVERFLOW_OPAQUE_SENTINEL);
+    expect(visible.split('\n').filter((line) => line === token)).toHaveLength(1);
+    expect(visible).not.toContain(DREAM_OVERFLOW_OPAQUE_V3_PREFIX);
     expect(visible).toContain('OPAQUE_NEWEST_TAIL');
   });
 
   it.each([
     {
       extra: 'USER_LITERAL_FIRST_LINE',
-      label: 'an unversioned merged first-line literal',
+      label: 'an unversioned merged first-line literal v1',
+      token: DREAM_OVERFLOW_OPAQUE_V1_SENTINEL,
     },
     {
       extra: 'OPAQUE_NEWEST_TAIL',
       label: 'an interim v1 opaque envelope',
+      token: DREAM_OVERFLOW_OPAQUE_V1_SENTINEL,
     },
-  ] as const)('preserves $label [overflow:opaque-v1] as payload under v2 framing', ({ extra }) => {
-    const doc = [
-      '#1 [2026-08-01..2026-08-03]:',
-      DREAM_OVERFLOW_OPAQUE_V1_SENTINEL,
-      extra,
-      'opaque bytes',
-    ].join('\n');
+    {
+      extra: 'USER_LITERAL_FIRST_LINE',
+      label: 'an unversioned merged first-line literal v2',
+      token: DREAM_OVERFLOW_OPAQUE_V2_SENTINEL,
+    },
+    {
+      extra: 'OPAQUE_NEWEST_TAIL',
+      label: 'an interim v2 opaque envelope',
+      token: DREAM_OVERFLOW_OPAQUE_V2_SENTINEL,
+    },
+  ] as const)('preserves $label as payload under checksummed v3 framing', ({ extra, token }) => {
+    const doc = ['#1 [2026-08-01..2026-08-03]:', token, extra, 'opaque bytes'].join('\n');
     const before = parseDreamMemoryEntries(doc)[0]!;
-    expect(visibleDreamMemoryBody(before)).toContain(DREAM_OVERFLOW_OPAQUE_V1_SENTINEL);
+    expect(hasOpaqueOverflowEnvelope(before.body, before.dateTag)).toBe(false);
+    expect(visibleDreamMemoryBody(before)).toContain(token);
     expect(visibleDreamMemoryBody(before)).toContain(extra);
-    expect(serializeVisibleDreamMemoryDocument(doc)).toContain(DREAM_OVERFLOW_OPAQUE_V1_SENTINEL);
+    expect(serializeVisibleDreamMemoryDocument(doc)).toContain(token);
     expect(serializeVisibleDreamMemoryDocument(doc)).toContain(extra);
 
     const capped = capDreamMemoryDocument(doc, 14);
     expect(capDreamMemoryDocument(capped, 14)).toBe(capped);
     const overflow = parseDreamMemoryEntries(capped)[0];
     expect(overflow?.dateTag).toBe('2026-08-01..2026-08-03');
-    expect(overflow?.body.startsWith(`${DREAM_OVERFLOW_OPAQUE_SENTINEL}\n`)).toBe(true);
-    expect(overflow?.body.split('\n').filter((line) => line === DREAM_OVERFLOW_OPAQUE_SENTINEL)).toHaveLength(1);
-    expect(overflow?.body).toContain(`\\${DREAM_OVERFLOW_OPAQUE_V1_SENTINEL}`);
+    expectValidatedOpaqueEnvelope(overflow!);
+    expect(overflow?.body.split('\n')[0]).not.toBe(token);
+    expect(overflow?.body.split('\n')).toContain(token);
     expect(overflow?.body).toContain(extra);
     const visible = visibleDreamMemoryBody(overflow!);
-    expect(visible.split('\n').filter((line) => line === DREAM_OVERFLOW_OPAQUE_V1_SENTINEL)).toHaveLength(1);
+    expect(visible.split('\n').filter((line) => line === token)).toHaveLength(1);
     expect(visible).toContain(extra);
-    expect(visible).not.toContain(DREAM_OVERFLOW_OPAQUE_SENTINEL);
+    expect(visible).not.toContain(DREAM_OVERFLOW_OPAQUE_V3_PREFIX);
 
     const updated = updateDreamMemoryEntry(capped, overflow!.index, extra, visible, overflow!.dateTag);
     expect('doc' in updated).toBe(true);
@@ -1134,29 +1158,63 @@ describe('dream memory entries', () => {
     const afterSave = capDreamMemoryDocument(updated.doc, 14);
     expect(capDreamMemoryDocument(afterSave, 14)).toBe(afterSave);
     const saved = parseDreamMemoryEntries(afterSave)[0];
-    expect(saved?.body.startsWith(`${DREAM_OVERFLOW_OPAQUE_SENTINEL}\n`)).toBe(true);
-    expect(saved?.body).toContain(`\\${DREAM_OVERFLOW_OPAQUE_V1_SENTINEL}`);
-    expect(visibleDreamMemoryBody(saved!).split('\n').filter((line) => line === DREAM_OVERFLOW_OPAQUE_V1_SENTINEL)).toHaveLength(
-      1,
-    );
+    expectValidatedOpaqueEnvelope(saved!);
+    expect(saved?.body.split('\n')).toContain(token);
+    expect(visibleDreamMemoryBody(saved!).split('\n').filter((line) => line === token)).toHaveLength(1);
+    expect(visibleDreamMemoryBody(saved!)).not.toContain(DREAM_OVERFLOW_OPAQUE_V3_PREFIX);
 
     const withKeep = `${afterSave}\n#2 [2026-08-05]:\nkeep newest day`;
     const later = appendDreamMemoryEntry(withKeep, '2026-08-06', 'later keep day').doc;
     const second = enforceDreamMemoryRetention(later, 1);
     expect(enforceDreamMemoryRetention(second, 1)).toBe(second);
+    expect(capDreamMemoryDocument(second, 1)).toBe(second);
+    expect(second.length).toBeLessThanOrEqual(dreamMemoryTotalCharBudget(1));
     const secondOverflow = parseDreamMemoryEntries(second).find((entry) =>
       /^\d{4}-\d{2}-\d{2}\.\.\d{4}-\d{2}-\d{2}$/.test(entry.dateTag),
     );
     expect(secondOverflow?.dateTag).toBe('2026-08-01..2026-08-05');
-    expect(secondOverflow?.body.startsWith(`${DREAM_OVERFLOW_OPAQUE_SENTINEL}\n`)).toBe(true);
-    expect(secondOverflow?.body).toContain(`\\${DREAM_OVERFLOW_OPAQUE_V1_SENTINEL}`);
+    expectValidatedOpaqueEnvelope(secondOverflow!);
+    expect(secondOverflow?.body.split('\n')).toContain(token);
     expect(secondOverflow?.body).toContain(extra);
     expect(secondOverflow?.body).toContain('keep newest day');
+    expect(secondOverflow?.body.length).toBeLessThanOrEqual(ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS);
     expect(
       visibleDreamMemoryBody(secondOverflow!)
         .split('\n')
-        .filter((line) => line === DREAM_OVERFLOW_OPAQUE_V1_SENTINEL),
+        .filter((line) => line === token),
     ).toHaveLength(1);
+    expect(visibleDreamMemoryBody(secondOverflow!)).not.toContain(DREAM_OVERFLOW_OPAQUE_V3_PREFIX);
+  });
+
+  it.each([
+    {
+      fakeHeader: '[overflow:opaque-v3 n=5 crc=00000000]',
+      label: 'wrong checksum',
+      rest: 'hello',
+    },
+    {
+      fakeHeader: '[overflow:opaque-v3 n=999 crc=811c9dc5]',
+      label: 'wrong length',
+      rest: 'hello',
+    },
+  ] as const)('treats an invalid opaque-v3 header ($label) as payload, not framing', ({ fakeHeader, rest }) => {
+    const doc = ['#1 [2026-08-01..2026-08-03]:', fakeHeader, rest].join('\n');
+    const before = parseDreamMemoryEntries(doc)[0]!;
+    expect(hasOpaqueOverflowEnvelope(before.body, before.dateTag)).toBe(false);
+    expect(visibleDreamMemoryBody(before)).toContain(fakeHeader);
+    expect(visibleDreamMemoryBody(before)).toContain(rest);
+    expect(serializeVisibleDreamMemoryDocument(doc)).toContain(fakeHeader);
+
+    const capped = capDreamMemoryDocument(doc, 14);
+    expect(capDreamMemoryDocument(capped, 14)).toBe(capped);
+    const overflow = parseDreamMemoryEntries(capped)[0];
+    expectValidatedOpaqueEnvelope(overflow!);
+    expect(overflow?.body.split('\n')[0]).not.toBe(fakeHeader);
+    expect(overflow?.body.split('\n')).toContain(fakeHeader);
+    expect(overflow?.body).toContain(rest);
+    const visible = visibleDreamMemoryBody(overflow!);
+    expect(visible.split('\n')[0]).toBe(fakeHeader);
+    expect(visible).toContain(rest);
   });
 
   it('does not treat a literal sentinel plus ordinary [date:] content as control framing', () => {

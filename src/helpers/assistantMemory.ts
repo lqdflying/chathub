@@ -360,18 +360,18 @@ export const isDreamMergedTag = (tag: string) => DREAM_MERGED_TAG.test(tag);
 export const DREAM_OVERFLOW_SENTINEL = '[overflow:v1]';
 /** Interim opaque envelope from `fedec80487`/`5a28abacf9`. Never framing; treat as payload. */
 export const DREAM_OVERFLOW_OPAQUE_V1_SENTINEL = '[overflow:opaque-v1]';
-/** Leading magic line for opaque overflow. Payload is never dual-parsed as dated parts. */
-export const DREAM_OVERFLOW_OPAQUE_SENTINEL = '[overflow:opaque-v2]';
+/** Interim bare opaque envelope from `fda686b6a7`. Never framing; treat as payload. */
+export const DREAM_OVERFLOW_OPAQUE_V2_SENTINEL = '[overflow:opaque-v2]';
+/** Validated opaque envelope prefix. Framing only when `n` and `crc` match the payload. */
+export const DREAM_OVERFLOW_OPAQUE_V3_PREFIX = '[overflow:opaque-v3 n=';
 const CANONICAL_PART_MARKER = /^\[date:(\d{4}-\d{2}-\d{2})]$/;
+const OPAQUE_V3_HEADER = /^\[overflow:opaque-v3 n=(\d+) crc=([\da-f]{8})]$/;
+/** Worst-case header plus newline for a 6400-character payload. */
+const OPAQUE_V3_MAX_OVERHEAD = `[overflow:opaque-v3 n=${ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS} crc=ffffffff]\n`
+  .length;
 
 const splitMergedBodyLines = (text: string): string[] =>
   text.split('\n').map((line) => line.replace(/\r$/, ''));
-
-const hasLeadingMagicLine = (body: string, sentinel: string): boolean => {
-  const lines = splitMergedBodyLines(body);
-  const first = lines.findIndex((line) => line.length > 0);
-  return first >= 0 && lines[first] === sentinel;
-};
 
 const stripLeadingMagicLine = (body: string, sentinel: string): string => {
   const lines = splitMergedBodyLines(body);
@@ -383,38 +383,49 @@ const stripLeadingMagicLine = (body: string, sentinel: string): string => {
 const stripLeadingOverflowSentinelLine = (text: string): string =>
   stripLeadingMagicLine(text, DREAM_OVERFLOW_SENTINEL);
 
-export const hasOpaqueOverflowEnvelope = (body: string, dateTag?: string): boolean => {
-  if (dateTag !== undefined && !isDreamMergedTag(dateTag)) return false;
-  return hasLeadingMagicLine(body, DREAM_OVERFLOW_OPAQUE_SENTINEL);
+/**
+ * FNV-1a 32-bit over UTF-8 bytes (IETF/FNV offset 0x811c9dc5, prime 0x01000193).
+ * Checksum only — not cryptographic. Combined with an exact length prefix so a
+ * user-typed header cannot match unless the rest of the body is that payload.
+ */
+const fnv1a32Hex = (text: string): string => {
+  const bytes = new TextEncoder().encode(text);
+  let hash = 0x81_1C_9D_C5;
+  for (const byte of bytes) {
+    hash ^= byte;
+    hash = Math.imul(hash, 0x01_00_01_93);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
 };
 
-const stripOpaqueOverflowEnvelope = (body: string): string =>
-  stripLeadingMagicLine(body, DREAM_OVERFLOW_OPAQUE_SENTINEL);
+const normalizeOpaquePayload = (text: string): string => splitMergedBodyLines(text).join('\n');
 
-/** Logical n slashes ↔ stored n+1 for payload copies of opaque envelope lines. */
-const OPAQUE_SENTINEL_LINE = /^(\\*)(\[overflow:opaque-v\d+])$/;
-
-const escapeOpaqueSentinelLines = (body: string): string =>
-  splitMergedBodyLines(body)
-    .map((line) => (OPAQUE_SENTINEL_LINE.test(line) ? `\\${line}` : line))
-    .join('\n');
-
-const unescapeOpaqueSentinelLines = (body: string): string =>
-  splitMergedBodyLines(body)
-    .map((line) => {
-      const match = OPAQUE_SENTINEL_LINE.exec(line);
-      return match && match[1]!.length > 0 ? line.slice(1) : line;
-    })
-    .join('\n');
-
-const opaquePayloadBody = (entry: Pick<DreamMemoryEntry, 'body' | 'dateTag'>): string => {
-  if (!hasOpaqueOverflowEnvelope(entry.body, entry.dateTag)) return entry.body;
-  return unescapeOpaqueSentinelLines(stripOpaqueOverflowEnvelope(entry.body));
+const decodeOpaqueOverflowPayload = (body: string): string | undefined => {
+  const lines = splitMergedBodyLines(body);
+  const first = lines.findIndex((line) => line.length > 0);
+  if (first < 0) return undefined;
+  const match = OPAQUE_V3_HEADER.exec(lines[first]!);
+  if (!match) return undefined;
+  const payload = lines.slice(first + 1).join('\n');
+  if (payload.length !== Number(match[1])) return undefined;
+  if (fnv1a32Hex(payload) !== match[2]) return undefined;
+  return payload;
 };
 
 const wrapOpaqueOverflowBody = (inner: string): string => {
-  const escaped = escapeOpaqueSentinelLines(inner);
-  return escaped ? `${DREAM_OVERFLOW_OPAQUE_SENTINEL}\n${escaped}` : DREAM_OVERFLOW_OPAQUE_SENTINEL;
+  const payload = normalizeOpaquePayload(inner);
+  const header = `[overflow:opaque-v3 n=${payload.length} crc=${fnv1a32Hex(payload)}]`;
+  return payload ? `${header}\n${payload}` : header;
+};
+
+export const hasOpaqueOverflowEnvelope = (body: string, dateTag?: string): boolean => {
+  if (dateTag !== undefined && !isDreamMergedTag(dateTag)) return false;
+  return decodeOpaqueOverflowPayload(body) !== undefined;
+};
+
+const opaquePayloadBody = (entry: Pick<DreamMemoryEntry, 'body' | 'dateTag'>): string => {
+  if (!hasOpaqueOverflowEnvelope(entry.body, entry.dateTag)) return entry.body;
+  return decodeOpaqueOverflowPayload(entry.body) ?? entry.body;
 };
 
 /** Non-scheduled tags such as `[legacy]` or pre-feature custom labels. */
@@ -731,7 +742,7 @@ export const visibleDreamMemoryBody = (
   entry: Pick<DreamMemoryEntry, 'body' | 'dateTag'>,
 ): string => {
   if (hasOpaqueOverflowEnvelope(entry.body, entry.dateTag)) {
-    return unescapeOpaqueSentinelLines(stripOpaqueOverflowEnvelope(entry.body));
+    return decodeOpaqueOverflowPayload(entry.body) ?? entry.body;
   }
   return isDreamMergedTag(entry.dateTag)
     ? unescapeVisibleOverflowBody(stripDreamOverflowSentinel(entry.body, entry.dateTag))
@@ -918,12 +929,11 @@ const capOpaqueMergedEntries = (
           (max, date) => (date > max ? date : max),
         )}`;
   const joined = entries.map((entry) => opaquePayloadBody(entry)).join('\n\n');
-  const envelopeOverhead = DREAM_OVERFLOW_OPAQUE_SENTINEL.length + 1;
-  const innerBudget = Math.max(0, maxBody - envelopeOverhead);
-  const inner = keepOverflowTail(escapeOpaqueSentinelLines(joined), innerBudget);
+  const innerBudget = Math.max(0, maxBody - OPAQUE_V3_MAX_OVERHEAD);
+  const inner = keepOverflowTail(joined, innerBudget);
   return [
     {
-      body: inner ? `${DREAM_OVERFLOW_OPAQUE_SENTINEL}\n${inner}` : DREAM_OVERFLOW_OPAQUE_SENTINEL,
+      body: wrapOpaqueOverflowBody(inner),
       dateTag,
       index: 1,
       regenerable: false,
@@ -1175,8 +1185,7 @@ const concatOverflowEntry = (
 export const wrapOverflowSummaryBody = (summary: string, start: string, end: string): string => {
   let text = summary.trim().replace(/^#\d+\s+\[[^\n\]]+]:\s*/, '');
   text = stripLeadingOverflowSentinelLine(text).trim();
-  text = stripLeadingMagicLine(text, DREAM_OVERFLOW_OPAQUE_V1_SENTINEL).trim();
-  text = stripOpaqueOverflowEnvelope(text).trim();
+  text = (decodeOpaqueOverflowPayload(text) ?? text).trim();
   const parts: MergedDreamPart[] = [{ body: text, date: start }];
   if (end !== start) parts.push({ body: '', date: end });
   return formatMergedDreamBody(parts);
