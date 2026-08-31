@@ -979,6 +979,55 @@ describe('executeConversationGeneration chat resume', () => {
     expect(assistant.metadata).not.toHaveProperty('usage');
   });
 
+  it('logs Xiaomi error.param on execute_settled when chat fails with a nested provider body', async () => {
+    const xiaomiParam = 'web search tool found in the request body, but webSearchEnabled is false';
+    const row = buildOperation({
+      config: { model: 'mimo-v2.5-pro', provider: 'mimo' },
+      id: 'cgo_mimo_param',
+    });
+    vi.mocked(consumeProtocolResponse).mockResolvedValue({
+      content: '',
+      error: {
+        body: {
+          body: {
+            error: {
+              code: '400',
+              message: 'Param Incorrect',
+              param: xiaomiParam,
+              type: '',
+            },
+            errorType: 'ProviderBizError',
+            provider: 'mimo',
+          },
+          message: `Param Incorrect: ${xiaomiParam}`,
+          type: 'ProviderBizError',
+        },
+        message: `Param Incorrect: ${xiaomiParam}`,
+        type: 'ProviderBizError',
+      },
+    });
+
+    await runOperation(row);
+
+    expect(modelMocks.finalizeActive).toHaveBeenCalledWith(
+      row.id,
+      'failed',
+      expect.objectContaining({ type: 'ProviderBizError' }),
+      expect.objectContaining({ attempt: 1 }),
+    );
+    expect(generationDebugMocks.logGenerationDebugSafe).toHaveBeenCalledWith(
+      'execute_settled',
+      expect.objectContaining({
+        errorParam: xiaomiParam,
+        errorType: 'ProviderBizError',
+        kind: 'chat',
+        model: 'mimo-v2.5-pro',
+        outcome: 'failed',
+        provider: 'mimo',
+      }),
+    );
+  });
+
   it('hands off a failed inline title to a dedicated topic_title operation without failing the chat', async () => {
     const row = {
       assistantMessageId: assistant.id,

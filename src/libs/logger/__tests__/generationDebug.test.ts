@@ -168,6 +168,23 @@ describe('CHATHUB_GENERATION_DEBUG emitter', () => {
       expect(consoleLogSpy.mock.calls[0][1]).not.toContain('PRIVATE_MESSAGE_CONTENT');
     });
 
+    it('keeps Xiaomi error.param readable on execute_settled', () => {
+      logGenerationDebugSafe('execute_settled', {
+        errorParam: 'web search tool found in the request body, but webSearchEnabled is false',
+        errorType: 'ProviderBizError',
+        kind: 'chat',
+        outcome: 'failed',
+        provider: 'mimo',
+      });
+
+      const record = JSON.parse(consoleLogSpy.mock.calls[0][1] as string);
+      expect(record.errorParam).toBe(
+        'web search tool found in the request body, but webSearchEnabled is false',
+      );
+      expect(record.errorType).toBe('ProviderBizError');
+      expect(record.provider).toBe('mimo');
+    });
+
     it('keeps deferReason, classifiedAs, and errorKind as readable labels', () => {
       logGenerationDebugSafe('send_rpc_settled', {
         classifiedAs: 'abort',

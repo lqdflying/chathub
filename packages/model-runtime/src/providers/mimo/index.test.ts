@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
 
-import { LobeMimoAI, buildMimoPayload } from './index';
+import { LobeMimoAI, buildMimoPayload, isMimoTokenPlanBaseURL } from './index';
 
 describe('buildMimoPayload', () => {
   const basePayload = {
@@ -125,6 +125,65 @@ describe('buildMimoPayload', () => {
       ...basePayload,
       enabledSearch: true,
     });
+
+    expect(payload.tools).toEqual([{ type: 'web_search' }]);
+  });
+
+  it('omits native web_search on Token Plan hosts even when enabledSearch is set', () => {
+    const tools = [
+      {
+        function: { description: 'Search the web', name: 'tavily____tavily_search____mcp' },
+        type: 'function' as const,
+      },
+    ];
+    const payload = buildMimoPayload(
+      {
+        ...basePayload,
+        enabledSearch: true,
+        tools,
+      },
+      { baseURL: 'https://token-plan-cn.xiaomimimo.com/v1' },
+    );
+
+    expect(payload.tools).toEqual(tools);
+    expect(payload.tools).not.toEqual(expect.arrayContaining([{ type: 'web_search' }]));
+  });
+
+  it('omits tools entirely on Token Plan when the only search tool would be native web_search', () => {
+    const payload = buildMimoPayload(
+      {
+        ...basePayload,
+        enabledSearch: true,
+      },
+      { baseURL: 'https://token-plan-ams.xiaomimimo.com/v1' },
+    );
+
+    expect(payload).not.toHaveProperty('tools');
+  });
+
+  it('strips an existing web_search tool on Token Plan hosts', () => {
+    const payload = buildMimoPayload(
+      {
+        ...basePayload,
+        tools: [
+          { function: { name: 'keep_me' }, type: 'function' as const },
+          { type: 'web_search' } as any,
+        ],
+      },
+      { baseURL: 'https://token-plan-cn.xiaomimimo.com/v1' },
+    );
+
+    expect(payload.tools).toEqual([{ function: { name: 'keep_me' }, type: 'function' }]);
+  });
+
+  it('still injects web_search on the pay-as-you-go host', () => {
+    const payload = buildMimoPayload(
+      {
+        ...basePayload,
+        enabledSearch: true,
+      },
+      { baseURL: 'https://api.xiaomimimo.com/v1' },
+    );
 
     expect(payload.tools).toEqual([{ type: 'web_search' }]);
   });
@@ -298,6 +357,15 @@ describe('buildMimoPayload', () => {
   });
 });
 
+describe('isMimoTokenPlanBaseURL', () => {
+  it('matches regional Token Plan hosts', () => {
+    expect(isMimoTokenPlanBaseURL('https://token-plan-cn.xiaomimimo.com/v1')).toBe(true);
+    expect(isMimoTokenPlanBaseURL('https://token-plan-ams.xiaomimimo.com/v1')).toBe(true);
+    expect(isMimoTokenPlanBaseURL('https://api.xiaomimimo.com/v1')).toBe(false);
+    expect(isMimoTokenPlanBaseURL(undefined)).toBe(false);
+  });
+});
+
 describe('LobeMimoAI chat', () => {
   it('maps stored reasoning.content through to reasoning_content on tool continuations', async () => {
     const instance = new LobeMimoAI({ apiKey: 'test-key' });
@@ -378,6 +446,45 @@ describe('LobeMimoAI chat', () => {
     const body = create.mock.calls[0][0] as { messages: Array<Record<string, unknown>> };
     const assistant = body.messages.find((message) => message.role === 'assistant');
     expect(assistant?.reasoning_content).toBe('must preserve null case');
+  });
+
+  it('does not send native web_search when the instance uses a Token Plan base URL', async () => {
+    const instance = new LobeMimoAI({
+      apiKey: 'test-key',
+      baseURL: 'https://token-plan-cn.xiaomimimo.com/v1',
+    });
+    const create = vi
+      .spyOn((instance as any).client.chat.completions, 'create')
+      .mockResolvedValue({
+        choices: [{ message: { content: 'ok', role: 'assistant' } }],
+        created: 123,
+        id: 'chatcmpl-mimo-token-plan',
+        model: 'mimo-v2.5-pro',
+        object: 'chat.completion',
+      });
+
+    await instance.chat({
+      enabledSearch: true,
+      messages: [{ content: 'hello', role: 'user' }],
+      model: 'mimo-v2.5-pro',
+      responseMode: 'json',
+      stream: false,
+      tools: [
+        {
+          function: { description: 'Search', name: 'tavily____tavily_search____mcp' },
+          type: 'function',
+        },
+      ],
+    } as any);
+
+    const body = create.mock.calls[0][0] as { tools?: Array<{ type?: string }> };
+    expect(body.tools).toEqual([
+      {
+        function: { description: 'Search', name: 'tavily____tavily_search____mcp' },
+        type: 'function',
+      },
+    ]);
+    expect(body.tools?.some((tool) => tool.type === 'web_search')).toBe(false);
   });
 });
 

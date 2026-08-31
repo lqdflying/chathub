@@ -181,6 +181,27 @@ const readErrorBodyNumber = (error: ConversationGenerationError | undefined, key
 };
 
 /**
+ * Xiaomi Token Plan (and similar OpenAI-compatible gateways) put the real 400
+ * reason on nested `error.param` while `message` stays `Param Incorrect`.
+ * Walk `.param` / `.error` / `.body` so `execute_settled` can log it in Axiom.
+ */
+const readProviderErrorParam = (
+  error: ConversationGenerationError | undefined,
+): string | undefined => {
+  const visit = (value: unknown, depth: number): string | undefined => {
+    if (!value || typeof value !== 'object' || Array.isArray(value) || depth > 4) {
+      return undefined;
+    }
+    const record = value as Record<string, unknown>;
+    if (typeof record.param === 'string' && record.param.trim()) {
+      return record.param.trim().slice(0, 160);
+    }
+    return visit(record.error, depth + 1) ?? visit(record.body, depth + 1);
+  };
+  return visit(error, 0);
+};
+
+/**
  * A simple completion (title / translation / compaction) failed upstream.
  * Carries the complete structured stream error so `toError` can persist the
  * provider, upstream error type, HTTP status, and raw body alongside the
@@ -488,6 +509,7 @@ const finalize = async (
   logGenerationDebugSafe('execute_settled', {
     attempt: operation.attempt,
     contentChars: readErrorBodyNumber(error, 'contentChars'),
+    errorParam: readProviderErrorParam(error),
     errorType: error?.type,
     kind: operation.kind,
     model: operation.config?.model,

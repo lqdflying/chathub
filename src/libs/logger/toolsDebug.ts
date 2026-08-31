@@ -22,7 +22,7 @@ const SAFE_SECRET_METADATA_KEY_PATTERN = /(?:configured|count|hash|length|presen
 const SAFE_TOKEN_USAGE_KEY_PATTERN =
   /^(?:chatsToken|historySummaryToken|inputToken|knowledgeBaseToken|maxTokens|memoryToken|systemRoleToken|toolsToken|totalToken)$/;
 const SAFE_LABEL_KEY_PATTERN =
-  /^(?:appVersion|architecture|authType|bodyKind|cacheStatus|classifiedAs|code|contentEncoding|debugLevel|deferReason|deploymentMode|endpoint|errorClass|errorCode|errorKind|errorType|failurePhase|firstCharacterClass|gatewayServer|htmlMarker|kind|lastCharacterClass|mediaType|method|nodeVersion|operation|outcome|phase|platform|procedure|provider|reason|resultKind|rpcEndpoint|runtime|runtimeType|server|serverName|serverVersion|side|status|timestamp|toolName|transport|trpcCode|type|via)$/;
+  /^(?:appVersion|architecture|authType|bodyKind|cacheStatus|classifiedAs|code|contentEncoding|debugLevel|deferReason|deploymentMode|endpoint|errorClass|errorCode|errorKind|errorParam|errorType|failurePhase|firstCharacterClass|gatewayServer|htmlMarker|kind|lastCharacterClass|mediaType|method|nodeVersion|operation|outcome|phase|platform|procedure|provider|reason|resultKind|rpcEndpoint|runtime|runtimeType|server|serverName|serverVersion|side|status|timestamp|toolName|transport|trpcCode|type|via)$/;
 const SAFE_IDENTIFIER_KEY_PATTERN =
   /(?:batchId|continuationId|diagnosticId|spanId|Fingerprint|Hash|keyHashes)$/;
 const SAFE_ERROR_CODE_KEY_PATTERN = /^(?:code|errorCode|trpcCode)$/;

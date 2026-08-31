@@ -73,6 +73,46 @@ describe('createDeferredAsyncIterable', () => {
     expect(result.value).toContain('openaicompatible');
   });
 
+  it('surfaces Xiaomi Token Plan error.param next to Param Incorrect', async () => {
+    const deferred = createDeferredAsyncIterable<string>(async () => {
+      throw {
+        endpoint: 'https://token-plan-cn.xiaomimimo.com/v1',
+        error: {
+          code: '400',
+          message: 'Param Incorrect',
+          param: 'web search tool found in the request body, but webSearchEnabled is false',
+          type: '',
+        },
+        errorType: 'ProviderBizError',
+        provider: 'mimo',
+      };
+    });
+    const result = await convertIterableToStream(deferred).getReader().read();
+
+    expect(result.done).toBe(false);
+    expect(result.value).toContain('%FIRST_CHUNK_ERROR%:');
+    expect(result.value).toContain('Param Incorrect');
+    expect(result.value).toContain('webSearchEnabled is false');
+    expect(result.value).not.toContain('mimo: ProviderBizError');
+  });
+
+  it('does not duplicate error.param when the message already includes it', async () => {
+    const deferred = createDeferredAsyncIterable<string>(async () => {
+      throw {
+        error: {
+          message: 'Param Incorrect: temperature must be within [0, 1.5]',
+          param: 'temperature must be within [0, 1.5]',
+        },
+        errorType: 'ProviderBizError',
+        provider: 'mimo',
+      };
+    });
+    const result = await convertIterableToStream(deferred).getReader().read();
+    const payload = JSON.parse(String(result.value).replace('%FIRST_CHUNK_ERROR%: ', ''));
+
+    expect(payload.message).toBe('Param Incorrect: temperature must be within [0, 1.5]');
+  });
+
   it('surfaces the nested upstream message from a ChatCompletionErrorPayload', async () => {
     const deferred = createDeferredAsyncIterable<string>(async () => {
       throw {

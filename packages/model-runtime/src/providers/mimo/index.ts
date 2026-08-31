@@ -15,14 +15,38 @@ import { MODEL_LIST_CONFIGS, processModelList } from '../../utils/modelParse';
  * only accepts `auto`.
  *
  * Native web search is `{ type: 'web_search' }` in `tools` (no force_search
- * by default). Multi-turn tool calls in thinking mode should keep
- * `reasoning_content` on assistant messages.
+ * by default) on pay-as-you-go. Token Plan hosts reject that tool with
+ * `webSearchEnabled is false` unless the Xiaomi Web Search plugin is on,
+ * so ChatHub omits it there and keeps function/MCP tools. Multi-turn tool
+ * calls in thinking mode should keep `reasoning_content` on assistant
+ * messages.
  *
  * Deep thinking pass-back:
  * https://mimo.mi.com/docs/en-US/quick-start/usage-guide/text-generation/deep-thinking
  */
 const MIMO_WEB_SEARCH_TOOL = { type: 'web_search' } as const;
 const MIMO_NON_CHAT_ID = /tts|asr|voiceclone|voicedesign/i;
+const MIMO_TOKEN_PLAN_HOST = /^(?:token-plan|token-plan-[a-z0-9-]+)\.xiaomimimo\.com$/i;
+
+/** Token Plan Chat Completions hosts (`token-plan-cn`, `token-plan-ams`, …). */
+export const isMimoTokenPlanBaseURL = (baseURL?: string): boolean => {
+  if (!baseURL) return false;
+  try {
+    const normalized = baseURL.includes('://') ? baseURL : `https://${baseURL}`;
+    return MIMO_TOKEN_PLAN_HOST.test(new URL(normalized).hostname);
+  } catch {
+    return false;
+  }
+};
+
+const isNativeWebSearchTool = (tool: unknown): boolean =>
+  !!tool && typeof tool === 'object' && (tool as { type?: unknown }).type === 'web_search';
+
+const withoutNativeWebSearch = <T>(tools: T[] | undefined): T[] | undefined => {
+  if (!tools?.length) return tools;
+  const filtered = tools.filter((tool) => !isNativeWebSearchTool(tool));
+  return filtered.length ? filtered : undefined;
+};
 
 const isThinkingEnabled = (payload: ChatStreamPayload) => payload.thinking?.type === 'enabled';
 
@@ -74,7 +98,15 @@ const patchAssistantToolCallReasoning = (messages: OpenAIChatMessage[]): OpenAIC
     return { ...message, reasoning_content: '' };
   });
 
-const appendSearchTool = <T>(tools: T[] | undefined, enabledSearch?: boolean): T[] | undefined => {
+const appendSearchTool = <T>(
+  tools: T[] | undefined,
+  enabledSearch?: boolean,
+  baseURL?: string,
+): T[] | undefined => {
+  // Token Plan returns 400 `webSearchEnabled is false` for `{ type: web_search }`
+  // until Xiaomi Console → Plugin Management activates Web Search.
+  // https://mimo.mi.com/docs/en-US/quick-start/usage-guide/text-generation/tool-calling/web-search
+  if (isMimoTokenPlanBaseURL(baseURL)) return withoutNativeWebSearch(tools);
   if (!enabledSearch) return tools;
   return tools?.length ? [...tools, MIMO_WEB_SEARCH_TOOL as T] : ([MIMO_WEB_SEARCH_TOOL] as T[]);
 };
@@ -99,17 +131,19 @@ const clampMimoMaxCompletionTokens = (value: unknown): number | undefined => {
 /**
  * Exported for unit tests — Xiaomi MiMo Chat Completions request shaping.
  *
- * Token Plan (`token-plan-cn.xiaomimimo.com`) returns HTTP 400
- * `Invalid request parameters` when undocumented ChatHub fields leak through
- * (`enabledContextCaching`, `n`, `responseMode`, `reasoning_effort`, etc.).
- * Connectivity check passes because it only sends a minimal body; full chat
- * must emit a whitelist of official fields only.
+ * Token Plan (`token-plan-*.xiaomimimo.com`) is stricter than pay-as-you-go:
+ * undocumented ChatHub fields are stripped (whitelist), temperature is clamped
+ * to `[0, 1.5]`, and native `{ type: web_search }` is omitted because Token
+ * Plan rejects it with `webSearchEnabled is false` until the Web Search plugin
+ * is enabled. Connectivity check passes because it sends a minimal body
+ * without tools or out-of-range sampling.
  *
  * @see https://mimo.mi.com/docs/en-US/api/chat/openai-api
  * @see https://mimo.mi.com/docs/en-US/api/guidance/error-codes
  */
 export const buildMimoPayload = (
   payload: ChatStreamPayload,
+  options?: { baseURL?: string },
 ): OpenAI.ChatCompletionCreateParamsStreaming => {
   const enabledSearch = payload.enabledSearch;
   const {
@@ -128,7 +162,7 @@ export const buildMimoPayload = (
   } = payload;
 
   const thinkingEnabled = isThinkingEnabled(payload);
-  const mimoTools = appendSearchTool(tools, enabledSearch);
+  const mimoTools = appendSearchTool(tools, enabledSearch, options?.baseURL);
   const sanitizedMessages = stripThinkingContentBlocks(messages);
   const messagesForRequest = thinkingEnabled
     ? patchAssistantToolCallReasoning(sanitizedMessages)

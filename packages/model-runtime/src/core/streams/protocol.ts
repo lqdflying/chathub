@@ -211,20 +211,38 @@ const findNestedMessage = (value: unknown, depth = 0): string | undefined => {
   return findNestedMessage(record.error, depth + 1);
 };
 
+/** Xiaomi Token Plan (and some OpenAI-compatible gateways) put the real 400
+ * reason on `error.param` while `message` stays `Param Incorrect`. */
+const findNestedParam = (value: unknown, depth = 0): string | undefined => {
+  if (!value || typeof value !== 'object' || depth > 4) return undefined;
+  const record = value as Record<string, unknown>;
+  if (typeof record.param === 'string' && record.param.trim()) return record.param.trim();
+  return findNestedParam(record.error, depth + 1);
+};
+
+const withParamDetail = (message: string, errorRecord: Record<string, unknown>): string => {
+  const param =
+    (typeof errorRecord.param === 'string' && errorRecord.param.trim()) ||
+    findNestedParam(errorRecord.error);
+  if (!param || message.includes(param)) return message;
+  const combined = `${message}: ${param}`;
+  return combined.length > 400 ? `${combined.slice(0, 397)}...` : combined;
+};
+
 const resolveIteratorErrorMessage = (errorRecord: Record<string, unknown>): string => {
   if (typeof errorRecord.message === 'string' && errorRecord.message.trim()) {
-    return errorRecord.message;
+    return withParamDetail(errorRecord.message, errorRecord);
   }
 
   const nestedMessage = findNestedMessage(errorRecord.error);
-  if (nestedMessage) return nestedMessage;
+  if (nestedMessage) return withParamDetail(nestedMessage, errorRecord);
 
   if (errorRecord.errorType !== undefined && errorRecord.errorType !== null) {
     const providerPrefix =
       typeof errorRecord.provider === 'string' && errorRecord.provider
         ? `${errorRecord.provider}: `
         : '';
-    return `${providerPrefix}${String(errorRecord.errorType)}`;
+    return withParamDetail(`${providerPrefix}${String(errorRecord.errorType)}`, errorRecord);
   }
 
   return 'The upstream stream could not be opened.';
