@@ -5,6 +5,10 @@ import * as usage from '@/helpers/contextUsageEstimate';
 
 import { buildConversationChatPayload } from './payload';
 
+vi.mock('@/envs/llm', () => ({
+  getLLMConfig: () => ({}),
+}));
+
 vi.mock('@/database/models/plugin', () => ({
   PluginModel: class {
     query = async () => [];
@@ -131,5 +135,43 @@ describe('buildConversationChatPayload', () => {
     expect(serialized).toContain('remember the port');
     expect(serialized).toContain('prior turns');
     expect(serialized).not.toContain('"old"');
+  });
+
+  it('keeps ChatHub search on MiMo Token Plan when native search is selected', async () => {
+    const result = await buildConversationChatPayload({
+      config: {
+        ...baseConfig,
+        chatConfig: {
+          ...baseConfig.chatConfig,
+          searchMode: 'on',
+          useModelBuiltinSearch: true,
+        },
+        model: 'mimo-v2.5-pro',
+        provider: 'mimo',
+      } as any,
+      db: {} as any,
+      generalInstruction: '',
+      messages: [{ content: 'What happened today?', id: 'u1', role: 'user' } as any],
+      runtimeState: {
+        enabledAiModels: [
+          {
+            abilities: { functionCall: true },
+            id: 'mimo-v2.5-pro',
+            providerId: 'mimo',
+            settings: { searchImpl: 'params' },
+          },
+        ],
+        runtimeConfig: {
+          mimo: {
+            keyVaults: { baseURL: 'https://token-plan-cn.xiaomimimo.com/v1' },
+          },
+        },
+      } as any,
+      sessionId: 'sess-1',
+      userId: 'user-1',
+    });
+
+    expect(result.payload.enabledSearch).toBeUndefined();
+    expect(result.enabledToolIds).toContain('lobe-web-browsing');
   });
 });

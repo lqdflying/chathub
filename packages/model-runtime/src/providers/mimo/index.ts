@@ -17,9 +17,10 @@ import { MODEL_LIST_CONFIGS, processModelList } from '../../utils/modelParse';
  * Native web search is `{ type: 'web_search' }` in `tools` (no force_search
  * by default) on pay-as-you-go. Token Plan hosts reject that tool with
  * `webSearchEnabled is false` unless the Xiaomi Web Search plugin is on,
- * so ChatHub omits it there and keeps function/MCP tools. Multi-turn tool
- * calls in thinking mode should keep `reasoning_content` on assistant
- * messages.
+ * so ChatHub omits it there, keeps function/MCP tools, and search routing
+ * falls back to ChatHub browsing. Structured output is `json_object` plus a
+ * schema instruction — not OpenAI `json_schema`. Multi-turn tool calls in
+ * thinking mode should keep `reasoning_content` on assistant messages.
  *
  * Deep thinking pass-back:
  * https://mimo.mi.com/docs/en-US/quick-start/usage-guide/text-generation/deep-thinking
@@ -199,6 +200,48 @@ export const buildMimoPayload = (
   } as OpenAI.ChatCompletionCreateParamsStreaming;
 };
 
+/**
+ * Xiaomi Chat Completions structured output is `response_format.type: json_object`
+ * plus an explicit JSON instruction in messages. `json_schema`, `user`, and
+ * non-`auto` `tool_choice` are not documented; Token Plan rejects undeclared
+ * fields. Official guide:
+ * https://mimo.mi.com/docs/en-US/quick-start/usage-guide/text-generation/structured-output
+ */
+const MIMO_JSON_OBJECT_INSTRUCTION =
+  'Return only compact JSON without any extra explanations, comments, or Markdown code fences. Use this JSON schema:';
+
+const appendMimoJsonObjectInstruction = (messages: unknown[], schema: unknown): unknown[] => {
+  const instruction = `${MIMO_JSON_OBJECT_INSTRUCTION}\n${JSON.stringify(schema)}`;
+  const first = messages[0] as { content?: unknown; role?: string } | undefined;
+  if (first?.role === 'system' && typeof first.content === 'string') {
+    return [{ ...first, content: `${first.content}\n\n${instruction}` }, ...messages.slice(1)];
+  }
+  return [{ content: instruction, role: 'system' }, ...messages];
+};
+
+export const shapeMimoGenerateObjectRequest = (
+  payload: Record<string, any>,
+): Record<string, any> => {
+  const { user: _user, ...rest } = payload;
+  const next: Record<string, any> = { ...rest };
+
+  if (next.tool_choice !== undefined && next.tool_choice !== 'auto') {
+    next.tool_choice = 'auto';
+  }
+
+  const responseFormat = next.response_format as
+    | { json_schema?: unknown; type?: string }
+    | undefined;
+  if (responseFormat?.type === 'json_schema') {
+    next.response_format = { type: 'json_object' };
+    if (Array.isArray(next.messages)) {
+      next.messages = appendMimoJsonObjectInstruction(next.messages, responseFormat.json_schema);
+    }
+  }
+
+  return next;
+};
+
 const fetchMimoModels = async ({ client }: { client: OpenAI }): Promise<any[]> => {
   try {
     const modelsPage = (await client.models.list()) as any;
@@ -231,6 +274,9 @@ export const LobeMimoAI = createOpenAICompatibleRuntime({
   },
   debug: {
     chatCompletion: () => process.env.DEBUG_MIMO_CHAT_COMPLETION === '1',
+  },
+  generateObject: {
+    handlePayload: shapeMimoGenerateObjectRequest,
   },
   models: fetchMimoModels,
   provider: ModelProvider.Mimo,

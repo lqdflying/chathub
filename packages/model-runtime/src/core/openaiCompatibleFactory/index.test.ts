@@ -3640,6 +3640,46 @@ describe('LobeOpenAICompatibleFactory', () => {
         );
       });
 
+      it('should apply handlePayload to Chat Completions generateObject bodies', async () => {
+        const handlePayload = vi.fn((body: Record<string, any>) => ({
+          ...body,
+          tool_choice: 'auto',
+          user: undefined,
+        }));
+        const RuntimeClass = createOpenAICompatibleRuntime({
+          baseURL: 'https://api.test.com',
+          generateObject: { handlePayload },
+          provider: 'test-provider',
+        });
+        const instance = new RuntimeClass({ apiKey: 'test-key' });
+        vi.spyOn(instance['client'].chat.completions, 'create').mockResolvedValue({
+          choices: [{ message: { content: '{"ok":true}' } }],
+        } as any);
+
+        await instance.generateObject(
+          {
+            messages: [{ content: 'Extract', role: 'user' as const }],
+            model: 'test-model',
+            schema: {
+              name: 'item',
+              schema: { properties: { ok: { type: 'boolean' } }, type: 'object' as const },
+            },
+          },
+          { user: 'should-be-rewritten' },
+        );
+
+        expect(handlePayload).toHaveBeenCalledWith(
+          expect.objectContaining({
+            response_format: expect.objectContaining({ type: 'json_schema' }),
+            user: 'should-be-rewritten',
+          }),
+        );
+        expect(instance['client'].chat.completions.create).toHaveBeenCalledWith(
+          expect.objectContaining({ tool_choice: 'auto', user: undefined }),
+          expect.any(Object),
+        );
+      });
+
       it('should not apply schema transformation when handleSchema is not configured', async () => {
         const RuntimeClass = createOpenAICompatibleRuntime({
           baseURL: 'https://api.test.com',

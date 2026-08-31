@@ -10,12 +10,21 @@ describe('isModelNativeSearchDisabledProvider', () => {
     },
   );
 
-  it.each(['openai', 'anthropic', 'deepseek', 'google', 'minimax', 'azure', 'openaicompatible', 'anthropiccompatible'])(
+  it.each(['openai', 'anthropic', 'deepseek', 'google', 'minimax', 'azure', 'openaicompatible', 'anthropiccompatible', 'mimo'])(
     'returns false for %s',
     (provider) => {
       expect(isModelNativeSearchDisabledProvider(provider)).toBe(false);
     },
   );
+
+  it('returns true for MiMo Token Plan hosts', () => {
+    expect(
+      isModelNativeSearchDisabledProvider('mimo', 'https://token-plan-cn.xiaomimimo.com/v1'),
+    ).toBe(true);
+    expect(
+      isModelNativeSearchDisabledProvider('mimo', 'https://api.xiaomimimo.com/v1'),
+    ).toBe(false);
+  });
 
   it('returns false for undefined', () => {
     expect(isModelNativeSearchDisabledProvider(undefined)).toBe(false);

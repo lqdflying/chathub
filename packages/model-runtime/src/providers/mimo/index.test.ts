@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
 
-import { LobeMimoAI, buildMimoPayload, isMimoTokenPlanBaseURL } from './index';
+import { LobeMimoAI, buildMimoPayload, isMimoTokenPlanBaseURL, shapeMimoGenerateObjectRequest } from './index';
 
 describe('buildMimoPayload', () => {
   const basePayload = {
@@ -379,6 +379,48 @@ describe('isMimoTokenPlanBaseURL', () => {
   });
 });
 
+describe('shapeMimoGenerateObjectRequest', () => {
+  it('converts json_schema to json_object, injects the schema, and omits user', () => {
+    const shaped = shapeMimoGenerateObjectRequest({
+      messages: [{ content: 'Extract a person', role: 'user' }],
+      model: 'mimo-v2.5-pro',
+      response_format: {
+        json_schema: {
+          name: 'person',
+          schema: { properties: { name: { type: 'string' } }, type: 'object' },
+        },
+        type: 'json_schema',
+      },
+      user: 'review-user',
+    });
+
+    expect(shaped).not.toHaveProperty('user');
+    expect(shaped.response_format).toEqual({ type: 'json_object' });
+    expect(shaped.messages[0]).toEqual(
+      expect.objectContaining({
+        content: expect.stringContaining('Use this JSON schema:'),
+        role: 'system',
+      }),
+    );
+    expect(shaped.messages[0].content).toContain('"name":"person"');
+    expect(shaped.messages[1]).toEqual({ content: 'Extract a person', role: 'user' });
+  });
+
+  it('coerces non-auto tool_choice and omits user on the tools path', () => {
+    const shaped = shapeMimoGenerateObjectRequest({
+      messages: [{ content: 'Decide', role: 'user' }],
+      model: 'mimo-v2.5-pro',
+      tool_choice: 'required',
+      tools: [{ function: { name: 'trigger_agent' }, type: 'function' }],
+      user: 'review-user',
+    });
+
+    expect(shaped).not.toHaveProperty('user');
+    expect(shaped.tool_choice).toBe('auto');
+    expect(shaped.tools).toEqual([{ function: { name: 'trigger_agent' }, type: 'function' }]);
+  });
+});
+
 describe('LobeMimoAI chat', () => {
   it('maps stored reasoning.content through to reasoning_content on tool continuations', async () => {
     const instance = new LobeMimoAI({ apiKey: 'test-key' });
@@ -589,5 +631,75 @@ describe('LobeMimoAI debug', () => {
       logSpy.mockRestore();
       vi.unstubAllEnvs();
     }
+  });
+});
+
+describe('LobeMimoAI generateObject', () => {
+  it('sends json_object without user or json_schema on the schema path', async () => {
+    const instance = new LobeMimoAI({
+      apiKey: 'test-key',
+      baseURL: 'https://token-plan-cn.xiaomimimo.com/v1',
+    });
+    const create = vi
+      .spyOn((instance as any).client.chat.completions, 'create')
+      .mockResolvedValue({
+        choices: [{ message: { content: '{"name":"Ada"}' } }],
+      });
+
+    const result = await instance.generateObject(
+      {
+        messages: [{ content: 'Extract a person', role: 'user' }],
+        model: 'mimo-v2.5-pro',
+        schema: {
+          name: 'person',
+          schema: { properties: { name: { type: 'string' } }, type: 'object' },
+        },
+      },
+      { user: 'review-user' },
+    );
+
+    expect(result).toEqual({ name: 'Ada' });
+    const body = create.mock.calls[0][0];
+    expect(body.user).toBeUndefined();
+    expect(body.response_format).toEqual({ type: 'json_object' });
+    expect(body.messages[0].role).toBe('system');
+    expect(JSON.stringify(body)).not.toContain('json_schema');
+    expect(JSON.stringify(body)).not.toContain('review-user');
+  });
+
+  it('sends tool_choice auto without user on the supervisor tools path', async () => {
+    const instance = new LobeMimoAI({ apiKey: 'test-key' });
+    const create = vi
+      .spyOn((instance as any).client.chat.completions, 'create')
+      .mockResolvedValue({
+        choices: [
+          {
+            message: {
+              tool_calls: [
+                {
+                  function: { arguments: '{"id":"agent-1"}', name: 'trigger_agent' },
+                  type: 'function',
+                },
+              ],
+            },
+          },
+        ],
+      });
+
+    const result = await instance.generateObject(
+      {
+        messages: [{ content: 'Pick an agent', role: 'user' }],
+        model: 'mimo-v2.5-pro',
+        tools: [{ function: { name: 'trigger_agent' }, type: 'function' }],
+      } as any,
+      { user: 'review-user' },
+    );
+
+    expect(result).toEqual([{ arguments: { id: 'agent-1' }, name: 'trigger_agent' }]);
+    const body = create.mock.calls[0][0];
+    expect(body.user).toBeUndefined();
+    expect(body.tool_choice).toBe('auto');
+    expect(JSON.stringify(body)).not.toContain('review-user');
+    expect(JSON.stringify(body)).not.toContain('"required"');
   });
 });

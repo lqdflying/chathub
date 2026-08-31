@@ -1018,12 +1018,22 @@ describe('executeConversationGeneration chat resume', () => {
     expect(generationDebugMocks.logGenerationDebugSafe).toHaveBeenCalledWith(
       'execute_settled',
       expect.objectContaining({
-        errorParam: xiaomiParam,
+        errorParamClass: 'web_search_disabled',
         errorType: 'ProviderBizError',
         kind: 'chat',
         model: 'mimo-v2.5-pro',
         outcome: 'failed',
         provider: 'mimo',
+      }),
+    );
+    const settled = generationDebugMocks.logGenerationDebugSafe.mock.calls.find(
+      (call: unknown[]) => call[0] === 'execute_settled',
+    );
+    expect(settled?.[1]).not.toHaveProperty('errorParam');
+    expect(settled?.[1]).toEqual(
+      expect.objectContaining({
+        errorParamClass: 'web_search_disabled',
+        errorParamHash: expect.stringMatching(/^hash:/),
       }),
     );
   });

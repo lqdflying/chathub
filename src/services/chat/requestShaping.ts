@@ -25,19 +25,21 @@ export interface ModelSearchConfig {
 export const resolveModelSearchConfig = ({
   modelSearchImpl,
   provider,
+  providerBaseURL,
   providerHasBuiltinSearch = false,
   searchMode,
   useModelBuiltinSearch,
 }: {
   modelSearchImpl?: ModelSearchImplementType;
   provider: string;
+  providerBaseURL?: string;
   providerHasBuiltinSearch?: boolean;
   searchMode?: LobeAgentChatConfig['searchMode'];
   useModelBuiltinSearch?: boolean;
 }): ModelSearchConfig => {
   const enabledSearch = searchMode !== 'off';
   const isModelHasBuiltinSearch = Boolean(modelSearchImpl);
-  const modelNativeSearchDisabled = isModelNativeSearchDisabledProvider(provider);
+  const modelNativeSearchDisabled = isModelNativeSearchDisabledProvider(provider, providerBaseURL);
   const useModelSearch = modelNativeSearchDisabled
     ? false
     : (((providerHasBuiltinSearch || isModelHasBuiltinSearch) && useModelBuiltinSearch) ||

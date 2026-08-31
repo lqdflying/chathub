@@ -26,9 +26,11 @@ import type {
 } from '@lobechat/types';
 import { MAX_ACTIVE_SKILLS } from '@lobechat/types';
 import type { LobeChatPluginManifest } from '@lobehub/chat-plugin-sdk';
+import { ModelProvider } from 'model-bank';
 
 import { PluginModel } from '@/database/models/plugin';
 import { SkillModel } from '@/database/models/skill';
+import { getLLMConfig } from '@/envs/llm';
 import {
   getMessagesAfterHistorySummaryCursor,
   resolveEffectiveHistoryWindow,
@@ -123,9 +125,13 @@ export const buildConversationChatPayload = async ({
     (item) => item.id === model && item.providerId === provider,
   );
   const providerRuntime = runtimeState.runtimeConfig?.[provider];
+  const llmConfig = getLLMConfig() as Record<string, any>;
   const searchConfig = resolveModelSearchConfig({
     modelSearchImpl: modelCard?.settings?.searchImpl,
     provider,
+    providerBaseURL:
+      providerRuntime?.keyVaults?.baseURL ||
+      (provider === ModelProvider.Mimo ? llmConfig.MIMO_PROXY_URL : undefined),
     providerHasBuiltinSearch: Boolean(providerRuntime?.settings?.searchMode),
     searchMode: chatConfig?.searchMode,
     useModelBuiltinSearch: chatConfig?.useModelBuiltinSearch,

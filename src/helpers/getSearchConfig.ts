@@ -25,10 +25,13 @@ export const getSearchConfig = (model: string, provider: string): SearchConfig =
     model,
     provider,
   )(aiInfraStoreState);
+  const providerBaseURL = aiProviderSelectors.providerKeyVaults(provider)(aiInfraStoreState)
+    ?.baseURL;
 
   return resolveModelSearchConfig({
     modelSearchImpl,
     provider,
+    providerBaseURL,
     providerHasBuiltinSearch: isProviderHasBuiltinSearch,
     searchMode: chatConfig.searchMode,
     useModelBuiltinSearch: chatConfig.useModelBuiltinSearch,

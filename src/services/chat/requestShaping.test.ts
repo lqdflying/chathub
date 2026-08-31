@@ -83,6 +83,40 @@ describe('resolveModelSearchConfig', () => {
       },
       name: 'provider-level native search guard',
     },
+    {
+      expected: {
+        enabledSearch: true,
+        isModelHasBuiltinSearch: true,
+        isProviderHasBuiltinSearch: false,
+        useApplicationBuiltinSearchTool: true,
+        useModelSearch: false,
+      },
+      input: {
+        modelSearchImpl: 'params' as const,
+        provider: ModelProvider.Mimo,
+        providerBaseURL: 'https://token-plan-cn.xiaomimimo.com/v1',
+        searchMode: 'on' as const,
+        useModelBuiltinSearch: true,
+      },
+      name: 'MiMo Token Plan keeps ChatHub search when native toggle is on',
+    },
+    {
+      expected: {
+        enabledSearch: true,
+        isModelHasBuiltinSearch: true,
+        isProviderHasBuiltinSearch: false,
+        useApplicationBuiltinSearchTool: false,
+        useModelSearch: true,
+      },
+      input: {
+        modelSearchImpl: 'params' as const,
+        provider: ModelProvider.Mimo,
+        providerBaseURL: 'https://api.xiaomimimo.com/v1',
+        searchMode: 'on' as const,
+        useModelBuiltinSearch: true,
+      },
+      name: 'MiMo pay-as-you-go still uses native search when toggle is on',
+    },
   ])('resolves $name', ({ expected, input }) => {
     expect(resolveModelSearchConfig(input)).toEqual(expected);
   });

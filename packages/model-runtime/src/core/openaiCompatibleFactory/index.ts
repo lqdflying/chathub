@@ -209,6 +209,11 @@ export interface OpenAICompatibleFactoryOptions<T extends Record<string, any> = 
   };
   generateObject?: {
     /**
+     * Transform the Chat Completions generateObject request before dispatch.
+     * Used when the provider rejects `json_schema`, `user`, or non-`auto` tool_choice.
+     */
+    handlePayload?: (payload: Record<string, any>) => Record<string, any>;
+    /**
      * Transform schema before sending to the provider (e.g., filter unsupported properties)
      */
     handleSchema?: (schema: any) => any;
@@ -757,6 +762,10 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
 
     async generateObject(payload: GenerateObjectPayload, options?: GenerateObjectOptions) {
       const { messages, schema, model, responseApi, tools } = payload;
+      const shapeGenerateObjectRequest = <T extends Record<string, any>>(request: T): T =>
+        generateObjectConfig?.handlePayload
+          ? (generateObjectConfig.handlePayload(request) as T)
+          : request;
 
       const log = debug(`${this.logPrefix}:generateObject`);
       log(
@@ -793,13 +802,13 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
           type: 'function',
         };
 
-        const requestPayload = {
+        const requestPayload = shapeGenerateObjectRequest({
           messages,
           model,
           tool_choice: { function: { name: tool.function.name }, type: 'function' as const },
           tools: [tool],
           user: options?.user,
-        };
+        });
         await options?.onRequestPrepared?.(requestPayload, { apiMode: 'chatCompletion' });
         const res = await this.client.chat.completions.create(requestPayload, {
           headers: options?.headers,
@@ -895,7 +904,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
       }
 
       log('calling chat.completions.create for structured output');
-      const requestPayload = {
+      const requestPayload = shapeGenerateObjectRequest({
         messages,
         model,
         response_format: {
@@ -903,7 +912,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
           type: 'json_schema' as const,
         },
         user: options?.user,
-      };
+      });
       await options?.onRequestPrepared?.(requestPayload, { apiMode: 'chatCompletion' });
       const res = await this.client.chat.completions.create(requestPayload, {
         headers: options?.headers,
@@ -1559,14 +1568,18 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
 
       log('calling chat.completions.create for tool calling');
       const msgs = messages;
+      const shapeGenerateObjectRequest = <T extends Record<string, any>>(request: T): T =>
+        generateObjectConfig?.handlePayload
+          ? (generateObjectConfig.handlePayload(request) as T)
+          : request;
 
-      const requestPayload = {
+      const requestPayload = shapeGenerateObjectRequest({
         messages: msgs,
         model,
         tool_choice: 'required' as const,
         tools,
         user: options?.user,
-      };
+      });
       await options?.onRequestPrepared?.(requestPayload, { apiMode: 'chatCompletion' });
       const res = await this.client.chat.completions.create(requestPayload, {
         headers: options?.headers,

@@ -7,6 +7,7 @@ import { memo, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Center, Flexbox } from 'react-layout-kit';
 
+import { isModelNativeSearchDisabledProvider } from '@/helpers/modelNativeSearch';
 import { useAgentStore } from '@/store/agent';
 import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/slices/chat';
 import { aiModelSelectors, aiProviderSelectors, useAiInfraStore } from '@/store/aiInfra';
@@ -112,27 +113,28 @@ const Controls = memo(() => {
     aiModelSelectors.isModelBuiltinSearchInternal(model, provider),
   );
   const modelBuiltinSearchImpl = useAiInfraStore(aiModelSelectors.modelBuiltinSearchImpl(model, provider));
+  const providerBaseURL = useAiInfraStore(aiProviderSelectors.providerKeyVaults(provider))?.baseURL;
 
-  /** Moonshot (Kimi) built-in `$web_search` is not offered; use Smart Online Search instead. */
-  const moonshotBuiltinSearchDisabled = provider === 'moonshot';
+  /** Moonshot `$web_search` is not offered. MiMo Token Plan omits native web_search. */
+  const nativeSearchDisabled = isModelNativeSearchDisabledProvider(provider, providerBaseURL);
 
   useEffect(() => {
     if (
       isModelBuiltinSearchInternal &&
-      !moonshotBuiltinSearchDisabled &&
+      !nativeSearchDisabled &&
       (searchMode ?? 'off') === 'off'
     ) {
       updateAgentChatConfig({ searchMode: 'auto' });
     }
   }, [
     isModelBuiltinSearchInternal,
-    moonshotBuiltinSearchDisabled,
+    nativeSearchDisabled,
     searchMode,
     updateAgentChatConfig,
   ]);
 
   const options: NetworkOption[] =
-    isModelBuiltinSearchInternal && !moonshotBuiltinSearchDisabled
+    isModelBuiltinSearchInternal && !nativeSearchDisabled
     ? [
       {
         description: t('search.mode.auto.desc'),
@@ -157,13 +159,13 @@ const Controls = memo(() => {
     ];
 
   const showModelBuiltinSearch =
-    !moonshotBuiltinSearchDisabled &&
+    !nativeSearchDisabled &&
     !isModelBuiltinSearchInternal &&
     (isModelHasBuiltinSearchConfig || isProviderHasBuiltinSearchConfig);
 
   const showFCSearchModel =
     !supportFC &&
-    (moonshotBuiltinSearchDisabled ||
+    (nativeSearchDisabled ||
       !modelBuiltinSearchImpl ||
       (!isModelBuiltinSearchInternal && !useModelBuiltinSearch));
 

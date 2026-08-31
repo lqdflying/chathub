@@ -18,6 +18,7 @@ export { LobeAnthropicCompatibleAI } from './providers/anthropiccompatible';
 export { LobeAzureAI } from './providers/azureai';
 export { LobeAzureOpenAI } from './providers/azureOpenai';
 export { LobeGoogleAI } from './providers/google';
+export { isMimoTokenPlanBaseURL } from './providers/mimo';
 export { LobeMoonshotAI } from './providers/moonshot';
 export { LobeOpenAI } from './providers/openai';
 export * from './types';

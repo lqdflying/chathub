@@ -168,21 +168,26 @@ describe('CHATHUB_GENERATION_DEBUG emitter', () => {
       expect(consoleLogSpy.mock.calls[0][1]).not.toContain('PRIVATE_MESSAGE_CONTENT');
     });
 
-    it('keeps Xiaomi error.param readable on execute_settled', () => {
+    it('classifies Xiaomi error.param and fingerprints adversarial provider text', () => {
       logGenerationDebugSafe('execute_settled', {
-        errorParam: 'web search tool found in the request body, but webSearchEnabled is false',
+        errorParam: 'PRIVATE_PROMPT_TEXT_FROM_PROVIDER',
+        errorParamClass: 'web_search_disabled',
+        errorParamHash: hashGenerationDebugValue(
+          'web search tool found in the request body, but webSearchEnabled is false',
+        ),
         errorType: 'ProviderBizError',
         kind: 'chat',
         outcome: 'failed',
         provider: 'mimo',
       });
 
-      const record = JSON.parse(consoleLogSpy.mock.calls[0][1] as string);
-      expect(record.errorParam).toBe(
-        'web search tool found in the request body, but webSearchEnabled is false',
-      );
-      expect(record.errorType).toBe('ProviderBizError');
-      expect(record.provider).toBe('mimo');
+      const serialized = consoleLogSpy.mock.calls[0][1] as string;
+      const record = JSON.parse(serialized);
+      expect(record.errorParamClass).toBe('web_search_disabled');
+      expect(record.errorParamHash).toMatch(/^[\da-f]{16}$/);
+      expect(record.errorParam).not.toBe('PRIVATE_PROMPT_TEXT_FROM_PROVIDER');
+      expect(serialized).not.toContain('PRIVATE_PROMPT_TEXT_FROM_PROVIDER');
+      expect(serialized).not.toContain('webSearchEnabled is false');
     });
 
     it('keeps deferReason, classifiedAs, and errorKind as readable labels', () => {

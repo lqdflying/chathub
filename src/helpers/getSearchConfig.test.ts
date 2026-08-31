@@ -23,10 +23,12 @@ vi.mock('@/store/aiInfra', () => ({
 vi.mock('@/store/aiInfra/selectors', () => ({
   aiProviderSelectors: {
     isProviderHasBuiltinSearch: vi.fn(),
+    providerKeyVaults: vi.fn(() => () => undefined),
   },
   aiModelSelectors: {
     isModelHasBuiltinSearch: vi.fn(),
     isModelBuiltinSearchInternal: vi.fn(),
+    modelBuiltinSearchImpl: vi.fn(),
   },
 }));
 
@@ -36,6 +38,12 @@ describe('getSearchConfig', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(aiInfraSelectors.aiModelSelectors.modelBuiltinSearchImpl).mockReturnValue(
+      () => undefined as any,
+    );
+    vi.mocked(aiInfraSelectors.aiProviderSelectors.providerKeyVaults).mockReturnValue(
+      () => undefined,
+    );
   });
 
   it('should return correct config when search is enabled and no builtin search', () => {
@@ -114,6 +122,9 @@ describe('getSearchConfig', () => {
     vi.mocked(aiInfraSelectors.aiProviderSelectors.isProviderHasBuiltinSearch).mockReturnValue(
       () => false,
     );
+    vi.mocked(aiInfraSelectors.aiModelSelectors.modelBuiltinSearchImpl).mockReturnValue(
+      () => 'params' as any,
+    );
     vi.mocked(aiInfraSelectors.aiModelSelectors.isModelHasBuiltinSearch).mockReturnValue(
       () => true,
     );
@@ -141,6 +152,9 @@ describe('getSearchConfig', () => {
     vi.mocked(aiInfraSelectors.aiProviderSelectors.isProviderHasBuiltinSearch).mockReturnValue(
       () => false,
     );
+    vi.mocked(aiInfraSelectors.aiModelSelectors.modelBuiltinSearchImpl).mockReturnValue(
+      () => 'params' as any,
+    );
     vi.mocked(aiInfraSelectors.aiModelSelectors.isModelHasBuiltinSearch).mockReturnValue(
       () => true,
     );
@@ -167,6 +181,9 @@ describe('getSearchConfig', () => {
 
     vi.mocked(aiInfraSelectors.aiProviderSelectors.isProviderHasBuiltinSearch).mockReturnValue(
       () => false
+    );
+    vi.mocked(aiInfraSelectors.aiModelSelectors.modelBuiltinSearchImpl).mockReturnValue(
+      () => 'internal' as any,
     );
     vi.mocked(aiInfraSelectors.aiModelSelectors.isModelHasBuiltinSearch).mockReturnValue(
       () => true
@@ -257,4 +274,25 @@ describe('getSearchConfig', () => {
       expect(result.useApplicationBuiltinSearchTool).toBe(true);
     },
   );
+
+  it('keeps ChatHub search for MiMo Token Plan even when native search is toggled on', () => {
+    vi.mocked(agentSelectors.agentChatConfigSelectors.currentChatConfig).mockReturnValue({
+      searchMode: 'on',
+      useModelBuiltinSearch: true,
+    } as any);
+    vi.mocked(aiInfraSelectors.aiProviderSelectors.isProviderHasBuiltinSearch).mockReturnValue(
+      () => false,
+    );
+    vi.mocked(aiInfraSelectors.aiModelSelectors.modelBuiltinSearchImpl).mockReturnValue(
+      () => 'params' as any,
+    );
+    vi.mocked(aiInfraSelectors.aiProviderSelectors.providerKeyVaults).mockReturnValue(
+      () => ({ baseURL: 'https://token-plan-cn.xiaomimimo.com/v1' }) as any,
+    );
+
+    const result = getSearchConfig('mimo-v2.5-pro', 'mimo');
+
+    expect(result.useModelSearch).toBe(false);
+    expect(result.useApplicationBuiltinSearchTool).toBe(true);
+  });
 });
