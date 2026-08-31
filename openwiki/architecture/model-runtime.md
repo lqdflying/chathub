@@ -179,6 +179,10 @@ The default model list ships 8 GLM cards (`glm-5.2`, `glm-5.1`, `glm-5`, `glm-5-
 - **Cache** — `cacheSupport: 'supported'` via `usage.prompt_tokens_details.cached_tokens`. Debug: `DEBUG_MIMO_CACHE=1`. Not in `CACHE_PREFIX_SENSITIVE_PROVIDERS`.
 - **UI brand mark** — ChatHub provider id is `mimo`; `@lobehub/icons` v3+ uses `xiaomimimo`. While ChatHub pins icons 2.x, Settings/model pickers load vendored assets from `public/icons/providers/mimo*` via `resolveProviderLogoUrl` / `ProviderBrandIcon`.
 
+### Provider brand icons (all providers)
+
+Standing policy: **always vendor brand marks into the repo** for first-class providers. Do not ship a letter fallback waiting on a CDN or an `@lobehub/icons` major bump. Preferred layout: `public/icons/providers/<id>.*` plus optional inline mono SVG for `currentColor` / dark mode; wire through `ProviderBrandIcon` / `ModelBrandIcon`. Agent rule: **`.cursor/rules/provider-icons.mdc`**.
+
 Responses API and Anthropic Messages exist on the Xiaomi platform but are out of scope for this adapter.
 
 ## Model fetch normalization

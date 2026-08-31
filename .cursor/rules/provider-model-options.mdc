@@ -99,3 +99,5 @@ trigger a remote build, or release without an explicit in-turn user instruction*
 - [ ] `chatConfig` + Zod if persisted; service mapping updated.
 - [ ] Provider runtime sends **only** documented fields; tests updated.
 - [ ] Provider option panel + i18n; no shared Anthropic-specific copy on other vendors.
+- [ ] **Brand icon vendored offline** — follow **`.cursor/rules/provider-icons.mdc`**
+      (no CDN; Settings + chat model pickers; dark-mode mono safe).

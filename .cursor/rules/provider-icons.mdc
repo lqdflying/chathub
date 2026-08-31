@@ -1,0 +1,72 @@
+---
+description: Always vendor new provider brand icons into the repo (offline); never rely on CDN or a future @lobehub/icons bump alone
+alwaysApply: true
+---
+
+# Provider brand icons — always offline in-repo
+
+When adding or enabling a **new model provider** (or a ChatHub id that
+`@lobehub/icons` does not already map), **ship the brand mark inside this
+repository**. Runtime UI must not depend on a network fetch, CDN URL, or
+“icons package will catch up later.”
+
+Lesson from Xiaomi MiMo (`mimo`): ChatHub pinned `@lobehub/icons` 2.x while the
+package key `xiaomimimo` only existed in v3+. Settings showed a letter fallback
+until assets were vendored under `public/icons/providers/` and wired through
+`ProviderBrandIcon` / `ModelBrandIcon`.
+
+## Must
+
+1. **Vendor the mark into the repo** before calling the provider UI done. Acceptable
+   forms (any combination):
+   - Static files under `public/icons/providers/<id>.*` (avatar webp/png, source SVG)
+   - Inline React SVG component (required for `currentColor` / mono in dark mode)
+   - Shared wrappers: `src/components/ProviderBrandIcon/`,
+     `src/utils/resolveProviderIcon.ts`
+2. **Wire every user-visible picker**, not only Settings sidebar:
+   - Provider menu / grid / detail header
+   - Model list rows
+   - Chat input model trigger
+   - Connection-check model selector
+   - Model-select popup provider/model rows
+3. **Document the source** in `public/icons/providers/README.md` (package name,
+   path, license). Prefer official static packages such as
+   `@lobehub/icons-static-svg` / `-png` / `-avatar` or the vendor’s own brand kit.
+4. **Preserve avatar geometry** — Settings provider avatars use
+   `borderRadius: 6` rounded squares; do not drop that style on fallbacks.
+
+## Dark mode / mono
+
+- SVG with `fill="currentColor"` **must be inline** (or a CSS mask). Loading it
+  through Avatar / `<img>` freezes the fill to black and disappears on dark
+  surfaces.
+- Default / `type="avatar"` tiles should use an opaque avatar asset (e.g. webp),
+  not the mono SVG URL.
+
+## Do not
+
+- Leave a letter / generic `ModelIcon` / `ProviderIcon` fallback as the shipped
+  state for a first-class ChatHub provider.
+- Point the UI at `https://…` icon URLs or LobeHub CDN at runtime.
+- Assume bumping `@lobehub/icons` alone is enough — ChatHub may stay on an older
+  major; even when the package has the logo, keep a local override until the
+  installed version is confirmed and ChatHub’s provider id matches the package
+  key (or is aliased in `resolveProviderIcon`).
+- Map `mimo` → `xiaomimimo` (or similar) **without** checking that the **installed**
+  `@lobehub/icons` version actually exports that provider.
+
+## Checklist (new provider)
+
+- [ ] Brand assets committed under `public/icons/providers/` (and/or inline mono).
+- [ ] `resolveProviderLogoUrl` / `ProviderBrandIcon` / `ModelBrandIcon` (or
+      successor) cover the ChatHub provider id and model-id prefix.
+- [ ] Chat trigger + Checker + Settings list use the override (grep for bare
+      `ModelIcon` / `ProviderIcon` on that id).
+- [ ] Light and dark: avatar tile visible; mono inherits text color.
+- [ ] README note under `public/icons/providers/`; Wiki/OpenWiki only if the
+      provider page previously claimed “no logo.”
+
+Related: **`.cursor/rules/provider-model-options.mdc`** (API/gear panels).
+Implementation reference: Xiaomi MiMo path in
+`src/components/ProviderBrandIcon/`, `src/utils/resolveProviderIcon.ts`,
+`public/icons/providers/README.md`.
