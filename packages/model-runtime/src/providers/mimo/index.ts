@@ -183,9 +183,11 @@ export const buildMimoPayload = (
     model,
     stream: payload.stream ?? true,
     ...(maxCompletionTokens !== undefined ? { max_completion_tokens: maxCompletionTokens } : {}),
-    ...(frequency_penalty !== undefined ? { frequency_penalty } : {}),
-    ...(presence_penalty !== undefined ? { presence_penalty } : {}),
-    ...(response_format !== undefined ? { response_format } : {}),
+    // Token Plan treats JSON `null` as an invalid parameter (400
+    // `Invalid request parameters` with empty `param`). Only send numbers.
+    ...(typeof frequency_penalty === 'number' ? { frequency_penalty } : {}),
+    ...(typeof presence_penalty === 'number' ? { presence_penalty } : {}),
+    ...(response_format != null ? { response_format } : {}),
     ...(stop !== undefined && stop !== null ? { stop } : {}),
     ...(!thinkingEnabled && clampedTemperature !== undefined
       ? { temperature: clampedTemperature }

@@ -51,6 +51,19 @@ describe('buildMimoPayload', () => {
     expect(payload).not.toHaveProperty('enabledSearch');
   });
 
+  it('omits frequency_penalty and presence_penalty when they are null', () => {
+    // Prod Token Plan 400: JSON null for these fields → Invalid request parameters.
+    const payload = buildMimoPayload({
+      ...basePayload,
+      frequency_penalty: null,
+      presence_penalty: null,
+      thinking: { type: 'enabled' as const },
+    } as any);
+
+    expect(payload).not.toHaveProperty('frequency_penalty');
+    expect(payload).not.toHaveProperty('presence_penalty');
+  });
+
   it('clamps temperature and top_p to Xiaomi ranges when thinking is off', () => {
     const payload = buildMimoPayload({
       ...basePayload,
