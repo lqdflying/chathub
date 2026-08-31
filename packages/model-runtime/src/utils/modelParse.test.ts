@@ -143,6 +143,7 @@ describe('modelParse', () => {
     it('should detect other providers', () => {
       expect(detectModelProvider('glm-4')).toBe('zhipu');
       expect(detectModelProvider('deepseek-coder')).toBe('deepseek');
+      expect(detectModelProvider('mimo-v2.5-pro')).toBe('mimo');
       expect(detectModelProvider('doubao-pro')).toBe('volcengine');
       expect(detectModelProvider('yi-large')).toBe('zeroone');
       expect(detectModelProvider('comfyui/flux-dev')).toBe('comfyui');
@@ -313,6 +314,50 @@ describe('modelParse', () => {
         });
       });
 
+      it('mimo: V2.5 Pro infers reasoning without vision; omni infers vision and video', async () => {
+        const [pro] = await processModelList(
+          [{ id: 'mimo-v2.5-pro' }],
+          MODEL_LIST_CONFIGS.mimo,
+          'mimo',
+        );
+        const [omni] = await processModelList(
+          [{ id: 'mimo-v2.5' }],
+          MODEL_LIST_CONFIGS.mimo,
+          'mimo',
+        );
+
+        expect(pro).toMatchObject({
+          functionCall: true,
+          reasoning: true,
+          video: false,
+          vision: false,
+        });
+        expect(omni).toMatchObject({
+          functionCall: true,
+          reasoning: true,
+          video: true,
+          vision: true,
+        });
+      });
+
+      it('mimo: asr/tts ids do not inherit chat capability tags', async () => {
+        const out = await processModelList(
+          [{ id: 'mimo-v2.5-tts' }, { id: 'mimo-asr-v1' }],
+          MODEL_LIST_CONFIGS.mimo,
+          'mimo',
+        );
+
+        expect(out[0]).toMatchObject({
+          functionCall: false,
+          reasoning: false,
+          vision: false,
+        });
+        expect(out[1]).toMatchObject({
+          functionCall: false,
+          reasoning: false,
+        });
+      });
+
       it('moonshot: kimi-k2.7-code fetched models infer native thinking and multimodal capabilities', async () => {
         const out = await processModelList(
           [{ id: 'kimi-k2.7-code' }],
@@ -340,6 +385,51 @@ describe('modelParse', () => {
           reasoning: true,
           video: true,
           vision: true,
+        });
+      });
+
+      it('mimo: v2.5-pro infers reasoning/function calling without vision', async () => {
+        const out = await processModelList(
+          [{ id: 'mimo-v2.5-pro' }],
+          MODEL_LIST_CONFIGS.mimo,
+          'mimo',
+        );
+
+        expect(out[0]).toMatchObject({
+          functionCall: true,
+          reasoning: true,
+          video: false,
+          vision: false,
+        });
+      });
+
+      it('mimo: omni v2.5 infers vision and video', async () => {
+        const out = await processModelList([{ id: 'mimo-v2.5' }], MODEL_LIST_CONFIGS.mimo, 'mimo');
+
+        expect(out[0]).toMatchObject({
+          functionCall: true,
+          reasoning: true,
+          video: true,
+          vision: true,
+        });
+      });
+
+      it('mimo: asr/tts ids do not receive chat capability tags', async () => {
+        const out = await processModelList(
+          [{ id: 'mimo-v2.5-tts' }, { id: 'mimo-asr' }],
+          MODEL_LIST_CONFIGS.mimo,
+          'mimo',
+        );
+
+        expect(out[0]).toMatchObject({
+          functionCall: false,
+          reasoning: false,
+          video: false,
+          vision: false,
+        });
+        expect(out[1]).toMatchObject({
+          functionCall: false,
+          reasoning: false,
         });
       });
     });

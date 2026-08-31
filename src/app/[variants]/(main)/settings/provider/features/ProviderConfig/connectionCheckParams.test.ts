@@ -41,6 +41,20 @@ describe('connectionCheckParams', () => {
     expect(params.max_tokens).toBe(CONNECTION_CHECK_MAX_TOKENS);
   });
 
+  it('disables Xiaomi MiMo thinking for connectivity probes', () => {
+    const params = buildConnectionCheckParams('mimo', 'mimo-v2.5-pro');
+
+    expect(params.thinking).toEqual({ type: 'disabled' });
+    expect(params.max_tokens).toBe(CONNECTION_CHECK_MAX_TOKENS);
+  });
+
+  it('disables Xiaomi MiMo thinking for connectivity probes', () => {
+    const params = buildConnectionCheckParams('mimo', 'mimo-v2.5-pro');
+
+    expect(params.thinking).toEqual({ type: 'disabled' });
+    expect(params.max_tokens).toBe(CONNECTION_CHECK_MAX_TOKENS);
+  });
+
   it('accepts reasoning-only connectivity output', () => {
     expect(hasConnectionCheckResult('', { content: 'thinking trace' })).toBe(true);
   });

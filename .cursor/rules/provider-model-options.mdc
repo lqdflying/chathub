@@ -37,7 +37,7 @@ When a provider supports **Fetch models**, the fetched API list must be normaliz
 - Use `processModelList(..., MODEL_LIST_CONFIGS.<provider>, ModelProvider.<Provider>)` or an equivalent provider-specific normalizer in `packages/model-runtime/src/providers/<provider>/`.
 - Add provider keywords in `packages/model-runtime/src/utils/modelParse.ts` for newly released ids so fetched models get `functionCall`, `reasoning`, `vision`, `video`, `search`, and `imageOutput` consistently.
 - If the remote model table cannot store `settings.extendParams`, add a **read-time only** settings inference in `packages/database/src/repositories/aiInfra/index.ts` for the exact provider/model family. Do not persist inferred `settings` into the remote model record.
-- Keep inference provider-scoped. For example, DeepSeek V4 can infer `['enableReasoning', 'reasoningEffort']`, MiniMax M-series can infer `['minimaxReasoningSplit']`, Moonshot K2.5/K2.6 can infer their documented toggles, but Kimi K2.7 Code must not expose a toggle because thinking/preserved reasoning is forced by the provider.
+- Keep inference provider-scoped. For example, DeepSeek V4 can infer `['enableReasoning', 'reasoningEffort']`, MiniMax M-series can infer `['minimaxReasoningSplit']`, Xiaomi MiMo V2.5 can infer `['enableReasoning']`, Moonshot K2.5/K2.6 can infer their documented toggles, but Kimi K2.7 Code must not expose a toggle because thinking/preserved reasoning is forced by the provider.
 
 ## Provider context and stripped request fields
 
@@ -65,6 +65,9 @@ When stripping request-body fields such as legacy generic sampling params or use
   | `minimax` | `providers/MinimaxOptions.tsx` |
   | `anthropic` | `providers/AnthropicOptions.tsx` |
   | `openai` | `providers/OpenAIOptions.tsx` |
+  | `deepseek` | `providers/DeepSeekOptions.tsx` |
+  | `mimo` | `providers/MimoOptions.tsx` |
+  | `zhipu` | `providers/ZhipuOptions.tsx` |
   | *everything else* | `ControlsForm.tsx` |
 
 - **Provider component:** under `.../Model/providers/<Name>Options.tsx` — build **only** fields implied by `aiModelSelectors.modelExtendParams(model, provider)`. Use **compact** popovers (`minWidth` ~320px for dedicated panels), vertical slider rows when needed, optional **scroll** (`maxHeight`) — avoid Claude-only copy on non-Anthropic panels.

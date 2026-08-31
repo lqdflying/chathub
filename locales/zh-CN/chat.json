@@ -112,6 +112,10 @@
       "desc": "开启时（默认）：思考过程通过 reasoning_details 与正文分离（MiniMax OpenAI 兼容 API 的 reasoning_split）。关闭后行为以 MiniMax 服务端为准；多轮工具调用时仍建议保留完整 assistant 消息。",
       "title": "分离思考与回复（reasoning_split）"
     },
+    "mimoReasoning": {
+      "desc": "开启后 MiMo V2.5 会先进行内部链式思考再输出；关闭可更快、更省 Token。官方接口默认开启思考，ChatHub 关闭时会显式发送 thinking.type=disabled。",
+      "title": "开启深度思考（MiMo）"
+    },
     "reasoningBudgetToken": {
       "adaptive": "自适应深度思考",
       "adaptiveHint": "思考预算随任务难度由模型自动调节。",

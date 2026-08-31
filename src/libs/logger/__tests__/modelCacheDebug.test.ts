@@ -244,6 +244,18 @@ describe('model cache diagnostic logging', () => {
     expect(serializedRecord).not.toMatch(/PRIVATE_ERROR_MESSAGE|secret\.example\.com/);
   });
 
+  it('creates a mimo cache diagnostic context and maps it to the openai-compatible family', () => {
+    vi.stubEnv('DEBUG_MIMO_CACHE', '1');
+    const context = createModelCacheDiagnosticContext({
+      provider: 'mimo',
+      runtimeFamily: resolveModelCacheRuntimeFamily('mimo'),
+    });
+
+    expect(context).toBeDefined();
+    expect(context?.provider).toBe('mimo');
+    expect(context?.runtimeFamily).toBe('openai-compatible');
+  });
+
   it('creates a zhipu cache diagnostic context and maps it to the openai-compatible family', () => {
     vi.stubEnv('DEBUG_ZHIPU_CACHE', '1');
     const context = createModelCacheDiagnosticContext({

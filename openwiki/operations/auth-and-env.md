@@ -240,6 +240,8 @@ The main provider environment map lives in `src/envs/llm.ts`, which is reference
 
 Moonshot supports `MOONSHOT_PROXY_URL` for a custom OpenAI-compatible base URL. Runtime precedence is request/user-provider `baseURL` first, then `MOONSHOT_PROXY_URL`, then the built-in `https://api.moonshot.cn/v1` default.
 
+Xiaomi MiMo uses `MIMO_API_KEY` (enables `ENABLED_MIMO`) and optional `MIMO_PROXY_URL`. The built-in Chat Completions host is `https://api.xiaomimimo.com/v1`. Token Plan keys (`tp-...`) need `MIMO_PROXY_URL=https://token-plan-cn.xiaomimimo.com/v1`. Request/user-provider `baseURL` overrides the env proxy URL.
+
 A notable recent change in `src/server/modules/ModelRuntime/index.ts` is special handling for Anthropic-compatible auth mode and proxy URL resolution. This makes provider configuration a live compatibility surface rather than a static list of keys.
 
 ## Knowledge Base embedding configuration
@@ -300,13 +302,14 @@ Provider runtime debugging is opt-in and should be used only for active troubles
 DEBUG_MOONSHOT_CHAT_COMPLETION=1
 DEBUG_MINIMAX_CHAT_COMPLETION=1
 DEBUG_DEEPSEEK_CHAT_COMPLETION=1
+DEBUG_MIMO_CHAT_COMPLETION=1
 DEBUG_ANTHROPICCOMPATIBLE_CHAT_COMPLETION=1
 DEBUG_ZHIPU_CHAT_COMPLETION=1
 ```
 
 The structured line starts with `[provider-debug:request]` and includes provider, hashed endpoint origin/path, path depth, query-key names, upstream route, model, stream flag, payload fingerprint, turn shape, tool count/fingerprint, and key parameter presence. It omits URL credentials, hosts, path segments, query values, authorization secrets, and tool names. It is intended for comparing endpoint/request shape without immediately inspecting full prompt text.
 
-The same flags still enable raw `[requestPayload]` and stream logs, so do not leave them enabled in privacy-sensitive production sessions. For OpenAI-compatible cache diagnostics, prefer `DEBUG_OPENAICOMPATIBLE_CACHE=1`, which is a separate redacted cache-focused logger. For Zhipu (GLM) cache diagnostics, prefer `DEBUG_ZHIPU_CACHE=1` (shared `model-cache-debug` namespace) — GLM uses implicit prefix caching and reports hits in `usage.prompt_tokens_details.cached_tokens`; it needs no request cache fields.
+The same flags still enable raw `[requestPayload]` and stream logs, so do not leave them enabled in privacy-sensitive production sessions. For OpenAI-compatible cache diagnostics, prefer `DEBUG_OPENAICOMPATIBLE_CACHE=1`, which is a separate redacted cache-focused logger. For Zhipu (GLM) cache diagnostics, prefer `DEBUG_ZHIPU_CACHE=1` (shared `model-cache-debug` namespace) — GLM uses implicit prefix caching and reports hits in `usage.prompt_tokens_details.cached_tokens`; it needs no request cache fields. For Xiaomi MiMo, prefer `DEBUG_MIMO_CACHE=1` (same namespace); MiMo reports `usage.prompt_tokens_details.cached_tokens` and needs no request cache fields.
 
 ## Tool and MCP debug environment variable
 

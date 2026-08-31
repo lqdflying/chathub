@@ -6,6 +6,7 @@ import { default as azureai } from './azureai';
 import { default as deepseek } from './deepseek';
 import { default as google } from './google';
 import { default as minimax } from './minimax';
+import { default as mimo } from './mimo';
 import { default as moonshot } from './moonshot';
 import { default as openai } from './openai';
 import { default as openaicompatible } from './openaicompatible';
@@ -38,6 +39,7 @@ export const LOBE_DEFAULT_MODEL_LIST = buildDefaultModelList({
   deepseek,
   google,
   minimax,
+  mimo,
   moonshot,
   openai,
   openaicompatible,
@@ -51,6 +53,7 @@ export { default as azureai } from './azureai';
 export { default as deepseek } from './deepseek';
 export { default as google } from './google';
 export { default as minimax } from './minimax';
+export { default as mimo } from './mimo';
 export { default as moonshot } from './moonshot';
 export { default as openai } from './openai';
 export { default as openaicompatible } from './openaicompatible';

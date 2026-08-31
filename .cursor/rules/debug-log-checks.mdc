@@ -24,6 +24,7 @@ All dedicated switches emit prefixed JSON. Query their distinct `debug_namespace
 | `DEBUG_MOONSHOT_CACHE=1`            | safe    | Moonshot/Kimi cache events                     |
 | `DEBUG_DEEPSEEK_CACHE=1`            | safe    | DeepSeek cache events                          |
 | `DEBUG_MINIMAX_CACHE=1`             | safe    | MiniMax cache events                           |
+| `DEBUG_MIMO_CACHE=1`                | safe    | Xiaomi MiMo cache events                       |
 | `DEBUG_ANTHROPIC_CACHE=1`           | safe    | Anthropic cache events                         |
 | `DEBUG_ANTHROPICCOMPATIBLE_CACHE=1` | safe    | Anthropic-compatible cache events              |
 | `DEBUG_GOOGLE_CACHE=1`              | safe    | Gemini and Vertex cache events                 |

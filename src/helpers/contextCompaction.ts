@@ -190,10 +190,11 @@ const usesDocumentedThinkingTypeOff = ({
     return true;
   }
 
-  // Only listed cards: unknown DeepSeek/Moonshot/Zhipu IDs must not invent `thinking`.
+  // Only listed cards: unknown DeepSeek/MiMo/Moonshot/Zhipu IDs must not invent `thinking`.
   return (
     cardUsesThinkingType &&
     (provider === ModelProvider.DeepSeek ||
+      provider === ModelProvider.Mimo ||
       provider === ModelProvider.Moonshot ||
       provider === ModelProvider.Zhipu)
   );

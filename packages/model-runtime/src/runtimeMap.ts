@@ -5,6 +5,7 @@ import { LobeAzureAI } from './providers/azureai';
 import { LobeDeepSeekAI } from './providers/deepseek';
 import { LobeGoogleAI } from './providers/google';
 import { LobeMinimaxAI } from './providers/minimax';
+import { LobeMimoAI } from './providers/mimo';
 import { LobeMoonshotAI } from './providers/moonshot';
 import { LobeOpenAI } from './providers/openai';
 import { LobeOpenAICompatibleAI } from './providers/openaicompatible';
@@ -18,6 +19,7 @@ export const providerRuntimeMap = {
   deepseek: LobeDeepSeekAI,
   google: LobeGoogleAI,
   minimax: LobeMinimaxAI,
+  mimo: LobeMimoAI,
   moonshot: LobeMoonshotAI,
   openai: LobeOpenAI,
   openaicompatible: LobeOpenAICompatibleAI,

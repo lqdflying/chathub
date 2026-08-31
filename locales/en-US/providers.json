@@ -92,6 +92,9 @@
   "minimax": {
     "description": "MiniMax is a general artificial intelligence technology company established in 2021, dedicated to co-creating intelligence with users. MiniMax has independently developed general large models of different modalities, including trillion-parameter MoE text models, voice models, and image models, and has launched applications such as Conch AI."
   },
+  "mimo": {
+    "description": "Xiaomi MiMo is Xiaomi’s LLM platform. V2.5 Pro and V2.5 support deep thinking, function calling, structured output, and optional built-in web search over an OpenAI-compatible Chat Completions API."
+  },
   "mistral": {
     "description": "Mistral provides advanced general, specialized, and research models widely used in complex reasoning, multilingual tasks, and code generation. Through functional calling interfaces, users can integrate custom functionalities for specific applications."
   },

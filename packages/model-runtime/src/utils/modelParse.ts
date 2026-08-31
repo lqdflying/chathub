@@ -65,6 +65,13 @@ export const MODEL_LIST_CONFIGS = {
     videoKeywords: ['m3'],
     visionKeywords: ['-vl', 'text-01', 'm3'],
   },
+  mimo: {
+    excludeKeywords: ['asr', 'tts', 'voiceclone', 'voicedesign'],
+    functionCallKeywords: ['mimo-v2.5'],
+    reasoningKeywords: ['mimo-v2.5'],
+    videoKeywords: ['mimo-v2.5', '!mimo-v2.5-pro'],
+    visionKeywords: ['mimo-v2.5', '!mimo-v2.5-pro'],
+  },
   moonshot: {
     functionCallKeywords: ['moonshot', 'kimi'],
     reasoningKeywords: ['thinking', 'k2.7', 'kimi-k3'],
@@ -135,6 +142,7 @@ export const MODEL_OWNER_DETECTION_CONFIG = {
   llama: ['llama', 'llava'],
   longcat: ['longcat'],
   minimax: ['minimax'],
+  mimo: ['mimo'],
   moonshot: ['moonshot', 'kimi'],
   openai: ['o1', 'o3', 'o4', 'gpt-'],
   qwen: ['qwen', 'qwq', 'qvq'],

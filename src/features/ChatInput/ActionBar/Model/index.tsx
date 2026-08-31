@@ -15,6 +15,7 @@ import ControlsForm from './ControlsForm';
 import AnthropicOptions from './providers/AnthropicOptions';
 import DeepSeekOptions from './providers/DeepSeekOptions';
 import MinimaxOptions from './providers/MinimaxOptions';
+import MimoOptions from './providers/MimoOptions';
 import MoonshotOptions from './providers/MoonshotOptions';
 import OpenAIOptions from './providers/OpenAIOptions';
 import ZhipuOptions from './providers/ZhipuOptions';
@@ -98,6 +99,8 @@ const ModelSwitch = memo(() => {
                 <AnthropicOptions />
               ) : provider === 'deepseek' ? (
                 <DeepSeekOptions />
+              ) : provider === 'mimo' ? (
+                <MimoOptions />
               ) : provider === 'openai' || provider === 'openaicompatible' ? (
                 <OpenAIOptions />
               ) : provider === 'zhipu' ? (
@@ -111,6 +114,7 @@ const ModelSwitch = memo(() => {
               provider === 'anthropic' ||
               provider === 'anthropiccompatible' ||
               provider === 'deepseek' ||
+              provider === 'mimo' ||
               provider === 'openai' ||
               provider === 'openaicompatible' ||
               provider === 'zhipu'

@@ -2,6 +2,7 @@ import type { UIChatMessage } from '@lobechat/types';
 import { describe, expect, it } from 'vitest';
 
 import { buildDeepSeekPayload } from '../../packages/model-runtime/src/providers/deepseek';
+import { buildMimoPayload } from '../../packages/model-runtime/src/providers/mimo';
 import {
   CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS,
   CONTEXT_COMPACTION_REASONING_HEADROOM_TOKENS,
@@ -250,6 +251,33 @@ describe('buildSimpleCompletionSampling', () => {
       expect(upstream.max_tokens).toBe(reasoningBudget);
       expect(upstream.thinking).toEqual({ type: 'disabled' });
       expect(upstream).not.toHaveProperty('reasoning_effort');
+    },
+  );
+
+  it.each(['mimo-v2.5-pro', 'mimo-v2.5'] as const)(
+    'disables default-on Xiaomi MiMo thinking for %s',
+    (model) => {
+      const sampling = buildSimpleCompletionSampling({
+        model,
+        provider: 'mimo',
+        summaryMaxTokens: summaryCap,
+      });
+
+      expect(sampling).toEqual({
+        max_tokens: reasoningBudget,
+        thinking: { budget_tokens: 0, type: 'disabled' },
+      });
+
+      const upstream = buildMimoPayload({
+        max_tokens: sampling.max_tokens,
+        messages: [{ content: 'Hello', role: 'user' }],
+        model,
+        thinking: sampling.thinking,
+      });
+
+      expect((upstream as any).max_completion_tokens).toBe(reasoningBudget);
+      expect(upstream).not.toHaveProperty('max_tokens');
+      expect(upstream.thinking).toEqual({ type: 'disabled' });
     },
   );
 

@@ -42,6 +42,13 @@ export const buildConnectionCheckParams = (provider: string, model: string) => {
         ...cappedBase,
         reasoning_split: false,
       };
+    case 'mimo':
+      // MiMo Chat Completions defaults thinking to enabled; the 256-token
+      // probe would be consumed by thinking and surface no final content.
+      return {
+        ...cappedBase,
+        thinking: { type: 'disabled' as const },
+      };
     default:
       return cappedBase;
   }

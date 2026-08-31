@@ -19,6 +19,7 @@ const CACHE_DEBUG_ENV_BY_PROVIDER: Readonly<Record<string, string>> = {
   deepseek: 'DEBUG_DEEPSEEK_CACHE',
   google: 'DEBUG_GOOGLE_CACHE',
   minimax: 'DEBUG_MINIMAX_CACHE',
+  mimo: 'DEBUG_MIMO_CACHE',
   moonshot: 'DEBUG_MOONSHOT_CACHE',
   openai: 'DEBUG_OPENAI_CACHE',
   openaicompatible: 'DEBUG_OPENAICOMPATIBLE_CACHE',
@@ -182,6 +183,7 @@ export const resolveModelCacheRuntimeFamily = (provider: string): ModelCacheRunt
     }
     case 'deepseek':
     case 'minimax':
+    case 'mimo':
     case 'moonshot':
     case 'openaicompatible':
     case 'zhipu': {

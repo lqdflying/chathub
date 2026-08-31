@@ -166,19 +166,34 @@ Zhipu GLM-5.x/4.x use **implicit prefix caching** (https://docs.z.ai/guides/capa
 
 The default model list ships 8 GLM cards (`glm-5.2`, `glm-5.1`, `glm-5`, `glm-5-turbo`, `glm-4.7`, `glm-4.6`, `glm-4.5`, `glm-5v-turbo`). Only `glm-5.2` carries `zhipuReasoningEffort` in its `extendParams`; `glm-4.7` carries **only** `zhipuPreservedThinking` (thinking is forced, so no `enableReasoning` toggle, but `clear_thinking` is a documented GLM-4.5+ capability); the rest carry `enableReasoning` and `zhipuPreservedThinking`. Fetched Zhipu models receive inferred `extendParams` at read time in `packages/database/src/repositories/aiInfra/index.ts` because the remote model table cannot persist `settings.extendParams`; fetched `glm-4.7` ids get `['zhipuPreservedThinking']` only, matching the shipped card.
 
+### Xiaomi MiMo
+
+`mimo` is a first-class OpenAI Chat Completions provider (`packages/model-runtime/src/providers/mimo/index.ts`). Default base URL is `https://api.xiaomimimo.com/v1`. Auth is Bearer `MIMO_API_KEY`. Token Plan uses `MIMO_PROXY_URL=https://token-plan-cn.xiaomimimo.com/v1` plus a `tp-...` key. `buildMimoPayload` is the single request shaper:
+
+- **thinking** — always send `{ type: 'enabled' | 'disabled' }` when the gear toggle is present. Vendor default is enabled; ChatHub off sends `disabled`. Sampling (`temperature`, `top_p`, `frequency_penalty`, `presence_penalty`) is omitted while thinking is on.
+- **max_completion_tokens** — official Chat Completions field; ChatHub maps `max_tokens` (including the 256-token connection probe) to it.
+- **tool_choice** — coerced to `auto` (the only documented value).
+- **web_search** — when `enabledSearch` is set, append `{ type: 'web_search' }` to `tools`. Do not send `force_search` by default. Do not auto-disable thinking for search/tools.
+- **reasoning_content** — when thinking is on, assistant messages with `tool_calls` get `reasoning_content` (empty string if missing) so the vendor does not 400.
+- **Fetch** — `client.models.list()` plus `MODEL_LIST_CONFIGS.mimo`; drop tts/asr/voiceclone/voicedesign ids. `mimo-v2.5-pro` is text; exact `mimo-v2.5` gets vision/video. Fetched ids infer `enableReasoning` at read time.
+- **Cache** — `cacheSupport: 'supported'` via `usage.prompt_tokens_details.cached_tokens`. Debug: `DEBUG_MIMO_CACHE=1`. Not in `CACHE_PREFIX_SENSITIVE_PROVIDERS`.
+
+Responses API and Anthropic Messages exist on the Xiaomi platform but are out of scope for this adapter.
+
 ## Model fetch normalization
 
 Providers that expose `/models` can return new model ids before ChatHub's built-in model list is refreshed. The runtime still needs to normalize fetched ids through provider-specific capability rules so the UI can detect function calling, reasoning, vision, video, search, and image-output support.
 
-DeepSeek, MiniMax, Moonshot, and Zhipu use provider-specific model fetchers rather than a raw generic list. The fetchers call the shared model parser with provider configs, and the database repository adds read-time-only `settings.extendParams` for fetched models where the remote model table cannot store option-panel settings. This keeps fetched DeepSeek V4 and MiniMax M-series models usable in the model option panel, while Moonshot Kimi K2.7 Code and Kimi K3 remain reasoning-capable without a toggle because the provider forces thinking/preserved reasoning. Fetched Zhipu GLM reasoning models infer `enableReasoning` + `zhipuPreservedThinking` (plus `zhipuReasoningEffort` for `glm-5.2` and above); fetched `glm-4.7` ids get `zhipuPreservedThinking` only (thinking forced, no reasoning toggle, but `clear_thinking` is a documented GLM-4.5+ capability). Fetched K3 variants receive reasoning, vision, and video capabilities from the Moonshot keyword normalizer when an exact built-in card is unavailable.
+DeepSeek, MiniMax, Moonshot, Xiaomi MiMo, and Zhipu use provider-specific model fetchers rather than a raw generic list. The fetchers call the shared model parser with provider configs, and the database repository adds read-time-only `settings.extendParams` for fetched models where the remote model table cannot store option-panel settings. This keeps fetched DeepSeek V4, MiniMax M-series, and Xiaomi MiMo V2.5 models usable in the model option panel, while Moonshot Kimi K2.7 Code and Kimi K3 remain reasoning-capable without a toggle because the provider forces thinking/preserved reasoning. Fetched Zhipu GLM reasoning models infer `enableReasoning` + `zhipuPreservedThinking` (plus `zhipuReasoningEffort` for `glm-5.2` and above); fetched `glm-4.7` ids get `zhipuPreservedThinking` only (thinking forced, no reasoning toggle, but `clear_thinking` is a documented GLM-4.5+ capability). Fetched K3 variants receive reasoning, vision, and video capabilities from the Moonshot keyword normalizer when an exact built-in card is unavailable.
 
 ## Provider request debug
 
-Moonshot, MiniMax, DeepSeek, Zhipu, and Anthropic-compatible troubleshooting can use provider-specific chat debug flags. In addition to the existing raw payload/stream logs, these flags emit a structured `[provider-debug:request]` summary with hashed endpoint origin/path, path depth, query-key names, upstream route, model, turn shape, tool count/fingerprint, and payload fingerprint. URL credentials, hosts, path segments, query values, authorization secrets, and tool names are omitted:
+Moonshot, MiniMax, DeepSeek, Xiaomi MiMo, Zhipu, and Anthropic-compatible troubleshooting can use provider-specific chat debug flags. In addition to the existing raw payload/stream logs, these flags emit a structured `[provider-debug:request]` summary with hashed endpoint origin/path, path depth, query-key names, upstream route, model, turn shape, tool count/fingerprint, and payload fingerprint. URL credentials, hosts, path segments, query values, authorization secrets, and tool names are omitted:
 
 - `DEBUG_MOONSHOT_CHAT_COMPLETION=1`
 - `DEBUG_MINIMAX_CHAT_COMPLETION=1`
 - `DEBUG_DEEPSEEK_CHAT_COMPLETION=1`
+- `DEBUG_MIMO_CHAT_COMPLETION=1`
 - `DEBUG_ANTHROPICCOMPATIBLE_CHAT_COMPLETION=1`
 - `DEBUG_ZHIPU_CHAT_COMPLETION=1`
 

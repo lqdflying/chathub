@@ -133,6 +133,7 @@ Combine with OAuth: `NEXT_AUTH_SSO_PROVIDERS=credentials,github`. Details: [Auth
 | Google (Gemini) | `GOOGLE_API_KEY` |
 | Moonshot (Kimi) | `MOONSHOT_API_KEY` + optional `MOONSHOT_PROXY_URL` |
 | MiniMax | `MINIMAX_API_KEY` |
+| Xiaomi MiMo | `MIMO_API_KEY` + optional `MIMO_PROXY_URL` |
 | DeepSeek | `DEEPSEEK_API_KEY` |
 | OpenAI-compatible | `OPENAICOMPATIBLE_API_KEY` + `OPENAICOMPATIBLE_PROXY_URL` |
 | Anthropic-compatible | `ANTHROPICCOMPATIBLE_API_KEY` + `ANTHROPICCOMPATIBLE_PROXY_URL` + optional `ANTHROPICCOMPATIBLE_AUTH_MODE` |
