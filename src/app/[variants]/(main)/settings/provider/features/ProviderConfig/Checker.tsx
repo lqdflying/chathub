@@ -2,7 +2,6 @@
 
 import { CheckCircleFilled } from '@ant-design/icons';
 import { ChatMessageError, TraceNameMap } from '@lobechat/types';
-import { ModelIcon } from '@lobehub/icons';
 import { Alert, Button, Highlighter, Icon, Select } from '@lobehub/ui';
 import { useTheme } from 'antd-style';
 import { Loader2Icon } from 'lucide-react';
@@ -10,6 +9,7 @@ import { ReactNode, memo, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
+import { ModelBrandIcon } from '@/components/ProviderBrandIcon';
 import { useProviderName } from '@/hooks/useProviderName';
 import { chatService } from '@/services/chat';
 import { aiModelSelectors, aiProviderSelectors, useAiInfraStore } from '@/store/aiInfra';
@@ -156,7 +156,7 @@ const Checker = memo<ConnectionCheckerProps>(
             optionRender={({ value }) => {
               return (
                 <Flexbox align={'center'} gap={6} horizontal>
-                  <ModelIcon model={value as string} size={20} />
+                  <ModelBrandIcon model={value as string} size={20} />
                   {value}
                 </Flexbox>
               );

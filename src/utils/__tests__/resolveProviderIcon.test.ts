@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  hasLocalProviderMono,
+  isMimoModelId,
   resolveModelLogoUrl,
   resolveProviderIcon,
   resolveProviderLogoUrl,
@@ -19,9 +21,15 @@ describe('resolveProviderIcon', () => {
 });
 
 describe('resolveProviderLogoUrl', () => {
-  it('returns vendored Xiaomi MiMo assets while icons 2.x has no xiaomimimo', () => {
+  it('returns the vendored avatar webp for mimo avatar requests', () => {
     expect(resolveProviderLogoUrl('mimo', 'avatar')).toBe('/icons/providers/mimo-avatar.webp');
-    expect(resolveProviderLogoUrl('mimo', 'mono')).toBe('/icons/providers/mimo.svg');
+    expect(resolveProviderLogoUrl('mimo')).toBe('/icons/providers/mimo-avatar.webp');
+  });
+
+  it('does not return the mono SVG URL (inline XiaomiMiMoMono must be used instead)', () => {
+    expect(resolveProviderLogoUrl('mimo', 'mono')).toBeUndefined();
+    expect(hasLocalProviderMono('mimo')).toBe(true);
+    expect(hasLocalProviderMono('deepseek')).toBe(false);
   });
 
   it('returns undefined for providers without a local override', () => {
@@ -31,12 +39,18 @@ describe('resolveProviderLogoUrl', () => {
 });
 
 describe('resolveModelLogoUrl', () => {
-  it('maps mimo model ids to the local mono mark', () => {
-    expect(resolveModelLogoUrl('mimo-v2.5-pro')).toBe('/icons/providers/mimo.svg');
-    expect(resolveModelLogoUrl('mimo-v2.5')).toBe('/icons/providers/mimo.svg');
+  it('maps mimo model ids to the avatar asset by default', () => {
+    expect(resolveModelLogoUrl('mimo-v2.5-pro')).toBe('/icons/providers/mimo-avatar.webp');
+    expect(resolveModelLogoUrl('mimo-v2.5', 'avatar')).toBe('/icons/providers/mimo-avatar.webp');
+    expect(isMimoModelId('mimo-v2.5-pro')).toBe(true);
+  });
+
+  it('does not return a mono URL for models (inline SVG path)', () => {
+    expect(resolveModelLogoUrl('mimo-v2.5-pro', 'mono')).toBeUndefined();
   });
 
   it('ignores unrelated model ids', () => {
     expect(resolveModelLogoUrl('deepseek-chat')).toBeUndefined();
+    expect(isMimoModelId('deepseek-chat')).toBe(false);
   });
 });

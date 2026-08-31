@@ -2,14 +2,21 @@
 
 import { ModelIcon, ProviderCombine, ProviderIcon } from '@lobehub/icons';
 import { Avatar } from '@lobehub/ui';
-import { CSSProperties, memo } from 'react';
+import React, { CSSProperties, memo } from 'react';
 import { Flexbox } from 'react-layout-kit';
 
 import {
+  hasLocalProviderMono,
+  isMimoModelId,
   resolveModelLogoUrl,
   resolveProviderIcon,
   resolveProviderLogoUrl,
 } from '@/utils/resolveProviderIcon';
+
+import { XiaomiMiMoMono } from './XiaomiMiMoMono';
+
+/** Match prior ProviderIcon avatar geometry (IconAvatar defaults to circle without this). */
+const AVATAR_RADIUS_STYLE: CSSProperties = { borderRadius: 6 };
 
 export interface ProviderBrandIconProps {
   provider: string;
@@ -24,7 +31,13 @@ export interface ProviderBrandIconProps {
  */
 export const ProviderBrandIcon = memo<ProviderBrandIconProps>(
   ({ provider, size = 24, style, type = 'avatar' }) => {
-    const logo = resolveProviderLogoUrl(provider, type === 'mono' ? 'mono' : 'avatar');
+    const avatarStyle = type === 'mono' ? style : { ...AVATAR_RADIUS_STYLE, ...style };
+
+    if (type === 'mono' && hasLocalProviderMono(provider)) {
+      return <XiaomiMiMoMono size={size} style={style} />;
+    }
+
+    const logo = resolveProviderLogoUrl(provider, 'avatar');
     if (logo) {
       return (
         <Avatar
@@ -32,7 +45,7 @@ export const ProviderBrandIcon = memo<ProviderBrandIconProps>(
           avatar={logo}
           shape={'square'}
           size={size}
-          style={{ borderRadius: 6, ...style }}
+          style={avatarStyle}
         />
       );
     }
@@ -41,7 +54,7 @@ export const ProviderBrandIcon = memo<ProviderBrandIconProps>(
       <ProviderIcon
         provider={resolveProviderIcon(provider)}
         size={size}
-        style={style}
+        style={avatarStyle}
         type={type}
       />
     );
@@ -71,7 +84,7 @@ export const ProviderBrandCombine = memo<ProviderBrandCombineProps>(
             avatar={logo}
             shape={'square'}
             size={size}
-            style={{ borderRadius: 6 }}
+            style={AVATAR_RADIUS_STYLE}
           />
           {title ? (
             <span style={{ fontSize: 16, fontWeight: 'bold', lineHeight: 1 }}>{title}</span>
@@ -96,25 +109,28 @@ ProviderBrandCombine.displayName = 'ProviderBrandCombine';
 export interface ModelBrandIconProps {
   model: string;
   size?: number;
+  style?: CSSProperties;
   type?: 'avatar' | 'mono' | 'color';
 }
 
 /** Drop-in for ModelIcon with local overrides for mimo-* ids on icons 2.x. */
-export const ModelBrandIcon = memo<ModelBrandIconProps>(({ model, size = 24, type }) => {
-  const logo = resolveModelLogoUrl(model);
+export const ModelBrandIcon = memo<ModelBrandIconProps>(({ model, size = 24, style, type }) => {
+  const variant = type === 'mono' ? 'mono' : 'avatar';
+  const avatarStyle =
+    type === 'mono' ? style : { borderRadius: type === 'avatar' ? 6 : 4, ...style };
+
+  if (type === 'mono' && isMimoModelId(model)) {
+    return <XiaomiMiMoMono size={size} style={style} />;
+  }
+
+  const logo = resolveModelLogoUrl(model, variant);
   if (logo) {
     return (
-      <Avatar
-        alt={model}
-        avatar={logo}
-        shape={'square'}
-        size={size}
-        style={{ borderRadius: type === 'avatar' ? 6 : 4 }}
-      />
+      <Avatar alt={model} avatar={logo} shape={'square'} size={size} style={avatarStyle} />
     );
   }
 
-  return <ModelIcon model={model} size={size} type={type} />;
+  return <ModelIcon model={model} size={size} style={style} type={type} />;
 });
 
 ModelBrandIcon.displayName = 'ModelBrandIcon';

@@ -16,6 +16,7 @@ const ALIASES = [
   { find: /^@\/utils\/client\/switchLang(.*)$/, replacement: resolve(__dirname, 'src/utils/client/switchLang$1') },
   { find: /^@\/utils\/errorResponse(.*)$/, replacement: resolve(__dirname, 'src/utils/errorResponse$1') },
   { find: /^@\/utils\/locale(.*)$/, replacement: resolve(__dirname, 'src/utils/locale$1') },
+  { find: /^@\/utils\/resolveProviderIcon(.*)$/, replacement: resolve(__dirname, 'src/utils/resolveProviderIcon$1') },
   { find: /^@\/utils\/unzipFile(.*)$/, replacement: resolve(__dirname, 'src/utils/unzipFile$1') },
   { find: /^@\/utils(.*)$/, replacement: resolve(__dirname, 'packages/utils/src$1') },
   // package-scoped aliases
