@@ -10,12 +10,16 @@ import { MODEL_LIST_CONFIGS, processModelList } from '../../utils/modelParse';
  *
  * Thinking defaults to enabled on the vendor. ChatHub sends `thinking.type`
  * explicitly when the gear toggle is present. When thinking is on, temperature
- * and top_p are ignored upstream, so they are stripped. Official max-token
- * field is `max_completion_tokens`. `tool_choice` only accepts `auto`.
+ * and top_p are ignored upstream, so they are stripped. Penalty fields remain
+ * valid. Official max-token field is `max_completion_tokens`. `tool_choice`
+ * only accepts `auto`.
  *
  * Native web search is `{ type: 'web_search' }` in `tools` (no force_search
  * by default). Multi-turn tool calls in thinking mode should keep
  * `reasoning_content` on assistant messages.
+ *
+ * Deep thinking pass-back:
+ * https://mimo.mi.com/docs/en-US/quick-start/usage-guide/text-generation/deep-thinking
  */
 const MIMO_WEB_SEARCH_TOOL = { type: 'web_search' } as const;
 const MIMO_NON_CHAT_ID = /tts|asr|voiceclone|voicedesign/i;
@@ -37,14 +41,32 @@ const stripThinkingContentBlocks = (messages: OpenAIChatMessage[]): OpenAIChatMe
   });
 };
 
+const storedAssistantReasoning = (message: OpenAIChatMessage): string | undefined => {
+  const internal = (message as { reasoning?: { content?: unknown } }).reasoning?.content;
+  return typeof internal === 'string' && internal.length > 0 ? internal : undefined;
+};
+
+/**
+ * Xiaomi requires historical `reasoning_content` on thinking-mode tool turns.
+ * ChatHub stores streamed reasoning as `message.reasoning.content`; injecting
+ * `''` would hide that value from `convertOpenAIMessages`.
+ */
 const patchAssistantToolCallReasoning = (messages: OpenAIChatMessage[]): OpenAIChatMessage[] =>
   messages.map((message) => {
     if (message.role !== 'assistant') return message;
     const hasCalls = Array.isArray(message.tool_calls) && message.tool_calls.length > 0;
     if (!hasCalls) return message;
-    if ((message as any).reasoning_content !== undefined && (message as any).reasoning_content !== null) {
+
+    const bare = (message as { reasoning_content?: unknown }).reasoning_content;
+    const internal = storedAssistantReasoning(message);
+
+    if (internal) {
+      // Empty string is authoritative downstream — replace it with the stored chain.
+      if (bare === '') return { ...message, reasoning_content: internal };
       return message;
     }
+
+    if (bare !== undefined && bare !== null) return message;
     return { ...message, reasoning_content: '' };
   });
 
@@ -94,21 +116,14 @@ export const buildMimoPayload = (
     model,
     stream: payload.stream ?? true,
     ...(maxCompletionTokens !== undefined ? { max_completion_tokens: maxCompletionTokens } : {}),
-    ...(shouldStripSamplingParams(thinkingEnabled)
-      ? {}
-      : {
-          frequency_penalty,
-          presence_penalty,
-          temperature,
-          top_p,
-        }),
+    ...(frequency_penalty !== undefined ? { frequency_penalty } : {}),
+    ...(presence_penalty !== undefined ? { presence_penalty } : {}),
+    ...(!thinkingEnabled ? { temperature, top_p } : {}),
     ...(thinking ? { thinking: { type: thinking.type } } : {}),
     ...(coercedToolChoice !== undefined ? { tool_choice: coercedToolChoice } : {}),
     tools: mimoTools?.length ? mimoTools : undefined,
   } as OpenAI.ChatCompletionCreateParamsStreaming;
 };
-
-const shouldStripSamplingParams = (thinkingEnabled: boolean) => thinkingEnabled;
 
 const fetchMimoModels = async ({ client }: { client: OpenAI }): Promise<any[]> => {
   try {

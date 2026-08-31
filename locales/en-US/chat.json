@@ -108,13 +108,13 @@
       "desc": "kimi-k2.6 only: keep prior turns' reasoning_content in context (Preserved Thinking). Enable together with deep thinking; increases tokens and cost.",
       "title": "Preserved thinking (K2.6)"
     },
-    "minimaxReasoningSplit": {
-      "desc": "When on (default), interleaved thinking is split into reasoning_details (MiniMax OpenAI-compatible reasoning_split). When off, behavior follows MiniMax server defaults; keep full assistant turns for multi-turn tool use.",
-      "title": "Split thinking vs answer (reasoning_split)"
-    },
     "mimoReasoning": {
       "desc": "Let MiMo V2.5 run internal chain-of-thought before answering. Turn off for faster, cheaper replies. The vendor defaults thinking on; ChatHub sends thinking.type=disabled when this toggle is off.",
       "title": "Enable Deep Thinking"
+    },
+    "minimaxReasoningSplit": {
+      "desc": "When on (default), interleaved thinking is split into reasoning_details (MiniMax OpenAI-compatible reasoning_split). When off, behavior follows MiniMax server defaults; keep full assistant turns for multi-turn tool use.",
+      "title": "Split thinking vs answer (reasoning_split)"
     },
     "reasoningBudgetToken": {
       "adaptive": "Adaptive thinking",

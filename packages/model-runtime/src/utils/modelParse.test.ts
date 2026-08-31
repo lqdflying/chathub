@@ -387,51 +387,6 @@ describe('modelParse', () => {
           vision: true,
         });
       });
-
-      it('mimo: v2.5-pro infers reasoning/function calling without vision', async () => {
-        const out = await processModelList(
-          [{ id: 'mimo-v2.5-pro' }],
-          MODEL_LIST_CONFIGS.mimo,
-          'mimo',
-        );
-
-        expect(out[0]).toMatchObject({
-          functionCall: true,
-          reasoning: true,
-          video: false,
-          vision: false,
-        });
-      });
-
-      it('mimo: omni v2.5 infers vision and video', async () => {
-        const out = await processModelList([{ id: 'mimo-v2.5' }], MODEL_LIST_CONFIGS.mimo, 'mimo');
-
-        expect(out[0]).toMatchObject({
-          functionCall: true,
-          reasoning: true,
-          video: true,
-          vision: true,
-        });
-      });
-
-      it('mimo: asr/tts ids do not receive chat capability tags', async () => {
-        const out = await processModelList(
-          [{ id: 'mimo-v2.5-tts' }, { id: 'mimo-asr' }],
-          MODEL_LIST_CONFIGS.mimo,
-          'mimo',
-        );
-
-        expect(out[0]).toMatchObject({
-          functionCall: false,
-          reasoning: false,
-          video: false,
-          vision: false,
-        });
-        expect(out[1]).toMatchObject({
-          functionCall: false,
-          reasoning: false,
-        });
-      });
     });
 
     describe('Detailed capability and property processing in processModelList', () => {

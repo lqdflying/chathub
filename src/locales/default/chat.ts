@@ -105,13 +105,13 @@ export default {
       desc: '开启后 Kimi K2.5 / K2.6 会先进行内部链式思考再输出；关闭可更快、更省 Token。需使用对应模型 ID。',
       title: '开启深度思考（Kimi）',
     },
-    minimaxReasoningSplit: {
-      desc: '开启时（默认）：思考过程通过 reasoning_details 与正文分离（MiniMax OpenAI 兼容 API 的 reasoning_split）。关闭后行为以 MiniMax 服务端为准；多轮工具调用时仍建议保留完整 assistant 消息。',
-      title: '分离思考与回复（reasoning_split）',
-    },
     mimoReasoning: {
       desc: '开启后 MiMo V2.5 会先进行内部链式思考再输出；关闭可更快、更省 Token。官方接口默认开启思考，ChatHub 关闭时会显式发送 thinking.type=disabled。',
       title: '开启深度思考（MiMo）',
+    },
+    minimaxReasoningSplit: {
+      desc: '开启时（默认）：思考过程通过 reasoning_details 与正文分离（MiniMax OpenAI 兼容 API 的 reasoning_split）。关闭后行为以 MiniMax 服务端为准；多轮工具调用时仍建议保留完整 assistant 消息。',
+      title: '分离思考与回复（reasoning_split）',
     },
     moonshotPreservedReasoning: {
       desc: '仅 kimi-k2.6：在多轮对话中保留历史轮的 reasoning_content（Preserved Thinking），需与深度思考同时开启；会增加上下文长度与费用。',

@@ -3073,6 +3073,123 @@ describe('OpenAIStream', () => {
     ]);
   });
 
+  it('should handle Xiaomi MiMo flat url_citation annotations on the first packet', async () => {
+    const mockOpenAIStream = new ReadableStream({
+      start(controller) {
+        controller.enqueue({
+          id: 'mimo-search',
+          choices: [
+            {
+              index: 0,
+              delta: {
+                annotations: [
+                  {
+                    logo_url: 'https://example.com/logo.png',
+                    site_name: 'Tencent',
+                    summary: 'Tomorrow cloudy',
+                    title: 'Wuhan weather',
+                    type: 'url_citation',
+                    url: 'https://news.qq.com/rain/a/20260422A03GDF00',
+                  },
+                ],
+              },
+              finish_reason: null,
+            },
+          ],
+        });
+        controller.enqueue({
+          id: 'mimo-search',
+          choices: [
+            {
+              index: 0,
+              delta: { content: 'Based on search results' },
+              finish_reason: null,
+            },
+          ],
+        });
+        controller.enqueue({
+          id: 'mimo-search',
+          choices: [
+            {
+              index: 0,
+              delta: { content: null, reasoning_content: null },
+              finish_reason: 'stop',
+            },
+          ],
+        });
+
+        controller.close();
+      },
+    });
+
+    const protocolStream = OpenAIStream(mockOpenAIStream);
+
+    const decoder = new TextDecoder();
+    const chunks = [];
+
+    // @ts-ignore
+    for await (const chunk of protocolStream) {
+      chunks.push(decoder.decode(chunk, { stream: true }));
+    }
+
+    expect(chunks).toEqual([
+      'id: mimo-search\n',
+      'event: grounding\n',
+      `data: {"citations":[{"title":"Wuhan weather","url":"https://news.qq.com/rain/a/20260422A03GDF00"}]}\n\n`,
+      'id: mimo-search\n',
+      'event: text\n',
+      `data: "Based on search results"\n\n`,
+      'id: mimo-search\n',
+      'event: stop\n',
+      `data: "stop"\n\n`,
+    ]);
+    expect(chunks.join('')).not.toContain('StreamChunkError');
+  });
+
+  it('should handle Xiaomi MiMo flat url_citation annotations on the finish packet', async () => {
+    const mockOpenAIStream = new ReadableStream({
+      start(controller) {
+        controller.enqueue({
+          id: 'mimo-search-finish',
+          choices: [
+            {
+              index: 0,
+              delta: {
+                annotations: [
+                  {
+                    title: 'Wuhan weather',
+                    type: 'url_citation',
+                    url: 'https://news.qq.com/rain/a/20260422A03GDF00',
+                  },
+                ],
+              },
+              finish_reason: 'stop',
+            },
+          ],
+        });
+
+        controller.close();
+      },
+    });
+
+    const protocolStream = OpenAIStream(mockOpenAIStream);
+
+    const decoder = new TextDecoder();
+    const chunks = [];
+
+    // @ts-ignore
+    for await (const chunk of protocolStream) {
+      chunks.push(decoder.decode(chunk, { stream: true }));
+    }
+
+    expect(chunks).toEqual([
+      'id: mimo-search-finish\n',
+      'event: grounding\n',
+      `data: {"citations":[{"title":"Wuhan weather","url":"https://news.qq.com/rain/a/20260422A03GDF00"}]}\n\n`,
+    ]);
+    expect(chunks.join('')).not.toContain('StreamChunkError');
+  });
+
   it('should handle MiniMax messages with annotations in finish_reason', async () => {
     const mockOpenAIStream = new ReadableStream({
       start(controller) {

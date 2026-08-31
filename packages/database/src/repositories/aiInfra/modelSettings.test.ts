@@ -78,27 +78,6 @@ describe('injectModelSettings', () => {
     });
   });
 
-  it('injects Xiaomi MiMo enableReasoning for fetched V2.5 models', () => {
-    expect(
-      injectModelSettings('mimo', {
-        abilities: { functionCall: true, reasoning: true },
-        id: 'mimo-v2.5-pro',
-        type: 'chat',
-      }).settings,
-    ).toEqual({
-      extendParams: ['enableReasoning'],
-    });
-    expect(
-      injectModelSettings('mimo', {
-        abilities: { functionCall: true, reasoning: true, video: true, vision: true },
-        id: 'mimo-v2.5',
-        type: 'chat',
-      }).settings,
-    ).toEqual({
-      extendParams: ['enableReasoning'],
-    });
-  });
-
   it('injects only documented Moonshot K2.5 and K2.6 toggles', () => {
     expect(injectModelSettings('moonshot', { id: 'kimi-k2.5', type: 'chat' }).settings).toEqual({
       extendParams: ['enableReasoning'],

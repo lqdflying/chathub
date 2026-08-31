@@ -6,8 +6,8 @@ export enum ModelProvider {
   AzureAI = 'azureai',
   DeepSeek = 'deepseek',
   Google = 'google',
-  Minimax = 'minimax',
   Mimo = 'mimo',
+  Minimax = 'minimax',
   Moonshot = 'moonshot',
   OpenAI = 'openai',
   /** Any OpenAI-compatible HTTP API (custom base URL + API key); model id is user-defined */

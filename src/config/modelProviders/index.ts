@@ -6,8 +6,8 @@ import AzureProvider from './azure';
 import AzureAIProvider from './azureai';
 import DeepSeekProvider from './deepseek';
 import GoogleProvider from './google';
-import MinimaxProvider from './minimax';
 import MimoProvider from './mimo';
+import MinimaxProvider from './minimax';
 import MoonshotProvider from './moonshot';
 import OpenAIProvider from './openai';
 import OpenAICompatibleProvider from './openaicompatible';
@@ -30,8 +30,8 @@ export const DEFAULT_MODEL_PROVIDER_LIST = [
   AnthropicCompatibleProvider,
   DeepSeekProvider,
   GoogleProvider,
-  MinimaxProvider,
   MimoProvider,
+  MinimaxProvider,
   MoonshotProvider,
   OpenAICompatibleProvider,
   ZhipuProvider,
@@ -53,8 +53,8 @@ export { default as AzureAIProviderCard } from './azureai';
 export { default as DeepSeekProviderCard } from './deepseek';
 export { default as GoogleProviderCard } from './google';
 export { default as LobeHubProviderCard } from './lobehub';
-export { default as MinimaxProviderCard } from './minimax';
 export { default as MimoProviderCard } from './mimo';
+export { default as MinimaxProviderCard } from './minimax';
 export { default as MoonshotProviderCard } from './moonshot';
 export { default as OpenAIProviderCard } from './openai';
 export { default as OpenAICompatibleProviderCard } from './openaicompatible';

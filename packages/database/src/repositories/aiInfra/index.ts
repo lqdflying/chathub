@@ -42,8 +42,8 @@ const PROVIDER_SEARCH_DEFAULTS: Record<
   google: { searchImpl: 'params', searchProvider: 'google' },
   hunyuan: { searchImpl: 'params' },
   jina: { searchImpl: 'internal' },
-  minimax: { searchImpl: 'params' },
   mimo: { searchImpl: 'params' },
+  minimax: { searchImpl: 'params' },
   // openai: 默认 params，但对 -search- 型号做 internal 特判
   openai: { searchImpl: 'params' },
   // perplexity: 默认 internal
@@ -107,16 +107,18 @@ const inferProviderExtendParams = (
     }
   }
 
-  if (providerId === ModelProvider.Minimax) {
-    if (modelId.includes('minimax-m') || item.abilities?.reasoning) {
-      return ['minimaxReasoningSplit'];
-    }
+  if (
+    providerId === ModelProvider.Mimo &&
+    (modelId.includes('mimo-v2.5') || item.abilities?.reasoning)
+  ) {
+    return ['enableReasoning'];
   }
 
-  if (providerId === ModelProvider.Mimo) {
-    if (modelId.includes('mimo-v2.5') || item.abilities?.reasoning) {
-      return ['enableReasoning'];
-    }
+  if (
+    providerId === ModelProvider.Minimax &&
+    (modelId.includes('minimax-m') || item.abilities?.reasoning)
+  ) {
+    return ['minimaxReasoningSplit'];
   }
 
   if (providerId === ModelProvider.Moonshot) {

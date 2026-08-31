@@ -43,6 +43,38 @@ const processMarkdownBase64Images = (text: string): { cleanedText: string; urls:
   return { cleanedText, urls };
 };
 
+/**
+ * Map Chat Completions `delta.annotations` into grounding citations.
+ * OpenAI Search Preview uses nested `{ type, url_citation: { url, title } }`.
+ * Xiaomi MiMo uses a flat `{ type: 'url_citation', url, title, ... }` record
+ * and often emits it on the first packet (`finish_reason: null`).
+ * https://mimo.mi.com/docs/en-US/api/chat/openai-api
+ */
+const citationsFromDeltaAnnotations = (annotations: unknown): ChatCitationItem[] => {
+  if (!Array.isArray(annotations) || annotations.length === 0) return [];
+
+  return annotations
+    .map((annotation: any) => {
+      const nested = annotation?.url_citation;
+      if (nested && typeof nested.url === 'string') {
+        return {
+          title: nested.title || nested.url,
+          url: nested.url,
+        } satisfies ChatCitationItem;
+      }
+
+      if (typeof annotation?.url === 'string') {
+        return {
+          title: annotation.title || annotation.url,
+          url: annotation.url,
+        } satisfies ChatCitationItem;
+      }
+
+      return undefined;
+    })
+    .filter(Boolean) as ChatCitationItem[];
+};
+
 const debugOpenAICompatChatUsage = (
   usage: OpenAI.Completions.CompletionUsage,
   payload?: ChatPayloadForTransformStream,
@@ -206,6 +238,21 @@ const transformOpenAIStream = (
         .filter(Boolean) as StreamProtocolChunk[];
     }
 
+    // Citations may arrive before finish_reason (Xiaomi MiMo first packet).
+    const deltaAnnotations = (item as any).delta?.annotations;
+    if (!item.finish_reason && Array.isArray(deltaAnnotations) && deltaAnnotations.length > 0) {
+      const citations = citationsFromDeltaAnnotations(deltaAnnotations);
+      if (citations.length > 0) {
+        return [
+          {
+            data: { citations },
+            id: chunk.id,
+            type: 'grounding',
+          },
+        ];
+      }
+    }
+
     // 给定结束原因
     if (item.finish_reason) {
       // one-api 的流式接口，会出现既有 finish_reason ，也有 content 的情况
@@ -238,23 +285,16 @@ const transformOpenAIStream = (
       // OpenAI Search Preview 模型返回引用源
       // {"id":"chatcmpl-18037d13-243c-4941-8b05-9530b352cf17","object":"chat.completion.chunk","created":1748351805,"model":"gpt-4o-mini-search-preview-2025-03-11","choices":[{"index":0,"delta":{"annotations":[{"type":"url_citation","url_citation":{"url":"https://zh.wikipedia.org/wiki/%E4%B8%8A%E6%B5%B7%E4%B9%90%E9%AB%98%E4%B9%90%E5%9B%AD?utm_source=openai","title":"上海乐高乐园","start_index":75,"end_index":199}}]},"finish_reason":"stop"}],"service_tier":"default"}
       if ((item as any).delta?.annotations && (item as any).delta.annotations.length > 0) {
-        const citations = (item as any).delta.annotations;
-
-        return [
-          {
-            data: {
-              citations: citations.map(
-                (item: any) =>
-                  ({
-                    title: item.url_citation.title,
-                    url: item.url_citation.url,
-                  }) as ChatCitationItem,
-              ),
+        const citations = citationsFromDeltaAnnotations((item as any).delta.annotations);
+        if (citations.length > 0) {
+          return [
+            {
+              data: { citations },
+              id: chunk.id,
+              type: 'grounding',
             },
-            id: chunk.id,
-            type: 'grounding',
-          },
-        ];
+          ];
+        }
       }
 
       // MiniMax 内建搜索功能会在最后一个流中的 message 数组中返回 4 个 Object，其中最后一个为 annotations

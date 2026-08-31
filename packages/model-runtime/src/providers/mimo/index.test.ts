@@ -28,7 +28,7 @@ describe('buildMimoPayload', () => {
     expect(payload.stream).toBe(true);
   });
 
-  it('strips sampling params when thinking is enabled', () => {
+  it('omits only temperature and top_p when thinking is enabled', () => {
     const payload = buildMimoPayload({
       ...basePayload,
       frequency_penalty: 0.5,
@@ -40,8 +40,8 @@ describe('buildMimoPayload', () => {
 
     expect(payload.temperature).toBeUndefined();
     expect(payload.top_p).toBeUndefined();
-    expect(payload.frequency_penalty).toBeUndefined();
-    expect(payload.presence_penalty).toBeUndefined();
+    expect(payload.frequency_penalty).toBe(0.5);
+    expect(payload.presence_penalty).toBe(0.3);
     expect(payload.thinking).toEqual({ type: 'enabled' });
   });
 
@@ -137,6 +137,52 @@ describe('buildMimoPayload', () => {
     });
   });
 
+  it('leaves stored reasoning.content untouched so the converter can map it', () => {
+    const toolCall = {
+      function: { arguments: '{}', name: 'search' },
+      id: 'call-1',
+      type: 'function',
+    };
+    const payload = buildMimoPayload({
+      ...basePayload,
+      messages: [
+        {
+          content: '',
+          reasoning: { content: 'must preserve this' },
+          role: 'assistant',
+          tool_calls: [toolCall],
+        },
+      ],
+      thinking: { type: 'enabled' as const },
+    } as any);
+
+    expect((payload.messages as any[])[0].reasoning_content).toBeUndefined();
+    expect((payload.messages as any[])[0].reasoning).toEqual({ content: 'must preserve this' });
+  });
+
+  it('replaces empty reasoning_content with stored reasoning.content', () => {
+    const toolCall = {
+      function: { arguments: '{}', name: 'search' },
+      id: 'call-1',
+      type: 'function',
+    };
+    const payload = buildMimoPayload({
+      ...basePayload,
+      messages: [
+        {
+          content: '',
+          reasoning: { content: 'must preserve this' },
+          reasoning_content: '',
+          role: 'assistant',
+          tool_calls: [toolCall],
+        },
+      ],
+      thinking: { type: 'enabled' as const },
+    } as any);
+
+    expect((payload.messages as any[])[0].reasoning_content).toBe('must preserve this');
+  });
+
   it('preserves existing reasoning_content on assistant tool_calls', () => {
     const toolCall = {
       function: { arguments: '{}', name: 'search' },
@@ -191,6 +237,48 @@ describe('buildMimoPayload', () => {
     });
 
     expect((payload.messages as any)[1].content).toBe('Here is the answer');
+  });
+});
+
+describe('LobeMimoAI chat', () => {
+  it('maps stored reasoning.content through to reasoning_content on tool continuations', async () => {
+    const instance = new LobeMimoAI({ apiKey: 'test-key' });
+    const create = vi
+      .spyOn((instance as any).client.chat.completions, 'create')
+      .mockResolvedValue({
+        choices: [{ message: { content: 'done', role: 'assistant' } }],
+        created: 123,
+        id: 'chatcmpl-mimo-reasoning',
+        model: 'mimo-v2.5-pro',
+        object: 'chat.completion',
+      });
+    const toolCall = {
+      function: { arguments: '{}', name: 'search' },
+      id: 'call-1',
+      type: 'function',
+    };
+
+    await instance.chat({
+      messages: [
+        { content: 'Search now', role: 'user' },
+        {
+          content: '',
+          reasoning: { content: 'must preserve this' },
+          role: 'assistant',
+          tool_calls: [toolCall],
+        },
+        { content: 'result', role: 'tool', tool_call_id: 'call-1' },
+      ],
+      model: 'mimo-v2.5-pro',
+      responseMode: 'json',
+      stream: false,
+      thinking: { type: 'enabled' },
+    } as any);
+
+    expect(create).toHaveBeenCalled();
+    const body = create.mock.calls[0][0] as { messages: Array<Record<string, unknown>> };
+    const assistant = body.messages.find((message) => message.role === 'assistant');
+    expect(assistant?.reasoning_content).toBe('must preserve this');
   });
 });
 
