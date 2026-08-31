@@ -1,5 +1,5 @@
 import { ChatModelCard } from '@lobechat/types';
-import { IconAvatarProps, ModelIcon, ProviderIcon } from '@lobehub/icons';
+import { IconAvatarProps } from '@lobehub/icons';
 import { Avatar, Icon, Tag, Text, Tooltip } from '@lobehub/ui';
 import { createStyles, useResponsive } from 'antd-style';
 import {
@@ -18,6 +18,7 @@ import { FC, memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
+import { ModelBrandIcon, ProviderBrandIcon } from '@/components/ProviderBrandIcon';
 import { AiProviderSourceType } from '@/types/aiProvider';
 import { formatTokenNumber } from '@/utils/format';
 
@@ -198,7 +199,7 @@ export const ModelItemRender = memo<ModelItemRenderProps>(({ showInfoTag = true,
         horizontal
         style={{ flexShrink: 1, minWidth: 0, overflow: 'hidden' }}
       >
-        <ModelIcon model={model.id} size={20} />
+        <ModelBrandIcon model={model.id} size={20} />
         <Text style={mobile ? { maxWidth: '60vw', overflowX: 'auto', whiteSpace: 'nowrap' } : {}}>
           {model.displayName || model.id}
         </Text>
@@ -222,7 +223,7 @@ export const ProviderItemRender = memo<ProviderItemRenderProps>(
         {source === 'custom' && !!logo ? (
           <Avatar avatar={logo} size={20} style={{ filter: 'grayscale(1)' }} title={name} />
         ) : (
-          <ProviderIcon provider={provider} size={20} type={'mono'} />
+          <ProviderBrandIcon provider={provider} size={20} type={'mono'} />
         )}
         {name}
       </Flexbox>

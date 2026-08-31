@@ -177,6 +177,7 @@ The default model list ships 8 GLM cards (`glm-5.2`, `glm-5.1`, `glm-5`, `glm-5-
 - **reasoning_content** — when thinking is on, assistant tool-call turns must pass historical `reasoning_content`. Map ChatHub `message.reasoning.content` when present; inject `''` only when neither that nor a usable bare `reasoning_content` exists. An empty or null bare field must not overwrite stored reasoning.
 - **Fetch** — `client.models.list()` plus `MODEL_LIST_CONFIGS.mimo`; drop tts/asr/voiceclone/voicedesign ids. `mimo-v2.5-pro` is text; exact `mimo-v2.5` gets vision/video. Fetched ids infer `enableReasoning` at read time.
 - **Cache** — `cacheSupport: 'supported'` via `usage.prompt_tokens_details.cached_tokens`. Debug: `DEBUG_MIMO_CACHE=1`. Not in `CACHE_PREFIX_SENSITIVE_PROVIDERS`.
+- **UI brand mark** — ChatHub provider id is `mimo`; `@lobehub/icons` v3+ uses `xiaomimimo`. While ChatHub pins icons 2.x, Settings/model pickers load vendored assets from `public/icons/providers/mimo*` via `resolveProviderLogoUrl` / `ProviderBrandIcon`.
 
 Responses API and Anthropic Messages exist on the Xiaomi platform but are out of scope for this adapter.
 

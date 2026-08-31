@@ -1,11 +1,9 @@
-import { ProviderIcon } from '@lobehub/icons';
 import { Avatar, SortableList } from '@lobehub/ui';
 import { memo } from 'react';
 import { Flexbox } from 'react-layout-kit';
 
+import { ProviderBrandIcon } from '@/components/ProviderBrandIcon';
 import { AiProviderListItem } from '@/types/aiProvider';
-
-import { resolveProviderIcon } from '../../utils/resolveProviderIcon';
 
 const GroupItem = memo<AiProviderListItem>(({ id, name, source, logo }) => {
   return (
@@ -20,7 +18,7 @@ const GroupItem = memo<AiProviderListItem>(({ id, name, source, logo }) => {
             style={{ borderRadius: 6 }}
           />
         ) : (
-          <ProviderIcon provider={resolveProviderIcon(id)} size={24} style={{ borderRadius: 6 }} type={'avatar'} />
+          <ProviderBrandIcon provider={id} size={24} type={'avatar'} />
         )}
         {name}
       </Flexbox>

@@ -1,4 +1,3 @@
-import { ProviderIcon } from '@lobehub/icons';
 import { Avatar } from '@lobehub/ui';
 import { Badge } from 'antd';
 import { createStyles } from 'antd-style';
@@ -6,9 +5,8 @@ import { useSearchParams } from 'next/navigation';
 import { memo } from 'react';
 import { Center, Flexbox } from 'react-layout-kit';
 
+import { ProviderBrandIcon } from '@/components/ProviderBrandIcon';
 import { AiProviderListItem, AiProviderSourceEnum } from '@/types/aiProvider';
-
-import { resolveProviderIcon } from '../utils/resolveProviderIcon';
 
 export const useStyles = createStyles(({ css, token }) => ({
   active: css`
@@ -66,7 +64,7 @@ const ProviderItem = memo<ProviderItemProps>(
               style={{ borderRadius: 6 }}
             />
           ) : (
-            <ProviderIcon provider={resolveProviderIcon(id)} size={24} style={{ borderRadius: 6 }} type={'avatar'} />
+            <ProviderBrandIcon provider={id} size={24} type={'avatar'} />
           )}
           {name}
         </Flexbox>

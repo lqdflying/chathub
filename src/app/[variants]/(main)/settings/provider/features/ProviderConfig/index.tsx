@@ -21,6 +21,7 @@ import urlJoin from 'url-join';
 import { z } from 'zod';
 
 import { FormInput, FormPassword } from '@/components/FormInput';
+import { ProviderBrandCombine } from '@/components/ProviderBrandIcon';
 import { FORM_STYLE } from '@/const/layoutTokens';
 import { AES_GCM_URL, BASE_PROVIDER_DOC_URL } from '@/const/url';
 import { aiProviderSelectors, useAiInfraStore } from '@/store/aiInfra';
@@ -41,7 +42,6 @@ import {
 } from '@/types/aiProvider';
 
 import { KeyVaultsConfigKey, LLMProviderApiTokenKey, LLMProviderBaseUrlKey } from '../../const';
-import { resolveProviderIcon } from '../../utils/resolveProviderIcon';
 import Checker, { CheckErrorRender } from './Checker';
 import EnableSwitch from './EnableSwitch';
 import { SkeletonInput } from './SkeletonInput';
@@ -865,7 +865,7 @@ const ProviderConfig = memo<ProviderConfigProps>(
             </Flexbox>
           ) : (
             <>
-              <ProviderCombine provider={resolveProviderIcon(id)} size={24} />
+              <ProviderBrandCombine provider={id} size={24} title={name} />
               <Tooltip title={t('providerModels.config.helpDoc')}>
                 <Link
                   href={urlJoin(BASE_PROVIDER_DOC_URL, id)}

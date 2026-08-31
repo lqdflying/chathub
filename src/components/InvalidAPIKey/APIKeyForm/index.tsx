@@ -1,10 +1,10 @@
-import { ProviderIcon } from '@lobehub/icons';
 import { Button } from '@lobehub/ui';
 import { ModelProvider } from 'model-bank';
 import { memo, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Center, Flexbox } from 'react-layout-kit';
 
+import { ProviderBrandIcon } from '@/components/ProviderBrandIcon';
 import { GlobalLLMProviderKey } from '@/types/user/settings';
 
 import { LoadingContext } from './LoadingContext';
@@ -48,7 +48,7 @@ const APIKeyForm = memo<APIKeyFormProps>(
         >
           <ProviderApiKeyForm
             apiKeyPlaceholder={apiKeyPlaceholder}
-            avatar={<ProviderIcon provider={provider} size={80} type={'avatar'} />}
+            avatar={<ProviderBrandIcon provider={provider || ''} size={80} type={'avatar'} />}
             description={description}
             provider={provider as GlobalLLMProviderKey}
             showEndpoint

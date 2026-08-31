@@ -1,4 +1,3 @@
-import { ProviderCombine, ProviderIcon } from '@lobehub/icons';
 import { Avatar, Text } from '@lobehub/ui';
 import { Divider, Skeleton } from 'antd';
 import Link from 'next/link';
@@ -6,9 +5,9 @@ import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
+import { ProviderBrandCombine, ProviderBrandIcon } from '@/components/ProviderBrandIcon';
 import { AiProviderListItem } from '@/types/aiProvider';
 
-import { resolveProviderIcon } from '../../utils/resolveProviderIcon';
 import EnableSwitch from './EnableSwitch';
 import { useStyles } from './style';
 
@@ -38,8 +37,8 @@ const ProviderCard = memo<ProviderCardProps>(
             <Flexbox gap={12} width={'100%'}>
               <Flexbox align={'center'} horizontal justify={'space-between'}>
                 {source === 'builtin' ? (
-                  <ProviderCombine
-                    provider={resolveProviderIcon(id)}
+                  <ProviderBrandCombine
+                    provider={id}
                     size={24}
                     style={{ color: theme.colorText }}
                     title={name}
@@ -49,12 +48,7 @@ const ProviderCard = memo<ProviderCardProps>(
                     {logo ? (
                       <Avatar alt={name || id} avatar={logo} size={28} />
                     ) : (
-                      <ProviderIcon
-                        provider={resolveProviderIcon(id)}
-                        size={24}
-                        style={{ borderRadius: 6 }}
-                        type={'avatar'}
-                      />
+                      <ProviderBrandIcon provider={id} size={24} type={'avatar'} />
                     )}
                     <Text style={{ fontSize: 16, fontWeight: 'bold' }}>{name || id}</Text>
                   </Flexbox>

@@ -1,4 +1,3 @@
-import { ModelIcon } from '@lobehub/icons';
 import { ActionIcon, Tag, Text, copyToClipboard } from '@lobehub/ui';
 import { App, Switch } from 'antd';
 import { createStyles, useTheme } from 'antd-style';
@@ -9,6 +8,7 @@ import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
 import { ModelInfoTags } from '@/components/ModelSelect';
+import { ModelBrandIcon } from '@/components/ProviderBrandIcon';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { aiModelSelectors, useAiInfraStore } from '@/store/aiInfra';
 import { formatPriceByCurrency } from '@/utils/format';
@@ -172,7 +172,7 @@ const ModelItem = memo<ModelItemProps>(
         width={'100%'}
       >
         <Flexbox align={'center'} flex={1} gap={16} horizontal style={{ minWidth: 0 }}>
-          <ModelIcon model={id} size={32} />
+          <ModelBrandIcon model={id} size={32} />
           <Flexbox flex={1} gap={4} style={{ minWidth: 0 }}>
             <Flexbox align={'center'} gap={8} horizontal>
               {displayName || id}
@@ -260,7 +260,7 @@ const ModelItem = memo<ModelItemProps>(
         width={'100%'}
       >
         <Flexbox align={'center'} flex={1} gap={8} horizontal style={{ minWidth: 0 }}>
-          <ModelIcon model={id} size={32} />
+          <ModelBrandIcon model={id} size={32} />
           <Flexbox flex={1} gap={2} style={{ minWidth: 0 }}>
             <Flexbox align={'center'} gap={8} horizontal>
               {displayName || id}
