@@ -79,27 +79,53 @@ const appendSearchTool = <T>(tools: T[] | undefined, enabledSearch?: boolean): T
   return tools?.length ? [...tools, MIMO_WEB_SEARCH_TOOL as T] : ([MIMO_WEB_SEARCH_TOOL] as T[]);
 };
 
-/** Exported for unit tests — Xiaomi MiMo Chat Completions request shaping. */
+/** Official Chat Completions temperature range: [0, 1.5]. */
+const clampMimoTemperature = (value: unknown): number | undefined => {
+  if (typeof value !== 'number' || Number.isNaN(value)) return undefined;
+  return Math.min(1.5, Math.max(0, value));
+};
+
+/** Official Chat Completions top_p range: [0.01, 1.0]. */
+const clampMimoTopP = (value: unknown): number | undefined => {
+  if (typeof value !== 'number' || Number.isNaN(value)) return undefined;
+  return Math.min(1, Math.max(0.01, value));
+};
+
+const clampMimoMaxCompletionTokens = (value: unknown): number | undefined => {
+  if (typeof value !== 'number' || Number.isNaN(value)) return undefined;
+  return Math.min(131_072, Math.max(1, Math.floor(value)));
+};
+
+/**
+ * Exported for unit tests — Xiaomi MiMo Chat Completions request shaping.
+ *
+ * Token Plan (`token-plan-cn.xiaomimimo.com`) returns HTTP 400
+ * `Invalid request parameters` when undocumented ChatHub fields leak through
+ * (`enabledContextCaching`, `n`, `responseMode`, `reasoning_effort`, etc.).
+ * Connectivity check passes because it only sends a minimal body; full chat
+ * must emit a whitelist of official fields only.
+ *
+ * @see https://mimo.mi.com/docs/en-US/api/chat/openai-api
+ * @see https://mimo.mi.com/docs/en-US/api/guidance/error-codes
+ */
 export const buildMimoPayload = (
   payload: ChatStreamPayload,
 ): OpenAI.ChatCompletionCreateParamsStreaming => {
-  const requestPayload = { ...payload };
-  const enabledSearch = requestPayload.enabledSearch;
-  delete requestPayload.enabledSearch;
-
+  const enabledSearch = payload.enabledSearch;
   const {
     frequency_penalty,
     max_tokens,
     messages,
     model,
     presence_penalty,
+    response_format,
+    stop,
     temperature,
     thinking,
     tool_choice,
     tools,
     top_p,
-    ...rest
-  } = requestPayload;
+  } = payload;
 
   const thinkingEnabled = isThinkingEnabled(payload);
   const mimoTools = appendSearchTool(tools, enabledSearch);
@@ -108,24 +134,32 @@ export const buildMimoPayload = (
     ? patchAssistantToolCallReasoning(sanitizedMessages)
     : sanitizedMessages;
 
-  const maxCompletionTokens =
-    (requestPayload as { max_completion_tokens?: number }).max_completion_tokens ?? max_tokens;
+  const maxCompletionTokens = clampMimoMaxCompletionTokens(
+    (payload as { max_completion_tokens?: number }).max_completion_tokens ?? max_tokens,
+  );
 
   const coercedToolChoice =
     tool_choice !== undefined && tool_choice !== 'auto' ? 'auto' : tool_choice;
 
+  const clampedTemperature = clampMimoTemperature(temperature);
+  const clampedTopP = clampMimoTopP(top_p);
+
   return {
-    ...rest,
     messages: messagesForRequest as OpenAI.ChatCompletionMessageParam[],
     model,
     stream: payload.stream ?? true,
     ...(maxCompletionTokens !== undefined ? { max_completion_tokens: maxCompletionTokens } : {}),
     ...(frequency_penalty !== undefined ? { frequency_penalty } : {}),
     ...(presence_penalty !== undefined ? { presence_penalty } : {}),
-    ...(!thinkingEnabled ? { temperature, top_p } : {}),
+    ...(response_format !== undefined ? { response_format } : {}),
+    ...(stop !== undefined && stop !== null ? { stop } : {}),
+    ...(!thinkingEnabled && clampedTemperature !== undefined
+      ? { temperature: clampedTemperature }
+      : {}),
+    ...(!thinkingEnabled && clampedTopP !== undefined ? { top_p: clampedTopP } : {}),
     ...(thinking ? { thinking: { type: thinking.type } } : {}),
     ...(coercedToolChoice !== undefined ? { tool_choice: coercedToolChoice } : {}),
-    tools: mimoTools?.length ? mimoTools : undefined,
+    ...(mimoTools?.length ? { tools: mimoTools } : {}),
   } as OpenAI.ChatCompletionCreateParamsStreaming;
 };
 
@@ -153,7 +187,11 @@ export const LobeMimoAI = createOpenAICompatibleRuntime({
   baseURL: 'https://api.xiaomimimo.com/v1',
   cacheSupport: 'supported',
   chatCompletion: {
+    // `stream_options` / `user` are not on Xiaomi's Chat Completions schema;
+    // Token Plan has returned 400 for undeclared fields.
+    excludeUsage: true,
     handlePayload: buildMimoPayload,
+    noUserId: true,
   },
   debug: {
     chatCompletion: () => process.env.DEBUG_MIMO_CHAT_COMPLETION === '1',

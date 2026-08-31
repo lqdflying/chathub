@@ -178,6 +178,7 @@ The default model list ships 8 GLM cards (`glm-5.2`, `glm-5.1`, `glm-5`, `glm-5-
 - **Fetch** — `client.models.list()` plus `MODEL_LIST_CONFIGS.mimo`; drop tts/asr/voiceclone/voicedesign ids. `mimo-v2.5-pro` is text; exact `mimo-v2.5` gets vision/video. Fetched ids infer `enableReasoning` at read time.
 - **Cache** — `cacheSupport: 'supported'` via `usage.prompt_tokens_details.cached_tokens`. Debug: `DEBUG_MIMO_CACHE=1`. Not in `CACHE_PREFIX_SENSITIVE_PROVIDERS`.
 - **UI brand mark** — ChatHub provider id is `mimo`; `@lobehub/icons` v3+ uses `xiaomimimo`. While ChatHub pins icons 2.x, Settings/model pickers load vendored assets from `public/icons/providers/mimo*` via `resolveProviderLogoUrl` / `ProviderBrandIcon`.
+- **Request whitelist** — `buildMimoPayload` emits only documented Chat Completions fields (Token Plan returns `400 Invalid request parameters` for ChatHub-internal keys). Also `excludeUsage` / `noUserId` so `stream_options` and `user` are not sent. Temperature is clamped to `[0, 1.5]` and `top_p` to `[0.01, 1.0]`.
 
 ### Provider brand icons (all providers)
 

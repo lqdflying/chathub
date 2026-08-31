@@ -28,6 +28,41 @@ describe('buildMimoPayload', () => {
     expect(payload.stream).toBe(true);
   });
 
+  it('does not forward ChatHub-internal fields that Token Plan rejects as 400', () => {
+    const payload = buildMimoPayload({
+      ...basePayload,
+      apiMode: 'chatCompletion',
+      catalogModel: 'mimo-v2.5-pro',
+      enabledContextCaching: true,
+      n: 1,
+      provider: 'mimo',
+      reasoning_effort: 'high',
+      responseMode: 'stream',
+      thinking: { type: 'disabled' as const },
+    } as any);
+
+    expect(payload).not.toHaveProperty('apiMode');
+    expect(payload).not.toHaveProperty('catalogModel');
+    expect(payload).not.toHaveProperty('enabledContextCaching');
+    expect(payload).not.toHaveProperty('n');
+    expect(payload).not.toHaveProperty('provider');
+    expect(payload).not.toHaveProperty('reasoning_effort');
+    expect(payload).not.toHaveProperty('responseMode');
+    expect(payload).not.toHaveProperty('enabledSearch');
+  });
+
+  it('clamps temperature and top_p to Xiaomi ranges when thinking is off', () => {
+    const payload = buildMimoPayload({
+      ...basePayload,
+      temperature: 2,
+      thinking: { type: 'disabled' as const },
+      top_p: 0,
+    });
+
+    expect(payload.temperature).toBe(1.5);
+    expect(payload.top_p).toBe(0.01);
+  });
+
   it('omits only temperature and top_p when thinking is enabled', () => {
     const payload = buildMimoPayload({
       ...basePayload,
