@@ -5,7 +5,10 @@ import { useSearchParams } from 'next/navigation';
 import { memo } from 'react';
 import { Center, Flexbox } from 'react-layout-kit';
 
-import { ProviderBrandIcon } from '@/components/ProviderBrandIcon';
+import {
+  PROVIDER_SETTINGS_AVATAR_STYLE,
+  ProviderBrandIcon,
+} from '@/components/ProviderBrandIcon';
 import { AiProviderListItem, AiProviderSourceEnum } from '@/types/aiProvider';
 
 export const useStyles = createStyles(({ css, token }) => ({
@@ -64,7 +67,12 @@ const ProviderItem = memo<ProviderItemProps>(
               style={{ borderRadius: 6 }}
             />
           ) : (
-            <ProviderBrandIcon provider={id} size={24} type={'avatar'} />
+            <ProviderBrandIcon
+              provider={id}
+              size={24}
+              style={PROVIDER_SETTINGS_AVATAR_STYLE}
+              type={'avatar'}
+            />
           )}
           {name}
         </Flexbox>

@@ -5,7 +5,11 @@ import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
-import { ProviderBrandCombine, ProviderBrandIcon } from '@/components/ProviderBrandIcon';
+import {
+  PROVIDER_SETTINGS_AVATAR_STYLE,
+  ProviderBrandCombine,
+  ProviderBrandIcon,
+} from '@/components/ProviderBrandIcon';
 import { AiProviderListItem } from '@/types/aiProvider';
 
 import EnableSwitch from './EnableSwitch';
@@ -48,7 +52,12 @@ const ProviderCard = memo<ProviderCardProps>(
                     {logo ? (
                       <Avatar alt={name || id} avatar={logo} size={28} />
                     ) : (
-                      <ProviderBrandIcon provider={id} size={24} type={'avatar'} />
+                      <ProviderBrandIcon
+                        provider={id}
+                        size={24}
+                        style={PROVIDER_SETTINGS_AVATAR_STYLE}
+                        type={'avatar'}
+                      />
                     )}
                     <Text style={{ fontSize: 16, fontWeight: 'bold' }}>{name || id}</Text>
                   </Flexbox>

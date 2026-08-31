@@ -2,7 +2,10 @@ import { Avatar, SortableList } from '@lobehub/ui';
 import { memo } from 'react';
 import { Flexbox } from 'react-layout-kit';
 
-import { ProviderBrandIcon } from '@/components/ProviderBrandIcon';
+import {
+  PROVIDER_SETTINGS_AVATAR_STYLE,
+  ProviderBrandIcon,
+} from '@/components/ProviderBrandIcon';
 import { AiProviderListItem } from '@/types/aiProvider';
 
 const GroupItem = memo<AiProviderListItem>(({ id, name, source, logo }) => {
@@ -18,7 +21,12 @@ const GroupItem = memo<AiProviderListItem>(({ id, name, source, logo }) => {
             style={{ borderRadius: 6 }}
           />
         ) : (
-          <ProviderBrandIcon provider={id} size={24} type={'avatar'} />
+          <ProviderBrandIcon
+            provider={id}
+            size={24}
+            style={PROVIDER_SETTINGS_AVATAR_STYLE}
+            type={'avatar'}
+          />
         )}
         {name}
       </Flexbox>

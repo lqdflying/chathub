@@ -15,8 +15,14 @@ import {
 
 import { XiaomiMiMoMono } from './XiaomiMiMoMono';
 
-/** Match prior ProviderIcon avatar geometry (IconAvatar defaults to circle without this). */
-const AVATAR_RADIUS_STYLE: CSSProperties = { borderRadius: 6 };
+/** Settings provider tiles use this; do not bake it into ProviderBrandIcon defaults. */
+export const PROVIDER_SETTINGS_AVATAR_STYLE: CSSProperties = { borderRadius: 6 };
+
+const wantsRoundedSquare = (style?: CSSProperties): boolean => {
+  const radius = style?.borderRadius;
+  if (radius === undefined || radius === null) return false;
+  return radius !== '50%' && radius !== '50';
+};
 
 export interface ProviderBrandIconProps {
   provider: string;
@@ -28,11 +34,13 @@ export interface ProviderBrandIconProps {
 /**
  * Drop-in for `@lobehub/icons` ProviderIcon with ChatHub id aliases and local
  * logo overrides (e.g. Xiaomi MiMo while `@lobehub/icons` stays on 2.x).
+ *
+ * Geometry follows the caller: omit `style` for the package-default circle
+ * (e.g. InvalidAPIKey 80px avatar); pass `PROVIDER_SETTINGS_AVATAR_STYLE` for
+ * Settings 24px rounded squares.
  */
 export const ProviderBrandIcon = memo<ProviderBrandIconProps>(
   ({ provider, size = 24, style, type = 'avatar' }) => {
-    const avatarStyle = type === 'mono' ? style : { ...AVATAR_RADIUS_STYLE, ...style };
-
     if (type === 'mono' && hasLocalProviderMono(provider)) {
       return <XiaomiMiMoMono size={size} style={style} />;
     }
@@ -43,9 +51,9 @@ export const ProviderBrandIcon = memo<ProviderBrandIconProps>(
         <Avatar
           alt={provider}
           avatar={logo}
-          shape={'square'}
+          shape={wantsRoundedSquare(style) ? 'square' : 'circle'}
           size={size}
-          style={avatarStyle}
+          style={style}
         />
       );
     }
@@ -54,7 +62,7 @@ export const ProviderBrandIcon = memo<ProviderBrandIconProps>(
       <ProviderIcon
         provider={resolveProviderIcon(provider)}
         size={size}
-        style={avatarStyle}
+        style={style}
         type={type}
       />
     );
@@ -71,12 +79,14 @@ export interface ProviderBrandCombineProps {
 }
 
 /**
- * Drop-in for ProviderCombine with the same local-logo override path.
+ * Drop-in for ProviderCombine. Settings-only consumers; local logo uses the
+ * Settings rounded-square tile unless `style` opts into a circle.
  */
 export const ProviderBrandCombine = memo<ProviderBrandCombineProps>(
   ({ provider, size = 24, style, title }) => {
     const logo = resolveProviderLogoUrl(provider, 'avatar');
     if (logo) {
+      const tileStyle = { ...PROVIDER_SETTINGS_AVATAR_STYLE, ...style };
       return (
         <Flexbox align={'center'} gap={8} horizontal style={style}>
           <Avatar
@@ -84,7 +94,7 @@ export const ProviderBrandCombine = memo<ProviderBrandCombineProps>(
             avatar={logo}
             shape={'square'}
             size={size}
-            style={AVATAR_RADIUS_STYLE}
+            style={tileStyle}
           />
           {title ? (
             <span style={{ fontSize: 16, fontWeight: 'bold', lineHeight: 1 }}>{title}</span>
@@ -116,8 +126,6 @@ export interface ModelBrandIconProps {
 /** Drop-in for ModelIcon with local overrides for mimo-* ids on icons 2.x. */
 export const ModelBrandIcon = memo<ModelBrandIconProps>(({ model, size = 24, style, type }) => {
   const variant = type === 'mono' ? 'mono' : 'avatar';
-  const avatarStyle =
-    type === 'mono' ? style : { borderRadius: type === 'avatar' ? 6 : 4, ...style };
 
   if (type === 'mono' && isMimoModelId(model)) {
     return <XiaomiMiMoMono size={size} style={style} />;
@@ -126,7 +134,13 @@ export const ModelBrandIcon = memo<ModelBrandIconProps>(({ model, size = 24, sty
   const logo = resolveModelLogoUrl(model, variant);
   if (logo) {
     return (
-      <Avatar alt={model} avatar={logo} shape={'square'} size={size} style={avatarStyle} />
+      <Avatar
+        alt={model}
+        avatar={logo}
+        shape={wantsRoundedSquare(style) ? 'square' : 'circle'}
+        size={size}
+        style={style}
+      />
     );
   }
 

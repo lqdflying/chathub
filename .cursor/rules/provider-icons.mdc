@@ -32,8 +32,10 @@ until assets were vendored under `public/icons/providers/` and wired through
 3. **Document the source** in `public/icons/providers/README.md` (package name,
    path, license). Prefer official static packages such as
    `@lobehub/icons-static-svg` / `-png` / `-avatar` or the vendor’s own brand kit.
-4. **Preserve avatar geometry** — Settings provider avatars use
-   `borderRadius: 6` rounded squares; do not drop that style on fallbacks.
+4. **Preserve avatar geometry at the call site** — Settings provider tiles pass
+   `PROVIDER_SETTINGS_AVATAR_STYLE` (`borderRadius: 6` rounded squares). Do **not**
+   bake that radius into `ProviderBrandIcon` defaults: unstyled callers (e.g.
+   InvalidAPIKey 80px recovery avatar) must keep the package-default circle.
 
 ## Dark mode / mono
 
