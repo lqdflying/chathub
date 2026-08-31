@@ -174,7 +174,7 @@ The default model list ships 8 GLM cards (`glm-5.2`, `glm-5.1`, `glm-5`, `glm-5-
 - **max_completion_tokens** — official Chat Completions field; ChatHub maps `max_tokens` (including the 256-token connection probe) to it.
 - **tool_choice** — coerced to `auto` (the only documented value).
 - **web_search** — when `enabledSearch` is set, append `{ type: 'web_search' }` to `tools`. Do not send `force_search` by default. Do not auto-disable thinking for search/tools.
-- **reasoning_content** — when thinking is on, assistant tool-call turns must pass historical `reasoning_content`. Map ChatHub `message.reasoning.content` when present; inject `''` only when neither that nor a bare `reasoning_content` exists. An empty bare field must not overwrite stored reasoning.
+- **reasoning_content** — when thinking is on, assistant tool-call turns must pass historical `reasoning_content`. Map ChatHub `message.reasoning.content` when present; inject `''` only when neither that nor a usable bare `reasoning_content` exists. An empty or null bare field must not overwrite stored reasoning.
 - **Fetch** — `client.models.list()` plus `MODEL_LIST_CONFIGS.mimo`; drop tts/asr/voiceclone/voicedesign ids. `mimo-v2.5-pro` is text; exact `mimo-v2.5` gets vision/video. Fetched ids infer `enableReasoning` at read time.
 - **Cache** — `cacheSupport: 'supported'` via `usage.prompt_tokens_details.cached_tokens`. Debug: `DEBUG_MIMO_CACHE=1`. Not in `CACHE_PREFIX_SENSITIVE_PROVIDERS`.
 

@@ -183,6 +183,29 @@ describe('buildMimoPayload', () => {
     expect((payload.messages as any[])[0].reasoning_content).toBe('must preserve this');
   });
 
+  it('replaces null reasoning_content with stored reasoning.content', () => {
+    const toolCall = {
+      function: { arguments: '{}', name: 'search' },
+      id: 'call-1',
+      type: 'function',
+    };
+    const payload = buildMimoPayload({
+      ...basePayload,
+      messages: [
+        {
+          content: '',
+          reasoning: { content: 'must preserve this' },
+          reasoning_content: null,
+          role: 'assistant',
+          tool_calls: [toolCall],
+        },
+      ],
+      thinking: { type: 'enabled' as const },
+    } as any);
+
+    expect((payload.messages as any[])[0].reasoning_content).toBe('must preserve this');
+  });
+
   it('preserves existing reasoning_content on assistant tool_calls', () => {
     const toolCall = {
       function: { arguments: '{}', name: 'search' },
@@ -279,6 +302,47 @@ describe('LobeMimoAI chat', () => {
     const body = create.mock.calls[0][0] as { messages: Array<Record<string, unknown>> };
     const assistant = body.messages.find((message) => message.role === 'assistant');
     expect(assistant?.reasoning_content).toBe('must preserve this');
+  });
+
+  it('maps stored reasoning.content when the bare field is null', async () => {
+    const instance = new LobeMimoAI({ apiKey: 'test-key' });
+    const create = vi
+      .spyOn((instance as any).client.chat.completions, 'create')
+      .mockResolvedValue({
+        choices: [{ message: { content: 'done', role: 'assistant' } }],
+        created: 123,
+        id: 'chatcmpl-mimo-reasoning-null',
+        model: 'mimo-v2.5-pro',
+        object: 'chat.completion',
+      });
+    const toolCall = {
+      function: { arguments: '{}', name: 'search' },
+      id: 'call-1',
+      type: 'function',
+    };
+
+    await instance.chat({
+      messages: [
+        { content: 'Search now', role: 'user' },
+        {
+          content: '',
+          reasoning: { content: 'must preserve null case' },
+          reasoning_content: null,
+          role: 'assistant',
+          tool_calls: [toolCall],
+        },
+        { content: 'result', role: 'tool', tool_call_id: 'call-1' },
+      ],
+      model: 'mimo-v2.5-pro',
+      responseMode: 'json',
+      stream: false,
+      thinking: { type: 'enabled' },
+    } as any);
+
+    expect(create).toHaveBeenCalled();
+    const body = create.mock.calls[0][0] as { messages: Array<Record<string, unknown>> };
+    const assistant = body.messages.find((message) => message.role === 'assistant');
+    expect(assistant?.reasoning_content).toBe('must preserve null case');
   });
 });
 

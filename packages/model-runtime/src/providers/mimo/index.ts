@@ -61,8 +61,12 @@ const patchAssistantToolCallReasoning = (messages: OpenAIChatMessage[]): OpenAIC
     const internal = storedAssistantReasoning(message);
 
     if (internal) {
-      // Empty string is authoritative downstream — replace it with the stored chain.
-      if (bare === '') return { ...message, reasoning_content: internal };
+      // Empty string and null are authoritative downstream and hide stored
+      // reasoning from convertOpenAIMessages (it only falls back when the
+      // bare field is undefined).
+      if (bare === '' || bare === null) {
+        return { ...message, reasoning_content: internal };
+      }
       return message;
     }
 
