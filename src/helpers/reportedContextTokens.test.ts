@@ -313,10 +313,61 @@ describe('reported context token floor', () => {
         role: 'assistant' as const,
       },
     ];
-    expect(
-      getLatestReportedInputTokens(afterRotate, {
+    expect(getLatestReportedInputTokens(afterRotate, {
         afterMessageId: 'a2',
         lookupMessages: afterRotate,
+      }),
+    ).toBe(700_000);
+  });
+
+  it('keeps the compaction cursor as the boundary when no post-cursor row remains', () => {
+    expect(
+      nextReportedInputTokenFloorAfterMessageId({
+        cursorId: 'a1',
+        storedAfterMessageId: 'u3',
+        topicMessages: [
+          { content: 'old', id: 'u1', role: 'user' },
+          { content: 'old-a', id: 'a1', role: 'assistant' },
+        ],
+      }),
+    ).toBe('a1');
+    expect(
+      withReportedInputTokenFloorMetadata({ historySummaryLastMessageId: 'a1' }, [])
+        .reportedInputTokenFloorAfterMessageId,
+    ).toBe('a1');
+    expect(
+      getEffectiveReportedInputTokenFloorAfterMessageId({
+        cursorId: 'a1',
+        messages: [
+          { content: 'old', id: 'u1', role: 'user' },
+          { content: 'old-a', id: 'a1', role: 'assistant' },
+        ],
+        storedAfterMessageId: 'a1',
+      }),
+    ).toBe('a1');
+    const afterFresh = [
+      { content: 'old', id: 'u1', role: 'user' },
+      { content: 'old-a', id: 'a1', role: 'assistant' },
+      { content: 'next', id: 'u4', role: 'user' },
+      {
+        content: 'fresh',
+        id: 'a4',
+        metadata: { totalInputTokens: 700_000 },
+        role: 'assistant' as const,
+      },
+    ];
+    expect(
+      getEffectiveReportedInputTokenFloorAfterMessageId({
+        cursorId: 'a1',
+        messages: afterFresh,
+        storedAfterMessageId: 'a1',
+        topicMessages: afterFresh,
+      }),
+    ).toBe('a1');
+    expect(
+      getLatestReportedInputTokens(afterFresh, {
+        afterMessageId: 'a1',
+        lookupMessages: afterFresh,
       }),
     ).toBe(700_000);
   });

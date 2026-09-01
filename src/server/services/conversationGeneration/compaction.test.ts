@@ -36,6 +36,7 @@ describe('buildConversationCompactionMetadata', () => {
     });
 
     expect(metadata.historySummaryLastMessageId).toBe('message-42');
+    expect(metadata.reportedInputTokenFloorAfterMessageId).toBe('message-42');
     expect(metadata.memoryArchives).toHaveLength(24);
     expect(metadata.memoryArchives?.at(-1)).toMatchObject({
       summaryExcerpt: 'A new durable summary',

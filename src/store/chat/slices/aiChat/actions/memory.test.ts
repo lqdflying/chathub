@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { estimateContextUsageAsync } from '@/helpers/estimateContextUsageAsync';
 import { getModelContextWindowTokens } from '@/helpers/modelContextWindowTokens';
+import { getLatestReportedInputTokens } from '@/helpers/reportedContextTokens';
 import * as compactionDebugClient from '@/libs/logger/compactionDebugClient';
 import { chatService } from '@/services/chat';
 import {
@@ -13,6 +14,7 @@ import { messageService } from '@/services/message';
 import { topicService } from '@/services/topic';
 import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selectors';
 import { useChatStore } from '@/store/chat';
+import { chatSelectors, topicSelectors } from '@/store/chat/selectors';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { useUserStore } from '@/store/user';
 import { systemAgentSelectors } from '@/store/user/selectors';
@@ -43,7 +45,13 @@ vi.mock('@/services/conversationGeneration', async (importOriginal) => {
   };
 });
 vi.mock('@/services/message', () => ({
-  messageService: { getConversationVersion: vi.fn(), removeMessagesByAssistant: vi.fn() },
+  messageService: {
+    getConversationVersion: vi.fn(),
+    removeMessage: vi.fn(),
+    removeMessages: vi.fn(),
+    removeMessagesByAssistant: vi.fn(),
+    updateMessage: vi.fn(),
+  },
 }));
 vi.mock('@/services/topic', () => ({
   topicService: { removeTopic: vi.fn(), updateTopic: vi.fn() },
@@ -1172,7 +1180,9 @@ describe('chat memory actions', () => {
       },
     });
 
-    await useChatStore.getState().internal_invalidateMemoryCompaction(['a3']);
+    await useChatStore.getState().internal_invalidateMemoryCompaction(['a3'], {
+      rotateReportedInputTokenFloor: true,
+    });
 
     expect(topicService.updateTopic).toHaveBeenCalledWith(
       TOPIC_ID,
@@ -1214,5 +1224,170 @@ describe('chat memory actions', () => {
         }),
       }),
     );
+  });
+
+  it('does not rotate the floor watermark when the protected assistant is edited', async () => {
+    const topicMessages = [
+      message('u1', 'user'),
+      message('a1', 'assistant'),
+      message('u2', 'user'),
+      message('a2', 'assistant'),
+      message('u3', 'user'),
+      { ...message('a3', 'assistant'), metadata: { totalInputTokens: 1_048_570 } },
+    ];
+    setConversation({
+      messagesMap: { [messageMapKey(SESSION_ID, TOPIC_ID)]: topicMessages },
+      topicMaps: {
+        [SESSION_ID]: [
+          {
+            createdAt: 1,
+            historySummary: 'existing summary',
+            id: TOPIC_ID,
+            metadata: {
+              historySummaryLastMessageId: 'a1',
+              reportedInputTokenFloorAfterMessageId: 'a3',
+            },
+            title: 'Topic',
+            updatedAt: 1,
+          },
+        ],
+      },
+    });
+
+    vi.spyOn(useChatStore.getState(), 'refreshMessages').mockResolvedValue(undefined);
+    await useChatStore.getState().modifyMessageContent('a3', 'edited protected reply');
+
+    expect(topicService.updateTopic).not.toHaveBeenCalled();
+    expect(topicSelectors.currentActiveTopic(useChatStore.getState())?.metadata).toMatchObject({
+      historySummaryLastMessageId: 'a1',
+      reportedInputTokenFloorAfterMessageId: 'a3',
+    });
+    const chats = chatSelectors.mainTopicAIChats(useChatStore.getState());
+    expect(chats.find((item) => item.id === 'a3')?.metadata?.totalInputTokens).toBe(1_048_570);
+    expect(getLatestReportedInputTokens(chats, { afterMessageId: 'a3' })).toBeUndefined();
+  });
+
+  it('does not let a delayed migration write replace compaction metadata', async () => {
+    let releaseMigration: (() => void) | undefined;
+    const migrationGate = new Promise<void>((resolve) => {
+      releaseMigration = resolve;
+    });
+    const writes: Array<{ historySummary?: string; metadata?: { historySummaryLastMessageId?: string } }> =
+      [];
+    vi.mocked(topicService.updateTopic).mockImplementation(async (_id, data) => {
+      writes.push(structuredClone(data) as (typeof writes)[number]);
+      if (!('historySummary' in data)) await migrationGate;
+    });
+
+    setConversation({
+      topicMaps: {
+        [SESSION_ID]: [
+          {
+            createdAt: 1,
+            historySummary: 'existing summary',
+            id: TOPIC_ID,
+            metadata: { historySummaryLastMessageId: 'a1' },
+            title: 'Topic',
+            updatedAt: 1,
+          },
+        ],
+      },
+    });
+
+    const ensurePromise = useChatStore.getState().internal_ensureReportedInputTokenFloorWatermark();
+    await vi.waitFor(() => {
+      expect(writes.length).toBeGreaterThan(0);
+    });
+
+    const compactPromise = useChatStore.getState().triggerManualMemoryCompaction();
+    await Promise.resolve();
+    expect(writes).toHaveLength(1);
+
+    releaseMigration?.();
+    await ensurePromise;
+    const compactResult = await compactPromise;
+
+    expect(compactResult.status).toBe('compacted');
+    expect(writes.at(-1)).toEqual(
+      expect.objectContaining({
+        historySummary: 'updated cumulative summary',
+        metadata: expect.objectContaining({
+          historySummaryLastMessageId: 'a2',
+          memoryDebugLog: expect.any(Array),
+          reportedInputTokenFloorAfterMessageId: 'a3',
+        }),
+      }),
+    );
+    expect(topicSelectors.currentActiveTopic(useChatStore.getState())).toMatchObject({
+      historySummary: 'updated cumulative summary',
+      metadata: expect.objectContaining({
+        historySummaryLastMessageId: 'a2',
+        reportedInputTokenFloorAfterMessageId: 'a3',
+      }),
+    });
+  });
+
+  it('keeps the cursor as the floor watermark after deleting the sole post-cursor row', async () => {
+    const topicMessages = [
+      message('u1', 'user'),
+      message('a1', 'assistant'),
+      message('u3', 'user'),
+    ];
+    setConversation({
+      messagesMap: { [messageMapKey(SESSION_ID, TOPIC_ID)]: topicMessages },
+      topicMaps: {
+        [SESSION_ID]: [
+          {
+            createdAt: 1,
+            historySummary: 'existing summary',
+            id: TOPIC_ID,
+            metadata: {
+              historySummaryLastMessageId: 'a1',
+              reportedInputTokenFloorAfterMessageId: 'u3',
+            },
+            title: 'Topic',
+            updatedAt: 1,
+          },
+        ],
+      },
+    });
+
+    await useChatStore.getState().internal_invalidateMemoryCompaction(['u3'], {
+      rotateReportedInputTokenFloor: true,
+    });
+
+    expect(topicService.updateTopic).toHaveBeenCalledWith(
+      TOPIC_ID,
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          historySummaryLastMessageId: 'a1',
+          reportedInputTokenFloorAfterMessageId: 'a1',
+        }),
+      }),
+    );
+
+    const afterFresh = [
+      message('u1', 'user'),
+      message('a1', 'assistant'),
+      message('u4', 'user'),
+      { ...message('a4', 'assistant'), metadata: { totalInputTokens: 700_000 } },
+    ];
+    setConversation({
+      messagesMap: { [messageMapKey(SESSION_ID, TOPIC_ID)]: afterFresh },
+      topicMaps: useChatStore.getState().topicMaps,
+    });
+
+    await useChatStore.getState().internal_ensureReportedInputTokenFloorWatermark();
+
+    expect(topicSelectors.currentActiveTopic(useChatStore.getState())?.metadata).toMatchObject({
+      historySummaryLastMessageId: 'a1',
+      reportedInputTokenFloorAfterMessageId: 'a1',
+    });
+    expect(
+      getLatestReportedInputTokens(afterFresh, {
+        afterMessageId: 'a1',
+        lookupMessages: afterFresh,
+      }),
+    ).toBe(700_000);
   });
 });

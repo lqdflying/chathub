@@ -100,6 +100,8 @@ export const getReportedInputTokenFloorBoundaryId = (
 /**
  * Persisted watermark: keep a stored id still present in the topic; otherwise
  * stamp the remaining post-cursor window (legacy migration or deleted row).
+ * An empty remaining window keeps the compaction cursor so a later reply is
+ * unambiguously after the boundary instead of becoming a new migration mark.
  */
 export const nextReportedInputTokenFloorAfterMessageId = ({
   cursorId,
@@ -114,8 +116,9 @@ export const nextReportedInputTokenFloorAfterMessageId = ({
     return storedAfterMessageId;
   }
   if (!cursorId && !storedAfterMessageId) return undefined;
-  return getReportedInputTokenFloorBoundaryId(
-    remainingMessagesAfterCursor(topicMessages, cursorId),
+  return (
+    getReportedInputTokenFloorBoundaryId(remainingMessagesAfterCursor(topicMessages, cursorId)) ??
+    cursorId
   );
 };
 
@@ -148,7 +151,10 @@ export const getEffectiveReportedInputTokenFloorAfterMessageId = ({
   const lookup = topicMessages ?? messages;
   if (storedAfterMessageId) return storedAfterMessageId;
   if (cursorId) {
-    return getReportedInputTokenFloorBoundaryId(remainingMessagesAfterCursor(lookup, cursorId));
+    return (
+      getReportedInputTokenFloorBoundaryId(remainingMessagesAfterCursor(lookup, cursorId)) ??
+      cursorId
+    );
   }
   return undefined;
 };
@@ -185,7 +191,9 @@ export const withReportedInputTokenFloorMetadata = (
   metadata: ChatTopicMetadata,
   remainingMessages: UsageMessage[],
 ): ChatTopicMetadata => {
-  const nextId = getReportedInputTokenFloorBoundaryId(remainingMessages);
+  const nextId =
+    getReportedInputTokenFloorBoundaryId(remainingMessages) ??
+    metadata.historySummaryLastMessageId;
   const nextMetadata = { ...metadata };
   delete nextMetadata.reportedInputTokenFloorAfterMessageId;
   if (nextId) nextMetadata.reportedInputTokenFloorAfterMessageId = nextId;

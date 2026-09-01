@@ -362,7 +362,9 @@ export const chatMessage: StateCreator<
       threadId: message.threadId,
       topicId: requestedTopicId,
     });
-    await get().internal_invalidateMemoryCompaction(ids).catch(console.error);
+    await get().internal_invalidateMemoryCompaction(ids, {
+      rotateReportedInputTokenFloor: true,
+    }).catch(console.error);
     get().internal_dispatchMessage({ type: 'deleteMessages', ids });
     await messageService.removeMessages(ids);
     if (isCurrentRequest()) await get().refreshMessages();
@@ -1286,7 +1288,9 @@ export const chatMessage: StateCreator<
       get().activeId === requestedSessionId &&
       get().activeTopicId === requestedTopicId;
 
-    await get().internal_invalidateMemoryCompaction([id]).catch(console.error);
+    await get().internal_invalidateMemoryCompaction([id], {
+      rotateReportedInputTokenFloor: true,
+    }).catch(console.error);
     get().internal_dispatchMessage({ type: 'deleteMessage', id });
     await messageService.removeMessage(id);
     if (isCurrentRequest()) await get().refreshMessages();

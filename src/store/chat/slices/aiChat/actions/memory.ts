@@ -71,6 +71,31 @@ import { encodeAsync } from '@/utils/tokenizer';
 const MAX_MEMORY_DEBUG_LOG = 20;
 const MAX_MEMORY_ARCHIVES = 24;
 const compactionJobs = new Map<string, Promise<MemoryCompactionResult>>();
+const topicMetadataWriteLocks = new Map<string, Promise<void>>();
+
+const withTopicMetadataWriteLock = async <T>(key: string, task: () => Promise<T>): Promise<T> => {
+  const previous = topicMetadataWriteLocks.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const done = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const queued = previous.then(
+    () => done,
+    () => done,
+  );
+  topicMetadataWriteLocks.set(key, queued);
+  try {
+    await previous;
+    return await task();
+  } finally {
+    release();
+    void queued.then(() => {
+      if (topicMetadataWriteLocks.get(key) === queued) {
+        topicMetadataWriteLocks.delete(key);
+      }
+    });
+  }
+};
 
 const compactionResult = (
   status: MemoryCompactionResult['status'],
@@ -85,7 +110,10 @@ export interface MemoryCompactionConversationScope {
 
 export interface ChatMemoryAction {
   internal_ensureReportedInputTokenFloorWatermark: () => Promise<void>;
-  internal_invalidateMemoryCompaction: (messageIds: string[]) => Promise<void>;
+  internal_invalidateMemoryCompaction: (
+    messageIds: string[],
+    options?: { rotateReportedInputTokenFloor?: boolean },
+  ) => Promise<void>;
   triggerManualMemoryCompaction: () => Promise<MemoryCompactionResult>;
   triggerMessageCountMemoryCompaction: (
     abortController?: AbortController,
@@ -799,87 +827,95 @@ async function runCompactionFromStore(
     status,
     trigger,
   } as const;
-  const nextMetadata: ChatTopicMetadata = withReportedInputTokenFloorMetadata(
-    {
-      ...previousMetadata,
-      historySummaryLastMessageId: compactedThroughMessageId,
-      memoryArchives: nextArchives,
-      memoryDebugLog: [
-        ...(previousMetadata.memoryDebugLog ?? []).slice(-(MAX_MEMORY_DEBUG_LOG - 1)),
-        debugEntry,
-      ],
-      model: chatModel,
-      provider: chatProvider,
-    },
-    remainingAfterCursor,
-  );
-
   // Re-check right before the write to shrink the window where an invalidation
   // (e.g. the user edited/deleted an included message) races this persist.
-  if (abortController?.signal.aborted) {
-    return finish('ineligible', { reason: 'aborted' });
-  }
-  if (!isCurrentRequest())
-    return finish('ineligible', { reason: 'conversation_changed' });
-
-  await topicService.updateTopic(requestedTopicId, {
-    historySummary,
-    metadata: nextMetadata,
-  });
-
-  // If an invalidation landed while updateTopic was in flight, our summary is now stale on
-  // disk. Undo it with the same cleared state internal_invalidateMemoryCompaction writes,
-  // so the next run rebuilds instead of trusting a summary tied to a since-changed message.
-  const invalidationRacedWrite =
-    get().memoryCompactionInvalidationGeneration !== requestedInvalidationGeneration;
-  if (invalidationRacedWrite) {
-    if (isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot)) {
-      await topicService
-        .updateTopic(requestedTopicId, {
-          historySummary: '',
-          metadata: {
-            ...nextMetadata,
-            historySummaryLastMessageId: undefined,
-            memoryArchives: [],
-            reportedInputTokenFloorAfterMessageId: undefined,
-          },
-        })
-        .catch(console.error);
+  const metadataWriteKey = `${accountMutationSnapshot.scope}:${requestedSessionId}:${requestedTopicId}`;
+  return withTopicMetadataWriteLock(metadataWriteKey, async () => {
+    if (abortController?.signal.aborted) {
+      return finish('ineligible', { reason: 'aborted' });
     }
-    return finish('ineligible', { reason: 'conversation_changed' });
-  }
+    if (!isCurrentRequest())
+      return finish('ineligible', { reason: 'conversation_changed' });
 
-  if (abortController?.signal.aborted) {
-    if (isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot)) {
-      await topicService
-        .updateTopic(requestedTopicId, {
-          historySummary: previousHistorySummary,
-          metadata: previousMetadata,
-        })
-        .catch(console.error);
-    }
-    return finish('ineligible', { reason: 'aborted' });
-  }
-
-  if (isCurrentRequest()) {
-    get().internal_dispatchTopic(
-      {
-        id: requestedTopicId,
-        type: 'updateTopic',
-        value: { historySummary, metadata: nextMetadata },
-      },
-      'memoryCompaction',
+    const latestTopic = topicSelectors.getTopicInContainer(
       requestedSessionId,
+      requestedTopicId,
+    )(get());
+    const baseMetadata = latestTopic?.metadata ?? previousMetadata;
+    const persistMetadata: ChatTopicMetadata = withReportedInputTokenFloorMetadata(
+      {
+        ...baseMetadata,
+        historySummaryLastMessageId: compactedThroughMessageId,
+        memoryArchives: nextArchives,
+        memoryDebugLog: [
+          ...(baseMetadata.memoryDebugLog ?? []).slice(-(MAX_MEMORY_DEBUG_LOG - 1)),
+          debugEntry,
+        ],
+        model: chatModel,
+        provider: chatProvider,
+      },
+      remainingAfterCursor,
     );
-  }
 
-  return finish(status, {
-    estimatedTokensAfter: afterEstimate.totalToken,
-    estimatedTokensBefore: beforeEstimate.totalToken,
-    highWatermark: high,
-    lowWatermark: low,
-    messageCountIncluded: processedMessages.length,
-    reason,
+    await topicService.updateTopic(requestedTopicId, {
+      historySummary,
+      metadata: persistMetadata,
+    });
+
+    // If an invalidation landed while updateTopic was in flight, our summary is now stale on
+    // disk. Undo it with the same cleared state internal_invalidateMemoryCompaction writes,
+    // so the next run rebuilds instead of trusting a summary tied to a since-changed message.
+    const invalidationRacedWrite =
+      get().memoryCompactionInvalidationGeneration !== requestedInvalidationGeneration;
+    if (invalidationRacedWrite) {
+      if (isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot)) {
+        await topicService
+          .updateTopic(requestedTopicId, {
+            historySummary: '',
+            metadata: {
+              ...persistMetadata,
+              historySummaryLastMessageId: undefined,
+              memoryArchives: [],
+              reportedInputTokenFloorAfterMessageId: undefined,
+            },
+          })
+          .catch(console.error);
+      }
+      return finish('ineligible', { reason: 'conversation_changed' });
+    }
+
+    if (abortController?.signal.aborted) {
+      if (isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot)) {
+        await topicService
+          .updateTopic(requestedTopicId, {
+            historySummary: previousHistorySummary,
+            metadata: latestTopic?.metadata ?? previousMetadata,
+          })
+          .catch(console.error);
+      }
+      return finish('ineligible', { reason: 'aborted' });
+    }
+
+    if (isCurrentRequest()) {
+      get().internal_dispatchTopic(
+        {
+          id: requestedTopicId,
+          type: 'updateTopic',
+          value: { historySummary, metadata: persistMetadata },
+        },
+        'memoryCompaction',
+        requestedSessionId,
+      );
+    }
+
+    return finish(status, {
+      estimatedTokensAfter: afterEstimate.totalToken,
+      estimatedTokensBefore: beforeEstimate.totalToken,
+      highWatermark: high,
+      lowWatermark: low,
+      messageCountIncluded: processedMessages.length,
+      reason,
+    });
   });
 }
 
@@ -939,7 +975,7 @@ const triggerCompaction = async (
 
 const persistReportedInputTokenFloorWatermark = async (
   get: () => ChatStore,
-  options?: { excludeMessageIds?: string[] },
+  options?: { nextWatermarkId?: string | null },
 ) => {
   const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
   const state = get();
@@ -954,38 +990,48 @@ const persistReportedInputTokenFloorWatermark = async (
 
   const cursorId = topic.metadata?.historySummaryLastMessageId;
   const storedAfterMessageId = topic.metadata?.reportedInputTokenFloorAfterMessageId;
-  if (!cursorId && !storedAfterMessageId) return;
+  if (!cursorId && !storedAfterMessageId && options?.nextWatermarkId === undefined) return;
 
-  const excluded = new Set(options?.excludeMessageIds ?? []);
-  const topicMessages = chatSelectors
-    .mainTopicAIChats(state)
-    .filter((message) => !excluded.has(message.id));
-  const nextId = nextReportedInputTokenFloorAfterMessageId({
-    cursorId,
-    storedAfterMessageId,
-    topicMessages,
+  const metadataWriteKey = `${accountMutationSnapshot.scope}:${sessionId}:${topicId}`;
+  await withTopicMetadataWriteLock(metadataWriteKey, async () => {
+    const latestState = get();
+    if (latestState.activeId !== sessionId || latestState.activeTopicId !== topicId) return;
+
+    const latestTopic = topicSelectors.getTopicInContainer(sessionId, topicId)(latestState);
+    if (!latestTopic) return;
+
+    const latestCursorId = latestTopic.metadata?.historySummaryLastMessageId;
+    const latestStoredAfterMessageId = latestTopic.metadata?.reportedInputTokenFloorAfterMessageId;
+    const nextId =
+      options?.nextWatermarkId === undefined
+        ? nextReportedInputTokenFloorAfterMessageId({
+            cursorId: latestCursorId,
+            storedAfterMessageId: latestStoredAfterMessageId,
+            topicMessages: chatSelectors.mainTopicAIChats(latestState),
+          })
+        : (options.nextWatermarkId ?? undefined);
+    if (nextId === latestStoredAfterMessageId) return;
+
+    const metadata: ChatTopicMetadata = { ...latestTopic.metadata };
+    if (nextId) {
+      metadata.reportedInputTokenFloorAfterMessageId = nextId;
+    } else {
+      delete metadata.reportedInputTokenFloorAfterMessageId;
+    }
+
+    await topicService.updateTopic(topicId, { metadata });
+
+    if (
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
+      get().activeId === sessionId &&
+      get().activeTopicId === topicId
+    ) {
+      get().internal_dispatchTopic(
+        { id: topicId, type: 'updateTopic', value: { metadata } },
+        'reportedInputTokenFloorWatermark',
+      );
+    }
   });
-  if (nextId === storedAfterMessageId) return;
-
-  const metadata: ChatTopicMetadata = { ...topic.metadata };
-  if (nextId) {
-    metadata.reportedInputTokenFloorAfterMessageId = nextId;
-  } else {
-    delete metadata.reportedInputTokenFloorAfterMessageId;
-  }
-
-  await topicService.updateTopic(topicId, { metadata });
-
-  if (
-    isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
-    get().activeId === sessionId &&
-    get().activeTopicId === topicId
-  ) {
-    get().internal_dispatchTopic(
-      { id: topicId, type: 'updateTopic', value: { metadata } },
-      'reportedInputTokenFloorWatermark',
-    );
-  }
 };
 
 export const chatMemory: StateCreator<
@@ -996,7 +1042,7 @@ export const chatMemory: StateCreator<
 > = (set, get) => ({
   internal_ensureReportedInputTokenFloorWatermark: () => persistReportedInputTokenFloorWatermark(get),
 
-  internal_invalidateMemoryCompaction: async (messageIds) => {
+  internal_invalidateMemoryCompaction: async (messageIds, options) => {
     const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
     const state = get();
     const topicId = state.activeTopicId;
@@ -1019,7 +1065,16 @@ export const chatMemory: StateCreator<
       return index >= 0 && (cursorIndex < 0 || index <= cursorIndex);
     });
     if (!affectsSummary) {
-      await persistReportedInputTokenFloorWatermark(get, { excludeMessageIds: messageIds });
+      if (options?.rotateReportedInputTokenFloor) {
+        const remainingMessages = mainMessages.filter((message) => !messageIds.includes(message.id));
+        const nextWatermarkId =
+          nextReportedInputTokenFloorAfterMessageId({
+            cursorId,
+            storedAfterMessageId,
+            topicMessages: remainingMessages,
+          }) ?? null;
+        await persistReportedInputTokenFloorWatermark(get, { nextWatermarkId });
+      }
       return;
     }
 
@@ -1037,18 +1092,21 @@ export const chatMemory: StateCreator<
       memoryArchives: [],
       reportedInputTokenFloorAfterMessageId: undefined,
     };
-    await topicService.updateTopic(topicId, { historySummary: '', metadata });
+    const metadataWriteKey = `${accountMutationSnapshot.scope}:${sessionId}:${topicId}`;
+    await withTopicMetadataWriteLock(metadataWriteKey, async () => {
+      await topicService.updateTopic(topicId, { historySummary: '', metadata });
 
-    if (
-      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
-      get().activeId === sessionId &&
-      get().activeTopicId === topicId
-    ) {
-      get().internal_dispatchTopic(
-        { id: topicId, type: 'updateTopic', value: { historySummary: '', metadata } },
-        'invalidateMemoryCompaction',
-      );
-    }
+      if (
+        isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
+        get().activeId === sessionId &&
+        get().activeTopicId === topicId
+      ) {
+        get().internal_dispatchTopic(
+          { id: topicId, type: 'updateTopic', value: { historySummary: '', metadata } },
+          'invalidateMemoryCompaction',
+        );
+      }
+    });
   },
 
   triggerManualMemoryCompaction: () => triggerCompaction(set, get, 'manual'),

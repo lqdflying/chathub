@@ -1684,7 +1684,9 @@ export const generateAIChat: StateCreator<
       const activeTopic = topicSelectors.currentActiveTopic(get());
       if (activeTopic?.historySummary || activeTopic?.metadata?.historySummaryLastMessageId) {
         await get()
-          .internal_invalidateMemoryCompaction([...discardedIds])
+          .internal_invalidateMemoryCompaction([...discardedIds], {
+            rotateReportedInputTokenFloor: true,
+          })
           .catch(console.error);
       }
       set(

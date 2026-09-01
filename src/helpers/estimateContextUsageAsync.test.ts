@@ -581,4 +581,36 @@ describe('estimateContextUsageAsync', () => {
 
     expect(result.totalToken).toBe(700_000);
   });
+
+  it('floors a fresh assistant after the sole post-cursor watermark is replaced by the cursor', async () => {
+    mocks.chats = [
+      { content: 'old', id: 'u1', role: 'user' },
+      {
+        content: 'old-a',
+        id: 'a1',
+        metadata: { totalInputTokens: 800 },
+        role: 'assistant',
+      },
+      { content: 'next', id: 'u4', role: 'user' },
+      {
+        content: 'fresh',
+        id: 'a4',
+        metadata: { totalInputTokens: 700_000 },
+        role: 'assistant',
+      },
+    ];
+    mocks.topic = {
+      metadata: {
+        historySummaryLastMessageId: 'a1',
+        reportedInputTokenFloorAfterMessageId: 'a1',
+      },
+    };
+
+    const result = await estimateContextUsageAsync({
+      agentState: {} as any,
+      chatState: { inputMessage: '' } as any,
+    });
+
+    expect(result.totalToken).toBe(700_000);
+  });
 });

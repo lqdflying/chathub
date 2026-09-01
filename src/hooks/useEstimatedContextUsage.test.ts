@@ -709,4 +709,38 @@ describe('useEstimatedContextUsage', () => {
     const { result } = renderHook(() => useEstimatedContextUsage('main'));
     expect(result.current.totalToken).toBe(700_000);
   });
+
+  it('floors a fresh assistant after the sole post-cursor watermark is replaced by the cursor', () => {
+    mocks.setAgentState({
+      enableCompressHistory: true,
+      enableHistoryCount: true,
+      historyCount: 20,
+      inputTemplate: '',
+    });
+    mocks.mainChats.splice(
+      0,
+      mocks.mainChats.length,
+      { content: 'old', id: 'u1', role: 'user' } as never,
+      {
+        content: 'old-a',
+        id: 'a1',
+        metadata: { totalInputTokens: 800 },
+        role: 'assistant',
+      } as never,
+      { content: 'next', id: 'u4', role: 'user' } as never,
+      {
+        content: 'fresh',
+        id: 'a4',
+        metadata: { totalInputTokens: 700_000 },
+        role: 'assistant',
+      } as never,
+    );
+    mocks.setTopicMetadata({
+      historySummaryLastMessageId: 'a1',
+      reportedInputTokenFloorAfterMessageId: 'a1',
+    });
+
+    const { result } = renderHook(() => useEstimatedContextUsage('main'));
+    expect(result.current.totalToken).toBe(700_000);
+  });
 });
