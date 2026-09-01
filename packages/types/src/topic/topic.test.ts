@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { ChatTopicMetadataSchema } from './topic';
 
 describe('ChatTopicMetadataSchema', () => {
-  it('preserves compaction cursor, archive, and debug metadata', () => {
+  it('preserves compaction cursor, archive, debug, and floor-watermark metadata', () => {
     const metadata = {
       historySummaryLastMessageId: 'message-42',
       memoryArchives: [
@@ -25,6 +25,7 @@ describe('ChatTopicMetadataSchema', () => {
       ],
       model: 'summary-model',
       provider: 'summary-provider',
+      reportedInputTokenFloorAfterMessageId: 'assistant-99',
     };
 
     expect(ChatTopicMetadataSchema.parse(metadata)).toEqual(metadata);

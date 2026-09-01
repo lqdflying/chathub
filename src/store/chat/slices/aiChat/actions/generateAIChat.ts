@@ -1322,11 +1322,30 @@ export const generateAIChat: StateCreator<
               usage,
             })
           ) {
+            streamOutcome = 'error';
             const error = createEmptyCompletionAtContextCeilingError({
               contextWindowTokens: getListedModelContextWindowTokens(model, provider),
               totalInputTokens: usage?.totalInputTokens,
               totalOutputTokens: usage?.totalOutputTokens ?? 0,
             });
+            if (contextExportRequest && isCurrentConversation()) {
+              get().appendContextExportSnapshot({
+                ...contextExportRequest,
+                error: `Provider request failed: ${String(error.type)}`,
+                redactions: [
+                  'credentials',
+                  'transportHeaders',
+                  'transportOptions',
+                  'baseUrls',
+                  'signalsAndCallbacks',
+                  'storedIdentifiers',
+                  'traceAndDiagnostics',
+                  'cacheRouting',
+                  'inlineMediaData',
+                ],
+                status: 'error',
+              });
+            }
             await internal_updateMessageContent(messageId, content, {
               reasoning: !!reasoning ? { ...reasoning, duration } : undefined,
               search: !!grounding?.citations ? grounding : undefined,

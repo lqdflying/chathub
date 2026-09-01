@@ -42,6 +42,7 @@ interface EstimateContextUsageOverrides {
   memoryArchives?: NonNullable<
     ReturnType<typeof topicSelectors.currentActiveTopic>
   >['metadata']['memoryArchives'];
+  reportedInputTokenFloorAfterMessageId?: string | null;
 }
 
 export interface EstimateContextUsageAsyncParams {
@@ -89,6 +90,10 @@ export const estimateContextUsageAsync = async ({
   const memoryArchives = overrides
     ? overrides.memoryArchives
     : activeTopic?.metadata?.memoryArchives;
+  const reportedInputTokenFloorAfterMessageId =
+    overrides?.reportedInputTokenFloorAfterMessageId === undefined
+      ? activeTopic?.metadata?.reportedInputTokenFloorAfterMessageId
+      : overrides.reportedInputTokenFloorAfterMessageId || undefined;
   const agentConfig = agentSelectors.currentAgentConfig(agentState);
   const chatConfig = agentChatConfigSelectors.currentChatConfig(agentState);
   const enableHistoryCount = agentChatConfigSelectors.enableHistoryCount(agentState);
@@ -211,18 +216,12 @@ export const estimateContextUsageAsync = async ({
     toolsToken +
     chatsToken +
     skillToken;
-  const cursorId = enableHistoryCompaction ? historySummaryLastMessageId : undefined;
-  const lastCompactionAt = activeTopic?.metadata?.memoryDebugLog?.at(-1)?.at;
-  const skipStaleReportedFloor =
-    Boolean(cursorId) && (typeof lastCompactionAt !== 'number' || lastCompactionAt <= 0);
-  const reportedInput = skipStaleReportedFloor
-    ? undefined
-    : getLatestReportedInputTokens(
-        chats.filter(({ id }) => id !== PENDING_CONTEXT_INPUT_MESSAGE_ID),
-        cursorId && typeof lastCompactionAt === 'number'
-          ? { minExclusiveUpdatedAt: lastCompactionAt }
-          : undefined,
-      );
+  const reportedInput = getLatestReportedInputTokens(
+    chats.filter(({ id }) => id !== PENDING_CONTEXT_INPUT_MESSAGE_ID),
+    reportedInputTokenFloorAfterMessageId
+      ? { afterMessageId: reportedInputTokenFloorAfterMessageId }
+      : undefined,
+  );
   const floor = applyReportedInputTokenFloor(estimatedTotal, reportedInput);
 
   return {

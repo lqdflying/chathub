@@ -30,6 +30,7 @@ describe('buildConversationCompactionMetadata', () => {
         trigger: 'scheduled',
       },
       provider: 'summary-provider',
+      remainingMessages: [],
       status: 'compacted',
       summary: 'A new durable summary',
     });
@@ -68,10 +69,40 @@ describe('buildConversationCompactionMetadata', () => {
         trigger: 'manual',
       },
       provider: 'provider',
+      remainingMessages: [],
       status: 'compacted',
       summary: 'Same summary',
     });
 
     expect(metadata.memoryArchives).toEqual([{ at: 1, summaryExcerpt: 'Same summary' }]);
+  });
+
+  it('watermarks the protected remaining assistant so later edits cannot restore its floor', () => {
+    const metadata = buildConversationCompactionMetadata({
+      compactedThroughMessageId: 'a1',
+      currentMetadata: {},
+      messageCountIncluded: 2,
+      model: 'model',
+      plan: {
+        candidateMessageIds: ['u1', 'a1'],
+        enableUserMemoryArchive: false,
+        expectedFingerprint: 'fingerprint',
+        expectedHistorySummary: '',
+        trigger: 'manual',
+      },
+      provider: 'provider',
+      remainingMessages: [
+        {
+          content: 'protected',
+          id: 'a2',
+          metadata: { totalInputTokens: 1_048_570 },
+          role: 'assistant',
+        },
+      ],
+      status: 'compacted',
+      summary: 'Summary',
+    });
+
+    expect(metadata.reportedInputTokenFloorAfterMessageId).toBe('a2');
   });
 });

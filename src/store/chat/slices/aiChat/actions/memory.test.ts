@@ -178,6 +178,37 @@ describe('chat memory actions', () => {
     );
   });
 
+  it('persists a floor watermark on the remaining protected assistant', async () => {
+    const topicMessages = [
+      message('u1', 'user'),
+      message('a1', 'assistant'),
+      message('u2', 'user'),
+      message('a2', 'assistant'),
+      message('u3', 'user'),
+      { ...message('a3', 'assistant'), metadata: { totalInputTokens: 1_048_570 } },
+    ];
+    setConversation({
+      messagesMap: { [messageMapKey(SESSION_ID, TOPIC_ID)]: topicMessages },
+    });
+
+    const result = await useChatStore.getState().triggerManualMemoryCompaction();
+
+    expect(result).toMatchObject({ status: 'compacted' });
+    expect(topicService.updateTopic).toHaveBeenCalledWith(
+      TOPIC_ID,
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          historySummaryLastMessageId: 'a2',
+          reportedInputTokenFloorAfterMessageId: 'a3',
+        }),
+      }),
+    );
+    expect(vi.mocked(estimateContextUsageAsync).mock.calls.at(-1)?.[0].overrides).toMatchObject({
+      historySummaryLastMessageId: 'a2',
+      reportedInputTokenFloorAfterMessageId: 'a3',
+    });
+  });
+
   it('gives History Compress thinking models extra output budget and lowest GPT-5 effort', async () => {
     vi.spyOn(systemAgentSelectors, 'historyCompress').mockReturnValue({
       model: 'gpt-5-mini',
@@ -1028,6 +1059,7 @@ describe('chat memory actions', () => {
         metadata: expect.objectContaining({
           historySummaryLastMessageId: undefined,
           memoryArchives: [],
+          reportedInputTokenFloorAfterMessageId: undefined,
         }),
       }),
     );

@@ -13,6 +13,7 @@ import {
   buildSimpleCompletionSampling,
   createCompactionFingerprint,
   getContextCompactionWatermarks,
+  getMessagesAfterHistorySummaryCursor,
   getSettledCompactionPrefixes,
   parseCompactionSummarizerContextWindow,
   resolvePendingCompactionHistory,
@@ -23,6 +24,10 @@ import { conversationGenerationIdempotencyKey } from '@/helpers/conversationGene
 import { getContextCompactionMaxSummaryTokens } from '@/helpers/contextUsageEstimate';
 import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableConversationGeneration';
 import { estimateContextUsageAsync } from '@/helpers/estimateContextUsageAsync';
+import {
+  getLatestReportedInputTokenSourceId,
+  withReportedInputTokenFloorMetadata,
+} from '@/helpers/reportedContextTokens';
 import { getModelContextWindowTokens } from '@/helpers/modelContextWindowTokens';
 import {
   createCompactionDebugSpanId,
@@ -706,6 +711,10 @@ async function runCompactionFromStore(
         portalThreadId: undefined,
       }
     : latestState;
+  const remainingAfterCursor = getMessagesAfterHistorySummaryCursor(
+    chatSelectors.mainTopicAIChats(afterChatState),
+    compactedThroughMessageId,
+  );
   const afterEstimate = await estimateContextUsageAsync({
     agentState,
     chatState: afterChatState,
@@ -713,6 +722,8 @@ async function runCompactionFromStore(
       historySummary,
       historySummaryLastMessageId: compactedThroughMessageId,
       memoryArchives: nextArchives,
+      reportedInputTokenFloorAfterMessageId:
+        getLatestReportedInputTokenSourceId(remainingAfterCursor) ?? null,
     },
   });
   if (abortController?.signal.aborted) {
@@ -750,17 +761,20 @@ async function runCompactionFromStore(
     status,
     trigger,
   } as const;
-  const nextMetadata: ChatTopicMetadata = {
-    ...previousMetadata,
-    historySummaryLastMessageId: compactedThroughMessageId,
-    memoryArchives: nextArchives,
-    memoryDebugLog: [
-      ...(previousMetadata.memoryDebugLog ?? []).slice(-(MAX_MEMORY_DEBUG_LOG - 1)),
-      debugEntry,
-    ],
-    model: chatModel,
-    provider: chatProvider,
-  };
+  const nextMetadata: ChatTopicMetadata = withReportedInputTokenFloorMetadata(
+    {
+      ...previousMetadata,
+      historySummaryLastMessageId: compactedThroughMessageId,
+      memoryArchives: nextArchives,
+      memoryDebugLog: [
+        ...(previousMetadata.memoryDebugLog ?? []).slice(-(MAX_MEMORY_DEBUG_LOG - 1)),
+        debugEntry,
+      ],
+      model: chatModel,
+      provider: chatProvider,
+    },
+    remainingAfterCursor,
+  );
 
   // Re-check right before the write to shrink the window where an invalidation
   // (e.g. the user edited/deleted an included message) races this persist.
@@ -789,6 +803,7 @@ async function runCompactionFromStore(
             ...nextMetadata,
             historySummaryLastMessageId: undefined,
             memoryArchives: [],
+            reportedInputTokenFloorAfterMessageId: undefined,
           },
         })
         .catch(console.error);
@@ -923,6 +938,7 @@ export const chatMemory: StateCreator<
       ...topic.metadata,
       historySummaryLastMessageId: undefined,
       memoryArchives: [],
+      reportedInputTokenFloorAfterMessageId: undefined,
     };
     await topicService.updateTopic(topicId, { historySummary: '', metadata });
 

@@ -37,6 +37,7 @@ const mocks = vi.hoisted(() => {
   let topicMetadata: {
     historySummaryLastMessageId?: string;
     memoryDebugLog?: Array<{ at: number; status?: string }>;
+    reportedInputTokenFloorAfterMessageId?: string;
   } = {};
   const agentListeners = new Set<() => void>();
   const useChatStore = Object.assign(
@@ -364,7 +365,7 @@ describe('useEstimatedContextUsage', () => {
     expect(result.current.totalToken).toBe(50_000);
   });
 
-  it('does not floor with provider usage recorded before the latest compaction', () => {
+  it('does not floor with the protected assistant after an identity watermark, even if updatedAt is newer', () => {
     mocks.setAgentState({
       enableCompressHistory: true,
       enableHistoryCount: true,
@@ -388,20 +389,91 @@ describe('useEstimatedContextUsage', () => {
         id: 'a2',
         metadata: { totalInputTokens: 1_048_570 },
         role: 'assistant',
-        updatedAt: 1000,
+        updatedAt: 9000,
       } as never,
     );
-
-    const before = renderHook(() => useEstimatedContextUsage('main'));
-    expect(before.result.current.totalToken).toBe(1_048_570);
-    before.unmount();
-
     mocks.setTopicMetadata({
       historySummaryLastMessageId: 'a1',
-      memoryDebugLog: [{ at: 5000, status: 'compacted' }],
+      reportedInputTokenFloorAfterMessageId: 'a2',
     });
 
     const { result } = renderHook(() => useEstimatedContextUsage('main'));
     expect(result.current.totalToken).toBeLessThan(1_048_570);
+  });
+
+  it('floors a later assistant even when that row has older timestamps than the protected turn', () => {
+    mocks.setAgentState({
+      enableCompressHistory: true,
+      enableHistoryCount: true,
+      historyCount: 20,
+      inputTemplate: '',
+    });
+    mocks.mainChats.splice(
+      0,
+      mocks.mainChats.length,
+      { content: 'old', id: 'u1', role: 'user' } as never,
+      {
+        content: 'old-a',
+        id: 'a1',
+        metadata: { totalInputTokens: 1_048_570 },
+        role: 'assistant',
+      } as never,
+      { content: 'hi', id: 'u2', role: 'user' } as never,
+      {
+        content: 'protected',
+        id: 'a2',
+        metadata: { totalInputTokens: 1_048_570 },
+        role: 'assistant',
+        updatedAt: 9000,
+      } as never,
+      { content: 'next', id: 'u3', role: 'user' } as never,
+      {
+        content: 'fresh',
+        id: 'a3',
+        metadata: { totalInputTokens: 400 },
+        role: 'assistant',
+        updatedAt: 50,
+      } as never,
+    );
+    mocks.setTopicMetadata({
+      historySummaryLastMessageId: 'a1',
+      reportedInputTokenFloorAfterMessageId: 'a2',
+    });
+
+    const { result } = renderHook(() => useEstimatedContextUsage('main'));
+    expect(result.current.totalToken).toBe(400);
+  });
+
+  it('restores the floor from a new assistant when a cursor exists without a watermark', () => {
+    mocks.setAgentState({
+      enableCompressHistory: true,
+      enableHistoryCount: true,
+      historyCount: 20,
+      inputTemplate: '',
+    });
+    mocks.mainChats.splice(
+      0,
+      mocks.mainChats.length,
+      { content: 'old', id: 'u1', role: 'user' } as never,
+      {
+        content: 'old-a',
+        id: 'a1',
+        metadata: { totalInputTokens: 1_048_570 },
+        role: 'assistant',
+      } as never,
+      { content: 'hi', id: 'u2', role: 'user' } as never,
+      {
+        content: 'fresh',
+        id: 'a3',
+        metadata: { totalInputTokens: 400 },
+        role: 'assistant',
+      } as never,
+    );
+    mocks.setTopicMetadata({
+      historySummaryLastMessageId: 'a1',
+    });
+
+    const { result } = renderHook(() => useEstimatedContextUsage('main'));
+    expect(result.current.totalToken).toBe(400);
   });
 });

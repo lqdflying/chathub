@@ -1,10 +1,15 @@
-import type { MessageMetadata, ModelTokensUsage, UIChatMessage } from '@lobechat/types';
+import type {
+  ChatTopicMetadata,
+  MessageMetadata,
+  ModelTokensUsage,
+  UIChatMessage,
+} from '@lobechat/types';
 
 import { LOADING_FLAT } from '@/const/message';
 
 type UsageMessage = Pick<
   UIChatMessage,
-  'children' | 'content' | 'createdAt' | 'metadata' | 'role' | 'updatedAt' | 'usage'
+  'children' | 'content' | 'createdAt' | 'id' | 'metadata' | 'role' | 'updatedAt' | 'usage'
 >;
 
 type NestedUsageMetadata = MessageMetadata & { usage?: ModelTokensUsage };
@@ -18,32 +23,50 @@ const readTotalInput = (usage?: ModelTokensUsage | MessageMetadata | null): numb
   return isFinitePositive(total) ? total : undefined;
 };
 
+const readReportedInputFromMessage = (message: UsageMessage): number | undefined => {
+  if ((message.role !== 'assistant' && message.role !== 'group') || message.content === LOADING_FLAT) {
+    return undefined;
+  }
+
+  const children = message.children;
+  if (children?.length) {
+    for (let childIndex = children.length - 1; childIndex >= 0; childIndex -= 1) {
+      const childInput = readTotalInput(children[childIndex].usage);
+      if (childInput) return childInput;
+    }
+  }
+
+  const nested = (message.metadata as NestedUsageMetadata | undefined)?.usage;
+  return readTotalInput(message.usage) ?? readTotalInput(nested) ?? readTotalInput(message.metadata);
+};
+
+/** Messages strictly after `afterMessageId`; if that id is missing, keep the full list. */
+export const messagesAfterId = <T extends { id?: string }>(
+  messages: T[],
+  afterMessageId?: string,
+): T[] => {
+  if (!afterMessageId) return messages;
+  const index = messages.findIndex((message) => message.id === afterMessageId);
+  return index < 0 ? messages : messages.slice(index + 1);
+};
+
+/** Newest settled assistant that currently reports `totalInputTokens`. */
+export const getLatestReportedInputTokenSourceId = (messages: UsageMessage[]): string | undefined => {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (readReportedInputFromMessage(message) && message.id) return message.id;
+  }
+  return undefined;
+};
+
 /** Newest settled assistant `totalInputTokens` in the supplied window. */
 export const getLatestReportedInputTokens = (
   messages: UsageMessage[],
-  options?: { minExclusiveUpdatedAt?: number },
+  options?: { afterMessageId?: string },
 ): number | undefined => {
-  const minAt = options?.minExclusiveUpdatedAt;
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if ((message.role !== 'assistant' && message.role !== 'group') || message.content === LOADING_FLAT) {
-      continue;
-    }
-    if (minAt !== undefined) {
-      const stamp = message.updatedAt ?? message.createdAt;
-      if (typeof stamp !== 'number' || !Number.isFinite(stamp) || stamp <= minAt) continue;
-    }
-
-    const children = message.children;
-    if (children?.length) {
-      for (let childIndex = children.length - 1; childIndex >= 0; childIndex -= 1) {
-        const childInput = readTotalInput(children[childIndex].usage);
-        if (childInput) return childInput;
-      }
-    }
-
-    const nested = (message.metadata as NestedUsageMetadata | undefined)?.usage;
-    const value = readTotalInput(message.usage) ?? readTotalInput(nested) ?? readTotalInput(message.metadata);
+  const window = messagesAfterId(messages, options?.afterMessageId);
+  for (let index = window.length - 1; index >= 0; index -= 1) {
+    const value = readReportedInputFromMessage(window[index]);
     if (value) return value;
   }
 
@@ -61,4 +84,16 @@ export const applyReportedInputTokenFloor = (
     chatsTokenDelta: reportedInput - estimatedTotal,
     totalToken: reportedInput,
   };
+};
+
+/** Replace (or drop) the floor watermark from remaining post-cursor messages. */
+export const withReportedInputTokenFloorMetadata = (
+  metadata: ChatTopicMetadata,
+  remainingMessages: UsageMessage[],
+): ChatTopicMetadata => {
+  const nextId = getLatestReportedInputTokenSourceId(remainingMessages);
+  const nextMetadata = { ...metadata };
+  delete nextMetadata.reportedInputTokenFloorAfterMessageId;
+  if (nextId) nextMetadata.reportedInputTokenFloorAfterMessageId = nextId;
+  return nextMetadata;
 };

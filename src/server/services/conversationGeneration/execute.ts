@@ -43,6 +43,7 @@ import {
   getCompactionSummarizerContextWindow,
   getCompactionSummarizerInputBudget,
   getListedModelContextWindowTokens,
+  getMessagesAfterHistorySummaryCursor,
   parseCompactionSummarizerContextWindow,
   splitCompactionBatches,
 } from '@/helpers/contextCompaction';
@@ -1915,6 +1916,10 @@ const executeCompaction = async (
         model: operation.config.model,
         plan: compaction,
         provider: operation.config.provider,
+        remainingMessages: getMessagesAfterHistorySummaryCursor(
+          latestMessages as UIChatMessage[],
+          compactedThroughMessageId,
+        ),
         status,
         summary: historySummary,
       });

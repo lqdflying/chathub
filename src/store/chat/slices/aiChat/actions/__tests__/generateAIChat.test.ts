@@ -2,6 +2,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { LOADING_FLAT } from '@/const/message';
+import * as generationDebugClient from '@/libs/logger/generationDebugClient';
 import { aiChatService } from '@/services/aiChat';
 import { chatService } from '@/services/chat';
 import { conversationGenerationService } from '@/services/conversationGeneration';
@@ -2277,6 +2278,41 @@ describe('chatMessage actions', () => {
       expect(messageService.updateMessageError).toHaveBeenCalledWith(
         TEST_IDS.ASSISTANT_MESSAGE_ID,
         expect.objectContaining({ type: 'ExceededContextWindow' }),
+      );
+    });
+
+    it('marks an empty MiMo tool continuation as a failed runtime outcome', async () => {
+      const { result } = renderHook(() => useChatStore());
+      const messages = [createMockMessage({ role: 'user' })];
+      const logSpy = vi
+        .spyOn(generationDebugClient, 'logGenerationDebugClientSafe')
+        .mockImplementation(() => undefined);
+
+      vi.spyOn(chatService, 'createAssistantMessageStream').mockImplementation(
+        async ({ onFinish }) => {
+          await onFinish?.('', {
+            usage: { totalInputTokens: 1_048_570, totalOutputTokens: 0 },
+          } as any);
+        },
+      );
+
+      await act(async () => {
+        await result.current.internal_fetchAIChatMessage({
+          messageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+          messages,
+          model: 'mimo-v2.5-pro',
+          params: { isToolContinuation: true },
+          provider: 'mimo',
+        });
+      });
+
+      expect(messageService.updateMessageError).toHaveBeenCalledWith(
+        TEST_IDS.ASSISTANT_MESSAGE_ID,
+        expect.objectContaining({ type: 'ExceededContextWindow' }),
+      );
+      expect(logSpy).toHaveBeenCalledWith(
+        'exec_runtime_settled',
+        expect.objectContaining({ kind: 'continue', outcome: 'error' }),
       );
     });
 

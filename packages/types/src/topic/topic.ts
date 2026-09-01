@@ -73,6 +73,12 @@ export interface ChatTopicMetadata {
   memoryDebugLog?: MemoryCompactionDebugEntry[];
   model?: string;
   provider?: string;
+  /**
+   * Newest usage-reporting assistant id at compaction time (usually the
+   * protected turn). Next-request token floors only use assistants after this
+   * id, so edits/`updatedAt` on that row cannot revive a pre-compaction 1M bill.
+   */
+  reportedInputTokenFloorAfterMessageId?: string;
 }
 
 const memoryCompactionTriggerSchema = z.enum([
@@ -121,6 +127,7 @@ export const ChatTopicMetadataSchema = z.object({
     .optional(),
   model: z.string().optional(),
   provider: z.string().optional(),
+  reportedInputTokenFloorAfterMessageId: z.string().min(1).optional(),
 }) satisfies z.ZodType<ChatTopicMetadata>;
 
 export interface ChatTopicSummary {
