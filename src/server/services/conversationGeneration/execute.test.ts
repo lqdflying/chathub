@@ -17,9 +17,11 @@ import {
   excludeOwnedAssistantMessages,
   executeConversationGeneration,
   getSupervisorTerminalOutcome,
+  isContextLengthOverflowError,
   resolveChatResumeAction,
   shouldCreateToolContinuation,
   shouldGenerateConversationTitle,
+  UpstreamCompletionError,
 } from './execute';
 import { buildConversationChatPayload } from './payload';
 import { consumeProtocolResponse } from './stream';
@@ -188,9 +190,13 @@ vi.mock('./credentials', () => ({
 vi.mock('./payload', () => ({
   buildConversationChatPayload: vi.fn().mockResolvedValue({ payload: { messages: [] } }),
 }));
-vi.mock('./stream', () => ({
-  consumeProtocolResponse: vi.fn(),
-}));
+vi.mock('./stream', async () => {
+  const actual = await vi.importActual<typeof import('./stream')>('./stream');
+  return {
+    ...actual,
+    consumeProtocolResponse: vi.fn(),
+  };
+});
 vi.mock('./tools', () => ({
   executeConversationToolStep: vi.fn(),
   resolveConversationToolHttpMcp: vi.fn().mockResolvedValue(false),
@@ -255,6 +261,23 @@ describe('conversation generation workflow guards', () => {
       }),
     ).toBe('complete');
     expect(resolveChatResumeAction({ content: '...' })).toBe('generate');
+  });
+
+  it('treats DeepSeek-style context-length ProviderBizError as non-retryable', () => {
+    expect(
+      isContextLengthOverflowError(
+        new UpstreamCompletionError({
+          message:
+            "This model's maximum context length is 1048576 tokens. However, you requested 1832697 tokens (1830049 in the messages, 2648 in the completion).",
+          type: 'ProviderBizError',
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isContextLengthOverflowError(
+        new UpstreamCompletionError({ message: 'upstream rejected the request', type: 'StreamChunkError' }),
+      ),
+    ).toBe(false);
   });
 });
 
@@ -819,6 +842,7 @@ const runOperation = async (
 describe('executeConversationGeneration chat resume', () => {
   const assistant = {
     content: '...',
+    error: undefined as unknown,
     id: 'asst-1',
     metadata: {} as Record<string, unknown>,
     role: 'assistant',
@@ -827,6 +851,7 @@ describe('executeConversationGeneration chat resume', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     assistant.content = '...';
+    assistant.error = undefined;
     assistant.metadata = {};
     modelMocks.insertEvent.mockResolvedValue({ id: 1 });
     modelMocks.isSupersededByLaneGeneration.mockResolvedValue(false);
@@ -915,6 +940,30 @@ describe('executeConversationGeneration chat resume', () => {
       undefined,
       expect.objectContaining({ attempt: 1 }),
     );
+  });
+
+  it('fails a silent empty completion that filled the listed context window', async () => {
+    const row = buildOperation({
+      config: { model: 'deepseek-v4-flash', provider: 'deepseek' },
+      id: 'cgo_empty_ceiling',
+    });
+    vi.mocked(consumeProtocolResponse).mockResolvedValue({
+      content: '',
+      usage: { totalInputTokens: 1_048_570, totalOutputTokens: 0 },
+    });
+
+    await runOperation(row);
+
+    expect(assistant.error).toMatchObject({
+      type: 'ExceededContextWindow',
+    });
+    expect(modelMocks.finalizeActive).toHaveBeenCalledWith(
+      row.id,
+      'failed',
+      expect.objectContaining({ type: 'ExceededContextWindow' }),
+      expect.anything(),
+    );
+    expect(modelMocks.markForRetry).not.toHaveBeenCalled();
   });
 
   it('skips a second model call after the completion marker is persisted', async () => {
@@ -2409,6 +2458,66 @@ describe('executeConversationGeneration memory compaction', () => {
         spanId: 'cd_0123456789abcdef',
         trigger: 'manual',
       }),
+    );
+  });
+
+  it('fails a context-length overflow once instead of Graphile-retrying the same prompt', async () => {
+    const candidateMessages = [
+      { content: 'hello', id: 'u1', role: 'user', updatedAt: 1 },
+      { content: 'world', id: 'a1', role: 'assistant', updatedAt: 1 },
+    ];
+    const expectedHistorySummary = '';
+    const expectedFingerprint = createCompactionFingerprint({
+      messages: candidateMessages as any,
+      summary: expectedHistorySummary,
+    });
+    const row = {
+      attempt: 0,
+      config: {
+        compaction: {
+          candidateMessageIds: ['u1', 'a1'],
+          debugSpanId: 'cd_0123456789abcdef',
+          expectedFingerprint,
+          expectedHistorySummary,
+          trigger: 'manual',
+        },
+        model: 'deepseek-v4-flash',
+        provider: 'deepseek',
+      },
+      id: 'cgo_overflow_compaction',
+      kind: 'memory_compaction',
+      lane: 'lane-1',
+      laneGeneration: 1,
+      revision: 0,
+      sessionId: 'session-1',
+      status: 'pending',
+      topicId: 'topic-1',
+      userId: 'user-1',
+    };
+    aiChatMocks.getMessagesAndTopics.mockResolvedValue({
+      messages: candidateMessages,
+      topics: [],
+    });
+    vi.mocked(consumeProtocolResponse).mockResolvedValue({
+      content: '',
+      error: {
+        message:
+          "This model's maximum context length is 1048576 tokens. However, you requested 1832697 tokens (1830049 in the messages, 2648 in the completion).",
+        type: 'ProviderBizError',
+      },
+    });
+
+    await runOperation(row);
+
+    expect(modelMocks.markForRetry).not.toHaveBeenCalled();
+    expect(modelMocks.finalizeActive).toHaveBeenCalledWith(
+      row.id,
+      'failed',
+      expect.objectContaining({
+        message: expect.stringContaining('maximum context length'),
+        type: 'GenerationError',
+      }),
+      expect.objectContaining({ attempt: 1, laneGeneration: 1 }),
     );
   });
 

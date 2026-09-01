@@ -1,4 +1,5 @@
 import { applyUserInputTemplate, getSlicedMessages } from '@lobechat/context-engine';
+import { chainSummaryHistory } from '@lobechat/prompts';
 import {
   type GPT5ReasoningEffort,
   type MemoryCompactionTrigger,
@@ -155,6 +156,15 @@ export const CONTEXT_COMPACTION_WATERMARK_GAP = 0.2;
 export const CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS = 400;
 export const CONTEXT_COMPACTION_REASONING_HEADROOM_TOKENS = 2048;
 export const CONTEXT_COMPACTION_MAX_BATCH_MESSAGES = 40;
+/**
+ * CJK-safe chars→tokens for the History Compress prompt. ChatHub's UI tokenizer
+ * (`tokenx` / `CONTEXT_CHARS_PER_TOKEN_ESTIMATE = 2`) undercounted a DeepSeek
+ * V4 Flash summarizer prompt at ~0.59M vs the provider's ~1.83M.
+ * @see https://api-docs.deepseek.com/news/news260424
+ */
+export const COMPACTION_SUMMARIZER_CHARS_PER_TOKEN = 1;
+/** Keep prompt + completion under half the summarizer window after tokenizer slack. */
+export const COMPACTION_SUMMARIZER_INPUT_BUDGET_RATIO = 0.45;
 
 export interface SimpleCompletionSampling {
   max_tokens?: number;
@@ -174,6 +184,44 @@ const findSimpleCompletionModelCard = (model: string, provider?: string) => {
   }
 
   return LOBE_DEFAULT_MODEL_LIST.find((item) => item.id === model);
+};
+
+export const getListedModelContextWindowTokens = (
+  model: string,
+  provider?: string,
+): number | undefined => {
+  const window = findSimpleCompletionModelCard(model, provider)?.contextWindowTokens;
+  return typeof window === 'number' && window > 0 ? window : undefined;
+};
+
+export const getCompactionSummarizerContextWindow = (model: string, provider?: string): number =>
+  getListedModelContextWindowTokens(model, provider) ?? LARGE_CONTEXT_WINDOW_TOKENS;
+
+export const estimateCompactionPromptTokens = (
+  messages: UIChatMessage[],
+  previousSummary?: string,
+  summaryMaxTokens = CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS,
+): number => {
+  const payload = chainSummaryHistory(messages, previousSummary, { summaryMaxTokens });
+  const serialized = JSON.stringify(payload.messages ?? []);
+  return Math.max(1, Math.ceil(serialized.length / COMPACTION_SUMMARIZER_CHARS_PER_TOKEN));
+};
+
+export const getCompactionSummarizerInputBudget = (
+  summarizerContextWindow: number,
+  summaryMaxTokens = CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS,
+): number => {
+  const completion = summaryMaxTokens + CONTEXT_COMPACTION_REASONING_HEADROOM_TOKENS;
+  return Math.max(
+    2048,
+    Math.floor(summarizerContextWindow * COMPACTION_SUMMARIZER_INPUT_BUDGET_RATIO) - completion,
+  );
+};
+
+export interface SplitCompactionBatchesTokenOptions {
+  previousSummary?: string;
+  summarizerContextWindow?: number;
+  summaryMaxTokens?: number;
 };
 
 const isGpt5ReasoningModelId = (model: string) =>
@@ -402,9 +450,9 @@ export const selectDefaultCompactionPrefix = (
   return getSettledCompactionPrefixes(pendingMessages).at(-1) ?? [];
 };
 
-export const splitCompactionBatches = (
+const splitCompactionBatchesByMessageCount = (
   messages: UIChatMessage[],
-  maxMessages = CONTEXT_COMPACTION_MAX_BATCH_MESSAGES,
+  maxMessages: number,
 ): UIChatMessage[][] => {
   if (!messages.length) return [];
 
@@ -434,6 +482,66 @@ export const splitCompactionBatches = (
   }
 
   return batches;
+};
+
+const splitCompactionBatchesByTokens = (
+  messages: UIChatMessage[],
+  maxMessages: number,
+  options: SplitCompactionBatchesTokenOptions & { summarizerContextWindow: number },
+): UIChatMessage[][] => {
+  if (!messages.length) return [];
+
+  const budget = getCompactionSummarizerInputBudget(
+    options.summarizerContextWindow,
+    options.summaryMaxTokens,
+  );
+  const batches: UIChatMessage[][] = [];
+  let remaining = messages;
+
+  while (remaining.length > 0) {
+    let end = 0;
+    let lastTurnEnd = 0;
+    const limit = Math.min(maxMessages, remaining.length);
+
+    while (end < limit) {
+      const estimated = estimateCompactionPromptTokens(
+        remaining.slice(0, end + 1),
+        options.previousSummary,
+        options.summaryMaxTokens,
+      );
+      if (estimated > budget && end > 0) break;
+      end += 1;
+      if (end === remaining.length || remaining[end]?.role === 'user') lastTurnEnd = end;
+    }
+
+    if (end === 0) {
+      batches.push(remaining.slice(0, 1));
+      remaining = remaining.slice(1);
+      continue;
+    }
+
+    const batchEnd = lastTurnEnd > 0 ? lastTurnEnd : end;
+    batches.push(remaining.slice(0, batchEnd));
+    remaining = remaining.slice(batchEnd);
+  }
+
+  return batches;
+};
+
+export const splitCompactionBatches = (
+  messages: UIChatMessage[],
+  maxMessages = CONTEXT_COMPACTION_MAX_BATCH_MESSAGES,
+  tokenOptions?: SplitCompactionBatchesTokenOptions,
+): UIChatMessage[][] => {
+  const window = tokenOptions?.summarizerContextWindow;
+  if (window && window > 0) {
+    return splitCompactionBatchesByTokens(messages, maxMessages, {
+      ...tokenOptions,
+      summarizerContextWindow: window,
+    });
+  }
+
+  return splitCompactionBatchesByMessageCount(messages, maxMessages);
 };
 
 export const createCompactionFingerprint = ({

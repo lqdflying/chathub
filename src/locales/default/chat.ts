@@ -289,6 +289,7 @@ export default {
     },
     result: {
       compacted: '上下文已压缩',
+      enqueued: '正在后台压缩上下文',
       failed: '上下文压缩失败，原摘要未更改',
       ineligible: '当前对话不支持上下文压缩',
       not_needed: '当前没有可压缩的已完成对话',

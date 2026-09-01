@@ -9,6 +9,7 @@ import {
 import { StateCreator } from 'zustand/vanilla';
 
 import {
+  CONTEXT_COMPACTION_MAX_BATCH_MESSAGES,
   buildSimpleCompletionSampling,
   createCompactionFingerprint,
   getContextCompactionWatermarks,
@@ -521,7 +522,15 @@ async function runCompactionFromStore(
   }
 
   let historySummary = pending.previousSummary;
-  const batches = splitCompactionBatches(candidateMessages);
+  const summaryMaxTokens = getContextCompactionMaxSummaryTokens(
+    agentChatConfigSelectors.assistanceLevel(getAgentStoreState()),
+  );
+  const summarizerWindow = getModelContextWindowTokens(chatModel, chatProvider);
+  const batches = splitCompactionBatches(candidateMessages, CONTEXT_COMPACTION_MAX_BATCH_MESSAGES, {
+    previousSummary: pending.previousSummary,
+    summarizerContextWindow: summarizerWindow,
+    summaryMaxTokens,
+  });
   // Any abortable (pre-send) path stays bounded so Stop / send latency remain predictable.
   const maxBatches = abortController ? MAX_PRE_SEND_BATCHES : batches.length;
   const processedBatches = batches.slice(0, maxBatches);
@@ -625,7 +634,7 @@ async function runCompactionFromStore(
         topicId: requestedTopicId,
         userScope: accountMutationSnapshot.scope,
       });
-      return finish('ineligible', { reason: 'durable_enqueued' });
+      return finish('enqueued', { reason: 'durable_enqueued' });
     }
   }
 

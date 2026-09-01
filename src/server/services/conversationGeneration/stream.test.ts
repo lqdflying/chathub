@@ -1,7 +1,7 @@
 /** @vitest-environment node */
 import { describe, expect, it, vi } from 'vitest';
 
-import { consumeProtocolResponse, isIncompleteLengthStop } from './stream';
+import { consumeProtocolResponse, isEmptyCompletionAtContextCeiling, isIncompleteLengthStop } from './stream';
 
 const sseResponse = (chunks: string[]) => {
   const encoder = new TextEncoder();
@@ -115,4 +115,34 @@ describe('consumeProtocolResponse', () => {
       expect(isIncompleteLengthStop(result.stopReason)).toBe(false);
     },
   );
+});
+
+describe('isEmptyCompletionAtContextCeiling', () => {
+  it('detects a 1M-window prompt with zero output and no text', () => {
+    expect(
+      isEmptyCompletionAtContextCeiling({
+        content: '',
+        contextWindowTokens: 1_048_576,
+        usage: { totalInputTokens: 1_048_570, totalOutputTokens: 0 },
+      }),
+    ).toBe(true);
+  });
+
+  it('ignores empty replies that still billed output or included tools', () => {
+    expect(
+      isEmptyCompletionAtContextCeiling({
+        content: '',
+        contextWindowTokens: 1_048_576,
+        usage: { totalInputTokens: 1_048_570, totalOutputTokens: 12 },
+      }),
+    ).toBe(false);
+    expect(
+      isEmptyCompletionAtContextCeiling({
+        content: '',
+        contextWindowTokens: 1_048_576,
+        toolCalls: [{ id: 'call-1' }],
+        usage: { totalInputTokens: 1_048_570, totalOutputTokens: 0 },
+      }),
+    ).toBe(false);
+  });
 });

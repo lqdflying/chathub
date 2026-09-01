@@ -225,4 +225,24 @@ describe('estimateContextUsageAsync', () => {
         result.chatsToken,
     );
   });
+
+  it('floors the estimate with the latest provider-reported input tokens', async () => {
+    mocks.chats = [
+      { content: 'hi', id: 'u1', role: 'user' },
+      {
+        content: 'ok',
+        id: 'a1',
+        metadata: { totalInputTokens: 50_000 },
+        role: 'assistant',
+      } as (typeof mocks.chats)[number],
+    ];
+
+    const result = await estimateContextUsageAsync({
+      agentState: {} as any,
+      chatState: { inputMessage: '' } as any,
+    });
+
+    expect(result.totalToken).toBe(50_000);
+    expect(result.chatsToken).toBeGreaterThan(0);
+  });
 });

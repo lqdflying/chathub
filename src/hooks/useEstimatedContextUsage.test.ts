@@ -177,6 +177,11 @@ describe('useEstimatedContextUsage', () => {
     mocks.chatState.inputMessage = '';
     mocks.maxTokens = 1000;
     mocks.setHasPendingFiles(false);
+    mocks.mainChats.splice(0, mocks.mainChats.length, {
+      content: 'main-chat-context',
+      id: 'main-message',
+      role: 'user',
+    });
     mocks.setAgentState({
       enableHistoryCount: true,
       historyCount: 2,
@@ -328,5 +333,23 @@ describe('useEstimatedContextUsage', () => {
         'Ask: {{text}}',
       ).length,
     );
+  });
+
+  it('floors total usage with the latest provider-reported input tokens', () => {
+    mocks.mainChats.splice(
+      0,
+      mocks.mainChats.length,
+      { content: 'hi', id: 'u1', role: 'user' } as never,
+      {
+        content: 'ok',
+        id: 'a1',
+        metadata: { totalInputTokens: 50_000 },
+        role: 'assistant',
+      } as never,
+    );
+
+    const { result } = renderHook(() => useEstimatedContextUsage('main'));
+
+    expect(result.current.totalToken).toBe(50_000);
   });
 });

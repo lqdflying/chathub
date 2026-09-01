@@ -245,7 +245,7 @@ describe('chat memory actions', () => {
 
     const result = await useChatStore.getState().triggerManualMemoryCompaction();
 
-    expect(result).toEqual({ reason: 'durable_enqueued', status: 'ineligible' });
+    expect(result).toEqual({ reason: 'durable_enqueued', status: 'enqueued' });
     expect(tryEnqueueConversationGeneration).toHaveBeenCalledWith(
       expect.objectContaining({
         config: expect.objectContaining({
@@ -295,7 +295,7 @@ describe('chat memory actions', () => {
 
     const result = await useChatStore.getState().triggerManualMemoryCompaction();
 
-    expect(result).toEqual({ reason: 'durable_enqueued', status: 'ineligible' });
+    expect(result).toEqual({ reason: 'durable_enqueued', status: 'enqueued' });
     const payload = vi.mocked(tryEnqueueConversationGeneration).mock.calls[0][0];
     expect(payload.debugSpanId).toBe('cd_0123456789abcdef');
     expect(payload.config.compaction?.debugSpanId).toBe('cd_0123456789abcdef');

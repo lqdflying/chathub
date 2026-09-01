@@ -17,6 +17,34 @@ const TOKEN_LIMIT_STOP_REASONS = new Set(['length', 'max_tokens', 'max_output_to
 export const isIncompleteLengthStop = (reason?: string): boolean =>
   !!reason && TOKEN_LIMIT_STOP_REASONS.has(reason.trim().toLowerCase());
 
+/**
+ * Provider accepted the request at the hard window but billed ~0 output and
+ * returned no text/tools. MiMo/DeepSeek 1M cards report `totalInputTokens`
+ * within a few tokens of `contextWindowTokens` (e.g. 1,048,570 / 1,048,576).
+ */
+export const isEmptyCompletionAtContextCeiling = ({
+  content,
+  contextWindowTokens,
+  reasoning,
+  toolCalls,
+  usage,
+}: {
+  content?: string;
+  contextWindowTokens?: number;
+  reasoning?: { content?: string };
+  toolCalls?: unknown[];
+  usage?: Pick<ModelUsage, 'totalInputTokens' | 'totalOutputTokens'>;
+}): boolean => {
+  if (toolCalls?.length) return false;
+  if (content?.trim()) return false;
+  if (reasoning?.content?.trim()) return false;
+  const window = contextWindowTokens;
+  const input = usage?.totalInputTokens;
+  const output = usage?.totalOutputTokens ?? 0;
+  if (!window || window <= 0 || !input || input <= 0 || output > 0) return false;
+  return input >= window - 256;
+};
+
 export interface ProtocolStreamHandlers {
   onReasoning?: (text: string, reasoning: ModelReasoning) => void | Promise<void>;
   onText?: (delta: string, content: string) => void | Promise<void>;

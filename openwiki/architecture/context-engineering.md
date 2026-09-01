@@ -26,6 +26,8 @@ blocks, which preserves provider prompt-cache hit rates.
 
 The chat-input token popover **Most recent reported cache** figure is not that live tokenizer estimate. It reads cache fields from the latest assistant or grouped tool-turn `usage` / `metadata` / children (`src/features/ChatInput/ActionBar/Token/getPromptCacheHitRate.ts`) and divides cached tokens by `totalInputTokens` when present. Durable Graphile turns must persist `ModelUsage` **flat** on `messages.metadata` (matching browser `generateAIChat` `onFinish`). Nested `{ usage: ModelUsage }` from older workers is unwrapped on read. The visible status line is rate · status · cached/input; the reporting model stays on the help icon so the popover stays narrow. In-flight `LOADING_FLAT` rows are skipped; a later completed reply that only has totals keeps a previous cache-bearing rate, or shows `0 / totalInput` with status `provider reported` when no cache counters exist in the topic. The rate definition does not change when Anthropic omits a zero write counter.
 
+The **next request estimate** (`estimateContextUsageAsync` / `useEstimatedContextUsage`) floors `totalToken` with that same latest settled `totalInputTokens` when the provider billed more than ChatHub's tokenizer (`tokenx` approximation above 10k chars, plus `CONTEXT_CHARS_PER_TOKEN_ESTIMATE = 2` for window math). The gap is added to `chatsToken` so the popover still adds up. Only messages in the current sliced window are used, so a compaction cursor or delete drops the stale floor.
+
 ## Chat Instruction composition
 
 The top-level `Chat Instruction` is persisted inside the existing user general settings JSON and is
@@ -218,7 +220,13 @@ The compaction prompt merges only messages after the cursor into the prior summa
 with Assist preset (minimal 400 / balanced 600 / rich 800 tokens) via
 `getContextCompactionMaxSummaryTokens` and are embedded in `chainSummaryHistory` as well as the
 API completion budget. Large deltas are split between complete turns into bounded
-batches. **Any** abortable pre-send run (`message_count` or `token_threshold`) processes at most
+batches, then **again by estimated summarizer prompt size** against the History Compress model's
+listed `contextWindowTokens` (DeepSeek V4 Flash is 1,048,576). Message-count batches of 40 can still
+overflow that window when early turns hold huge tool/code payloads; the worker sizes each
+`chainSummaryHistory` prompt at 1 char ≈ 1 token and keeps about 45% of the summarizer window for
+input. A context-length `ProviderBizError` (`maximum context length is …`) is not Graphile-retried.
+Durable enqueue returns status `enqueued` (not `ineligible`) so Compact now does not toast
+“this conversation cannot compact”. **Any** abortable pre-send run (`message_count` or `token_threshold`) processes at most
 three batches; it persists a cursor only through the batches actually summarized, and a later run
 resumes from that cursor. Server-mode send runs client pre-send `message_count` then
 `token_threshold` **before durable enqueue** (and again on the browser-fallback path after the

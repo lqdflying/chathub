@@ -16,8 +16,8 @@ import { getToolStoreState } from '@/store/tool/store';
 import { userGeneralSettingsSelectors } from '@/store/user/selectors';
 import { getUserStoreState } from '@/store/user/store';
 import { encodeAsync } from '@/utils/tokenizer';
-import { getFileStoreState } from '@/store/file/store';
 import { fileChatSelectors } from '@/store/file/slices/chat/selectors';
+import { getFileStoreState } from '@/store/file/store';
 
 import { normalizeAssistantMemoryText } from './assistantMemory';
 import {
@@ -34,6 +34,7 @@ import {
   wrapHistorySummaryForTokenEstimate,
 } from './contextUsageEstimate';
 import { buildHistorySummaryForRequest } from './memoryArchivePrompt';
+import { applyReportedInputTokenFloor, getLatestReportedInputTokens } from './reportedContextTokens';
 
 interface EstimateContextUsageOverrides {
   historySummary?: string;
@@ -203,9 +204,20 @@ export const estimateContextUsageAsync = async ({
   });
   const chatsString = serializeMessagesForContextEstimate(chats, inputTemplate);
   const chatsToken = await countTokens(chatsString);
+  const estimatedTotal =
+    systemRoleToken +
+    memoryToken +
+    historySummaryToken +
+    toolsToken +
+    chatsToken +
+    skillToken;
+  const reportedInput = getLatestReportedInputTokens(
+    chats.filter(({ id }) => id !== PENDING_CONTEXT_INPUT_MESSAGE_ID),
+  );
+  const floor = applyReportedInputTokenFloor(estimatedTotal, reportedInput);
 
   return {
-    chatsToken,
+    chatsToken: chatsToken + floor.chatsTokenDelta,
     contextMessages: chats.filter(({ id }) => id !== PENDING_CONTEXT_INPUT_MESSAGE_ID),
     effectiveHistoryCount: resolveEffectiveHistoryCountForCompaction(
       effective,
@@ -217,12 +229,6 @@ export const estimateContextUsageAsync = async ({
     memoryToken,
     systemRoleToken,
     toolsToken,
-    totalToken:
-      systemRoleToken +
-      memoryToken +
-      historySummaryToken +
-      toolsToken +
-      chatsToken +
-      skillToken,
+    totalToken: floor.totalToken,
   };
 };

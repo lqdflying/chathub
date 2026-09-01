@@ -3,7 +3,7 @@ import { agentMemoryPrompt } from '@lobechat/prompts';
 import { useEffect, useMemo, useState } from 'react';
 
 import { normalizeAssistantMemoryText } from '@/helpers/assistantMemory';
-import { selectMessagesForContext } from '@/helpers/contextCompaction';
+import { PENDING_CONTEXT_INPUT_MESSAGE_ID, selectMessagesForContext } from '@/helpers/contextCompaction';
 import {
   estimateFixedContextOverheadTokens,
   getHistoryWindowDiagnostics,
@@ -12,6 +12,7 @@ import {
 } from '@/helpers/contextUsageEstimate';
 import type { HistoryWindowDiagnostics } from '@/helpers/contextUsageEstimate';
 import { buildHistorySummaryForRequest } from '@/helpers/memoryArchivePrompt';
+import { applyReportedInputTokenFloor, getLatestReportedInputTokens } from '@/helpers/reportedContextTokens';
 import { createChatToolsEngine } from '@/helpers/toolEngineering';
 import { useModelContextWindowTokens } from '@/hooks/useModelContextWindowTokens';
 import { useModelSupportToolUse } from '@/hooks/useModelSupportToolUse';
@@ -231,7 +232,7 @@ export const useEstimatedContextUsage = (
       toolsString: canUseTool ? toolsString : '',
     }) + knowledgeBaseToken;
 
-  const { chatsString, topicChatsString, historyWindow } = useMemo(() => {
+  const { chatsString, topicChatsString, historyWindow, reportedInputTokens } = useMemo(() => {
     const state = useChatStore.getState();
     const chats =
       conversationSource === 'portal'
@@ -269,6 +270,9 @@ export const useEstimatedContextUsage = (
         pendingHasFiles: hasPendingFiles,
         pendingInput: input,
       }),
+      reportedInputTokens: getLatestReportedInputTokens(
+        sliced.filter(({ id }) => id !== PENDING_CONTEXT_INPUT_MESSAGE_ID),
+      ),
       topicChatsString: serializeMessagesForContextEstimate(chats, inputTemplate),
     };
   }, [
@@ -289,7 +293,7 @@ export const useEstimatedContextUsage = (
 
   const chatsToken = useTokenCount(chatsString);
   const topicChatsToken = useTokenCount(topicChatsString);
-  const totalToken =
+  const estimatedTotal =
     systemRoleToken +
     memoryToken +
     historySummaryToken +
@@ -297,11 +301,13 @@ export const useEstimatedContextUsage = (
     chatsToken +
     knowledgeBaseToken +
     skillToken;
+  const floor = applyReportedInputTokenFloor(estimatedTotal, reportedInputTokens);
+  const totalToken = floor.totalToken;
   const ratio = maxTokens > 0 ? totalToken / maxTokens : 0;
 
   return {
     chatInstructionToken,
-    chatsToken,
+    chatsToken: chatsToken + floor.chatsTokenDelta,
     historySummaryToken,
     historyWindow,
     inputTokenCount,

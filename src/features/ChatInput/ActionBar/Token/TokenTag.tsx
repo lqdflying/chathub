@@ -240,6 +240,10 @@ const Token = memo<TokenTagProps>(({ conversationSource }) => {
                   notification.success({ message });
                   break;
                 }
+                case 'enqueued': {
+                  notification.info({ message });
+                  break;
+                }
                 case 'failed': {
                   notification.error({ message });
                   break;

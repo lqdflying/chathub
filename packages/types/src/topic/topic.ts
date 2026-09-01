@@ -24,7 +24,12 @@ export interface GroupedTopic {
 export type MemoryCompactionTrigger = 'manual' | 'message_count' | 'scheduled' | 'token_threshold';
 
 export type MemoryCompactionStatus =
-  'compacted' | 'failed' | 'ineligible' | 'not_needed' | 'target_unreachable';
+  | 'compacted'
+  | 'enqueued'
+  | 'failed'
+  | 'ineligible'
+  | 'not_needed'
+  | 'target_unreachable';
 
 export interface MemoryCompactionResult {
   estimatedTokensAfter?: number;
@@ -78,6 +83,7 @@ const memoryCompactionTriggerSchema = z.enum([
 ]);
 const memoryCompactionStatusSchema = z.enum([
   'compacted',
+  'enqueued',
   'failed',
   'ineligible',
   'not_needed',

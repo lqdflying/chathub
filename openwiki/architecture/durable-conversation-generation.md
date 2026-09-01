@@ -589,6 +589,11 @@ Semantics that matter when reading the stream:
   using the planner `spanId` (`cd_...`) passed as `debugSpanId` on enqueue.
 - `execute_settled` is terminal only (`succeeded` / `cancelled` / `failed` /
   `interrupted`); retries do not emit it.
+- A listed-card chat that fills the window (`totalInputTokens` within 256 of
+  `contextWindowTokens`) and returns no text, reasoning, tools, or output tokens
+  is `failed` with `ExceededContextWindow` instead of a blank succeeded bubble.
+  Compaction `ProviderBizError` / `maximum context length` is also failed once
+  (no Graphile 8-attempt loop).
 - Claude-like leave/return (browser-fallback turns): `deferred_lane_marked`
   when durable enqueue is rejected for a browser-only tool; `deferred_lane_left`
   when the user switches topic/session/thread or hides the tab while that

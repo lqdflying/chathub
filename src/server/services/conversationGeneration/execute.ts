@@ -1,5 +1,6 @@
 import { LOADING_FLAT } from '@lobechat/const';
 import type { LobeChatDatabase } from '@lobechat/database';
+import { AgentRuntimeErrorType } from '@lobechat/model-runtime';
 import {
   SupervisorToolName,
   buildGroupChatSystemPrompt,
@@ -35,8 +36,13 @@ import { TopicModel } from '@/database/models/topic';
 import { UserModel } from '@/database/models/user';
 import { idGenerator } from '@/database/utils/idGenerator';
 import {
+  CONTEXT_COMPACTION_MAX_BATCH_MESSAGES,
   buildSimpleCompletionSampling,
   createCompactionFingerprint,
+  estimateCompactionPromptTokens,
+  getCompactionSummarizerContextWindow,
+  getCompactionSummarizerInputBudget,
+  getListedModelContextWindowTokens,
   splitCompactionBatches,
 } from '@/helpers/contextCompaction';
 import { getContextCompactionMaxSummaryTokens } from '@/helpers/contextUsageEstimate';
@@ -97,7 +103,7 @@ import {
   createConversationRuntimeChatOptions,
 } from './runtimeChatOptions';
 import { ConversationGenerationService, enqueueConversationGenerationJob } from './service';
-import { consumeProtocolResponse } from './stream';
+import { consumeProtocolResponse, isEmptyCompletionAtContextCeiling } from './stream';
 import { loadConversationThreadMessages } from './threadScope';
 import {
   createConversationToolBatchCorrelation,
@@ -166,6 +172,17 @@ const toError = (error: unknown): ConversationGenerationError => {
       type: 'GenerationError',
     };
   }
+  if (error instanceof CompactionPromptTooLargeError) {
+    return {
+      body: {
+        budgetTokens: error.budgetTokens,
+        estimatedTokens: error.estimatedTokens,
+        name: error.name,
+      },
+      message: error.message,
+      type: AgentRuntimeErrorType.ExceededContextWindow,
+    };
+  }
   return {
     body: error instanceof Error ? { name: error.name } : undefined,
     message: error instanceof Error ? error.message : String(error),
@@ -231,6 +248,47 @@ export class EmptyCompactionSummaryError extends Error {
     this.reasoningChars = reasoningChars;
   }
 }
+
+/**
+ * A single compaction batch still exceeds the History Compress model window.
+ * Retrying the same oversized prompt will not succeed.
+ */
+export class CompactionPromptTooLargeError extends Error {
+  readonly budgetTokens: number;
+  readonly estimatedTokens: number;
+
+  constructor({
+    budgetTokens,
+    estimatedTokens,
+  }: {
+    budgetTokens: number;
+    estimatedTokens: number;
+  }) {
+    super(
+      `Memory compaction prompt is too large for the summarizer (${estimatedTokens} estimated tokens > ${budgetTokens} budget).`,
+    );
+    this.name = 'CompactionPromptTooLargeError';
+    this.budgetTokens = budgetTokens;
+    this.estimatedTokens = estimatedTokens;
+  }
+}
+
+export const isContextLengthOverflowError = (error: unknown): boolean => {
+  if (error instanceof CompactionPromptTooLargeError) return true;
+  const message =
+    error instanceof UpstreamCompletionError
+      ? `${error.message} ${error.upstream.type}`
+      : error instanceof Error
+        ? error.message
+        : String(error);
+  const text = message.toLowerCase();
+  return (
+    text.includes('exceededcontextwindow') ||
+    text.includes('maximum context length') ||
+    text.includes('context_length_exceeded') ||
+    text.includes('string_above_max_length')
+  );
+};
 
 export const executeConversationGeneration = async ({
   db,
@@ -387,7 +445,7 @@ export const executeConversationGeneration = async ({
       return;
     }
 
-    if (error instanceof EmptyCompactionSummaryError) {
+    if (error instanceof EmptyCompactionSummaryError || isContextLengthOverflowError(error)) {
       await finalize(model, claimed, 'failed', normalizedError, db, latestAssistantId);
       return;
     }
@@ -989,6 +1047,42 @@ const executeChat = async (
             // token popover and per-bubble Usage extras.
             ...(result.usage ? { metadata: result.usage } : {}),
           });
+        }
+
+        if (
+          isEmptyCompletionAtContextCeiling({
+            content,
+            contextWindowTokens: getListedModelContextWindowTokens(
+              operation.config.model,
+              operation.config.provider,
+            ),
+            reasoning,
+            toolCalls: result.toolCalls,
+            usage: result.usage,
+          })
+        ) {
+          const error = {
+            body: {
+              contextWindowTokens: getListedModelContextWindowTokens(
+                operation.config.model,
+                operation.config.provider,
+              ),
+              totalInputTokens: result.usage?.totalInputTokens,
+              totalOutputTokens: result.usage?.totalOutputTokens ?? 0,
+            },
+            message:
+              "The model returned no completion because the prompt filled the context window.",
+            type: AgentRuntimeErrorType.ExceededContextWindow,
+          };
+          await messageModel.update(assistantId, {
+            content: content || '',
+            error: error as any,
+            reasoning: reasoning ?? undefined,
+            ...(result.usage ? { metadata: result.usage } : {}),
+          });
+          if (!options?.skipFinalize)
+            await finalize(model, operation, 'failed', error, db, assistantId);
+          return { assistantMessageId: assistantId, error, status: 'failed' };
         }
 
         if (!result.toolCalls?.length) {
@@ -1730,7 +1824,31 @@ const executeCompaction = async (
   const summaryMaxTokens = getContextCompactionMaxSummaryTokens(
     operation.config.chatConfig?.assistanceLevel,
   );
-  for (const batch of splitCompactionBatches(candidateMessages)) {
+  const summarizerWindow = getCompactionSummarizerContextWindow(
+    operation.config.model,
+    operation.config.provider,
+  );
+  const summarizerBudget = getCompactionSummarizerInputBudget(summarizerWindow, summaryMaxTokens);
+  for (const batch of splitCompactionBatches(
+    candidateMessages,
+    CONTEXT_COMPACTION_MAX_BATCH_MESSAGES,
+    {
+      previousSummary: historySummary || undefined,
+      summarizerContextWindow: summarizerWindow,
+      summaryMaxTokens,
+    },
+  )) {
+    const estimatedTokens = estimateCompactionPromptTokens(
+      batch,
+      historySummary || undefined,
+      summaryMaxTokens,
+    );
+    if (estimatedTokens > summarizerBudget && batch.length === 1) {
+      throw new CompactionPromptTooLargeError({
+        budgetTokens: summarizerBudget,
+        estimatedTokens,
+      });
+    }
     const { content, reasoningChars } = await runSimpleCompletion(
       db,
       operation,

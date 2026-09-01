@@ -8,6 +8,8 @@ import {
   CONTEXT_COMPACTION_REASONING_HEADROOM_TOKENS,
   LARGE_CONTEXT_WINDOW_TOKENS,
   buildSimpleCompletionSampling,
+  estimateCompactionPromptTokens,
+  getCompactionSummarizerInputBudget,
   getContextCompactionWatermarks,
   getMessagesAfterHistorySummaryCursor,
   getSettledCompactionPrefixes,
@@ -136,6 +138,29 @@ describe('context compaction helpers', () => {
       ['u2', 'a2', 'u3', 'a3'],
       ['u4', 'a4', 'u5', 'a5'],
     ]);
+  });
+
+  it('splits oversized summarizer prompts before the History Compress window fills', () => {
+    const bulky = (id: string, role: UIChatMessage['role']): UIChatMessage =>
+      ({ content: '汉'.repeat(20_000), id, role, updatedAt: 1 }) as UIChatMessage;
+    const history = [
+      bulky('u0', 'user'),
+      bulky('a0', 'assistant'),
+      bulky('u1', 'user'),
+      bulky('a1', 'assistant'),
+    ];
+    const window = 80_000;
+    const budget = getCompactionSummarizerInputBudget(window, CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS);
+    expect(estimateCompactionPromptTokens(history)).toBeGreaterThan(budget);
+
+    const batches = splitCompactionBatches(history, 40, {
+      summarizerContextWindow: window,
+      summaryMaxTokens: CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS,
+    });
+    expect(batches.length).toBeGreaterThan(1);
+    for (const batch of batches) {
+      expect(estimateCompactionPromptTokens(batch)).toBeLessThanOrEqual(budget);
+    }
   });
 });
 
