@@ -4,7 +4,7 @@ import { TRPCError } from '@trpc/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { UserModel } from '@/database/models/user';
-import { createCompactionFingerprint, getCompactionSummarizerInputBudget } from '@/helpers/contextCompaction';
+import { createCompactionFingerprint } from '@/helpers/contextCompaction';
 import {
   ConversationWriteRejectedError,
   getConversationVersion,

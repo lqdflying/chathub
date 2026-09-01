@@ -27,11 +27,14 @@ import {
   buildDurableConversationConfig,
   isClientDurableConversationGenerationEnabled,
 } from '@/helpers/durableConversationGeneration';
+import { createEmptyCompletionAtContextCeilingError } from '@/helpers/emptyCompletionAtContextCeiling';
 import { buildHistorySummaryForRequest } from '@/helpers/memoryArchivePrompt';
+import { getModelContextWindowTokens } from '@/helpers/modelContextWindowTokens';
 import {
   getMimoTokenPlanEnvHint,
   isModelNativeSearchDisabledProvider,
 } from '@/helpers/modelNativeSearch';
+import { shouldBlockSendAfterCompactionFailure } from '@/helpers/shouldBlockSendAfterCompactionFailure';
 import {
   createGenerationDebugSpanId,
   logGenerationDebugClientSafe,
@@ -549,7 +552,7 @@ export const generateAIChatV2: StateCreator<
           discardOptimisticSend();
           return;
         }
-        await get().triggerTokenThresholdMemoryCompaction(
+        const tokenCompactResult = await get().triggerTokenThresholdMemoryCompaction(
           earlyCompactionController,
           compactionConversation,
         );
@@ -558,6 +561,75 @@ export const generateAIChatV2: StateCreator<
           abortController.signal.reason === USER_CANCELLED_SEND
         ) {
           discardOptimisticSend();
+          return;
+        }
+        const contextWindowTokens = getModelContextWindowTokens(model, provider);
+        if (shouldBlockSendAfterCompactionFailure(tokenCompactResult, contextWindowTokens)) {
+          const overflowError = createEmptyCompletionAtContextCeilingError({
+            contextWindowTokens,
+            totalInputTokens: tokenCompactResult.estimatedTokensBefore,
+          });
+          get().internal_toggleMessageLoading(false, tempId);
+          get().internal_dispatchMessage(
+            { type: 'deleteMessages', ids: [tempId] },
+            { sessionId: conversationContext.sessionId, topicId: sendTopicId },
+          );
+          try {
+            const userMessageId = await get().internal_createMessage(
+              {
+                content: message,
+                files: fileIdList,
+                role: 'user',
+                sessionId: activeId,
+                threadId: activeThreadId,
+                topicId: sendTopicId,
+                ...(messageMetadata && { metadata: messageMetadata }),
+              },
+              { conversationContext },
+            );
+            if (userMessageId) {
+              const assistantMessageId = await get().internal_createMessage(
+                {
+                  content: '',
+                  fromModel: model,
+                  fromProvider: provider,
+                  parentId: userMessageId,
+                  role: 'assistant',
+                  sessionId: activeId,
+                  threadId: activeThreadId,
+                  topicId: sendTopicId,
+                },
+                { conversationContext },
+              );
+              if (assistantMessageId) {
+                await messageService.updateMessageError(assistantMessageId, overflowError);
+                get().internal_dispatchMessage(
+                  {
+                    id: assistantMessageId,
+                    type: 'updateMessage',
+                    value: { error: overflowError },
+                  },
+                  { sessionId: conversationContext.sessionId, topicId: sendTopicId },
+                );
+              }
+            }
+            if (isCurrentConversation()) {
+              await get().refreshMessages(conversationContext);
+            }
+          } catch (persistError) {
+            console.error('Failed to persist compaction overflow messages', persistError);
+            get().internal_updateSendMessageOperation(operationKey, {
+              inputSendErrorMsg: String(
+                persistError instanceof Error ? persistError.message : persistError,
+              ),
+            });
+            get().mainInputEditor?.setJSONState(jsonState);
+          }
+          get().internal_toggleSendMessageOperation(operationKey, false);
+          // Re-arm durable compact now that failed idempotency keys can be retired.
+          void get()
+            .triggerTokenThresholdMemoryCompaction(undefined, compactionConversation)
+            .catch(console.error);
           return;
         }
       } finally {

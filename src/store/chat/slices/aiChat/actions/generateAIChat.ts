@@ -1360,6 +1360,9 @@ export const generateAIChat: StateCreator<
             });
             await messageService.updateMessageError(messageId, error);
             if (isCurrentConversation()) await refreshMessages(conversationContext);
+            // Force another compact attempt after a ceiling miss (failed idempotency
+            // keys are now retired so this can create a new Graphile job).
+            void get().triggerTokenThresholdMemoryCompaction().catch(console.error);
             return;
           }
 

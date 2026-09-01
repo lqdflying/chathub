@@ -641,7 +641,12 @@ async function runCompactionFromStore(
         operation.status === 'interrupted' ||
         operation.status === 'cancelled'
       ) {
-        return finish('failed', { reason: 'durable_enqueue_failed' });
+        return finish('failed', {
+          estimatedTokensBefore: debug.beforeEstimate?.totalToken,
+          highWatermark: debug.highWatermark,
+          lowWatermark: debug.lowWatermark,
+          reason: 'durable_enqueue_failed',
+        });
       }
       if (operation.status === 'succeeded') {
         return finish('compacted', { reason: 'idempotent_succeeded' });

@@ -274,7 +274,7 @@ describe('chat memory actions', () => {
 
     const result = await useChatStore.getState().triggerManualMemoryCompaction();
 
-    expect(result).toEqual({ reason: 'durable_enqueue_failed', status: 'failed' });
+    expect(result).toMatchObject({ reason: 'durable_enqueue_failed', status: 'failed' });
     expect(attach).not.toHaveBeenCalled();
   });
 
@@ -761,7 +761,7 @@ describe('chat memory actions', () => {
     });
   });
 
-  it('caps pre-send token compaction on complete-turn boundaries, not user-only batches', async () => {
+  it('caps pre-send token compaction on complete-turn boundaries, soft-stubbing oversized turns', async () => {
     const bulky = (id: string, role: UIChatMessage['role']) =>
       message(id, role, '汉'.repeat(4000));
     const bulkyTurns = Array.from({ length: 5 }, (_, index) => [
@@ -789,10 +789,12 @@ describe('chat memory actions', () => {
       .triggerTokenThresholdMemoryCompaction(new AbortController());
 
     expect(result).toMatchObject({ messageCountIncluded: 6, status: 'compacted' });
-    expect(chatService.fetchPresetTaskResult).toHaveBeenCalledTimes(3);
+    // Oversized complete turns are stubbed locally — no History Compress API calls.
+    expect(chatService.fetchPresetTaskResult).not.toHaveBeenCalled();
     expect(topicService.updateTopic).toHaveBeenCalledWith(
       TOPIC_ID,
       expect.objectContaining({
+        historySummary: expect.stringContaining('oversized message'),
         metadata: expect.objectContaining({ historySummaryLastMessageId: 'ba3' }),
       }),
     );
