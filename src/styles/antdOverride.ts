@@ -44,6 +44,8 @@ export default ({ token }: { prefixCls: string; token: Theme }) => css`
    * Ant Design associates horizontal Form.Item labels with the switch input.
    * Keep native Form.Item tooltips (.ant-form-item-tooltip) interactive and
    * inline next to the title so help icons do not float mid-row.
+   * Label activation on help-icon click/mousedown is cancelled in
+   * FormItemTooltipGuard (capture-phase preventDefault).
    */
   .${token.prefixCls}-form-item:has(.${token.prefixCls}-switch)
     .${token.prefixCls}-form-item-label

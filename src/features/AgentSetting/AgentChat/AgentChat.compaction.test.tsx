@@ -5,6 +5,7 @@ import { ConfigProvider, Switch } from 'antd';
 import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
+import { attachFormItemTooltipGuard } from '@/components/FormItemTooltipGuard/attach';
 import { withTooltip } from '@/components/FormLabelWithTooltip';
 
 vi.stubGlobal('React', React);
@@ -61,6 +62,7 @@ describe('AgentChat switch-row native tooltips', () => {
     const style = document.createElement('style');
     style.textContent = switchLabelCss;
     document.head.append(style);
+    const detachGuard = attachFormItemTooltipGuard();
 
     const { container } = render(<SwitchRowHarness />);
 
@@ -83,6 +85,8 @@ describe('AgentChat switch-row native tooltips', () => {
     });
 
     expect(switchControl.getAttribute('aria-checked')).toBe('true');
+    detachGuard();
+    style.remove();
   });
 });
 

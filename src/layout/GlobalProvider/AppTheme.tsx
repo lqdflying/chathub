@@ -14,6 +14,7 @@ import Link from 'next/link';
 import { ReactNode, memo, useEffect } from 'react';
 
 import AntdStaticMethods from '@/components/AntdStaticMethods';
+import FormItemTooltipGuard from '@/components/FormItemTooltipGuard';
 import {
   LOBE_THEME_APPEARANCE,
   LOBE_THEME_NEUTRAL_COLOR,
@@ -144,6 +145,7 @@ const AppTheme = memo<AppThemeProps>(
       >
         {!!customFontURL && <FontLoader url={customFontURL} />}
         <GlobalStyle />
+        <FormItemTooltipGuard />
         <AntdStaticMethods />
         <ConfigProvider
           config={{
