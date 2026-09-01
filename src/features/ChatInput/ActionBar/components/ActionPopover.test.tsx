@@ -27,7 +27,12 @@ vi.mock('@/components/Loading/UpdateLoading', () => ({
 vi.mock('antd-style', () => ({
   createStyles: () => () => ({
     cx: (...args: Array<string | undefined>) => args.filter(Boolean).join(' '),
-    styles: { mobileInner: 'mobileInner', mobileRoot: 'mobileRoot', popoverContent: 'popoverContent' },
+    styles: {
+      mobileFixedRoot: 'mobileFixedRoot',
+      mobileInner: 'mobileInner',
+      mobileRoot: 'mobileRoot',
+      popoverContent: 'popoverContent',
+    },
     theme: { colorTextSecondary: '#888' },
   }),
 }));
@@ -91,6 +96,37 @@ describe('ActionPopover mobile overlay width', () => {
       MOBILE_ACTION_OVERLAY_ROOT_CLASS,
     );
     expect((lastPopoverProps?.classNames as { root?: string })?.root).toContain('mobileRoot');
+    expect((lastPopoverProps?.classNames as { root?: string })?.root).not.toContain(
+      'mobileFixedRoot',
+    );
+  });
+
+  it('pins mobile fixedWidth overlays to the gutter-capped max width formula', () => {
+    useIsMobile.mockReturnValue(true);
+
+    render(
+      <ActionPopover
+        content="body"
+        fixedWidth
+        maxWidth={320}
+        minWidth={320}
+        title="fixed"
+      >
+        trigger
+      </ActionPopover>,
+    );
+
+    const styles = lastPopoverProps?.styles as {
+      body?: Record<string, unknown>;
+      root?: Record<string, unknown>;
+    };
+    const rootClass = String((lastPopoverProps?.classNames as { root?: string })?.root ?? '');
+
+    expect(styles.root).toEqual(getMobileActionOverlayRootStyle(320));
+    expect(styles.body?.minWidth).toBeUndefined();
+    expect(rootClass).toContain(MOBILE_ACTION_OVERLAY_ROOT_CLASS);
+    expect(rootClass).toContain('mobileFixedRoot');
+    expect(rootClass).not.toContain('mobileRoot');
   });
 
   it('forwards non-positional caller root styles and keeps the non-overridable gutter class', () => {

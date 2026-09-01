@@ -324,6 +324,7 @@ const TokenTagForGroupChat = memo<TokenTagForGroupChatProps>(({ total: messageSt
     <ActionPopover
       compact
       content={content}
+      fixedWidth
       maxWidth={MOBILE_ACTION_OVERLAY_COMPACT_MAX_PX}
       minWidth={MOBILE_ACTION_OVERLAY_COMPACT_MAX_PX}
     >

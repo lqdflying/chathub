@@ -7,9 +7,10 @@ export const MOBILE_ACTION_OVERLAY_GUTTER_PX = 16;
 export const MOBILE_ACTION_OVERLAY_ROOT_CLASS = 'chathub-mobile-action-overlay';
 
 /**
- * Fixed width for the context-usage popover on desktop and mobile
- * (matches Search's 320px). Without this, long compaction status lines
- * grow the Ant Design popover, which sizes to its content by default:
+ * Preferred width for the context-usage popover (matches Search's 320px).
+ * Desktop: ActionPopover body min=max=320. Mobile: pass `fixedWidth` so the
+ * root uses `min(320px, 100vw - 32px)` instead of content-sized max-content
+ * (Ant Design Popover sizes to content by default):
  * https://ant.design/components/popover
  */
 export const MOBILE_ACTION_OVERLAY_COMPACT_MAX_PX = 320;
