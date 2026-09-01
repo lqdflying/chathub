@@ -621,11 +621,11 @@ const compactionFingerprintPreimage = ({
   messages: Array<Pick<UIChatMessage, 'content' | 'id' | 'role'>>;
   summary?: string;
 }) =>
-  [
-    cursorId ?? '',
-    summary ?? '',
-    ...messages.map(({ content, id, role }) => `${id}:${role}:${content ?? ''}`),
-  ].join('\u001F');
+  JSON.stringify([
+    cursorId || null,
+    summary || null,
+    messages.map(({ content, id, role }) => [id, role, content ?? null]),
+  ]);
 
 export const createCompactionFingerprint = ({
   cursorId,

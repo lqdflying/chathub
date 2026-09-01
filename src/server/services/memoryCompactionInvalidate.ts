@@ -24,8 +24,9 @@ const clearedCompactionMetadata = (metadata: ChatTopicMetadata): ChatTopicMetada
 
 /**
  * After candidate rows are locked, clear an authoritative summary when the
- * mutation targets the compacted prefix. Callers must `SELECT FOR UPDATE` the
- * mutated ids first so a compaction-first race is visible as the new cursor.
+ * mutation targets the compacted prefix. Callers must hold the conversation
+ * write lock (same as compaction persist) and `SELECT FOR UPDATE` the mutated
+ * ids first so a compaction-first race is visible as the new cursor.
  * @see https://www.postgresql.org/docs/current/explicit-locking.html#LOCKING-ROWS
  */
 export const invalidateCompactionIfMutatedPrefix = async ({

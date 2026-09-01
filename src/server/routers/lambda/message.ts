@@ -27,7 +27,7 @@ const withCompactionPrefixInvalidation = async <Result>(
     return mutate(new MessageModel(ctx.serverDB, ctx.userId));
   }
 
-  return ctx.serverDB.transaction(async (transaction) => {
+  return withConversationWriteLockOrThrow(ctx.serverDB, ctx.userId, async (transaction) => {
     const messageModel = new MessageModel(transaction, ctx.userId);
     const topicModel = new TopicModel(transaction, ctx.userId);
     await invalidateCompactionIfMutatedPrefix({
@@ -284,7 +284,7 @@ export const messageRouter = router({
       }),
     )
     .mutation(async ({ input, ctx }) => {
-      if (!Object.hasOwn(input.value, 'content')) {
+      if (!Object.hasOwn(input.value, 'content') && !Object.hasOwn(input.value, 'role')) {
         return ctx.messageModel.update(input.id, input.value);
       }
 

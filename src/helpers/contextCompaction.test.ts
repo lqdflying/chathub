@@ -433,4 +433,46 @@ describe('buildSimpleCompletionSampling', () => {
     expect(key).not.toContain(secret);
     expect(key.length).toBeLessThanOrEqual(180);
   });
+
+  it('does not collide when candidate content contains the former fingerprint delimiter', () => {
+    const left = createCompactionFingerprint({
+      cursorId: 'a1',
+      messages: [
+        { content: 'left\u001Fa2:assistant:right', id: 'u1', role: 'user' },
+        { content: 'tail', id: 'a2', role: 'assistant' },
+      ],
+      summary: 'existing',
+    });
+    const right = createCompactionFingerprint({
+      cursorId: 'a1',
+      messages: [
+        { content: 'left', id: 'u1', role: 'user' },
+        { content: 'right\u001Fa2:assistant:tail', id: 'a2', role: 'assistant' },
+      ],
+      summary: 'existing',
+    });
+    expect(left).toMatch(COMPACTION_FINGERPRINT_HEX_PATTERN);
+    expect(right).toMatch(COMPACTION_FINGERPRINT_HEX_PATTERN);
+    expect(left).not.toBe(right);
+  });
+
+  it('treats missing and empty cursor or summary as the same fingerprint preimage', () => {
+    const messages = [
+      { content: 'left', id: 'u1', role: 'user' as const },
+      { content: 'right', id: 'a2', role: 'assistant' as const },
+    ];
+    expect(
+      createCompactionFingerprint({
+        cursorId: undefined,
+        messages,
+        summary: undefined,
+      }),
+    ).toBe(
+      createCompactionFingerprint({
+        cursorId: '',
+        messages,
+        summary: '',
+      }),
+    );
+  });
 });

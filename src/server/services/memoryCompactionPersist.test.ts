@@ -245,4 +245,51 @@ describe('persistMemoryCompactionIfCurrent', () => {
       result.accepted ? result.metadata.reportedInputTokenFloorAfterMessageId : undefined,
     ).toBe('a2');
   });
+
+  it('rejects incremental persist when a disjoint prefix mutation clears the topic after the first read', async () => {
+    const original = [candidate('u2', 'user'), candidate('a2', 'assistant')];
+    const expectedFingerprint = createCompactionFingerprint({
+      cursorId: 'a1',
+      messages: original,
+      summary: 'S',
+    });
+    let topic = {
+      historySummary: 'S',
+      metadata: { historySummaryLastMessageId: 'a1' } as ChatTopicMetadata,
+      sessionId: 'session-1',
+    };
+
+    const result = await persistMemoryCompactionIfCurrent({
+      candidateMessageIds: ['u2', 'a2'],
+      compactedThroughMessageId: 'a2',
+      expectedCursorId: 'a1',
+      expectedFingerprint,
+      expectedHistorySummary: 'S',
+      historySummary: 'stale rollup based on old a1',
+      messageModel: {
+        lockCompactionCandidateRows: async () => {
+          topic = {
+            historySummary: '',
+            metadata: {},
+            sessionId: 'session-1',
+          };
+          return original;
+        },
+        queryMainTopicBoundaryRows: async () => {
+          throw new Error('cleared topic must not choose a watermark');
+        },
+      },
+      metadata: { historySummaryLastMessageId: 'a2' },
+      topicId: 'topic-1',
+      topicModel: {
+        findById: async () => structuredClone(topic),
+        update: async () => {
+          throw new Error('stale incremental summary must not overwrite a cleared prefix');
+        },
+      },
+    });
+
+    expect(result).toEqual({ accepted: false });
+    expect(topic.historySummary).toBe('');
+  });
 });

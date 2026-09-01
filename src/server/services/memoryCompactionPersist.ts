@@ -50,6 +50,16 @@ export const persistMemoryCompactionIfCurrent = async ({
     return { accepted: false };
   }
 
+  const latestTopic = await topicModel.findById(topicId);
+  const latestMetadata: ChatTopicMetadata = { ...latestTopic?.metadata };
+  if (
+    !latestTopic ||
+    (latestTopic.historySummary || '') !== (expectedHistorySummary || '') ||
+    (latestMetadata.historySummaryLastMessageId || undefined) !== (expectedCursorId || undefined)
+  ) {
+    return { accepted: false };
+  }
+
   const lockedById = new Map(lockedRows.map((row) => [row.id, row]));
   const latestCandidates = candidateMessageIds
     .map((id) => lockedById.get(id))
@@ -63,9 +73,9 @@ export const persistMemoryCompactionIfCurrent = async ({
         }) as Pick<UIChatMessage, 'content' | 'id' | 'role'>,
     );
   const latestFingerprint = createCompactionFingerprint({
-    cursorId: metadata.historySummaryLastMessageId,
+    cursorId: latestMetadata.historySummaryLastMessageId,
     messages: latestCandidates,
-    summary: topic.historySummary || undefined,
+    summary: latestTopic.historySummary || undefined,
   });
   if (
     latestCandidates.length !== candidateMessageIds.length ||
@@ -75,12 +85,12 @@ export const persistMemoryCompactionIfCurrent = async ({
   }
 
   const boundaryRows = await messageModel.queryMainTopicBoundaryRows({
-    sessionId: topic.sessionId ?? undefined,
+    sessionId: latestTopic.sessionId ?? undefined,
     topicId,
   });
   const persistMetadata = withReportedInputTokenFloorMetadata(
     {
-      ...metadata,
+      ...latestMetadata,
       ...incomingMetadata,
       historySummaryLastMessageId: compactedThroughMessageId,
     },

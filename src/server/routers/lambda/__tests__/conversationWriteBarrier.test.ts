@@ -313,13 +313,68 @@ describe('conversation write barrier routers', () => {
     const caller = messageRouter.createCaller(context as any);
     await caller.update({ id: 'a2', value: { content: 'edited' } });
 
-    expect(mockServerDB.transaction).toHaveBeenCalled();
+    expect(mockWithConversationWriteLockOrThrow).toHaveBeenCalledWith(
+      mockServerDB,
+      'user-1',
+      expect.any(Function),
+    );
     expect(mockLock).toHaveBeenCalledWith(['a2']);
     expect(mockUpdateTopic).toHaveBeenCalledWith(
       'topic-1',
       expect.objectContaining({ historySummary: '' }),
     );
     expect(mockUpdateMessage).toHaveBeenCalledWith('a2', { content: 'edited' });
+  });
+
+  it('clears compaction after a role-only update of a summarized row', async () => {
+    let topic = {
+      historySummary: 'new summary',
+      metadata: { historySummaryLastMessageId: 'a2' },
+      sessionId: 'session-1',
+    };
+    const mockLock = vi.fn(async () => [{ id: 'a2', topicId: 'topic-1' }]);
+    const mockBoundary = vi.fn(async () => [
+      { id: 'u1', role: 'user' },
+      { id: 'a2', role: 'assistant' },
+    ]);
+    const mockUpdateMessage = vi.fn(async () => [{ id: 'a2' }]);
+    const mockUpdateTopic = vi.fn(
+      async (_id: string, data: { historySummary?: string; metadata?: object }) => {
+        topic = { ...topic, ...data };
+      },
+    );
+    vi.mocked(MessageModel).mockImplementation(
+      () =>
+        ({
+          batchCreate: mockBatchCreateMessages,
+          lockCompactionCandidateRows: mockLock,
+          queryMainTopicBoundaryRows: mockBoundary,
+          update: mockUpdateMessage,
+        }) as any,
+    );
+    vi.mocked(TopicModel).mockImplementation(
+      () =>
+        ({
+          batchCreate: mockBatchCreateTopics,
+          findById: async () => structuredClone(topic),
+          update: mockUpdateTopic,
+        }) as any,
+    );
+
+    const caller = messageRouter.createCaller(context as any);
+    await caller.update({ id: 'a2', value: { role: 'user' } });
+
+    expect(mockWithConversationWriteLockOrThrow).toHaveBeenCalledWith(
+      mockServerDB,
+      'user-1',
+      expect.any(Function),
+    );
+    expect(mockLock).toHaveBeenCalledWith(['a2']);
+    expect(mockUpdateTopic).toHaveBeenCalledWith(
+      'topic-1',
+      expect.objectContaining({ historySummary: '' }),
+    );
+    expect(mockUpdateMessage).toHaveBeenCalledWith('a2', { role: 'user' });
   });
 
   it('does not lock candidate rows for metadata-only message updates', async () => {
