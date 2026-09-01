@@ -429,6 +429,8 @@ describe('shapeMimoGenerateObjectRequest', () => {
     expect(shaped.messages[0].role).toBe('system');
     expect(shaped.messages[0].content).toContain('trigger_agent');
     expect(shaped.messages[0].content).toContain('"tool_calls"');
+    expect(shaped.messages[0].content).toContain('"minItems":1');
+    expect(shaped.messages[0].content).toContain('wait_for_user_input');
   });
 });
 
@@ -755,5 +757,135 @@ describe('LobeMimoAI generateObject', () => {
         tools: [{ function: { name: 'trigger_agent' }, type: 'function' }],
       } as any),
     ).rejects.toThrow('generateObject expected JSON tool selection');
+  });
+
+  it('rejects an empty JSON tool_calls array', async () => {
+    const instance = new LobeMimoAI({ apiKey: 'test-key' });
+    vi.spyOn((instance as any).client.chat.completions, 'create').mockResolvedValue({
+      choices: [{ message: { content: '{"tool_calls":[]}' } }],
+    });
+
+    await expect(
+      instance.generateObject({
+        messages: [{ content: 'Pick an agent', role: 'user' }],
+        model: 'mimo-v2.5-pro',
+        tools: [{ function: { name: 'trigger_agent' }, type: 'function' }],
+      } as any),
+    ).rejects.toThrow('generateObject expected JSON tool selection');
+  });
+
+  it('rejects malformed JSON tool_calls entries', async () => {
+    const instance = new LobeMimoAI({ apiKey: 'test-key' });
+    vi.spyOn((instance as any).client.chat.completions, 'create').mockResolvedValue({
+      choices: [{ message: { content: '{"tool_calls":[{}]}' } }],
+    });
+
+    await expect(
+      instance.generateObject({
+        messages: [{ content: 'Pick an agent', role: 'user' }],
+        model: 'mimo-v2.5-pro',
+        tools: [{ function: { name: 'trigger_agent' }, type: 'function' }],
+      } as any),
+    ).rejects.toThrow('generateObject expected JSON tool selection');
+  });
+
+  it('rejects invented JSON tool names', async () => {
+    const instance = new LobeMimoAI({ apiKey: 'test-key' });
+    vi.spyOn((instance as any).client.chat.completions, 'create').mockResolvedValue({
+      choices: [
+        {
+          message: {
+            content: '{"tool_calls":[{"name":"invented","arguments":{}}]}',
+          },
+        },
+      ],
+    });
+
+    await expect(
+      instance.generateObject({
+        messages: [{ content: 'Pick an agent', role: 'user' }],
+        model: 'mimo-v2.5-pro',
+        tools: [{ function: { name: 'trigger_agent' }, type: 'function' }],
+      } as any),
+    ).rejects.toThrow('generateObject expected JSON tool selection');
+  });
+
+  it('rejects trigger_agent JSON missing a required argument', async () => {
+    const instance = new LobeMimoAI({ apiKey: 'test-key' });
+    vi.spyOn((instance as any).client.chat.completions, 'create').mockResolvedValue({
+      choices: [
+        {
+          message: {
+            content: '{"tool_calls":[{"name":"trigger_agent","arguments":{"id":"agent-1"}}]}',
+          },
+        },
+      ],
+    });
+
+    await expect(
+      instance.generateObject({
+        messages: [{ content: 'Pick an agent', role: 'user' }],
+        model: 'mimo-v2.5-pro',
+        tools: [
+          {
+            function: {
+              name: 'trigger_agent',
+              parameters: {
+                properties: { id: { type: 'string' }, instruction: { type: 'string' } },
+                required: ['id', 'instruction'],
+                type: 'object',
+              },
+            },
+            type: 'function',
+          },
+        ],
+      } as any),
+    ).rejects.toThrow('generateObject expected JSON tool selection');
+  });
+
+  it('rejects mixed valid and invented JSON tool calls', async () => {
+    const instance = new LobeMimoAI({ apiKey: 'test-key' });
+    vi.spyOn((instance as any).client.chat.completions, 'create').mockResolvedValue({
+      choices: [
+        {
+          message: {
+            content:
+              '{"tool_calls":[{"name":"trigger_agent","arguments":{"id":"agent-1"}},{"name":"invented","arguments":{}}]}',
+          },
+        },
+      ],
+    });
+
+    await expect(
+      instance.generateObject({
+        messages: [{ content: 'Pick an agent', role: 'user' }],
+        model: 'mimo-v2.5-pro',
+        tools: [{ function: { name: 'trigger_agent' }, type: 'function' }],
+      } as any),
+    ).rejects.toThrow('generateObject expected JSON tool selection');
+  });
+
+  it('accepts wait_for_user_input JSON as a valid pause', async () => {
+    const instance = new LobeMimoAI({ apiKey: 'test-key' });
+    vi.spyOn((instance as any).client.chat.completions, 'create').mockResolvedValue({
+      choices: [
+        {
+          message: {
+            content: '{"tool_calls":[{"name":"wait_for_user_input","arguments":{}}]}',
+          },
+        },
+      ],
+    });
+
+    await expect(
+      instance.generateObject({
+        messages: [{ content: 'Pick an agent', role: 'user' }],
+        model: 'mimo-v2.5-pro',
+        tools: [
+          { function: { name: 'trigger_agent' }, type: 'function' },
+          { function: { name: 'wait_for_user_input' }, type: 'function' },
+        ],
+      } as any),
+    ).resolves.toEqual([{ arguments: {}, name: 'wait_for_user_input' }]);
   });
 });

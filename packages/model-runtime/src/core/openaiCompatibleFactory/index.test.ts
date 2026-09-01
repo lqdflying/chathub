@@ -3745,6 +3745,143 @@ describe('LobeOpenAICompatibleFactory', () => {
         ).rejects.toThrow('generateObject expected JSON tool selection');
       });
 
+      it('throws when JSON-mode content is an empty tool_calls array', async () => {
+        const handlePayload = (body: Record<string, any>) => {
+          const next = { ...body };
+          delete next.tools;
+          delete next.tool_choice;
+          return next;
+        };
+        const RuntimeClass = createOpenAICompatibleRuntime({
+          baseURL: 'https://api.test.com',
+          generateObject: { handlePayload },
+          provider: 'test-provider',
+        });
+        const instance = new RuntimeClass({ apiKey: 'test-key' });
+        vi.spyOn(instance['client'].chat.completions, 'create').mockResolvedValue({
+          choices: [{ message: { content: '{"tool_calls":[]}' } }],
+        } as any);
+
+        await expect(
+          instance.generateObject({
+            messages: [{ content: 'Pick', role: 'user' as const }],
+            model: 'test-model',
+            tools: [{ function: { name: 'trigger_agent' }, type: 'function' as const }],
+          } as any),
+        ).rejects.toThrow('generateObject expected JSON tool selection');
+      });
+
+      it('throws when JSON-mode content invents a tool name', async () => {
+        const handlePayload = (body: Record<string, any>) => {
+          const next = { ...body };
+          delete next.tools;
+          delete next.tool_choice;
+          return next;
+        };
+        const RuntimeClass = createOpenAICompatibleRuntime({
+          baseURL: 'https://api.test.com',
+          generateObject: { handlePayload },
+          provider: 'test-provider',
+        });
+        const instance = new RuntimeClass({ apiKey: 'test-key' });
+        vi.spyOn(instance['client'].chat.completions, 'create').mockResolvedValue({
+          choices: [
+            {
+              message: {
+                content: '{"tool_calls":[{"name":"invented","arguments":{}}]}',
+              },
+            },
+          ],
+        } as any);
+
+        await expect(
+          instance.generateObject({
+            messages: [{ content: 'Pick', role: 'user' as const }],
+            model: 'test-model',
+            tools: [{ function: { name: 'trigger_agent' }, type: 'function' as const }],
+          } as any),
+        ).rejects.toThrow('generateObject expected JSON tool selection');
+      });
+
+      it('parses wait_for_user_input from JSON-mode content', async () => {
+        const handlePayload = (body: Record<string, any>) => {
+          const next = { ...body };
+          delete next.tools;
+          delete next.tool_choice;
+          return next;
+        };
+        const RuntimeClass = createOpenAICompatibleRuntime({
+          baseURL: 'https://api.test.com',
+          generateObject: { handlePayload },
+          provider: 'test-provider',
+        });
+        const instance = new RuntimeClass({ apiKey: 'test-key' });
+        vi.spyOn(instance['client'].chat.completions, 'create').mockResolvedValue({
+          choices: [
+            {
+              message: {
+                content: '{"tool_calls":[{"name":"wait_for_user_input","arguments":{}}]}',
+              },
+            },
+          ],
+        } as any);
+
+        await expect(
+          instance.generateObject({
+            messages: [{ content: 'Pick', role: 'user' as const }],
+            model: 'test-model',
+            tools: [
+              { function: { name: 'trigger_agent' }, type: 'function' as const },
+              { function: { name: 'wait_for_user_input' }, type: 'function' as const },
+            ],
+          } as any),
+        ).resolves.toEqual([{ arguments: {}, name: 'wait_for_user_input' }]);
+      });
+
+      it('throws when JSON-mode trigger_agent omits a required argument', async () => {
+        const handlePayload = (body: Record<string, any>) => {
+          const next = { ...body };
+          delete next.tools;
+          delete next.tool_choice;
+          return next;
+        };
+        const RuntimeClass = createOpenAICompatibleRuntime({
+          baseURL: 'https://api.test.com',
+          generateObject: { handlePayload },
+          provider: 'test-provider',
+        });
+        const instance = new RuntimeClass({ apiKey: 'test-key' });
+        vi.spyOn(instance['client'].chat.completions, 'create').mockResolvedValue({
+          choices: [
+            {
+              message: {
+                content: '{"tool_calls":[{"name":"trigger_agent","arguments":{"id":"a1"}}]}',
+              },
+            },
+          ],
+        } as any);
+
+        await expect(
+          instance.generateObject({
+            messages: [{ content: 'Pick', role: 'user' as const }],
+            model: 'test-model',
+            tools: [
+              {
+                function: {
+                  name: 'trigger_agent',
+                  parameters: {
+                    properties: { id: { type: 'string' }, instruction: { type: 'string' } },
+                    required: ['id', 'instruction'],
+                    type: 'object',
+                  },
+                },
+                type: 'function' as const,
+              },
+            ],
+          } as any),
+        ).rejects.toThrow('generateObject expected JSON tool selection');
+      });
+
       it('should not apply schema transformation when handleSchema is not configured', async () => {
         const RuntimeClass = createOpenAICompatibleRuntime({
           baseURL: 'https://api.test.com',

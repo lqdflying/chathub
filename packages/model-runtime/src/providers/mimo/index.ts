@@ -209,9 +209,15 @@ export const buildMimoPayload = (
  */
 const MIMO_JSON_OBJECT_INSTRUCTION =
   'Return only compact JSON without any extra explanations, comments, or Markdown code fences. Use this JSON schema:';
+const MIMO_JSON_TOOLS_INSTRUCTION =
+  'Return only compact JSON without any extra explanations, comments, or Markdown code fences. Include at least one tool_calls entry. Use wait_for_user_input when that tool is offered and no agent should speak. Use this JSON schema:';
 
-const appendMimoJsonObjectInstruction = (messages: unknown[], schema: unknown): unknown[] => {
-  const instruction = `${MIMO_JSON_OBJECT_INSTRUCTION}\n${JSON.stringify(schema)}`;
+const appendMimoJsonObjectInstruction = (
+  messages: unknown[],
+  schema: unknown,
+  instructionPrefix = MIMO_JSON_OBJECT_INSTRUCTION,
+): unknown[] => {
+  const instruction = `${instructionPrefix}\n${JSON.stringify(schema)}`;
   const first = messages[0] as { content?: unknown; role?: string } | undefined;
   if (first?.role === 'system' && typeof first.content === 'string') {
     return [{ ...first, content: `${first.content}\n\n${instruction}` }, ...messages.slice(1)];
@@ -242,6 +248,7 @@ const mimoToolsJsonSchema = (tools: unknown[]) => {
           required: ['name', 'arguments'],
           type: 'object',
         },
+        minItems: 1,
         type: 'array',
       },
     },
@@ -265,7 +272,11 @@ export const shapeMimoGenerateObjectRequest = (
   if (tools?.length) {
     next.response_format = { type: 'json_object' };
     if (Array.isArray(next.messages)) {
-      next.messages = appendMimoJsonObjectInstruction(next.messages, mimoToolsJsonSchema(tools));
+      next.messages = appendMimoJsonObjectInstruction(
+        next.messages,
+        mimoToolsJsonSchema(tools),
+        MIMO_JSON_TOOLS_INSTRUCTION,
+      );
     }
     delete next.tools;
     delete next.tool_choice;

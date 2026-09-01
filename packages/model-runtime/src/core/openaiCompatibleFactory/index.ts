@@ -52,7 +52,10 @@ import { createOpenAICompatibleImage } from './createImage';
 import { transformResponseAPIToStream, transformResponseToStream } from './nonStreamToStream';
 import { deriveCompatPromptCacheKey, normalizeOpenAICompatCacheUsage } from './openaicompatCache';
 import { debugOpenAICompatCacheRequest, debugOpenAICompatCacheUsage } from './openaicompatDebug';
-import { parseGenerateObjectToolCalls } from './parseGenerateObjectToolCalls';
+import {
+  parseGenerateObjectToolCalls,
+  validateGenerateObjectToolCalls,
+} from './parseGenerateObjectToolCalls';
 
 export * from './nonStreamToStream';
 
@@ -1582,7 +1585,10 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
         signal: options?.signal,
       });
 
-      const result = parseGenerateObjectToolCalls(res.choices[0].message);
+      const result = validateGenerateObjectToolCalls(
+        parseGenerateObjectToolCalls(res.choices[0].message),
+        tools,
+      );
       log('received %d tool calls from Chat Completions API', result?.length || 0);
 
       if (result !== undefined) {
@@ -1594,7 +1600,8 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
       }
 
       // Providers that rewrite tools into JSON mode (no `tools` on the wire)
-      // must not treat ordinary text as a successful empty selection.
+      // must not treat ordinary text, empty arrays, or schema-invalid JSON as
+      // a successful selection. Xiaomi JSON mode guarantees syntax only.
       if (!requestPayload.tools) {
         throw new Error('generateObject expected JSON tool selection');
       }

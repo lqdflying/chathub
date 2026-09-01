@@ -29,12 +29,6 @@ export interface GlobalServerConfig {
    * should report planner/watcher diagnostics through reportCompactionDebug.
    */
   compactionDebug?: boolean;
-  /**
-   * Container `MIMO_PROXY_URL` is a Xiaomi Token Plan host. Hostname class
-   * only — not the URL or key — so the browser can hide native search when
-   * Settings has no base URL.
-   */
-  mimoTokenPlanEnv?: boolean;
   defaultAgent?: PartialDeep<UserDefaultAgent>;
   enableUploadFileToServer?: boolean;
   enabledAccessCode?: boolean;
@@ -57,6 +51,12 @@ export interface GlobalServerConfig {
    * @deprecated
    */
   languageModel?: ServerLanguageModel;
+  /**
+   * Container `MIMO_PROXY_URL` is a Xiaomi Token Plan host. Hostname class
+   * only — not the URL or key — so the browser can hide native search when
+   * Settings has no base URL.
+   */
+  mimoTokenPlanEnv?: boolean;
   oAuthSSOProviders?: string[];
   systemAgent?: PartialDeep<UserSystemAgentConfig>;
   telemetry: {

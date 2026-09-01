@@ -1,6 +1,7 @@
 import { LOADING_FLAT } from '@lobechat/const';
 import type { LobeChatDatabase } from '@lobechat/database';
 import {
+  SupervisorToolName,
   buildGroupChatSystemPrompt,
   chainLangDetect,
   chainSummaryHistory,
@@ -1890,6 +1891,13 @@ const normalizeSupervisorToolCalls = (
   });
 };
 
+const SUPERVISOR_TOOL_NAMES = new Set<string>(Object.values(SupervisorToolName));
+
+const isValidSupervisorToolSelection = (
+  toolCalls: Array<{ arguments: Record<string, unknown>; name: string }>,
+): boolean =>
+  toolCalls.length > 0 && toolCalls.every((call) => SUPERVISOR_TOOL_NAMES.has(call.name));
+
 const executeSupervisor = async (
   db: LobeChatDatabase,
   operation: ConversationGenerationOperation,
@@ -2271,7 +2279,12 @@ const executeSupervisor = async (
       },
     );
 
-    if (supervisorResponse == null) {
+    if (supervisorResponse === undefined || supervisorResponse === null) {
+      throw new Error('Group supervisor returned no structured tool selection');
+    }
+
+    const toolCalls = normalizeSupervisorToolCalls(supervisorResponse);
+    if (!isValidSupervisorToolSelection(toolCalls)) {
       throw new Error('Group supervisor returned no structured tool selection');
     }
 
@@ -2280,7 +2293,7 @@ const executeSupervisor = async (
       availableAgentIds,
       previousTodos: todos,
       scene: group?.config?.scene,
-      toolCalls: normalizeSupervisorToolCalls(supervisorResponse),
+      toolCalls,
     });
     if (applied.todoUpdated) await persistTodos(applied.todos);
 

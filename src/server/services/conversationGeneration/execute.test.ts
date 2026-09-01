@@ -1442,6 +1442,48 @@ describe('executeConversationGeneration supervisor children', () => {
     );
   });
 
+  it('does not succeed when generateObject returns an empty selection', async () => {
+    runtimeMocks.generateObject.mockResolvedValue([]);
+
+    await runOperation({ ...row, attempt: 8 });
+
+    expect(runtimeMocks.chat).not.toHaveBeenCalled();
+    expect(modelMocks.finalizeActive).toHaveBeenCalledWith(
+      row.id,
+      'failed',
+      expect.objectContaining({ type: 'GenerationError' }),
+      expect.anything(),
+    );
+  });
+
+  it('does not succeed when generateObject invents a tool name', async () => {
+    runtimeMocks.generateObject.mockResolvedValue([{ arguments: {}, name: 'invented' }]);
+
+    await runOperation({ ...row, attempt: 8 });
+
+    expect(runtimeMocks.chat).not.toHaveBeenCalled();
+    expect(modelMocks.finalizeActive).toHaveBeenCalledWith(
+      row.id,
+      'failed',
+      expect.objectContaining({ type: 'GenerationError' }),
+      expect.anything(),
+    );
+  });
+
+  it('finalizes without child agents when the supervisor waits for user input', async () => {
+    runtimeMocks.generateObject.mockResolvedValue([{ arguments: {}, name: 'wait_for_user_input' }]);
+
+    await runOperation(row);
+
+    expect(runtimeMocks.chat).not.toHaveBeenCalled();
+    expect(modelMocks.finalizeActive).toHaveBeenCalledWith(
+      row.id,
+      'succeeded',
+      undefined,
+      expect.anything(),
+    );
+  });
+
   it('clears a sequential child placeholder when Stop arrives before the first token', async () => {
     messageMocks.create.mockImplementation(async (params, id) => {
       const created = {
