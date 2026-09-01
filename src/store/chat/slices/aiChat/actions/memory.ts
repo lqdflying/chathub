@@ -14,6 +14,7 @@ import {
   createCompactionFingerprint,
   getContextCompactionWatermarks,
   getSettledCompactionPrefixes,
+  parseCompactionSummarizerContextWindow,
   resolvePendingCompactionHistory,
   selectDefaultCompactionPrefix,
   splitCompactionBatches,
@@ -525,7 +526,9 @@ async function runCompactionFromStore(
   const summaryMaxTokens = getContextCompactionMaxSummaryTokens(
     agentChatConfigSelectors.assistanceLevel(getAgentStoreState()),
   );
-  const summarizerWindow = getModelContextWindowTokens(chatModel, chatProvider);
+  const summarizerWindow = parseCompactionSummarizerContextWindow(
+    getModelContextWindowTokens(chatModel, chatProvider),
+  );
   const batches = splitCompactionBatches(candidateMessages, CONTEXT_COMPACTION_MAX_BATCH_MESSAGES, {
     previousSummary: pending.previousSummary,
     summarizerContextWindow: summarizerWindow,
@@ -586,6 +589,7 @@ async function runCompactionFromStore(
             expectedHistorySummary: topic.historySummary ?? '',
             highWatermark: high,
             lowWatermark: low,
+            ...(summarizerWindow ? { summarizerContextWindow: summarizerWindow } : {}),
             targetReachable,
             trigger,
           },

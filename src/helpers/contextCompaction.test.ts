@@ -13,6 +13,7 @@ import {
   getContextCompactionWatermarks,
   getMessagesAfterHistorySummaryCursor,
   getSettledCompactionPrefixes,
+  parseCompactionSummarizerContextWindow,
   resolveEffectiveHistoryWindow,
   resolvePendingCompactionHistory,
   selectMessageCountCompactionPrefix,
@@ -140,7 +141,7 @@ describe('context compaction helpers', () => {
     ]);
   });
 
-  it('splits oversized summarizer prompts before the History Compress window fills', () => {
+  it('keeps a complete user/assistant turn together when the pair exceeds the summarizer budget', () => {
     const bulky = (id: string, role: UIChatMessage['role']): UIChatMessage =>
       ({ content: '汉'.repeat(20_000), id, role, updatedAt: 1 }) as UIChatMessage;
     const history = [
@@ -151,16 +152,27 @@ describe('context compaction helpers', () => {
     ];
     const window = 80_000;
     const budget = getCompactionSummarizerInputBudget(window, CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS);
-    expect(estimateCompactionPromptTokens(history)).toBeGreaterThan(budget);
+    expect(estimateCompactionPromptTokens([history[0]])).toBeLessThanOrEqual(budget);
+    expect(estimateCompactionPromptTokens(history.slice(0, 2))).toBeGreaterThan(budget);
 
     const batches = splitCompactionBatches(history, 40, {
       summarizerContextWindow: window,
       summaryMaxTokens: CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS,
     });
-    expect(batches.length).toBeGreaterThan(1);
+    expect(batches.map((batch) => batch.map(({ id }) => id))).toEqual([
+      ['u0', 'a0'],
+      ['u1', 'a1'],
+    ]);
     for (const batch of batches) {
-      expect(estimateCompactionPromptTokens(batch)).toBeLessThanOrEqual(budget);
+      expect(batch.at(-1)?.role).not.toBe('user');
     }
+  });
+
+  it('rejects non-positive or non-integer summarizer windows', () => {
+    expect(parseCompactionSummarizerContextWindow(8192)).toBe(8192);
+    expect(parseCompactionSummarizerContextWindow(1.5)).toBeUndefined();
+    expect(parseCompactionSummarizerContextWindow(0)).toBeUndefined();
+    expect(parseCompactionSummarizerContextWindow(20_000_000)).toBeUndefined();
   });
 });
 

@@ -99,6 +99,7 @@ describe('ConversationGenerationConfigSchema', () => {
           candidateMessageIds: ['message-1', 'message-2'],
           expectedFingerprint: 'fingerprint',
           expectedHistorySummary: 'existing summary',
+          summarizerContextWindow: 8192,
           trigger: 'scheduled',
         },
         model: 'summary-model',
@@ -108,10 +109,27 @@ describe('ConversationGenerationConfigSchema', () => {
     ).toMatchObject({
       compaction: {
         candidateMessageIds: ['message-1', 'message-2'],
+        summarizerContextWindow: 8192,
         trigger: 'scheduled',
       },
       title: { force: true, topicId: 'topic-1' },
     });
+  });
+
+  it('rejects an invalid snapshot summarizer window', () => {
+    expect(() =>
+      ConversationGenerationConfigSchema.parse({
+        compaction: {
+          candidateMessageIds: ['message-1'],
+          expectedFingerprint: 'fingerprint',
+          expectedHistorySummary: '',
+          summarizerContextWindow: 0,
+          trigger: 'manual',
+        },
+        model: 'summary-model',
+        provider: 'summary-provider',
+      }),
+    ).toThrow();
   });
 });
 

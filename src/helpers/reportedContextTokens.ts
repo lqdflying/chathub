@@ -2,7 +2,10 @@ import type { MessageMetadata, ModelTokensUsage, UIChatMessage } from '@lobechat
 
 import { LOADING_FLAT } from '@/const/message';
 
-type UsageMessage = Pick<UIChatMessage, 'children' | 'content' | 'metadata' | 'role' | 'usage'>;
+type UsageMessage = Pick<
+  UIChatMessage,
+  'children' | 'content' | 'createdAt' | 'metadata' | 'role' | 'updatedAt' | 'usage'
+>;
 
 type NestedUsageMetadata = MessageMetadata & { usage?: ModelTokensUsage };
 
@@ -16,11 +19,19 @@ const readTotalInput = (usage?: ModelTokensUsage | MessageMetadata | null): numb
 };
 
 /** Newest settled assistant `totalInputTokens` in the supplied window. */
-export const getLatestReportedInputTokens = (messages: UsageMessage[]): number | undefined => {
+export const getLatestReportedInputTokens = (
+  messages: UsageMessage[],
+  options?: { minExclusiveUpdatedAt?: number },
+): number | undefined => {
+  const minAt = options?.minExclusiveUpdatedAt;
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
     if ((message.role !== 'assistant' && message.role !== 'group') || message.content === LOADING_FLAT) {
       continue;
+    }
+    if (minAt !== undefined) {
+      const stamp = message.updatedAt ?? message.createdAt;
+      if (typeof stamp !== 'number' || !Number.isFinite(stamp) || stamp <= minAt) continue;
     }
 
     const children = message.children;

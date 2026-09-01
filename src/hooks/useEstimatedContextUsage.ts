@@ -63,6 +63,7 @@ export const useEstimatedContextUsage = (
     memoryArchives,
     historySummaryLastMessageId,
     isRegularTopic,
+    lastCompactionAt,
     lastCompactionStatus,
     skillSelectionKey,
   ] = useChatStore((s) => [
@@ -71,6 +72,7 @@ export const useEstimatedContextUsage = (
     topicSelectors.currentActiveTopic(s)?.metadata?.memoryArchives,
     topicSelectors.currentActiveTopic(s)?.metadata?.historySummaryLastMessageId,
     s.activeSessionType !== 'group' && !s.activeThreadId && !s.portalThreadId,
+    topicSelectors.currentActiveTopic(s)?.metadata?.memoryDebugLog?.at(-1)?.at,
     topicSelectors.currentActiveTopic(s)?.metadata?.memoryDebugLog?.at(-1)?.status,
     getSkillSelectionKey({
       sessionId: s.activeId,
@@ -242,6 +244,8 @@ export const useEstimatedContextUsage = (
     const applyCursor =
       conversationSource === 'main' && enableHistoryCount && enableCompressHistory && isRegularTopic;
     const cursorId = applyCursor ? historySummaryLastMessageId : undefined;
+    const skipStaleReportedFloor =
+      Boolean(cursorId) && (typeof lastCompactionAt !== 'number' || lastCompactionAt <= 0);
     const sliced = selectMessagesForContext({
       cursorId,
       enableHistoryCount,
@@ -270,9 +274,14 @@ export const useEstimatedContextUsage = (
         pendingHasFiles: hasPendingFiles,
         pendingInput: input,
       }),
-      reportedInputTokens: getLatestReportedInputTokens(
-        sliced.filter(({ id }) => id !== PENDING_CONTEXT_INPUT_MESSAGE_ID),
-      ),
+      reportedInputTokens: skipStaleReportedFloor
+        ? undefined
+        : getLatestReportedInputTokens(
+            sliced.filter(({ id }) => id !== PENDING_CONTEXT_INPUT_MESSAGE_ID),
+            cursorId && typeof lastCompactionAt === 'number'
+              ? { minExclusiveUpdatedAt: lastCompactionAt }
+              : undefined,
+          ),
       topicChatsString: serializeMessagesForContextEstimate(chats, inputTemplate),
     };
   }, [
@@ -286,6 +295,7 @@ export const useEstimatedContextUsage = (
     input,
     inputTemplate,
     isRegularTopic,
+    lastCompactionAt,
     maxTokens,
     memorySummaryRaw,
     messageFingerprint,

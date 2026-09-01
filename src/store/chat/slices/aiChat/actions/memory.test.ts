@@ -253,6 +253,7 @@ describe('chat memory actions', () => {
             candidateMessageIds: ['u1', 'a1', 'u2', 'a2'],
             expectedFingerprint: expect.any(String),
             expectedHistorySummary: '',
+            summarizerContextWindow: 1000,
             trigger: 'manual',
           }),
         }),
@@ -703,6 +704,43 @@ describe('chat memory actions', () => {
     expect(vi.mocked(topicService.updateTopic).mock.calls.at(-1)?.[1]).toMatchObject({
       metadata: expect.objectContaining({ historySummaryLastMessageId: 'a84' }),
     });
+  });
+
+  it('caps pre-send token compaction on complete-turn boundaries, not user-only batches', async () => {
+    const bulky = (id: string, role: UIChatMessage['role']) =>
+      message(id, role, '汉'.repeat(4000));
+    const bulkyTurns = Array.from({ length: 5 }, (_, index) => [
+      bulky(`bu${index + 1}`, 'user'),
+      bulky(`ba${index + 1}`, 'assistant'),
+    ]).flat();
+    setConversation({ messagesMap: { [messageMapKey(SESSION_ID, TOPIC_ID)]: bulkyTurns } });
+    vi.mocked(estimateContextUsageAsync)
+      .mockReset()
+      .mockResolvedValueOnce({
+        chatsToken: 6,
+        contextMessages: bulkyTurns,
+        historySummaryToken: 0,
+        totalToken: 1_000_000,
+      })
+      .mockResolvedValueOnce({
+        chatsToken: 4,
+        contextMessages: bulkyTurns.slice(6),
+        historySummaryToken: 2,
+        totalToken: 700,
+      });
+
+    const result = await useChatStore
+      .getState()
+      .triggerTokenThresholdMemoryCompaction(new AbortController());
+
+    expect(result).toMatchObject({ messageCountIncluded: 6, status: 'compacted' });
+    expect(chatService.fetchPresetTaskResult).toHaveBeenCalledTimes(3);
+    expect(topicService.updateTopic).toHaveBeenCalledWith(
+      TOPIC_ID,
+      expect.objectContaining({
+        metadata: expect.objectContaining({ historySummaryLastMessageId: 'ba3' }),
+      }),
+    );
   });
 
   it('undoes a summary write that raced an invalidation', async () => {

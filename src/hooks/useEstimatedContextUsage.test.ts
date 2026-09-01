@@ -29,10 +29,15 @@ const mocks = vi.hoisted(() => {
     },
   };
   let agentState = {
+    enableCompressHistory: false,
     enableHistoryCount: true,
     historyCount: 2,
     inputTemplate: '',
   };
+  let topicMetadata: {
+    historySummaryLastMessageId?: string;
+    memoryDebugLog?: Array<{ at: number; status?: string }>;
+  } = {};
   const agentListeners = new Set<() => void>();
   const useChatStore = Object.assign(
     vi.fn((selector?: (state: typeof chatState) => unknown) =>
@@ -61,6 +66,10 @@ const mocks = vi.hoisted(() => {
     setHasPendingFiles: (value: boolean) => {
       hasPendingFiles = value;
     },
+    setTopicMetadata: (value: typeof topicMetadata) => {
+      topicMetadata = value;
+    },
+    topicMetadata: () => topicMetadata,
     setAgentState: (nextState: Partial<typeof agentState>) => {
       agentState = { ...agentState, ...nextState };
       agentListeners.forEach((listener) => listener());
@@ -108,7 +117,7 @@ vi.mock('@/store/chat/selectors', () => ({
     portalAIChats: () => mocks.portalChats,
   },
   topicSelectors: {
-    currentActiveTopic: () => undefined,
+    currentActiveTopic: () => ({ metadata: mocks.topicMetadata() }),
     currentActiveTopicSummary: () => undefined,
   },
 }));
@@ -116,7 +125,7 @@ vi.mock('@/store/chat/selectors', () => ({
 vi.mock('@/store/agent/selectors', () => ({
   agentChatConfigSelectors: {
     currentChatConfig: (state: ReturnType<typeof mocks.getAgentState>) => ({
-      enableCompressHistory: false,
+      enableCompressHistory: state.enableCompressHistory,
       enableUserMemoryArchive: false,
       inputTemplate: state.inputTemplate,
     }),
@@ -182,7 +191,9 @@ describe('useEstimatedContextUsage', () => {
       id: 'main-message',
       role: 'user',
     });
+    mocks.setTopicMetadata({});
     mocks.setAgentState({
+      enableCompressHistory: false,
       enableHistoryCount: true,
       historyCount: 2,
       inputTemplate: '',
@@ -351,5 +362,46 @@ describe('useEstimatedContextUsage', () => {
     const { result } = renderHook(() => useEstimatedContextUsage('main'));
 
     expect(result.current.totalToken).toBe(50_000);
+  });
+
+  it('does not floor with provider usage recorded before the latest compaction', () => {
+    mocks.setAgentState({
+      enableCompressHistory: true,
+      enableHistoryCount: true,
+      historyCount: 20,
+      inputTemplate: '',
+    });
+    mocks.mainChats.splice(
+      0,
+      mocks.mainChats.length,
+      { content: 'old', id: 'u1', role: 'user' } as never,
+      {
+        content: 'old-a',
+        id: 'a1',
+        metadata: { totalInputTokens: 1_048_570 },
+        role: 'assistant',
+        updatedAt: 1000,
+      } as never,
+      { content: 'hi', id: 'u2', role: 'user' } as never,
+      {
+        content: 'ok',
+        id: 'a2',
+        metadata: { totalInputTokens: 1_048_570 },
+        role: 'assistant',
+        updatedAt: 1000,
+      } as never,
+    );
+
+    const before = renderHook(() => useEstimatedContextUsage('main'));
+    expect(before.result.current.totalToken).toBe(1_048_570);
+    before.unmount();
+
+    mocks.setTopicMetadata({
+      historySummaryLastMessageId: 'a1',
+      memoryDebugLog: [{ at: 5000, status: 'compacted' }],
+    });
+
+    const { result } = renderHook(() => useEstimatedContextUsage('main'));
+    expect(result.current.totalToken).toBeLessThan(1_048_570);
   });
 });

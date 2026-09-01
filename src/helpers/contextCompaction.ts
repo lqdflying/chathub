@@ -197,6 +197,18 @@ export const getListedModelContextWindowTokens = (
 export const getCompactionSummarizerContextWindow = (model: string, provider?: string): number =>
   getListedModelContextWindowTokens(model, provider) ?? LARGE_CONTEXT_WINDOW_TOKENS;
 
+/** Upper bound for a snapshot or configured History Compress window. */
+export const MAX_COMPACTION_SUMMARIZER_CONTEXT_WINDOW = 16_777_216;
+
+/** Accept a planner/worker snapshot window; reject floats, zero, and absurd sizes. */
+export const parseCompactionSummarizerContextWindow = (value: unknown): number | undefined => {
+  if (typeof value !== 'number' || !Number.isFinite(value) || !Number.isInteger(value)) {
+    return undefined;
+  }
+  if (value < 1 || value > MAX_COMPACTION_SUMMARIZER_CONTEXT_WINDOW) return undefined;
+  return value;
+};
+
 export const estimateCompactionPromptTokens = (
   messages: UIChatMessage[],
   previousSummary?: string,
@@ -222,7 +234,7 @@ export interface SplitCompactionBatchesTokenOptions {
   previousSummary?: string;
   summarizerContextWindow?: number;
   summaryMaxTokens?: number;
-};
+}
 
 const isGpt5ReasoningModelId = (model: string) =>
   model.startsWith('gpt-5') && !model.includes('chat');
@@ -484,6 +496,17 @@ const splitCompactionBatchesByMessageCount = (
   return batches;
 };
 
+/** Exclusive index of the next complete turn (ends before the following `user`, or at EOF). */
+const nextCompleteTurnEnd = (messages: UIChatMessage[], from = 0): number => {
+  if (from >= messages.length) return messages.length;
+  for (let index = from; index < messages.length; index += 1) {
+    if (index + 1 === messages.length || messages[index + 1]?.role === 'user') {
+      return index + 1;
+    }
+  }
+  return messages.length;
+};
+
 const splitCompactionBatchesByTokens = (
   messages: UIChatMessage[],
   maxMessages: number,
@@ -499,28 +522,39 @@ const splitCompactionBatchesByTokens = (
   let remaining = messages;
 
   while (remaining.length > 0) {
-    let end = 0;
-    let lastTurnEnd = 0;
-    const limit = Math.min(maxMessages, remaining.length);
-
-    while (end < limit) {
-      const estimated = estimateCompactionPromptTokens(
-        remaining.slice(0, end + 1),
-        options.previousSummary,
-        options.summaryMaxTokens,
-      );
-      if (estimated > budget && end > 0) break;
-      end += 1;
-      if (end === remaining.length || remaining[end]?.role === 'user') lastTurnEnd = end;
+    const firstTurnEnd = nextCompleteTurnEnd(remaining, 0);
+    if (firstTurnEnd <= 0) break;
+    if (firstTurnEnd === remaining.length && remaining[firstTurnEnd - 1]?.role === 'user') {
+      // Trailing user-only remainder is not a settled turn; never persist a user cursor.
+      break;
     }
 
-    if (end === 0) {
-      batches.push(remaining.slice(0, 1));
-      remaining = remaining.slice(1);
+    const firstTurnTokens = estimateCompactionPromptTokens(
+      remaining.slice(0, firstTurnEnd),
+      options.previousSummary,
+      options.summaryMaxTokens,
+    );
+    // Keep an oversized complete turn intact; the worker fails it as one prompt.
+    if (firstTurnTokens > budget) {
+      batches.push(remaining.slice(0, firstTurnEnd));
+      remaining = remaining.slice(firstTurnEnd);
       continue;
     }
 
-    const batchEnd = lastTurnEnd > 0 ? lastTurnEnd : end;
+    let batchEnd = firstTurnEnd;
+    while (batchEnd < remaining.length) {
+      const nextTurnEnd = nextCompleteTurnEnd(remaining, batchEnd);
+      if (nextTurnEnd <= batchEnd) break;
+      if (nextTurnEnd > maxMessages && batchEnd > 0) break;
+      const estimated = estimateCompactionPromptTokens(
+        remaining.slice(0, nextTurnEnd),
+        options.previousSummary,
+        options.summaryMaxTokens,
+      );
+      if (estimated > budget) break;
+      batchEnd = nextTurnEnd;
+    }
+
     batches.push(remaining.slice(0, batchEnd));
     remaining = remaining.slice(batchEnd);
   }

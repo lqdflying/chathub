@@ -4,7 +4,7 @@ import { TRPCError } from '@trpc/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { UserModel } from '@/database/models/user';
-import { createCompactionFingerprint } from '@/helpers/contextCompaction';
+import { createCompactionFingerprint, getCompactionSummarizerInputBudget } from '@/helpers/contextCompaction';
 import {
   ConversationWriteRejectedError,
   getConversationVersion,
@@ -2518,6 +2518,60 @@ describe('executeConversationGeneration memory compaction', () => {
         type: 'GenerationError',
       }),
       expect.objectContaining({ attempt: 1, laneGeneration: 1 }),
+    );
+  });
+
+  it('uses the snapshot summarizer window for a custom 8k History Compress model', async () => {
+    const candidateMessages = [
+      { content: '汉'.repeat(20_000), id: 'u1', role: 'user', updatedAt: 1 },
+      { content: '汉'.repeat(20_000), id: 'a1', role: 'assistant', updatedAt: 1 },
+    ];
+    const expectedHistorySummary = '';
+    const expectedFingerprint = createCompactionFingerprint({
+      messages: candidateMessages as any,
+      summary: expectedHistorySummary,
+    });
+    const row = {
+      attempt: 0,
+      config: {
+        compaction: {
+          candidateMessageIds: ['u1', 'a1'],
+          expectedFingerprint,
+          expectedHistorySummary,
+          summarizerContextWindow: 8192,
+          trigger: 'manual',
+        },
+        model: 'custom-8k-summarizer',
+        provider: 'ollama',
+      },
+      id: 'cgo_custom_window_compaction',
+      kind: 'memory_compaction',
+      lane: 'lane-1',
+      laneGeneration: 1,
+      revision: 0,
+      sessionId: 'session-1',
+      status: 'pending',
+      topicId: 'topic-1',
+      userId: 'user-1',
+    };
+    aiChatMocks.getMessagesAndTopics.mockResolvedValue({
+      messages: candidateMessages,
+      topics: [],
+    });
+
+    await runOperation(row);
+
+    const budget = getCompactionSummarizerInputBudget(8192, 600);
+    expect(runtimeMocks.chat).not.toHaveBeenCalled();
+    expect(modelMocks.markForRetry).not.toHaveBeenCalled();
+    expect(modelMocks.finalizeActive).toHaveBeenCalledWith(
+      row.id,
+      'failed',
+      expect.objectContaining({
+        body: expect.objectContaining({ budgetTokens: budget }),
+        type: 'ExceededContextWindow',
+      }),
+      expect.anything(),
     );
   });
 

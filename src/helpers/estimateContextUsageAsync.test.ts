@@ -6,9 +6,12 @@ import { estimateContextUsageAsync } from './estimateContextUsageAsync';
 const mocks = vi.hoisted(() => ({
   chats: [{ content: 'chat-text', id: 'u1', role: 'user' }] as Array<{
     content: string;
+    createdAt?: number;
     id: string;
+    metadata?: { totalInputTokens?: number };
     role: string;
     tool_call_id?: string;
+    updatedAt?: number;
   }>,
   historyCount: 20,
   inputTemplate: '',
@@ -18,6 +21,7 @@ const mocks = vi.hoisted(() => ({
     instructions: string;
     name: string;
   }>,
+  topic: { metadata: {} as Record<string, unknown> },
 }));
 
 vi.mock('@/utils/tokenizer', () => ({
@@ -95,7 +99,7 @@ vi.mock('@/store/chat/selectors', () => ({
     mainAIChats: () => mocks.chats,
   },
   topicSelectors: {
-    currentActiveTopic: () => ({ metadata: {} }),
+    currentActiveTopic: () => mocks.topic,
     currentActiveTopicSummary: () => ({ content: 'summary' }),
   },
 }));
@@ -126,6 +130,7 @@ describe('estimateContextUsageAsync', () => {
     mocks.historyCount = 20;
     mocks.inputTemplate = '';
     mocks.skillRecords = [];
+    mocks.topic = { metadata: {} };
     mocks.chats = [{ content: 'chat-text', id: 'u1', role: 'user' }];
   });
 
@@ -244,5 +249,47 @@ describe('estimateContextUsageAsync', () => {
 
     expect(result.totalToken).toBe(50_000);
     expect(result.chatsToken).toBeGreaterThan(0);
+  });
+
+  it('does not floor with provider usage recorded before the latest compaction', async () => {
+    mocks.chats = [
+      { content: 'old', id: 'u1', role: 'user' },
+      {
+        content: 'old-a',
+        id: 'a1',
+        metadata: { totalInputTokens: 1_048_570 },
+        role: 'assistant',
+        updatedAt: 1000,
+      },
+      { content: 'hi', id: 'u2', role: 'user' },
+      {
+        content: 'ok',
+        id: 'a2',
+        metadata: { totalInputTokens: 1_048_570 },
+        role: 'assistant',
+        updatedAt: 1000,
+      },
+    ];
+
+    const before = await estimateContextUsageAsync({
+      agentState: {} as any,
+      chatState: { inputMessage: '' } as any,
+    });
+    expect(before.totalToken).toBe(1_048_570);
+
+    mocks.topic = {
+      metadata: {
+        historySummaryLastMessageId: 'a1',
+        memoryDebugLog: [{ at: 5000, status: 'compacted' }],
+      },
+    };
+
+    const result = await estimateContextUsageAsync({
+      agentState: {} as any,
+      chatState: { inputMessage: '' } as any,
+    });
+
+    expect(result.totalToken).toBeLessThan(1_048_570);
+    expect(result.contextMessages.map(({ id }) => id)).toEqual(['u2', 'a2']);
   });
 });

@@ -2253,6 +2253,33 @@ describe('chatMessage actions', () => {
       streamSpy.mockRestore();
     });
 
+    it('fails a silent empty MiMo completion that filled the listed 1M window', async () => {
+      const { result } = renderHook(() => useChatStore());
+      const messages = [createMockMessage({ role: 'user' })];
+
+      vi.spyOn(chatService, 'createAssistantMessageStream').mockImplementation(
+        async ({ onFinish }) => {
+          await onFinish?.('', {
+            usage: { totalInputTokens: 1_048_570, totalOutputTokens: 0 },
+          } as any);
+        },
+      );
+
+      await act(async () => {
+        await result.current.internal_fetchAIChatMessage({
+          messageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+          messages,
+          model: 'mimo-v2.5-pro',
+          provider: 'mimo',
+        });
+      });
+
+      expect(messageService.updateMessageError).toHaveBeenCalledWith(
+        TEST_IDS.ASSISTANT_MESSAGE_ID,
+        expect.objectContaining({ type: 'ExceededContextWindow' }),
+      );
+    });
+
     it('should handle tool call chunks during streaming', async () => {
       const { result } = renderHook(() => useChatStore());
       const messages = [createMockMessage({ role: 'user' })];

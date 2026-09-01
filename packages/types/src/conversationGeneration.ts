@@ -79,6 +79,12 @@ export interface ConversationGenerationCompactionSnapshot {
   expectedHistorySummary: string;
   highWatermark?: number;
   lowWatermark?: number;
+  /**
+   * History Compress `contextWindowTokens` resolved by the planner
+   * (`enabledAiModels`, including custom cards). Worker uses this before the
+   * built-in model-bank / 128k fallback.
+   */
+  summarizerContextWindow?: number;
   targetReachable?: boolean;
   trigger: MemoryCompactionTrigger;
 }
@@ -203,6 +209,7 @@ export const ConversationGenerationConfigSchema = z.object({
       expectedHistorySummary: z.string(),
       highWatermark: z.number().optional(),
       lowWatermark: z.number().optional(),
+      summarizerContextWindow: z.number().int().positive().max(16_777_216).optional(),
       targetReachable: z.boolean().optional(),
       trigger: z.enum(['manual', 'message_count', 'scheduled', 'token_threshold']),
     })

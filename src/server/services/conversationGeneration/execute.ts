@@ -43,9 +43,14 @@ import {
   getCompactionSummarizerContextWindow,
   getCompactionSummarizerInputBudget,
   getListedModelContextWindowTokens,
+  parseCompactionSummarizerContextWindow,
   splitCompactionBatches,
 } from '@/helpers/contextCompaction';
 import { getContextCompactionMaxSummaryTokens } from '@/helpers/contextUsageEstimate';
+import {
+  createEmptyCompletionAtContextCeilingError,
+  isEmptyCompletionAtContextCeiling,
+} from '@/helpers/emptyCompletionAtContextCeiling';
 import {
   applySupervisorToolCalls,
   formatSupervisorTodoContent,
@@ -103,7 +108,7 @@ import {
   createConversationRuntimeChatOptions,
 } from './runtimeChatOptions';
 import { ConversationGenerationService, enqueueConversationGenerationJob } from './service';
-import { consumeProtocolResponse, isEmptyCompletionAtContextCeiling } from './stream';
+import { consumeProtocolResponse } from './stream';
 import { loadConversationThreadMessages } from './threadScope';
 import {
   createConversationToolBatchCorrelation,
@@ -250,7 +255,7 @@ export class EmptyCompactionSummaryError extends Error {
 }
 
 /**
- * A single compaction batch still exceeds the History Compress model window.
+ * A compaction batch still exceeds the History Compress model window.
  * Retrying the same oversized prompt will not succeed.
  */
 export class CompactionPromptTooLargeError extends Error {
@@ -1061,19 +1066,14 @@ const executeChat = async (
             usage: result.usage,
           })
         ) {
-          const error = {
-            body: {
-              contextWindowTokens: getListedModelContextWindowTokens(
-                operation.config.model,
-                operation.config.provider,
-              ),
-              totalInputTokens: result.usage?.totalInputTokens,
-              totalOutputTokens: result.usage?.totalOutputTokens ?? 0,
-            },
-            message:
-              "The model returned no completion because the prompt filled the context window.",
-            type: AgentRuntimeErrorType.ExceededContextWindow,
-          };
+          const error = createEmptyCompletionAtContextCeilingError({
+            contextWindowTokens: getListedModelContextWindowTokens(
+              operation.config.model,
+              operation.config.provider,
+            ),
+            totalInputTokens: result.usage?.totalInputTokens,
+            totalOutputTokens: result.usage?.totalOutputTokens ?? 0,
+          });
           await messageModel.update(assistantId, {
             content: content || '',
             error: error as any,
@@ -1824,10 +1824,9 @@ const executeCompaction = async (
   const summaryMaxTokens = getContextCompactionMaxSummaryTokens(
     operation.config.chatConfig?.assistanceLevel,
   );
-  const summarizerWindow = getCompactionSummarizerContextWindow(
-    operation.config.model,
-    operation.config.provider,
-  );
+  const summarizerWindow =
+    parseCompactionSummarizerContextWindow(compaction.summarizerContextWindow) ??
+    getCompactionSummarizerContextWindow(operation.config.model, operation.config.provider);
   const summarizerBudget = getCompactionSummarizerInputBudget(summarizerWindow, summaryMaxTokens);
   for (const batch of splitCompactionBatches(
     candidateMessages,
@@ -1843,7 +1842,7 @@ const executeCompaction = async (
       historySummary || undefined,
       summaryMaxTokens,
     );
-    if (estimatedTokens > summarizerBudget && batch.length === 1) {
+    if (estimatedTokens > summarizerBudget) {
       throw new CompactionPromptTooLargeError({
         budgetTokens: summarizerBudget,
         estimatedTokens,

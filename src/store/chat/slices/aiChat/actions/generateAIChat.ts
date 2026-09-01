@@ -19,7 +19,10 @@ import { produce } from 'immer';
 import { StateCreator } from 'zustand/vanilla';
 
 import { normalizeAssistantMemoryText } from '@/helpers/assistantMemory';
-import { getMessagesAfterHistorySummaryCursor } from '@/helpers/contextCompaction';
+import {
+  getListedModelContextWindowTokens,
+  getMessagesAfterHistorySummaryCursor,
+} from '@/helpers/contextCompaction';
 import {
   conversationGenerationIdempotencyKey,
   conversationGenerationRequestKey,
@@ -28,6 +31,10 @@ import {
   buildDurableConversationConfig,
   isClientDurableConversationGenerationEnabled,
 } from '@/helpers/durableConversationGeneration';
+import {
+  createEmptyCompletionAtContextCeilingError,
+  isEmptyCompletionAtContextCeiling,
+} from '@/helpers/emptyCompletionAtContextCeiling';
 import { buildHistorySummaryForRequest } from '@/helpers/memoryArchivePrompt';
 import {
   getMimoTokenPlanEnvHint,
@@ -1304,6 +1311,37 @@ export const generateAIChat: StateCreator<
               },
             }));
             isFunctionCall = true;
+          }
+
+          if (
+            isEmptyCompletionAtContextCeiling({
+              content,
+              contextWindowTokens: getListedModelContextWindowTokens(model, provider),
+              reasoning,
+              toolCalls: parsedToolCalls,
+              usage,
+            })
+          ) {
+            const error = createEmptyCompletionAtContextCeilingError({
+              contextWindowTokens: getListedModelContextWindowTokens(model, provider),
+              totalInputTokens: usage?.totalInputTokens,
+              totalOutputTokens: usage?.totalOutputTokens ?? 0,
+            });
+            await internal_updateMessageContent(messageId, content, {
+              reasoning: !!reasoning ? { ...reasoning, duration } : undefined,
+              search: !!grounding?.citations ? grounding : undefined,
+              imageList: finalImages.length > 0 ? finalImages : undefined,
+              metadata: speed ? { ...usage, ...speed } : usage,
+              model,
+              observationId: observationId ?? undefined,
+              provider,
+              persistenceRecovery: 'assistant_finalization',
+              traceId: traceId ?? undefined,
+              conversationContext,
+            });
+            await messageService.updateMessageError(messageId, error);
+            if (isCurrentConversation()) await refreshMessages(conversationContext);
+            return;
           }
 
           // update the content after fetch result

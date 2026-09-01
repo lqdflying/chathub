@@ -592,8 +592,10 @@ Semantics that matter when reading the stream:
 - A listed-card chat that fills the window (`totalInputTokens` within 256 of
   `contextWindowTokens`) and returns no text, reasoning, tools, or output tokens
   is `failed` with `ExceededContextWindow` instead of a blank succeeded bubble.
-  Compaction `ProviderBizError` / `maximum context length` is also failed once
-  (no Graphile 8-attempt loop).
+  The same classifier runs in durable `executeChat` and browser
+  `internal_fetchAIChatMessage` (including when durable generation is off or
+  deferred to the tab). Compaction `ProviderBizError` / `maximum context length`
+  is also failed once (no Graphile 8-attempt loop).
 - Claude-like leave/return (browser-fallback turns): `deferred_lane_marked`
   when durable enqueue is rejected for a browser-only tool; `deferred_lane_left`
   when the user switches topic/session/thread or hides the tab while that
