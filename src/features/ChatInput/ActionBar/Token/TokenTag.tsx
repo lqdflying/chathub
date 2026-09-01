@@ -3,7 +3,7 @@ import { TokenTag } from '@lobehub/ui/chat';
 import { Button } from 'antd';
 import { useTheme } from 'antd-style';
 import numeral from 'numeral';
-import { memo, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Center, Flexbox } from 'react-layout-kit';
 
@@ -16,7 +16,7 @@ import { useIsMobile } from '@/hooks/useIsMobile';
 import { useAgentStore } from '@/store/agent';
 import { agentChatConfigSelectors } from '@/store/agent/selectors';
 import { useChatStore } from '@/store/chat';
-import { topicSelectors } from '@/store/chat/selectors';
+import { aiChatSelectors, topicSelectors } from '@/store/chat/selectors';
 
 import ActionPopover from '../components/ActionPopover';
 import { MOBILE_ACTION_OVERLAY_COMPACT_MAX_PX } from '../components/mobileOverlayWidth';
@@ -32,10 +32,12 @@ const Token = memo<TokenTagProps>(({ conversationSource }) => {
   const { t } = useTranslation(['chat', 'components']);
   const theme = useTheme();
   const isMobile = useIsMobile();
-  const [compacting, setCompacting] = useState(false);
+  const [awaitingTrigger, setAwaitingTrigger] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(false);
 
   const activeTopicId = useChatStore((s) => s.activeTopicId);
+  const durableCompacting = useChatStore(aiChatSelectors.isActiveTopicMemoryCompacting);
+  const compacting = awaitingTrigger || durableCompacting;
   const hasTopicSummary = useChatStore(
     (s) => !!topicSelectors.currentActiveTopicSummary(s)?.content,
   );
@@ -52,6 +54,10 @@ const Token = memo<TokenTagProps>(({ conversationSource }) => {
       !s.activeThreadId &&
       !s.portalThreadId,
   );
+
+  useEffect(() => {
+    setAwaitingTrigger(false);
+  }, [activeTopicId]);
 
   const {
     chatInstructionToken,
@@ -225,12 +231,13 @@ const Token = memo<TokenTagProps>(({ conversationSource }) => {
       {conversationSource !== 'portal' && (
         <Button
           block
-          disabled={!canManualCompact || !isRegularTopic}
+          disabled={!canManualCompact || !isRegularTopic || compacting}
           loading={compacting}
           onClick={async (e) => {
             e.preventDefault();
             e.stopPropagation();
-            setCompacting(true);
+            if (compacting) return;
+            setAwaitingTrigger(true);
             try {
               const result = await useChatStore.getState().triggerManualMemoryCompaction();
               const { notification } = await import('@/components/AntdStaticMethods');
@@ -257,13 +264,13 @@ const Token = memo<TokenTagProps>(({ conversationSource }) => {
                 }
               }
             } finally {
-              setCompacting(false);
+              setAwaitingTrigger(false);
             }
           }}
           size={'small'}
           type={'default'}
         >
-          {t('memoryCompaction.compactNow')}
+          {compacting ? t('memoryCompaction.compacting') : t('memoryCompaction.compactNow')}
         </Button>
       )}
       {conversationSource !== 'portal' && isRegularTopic && (

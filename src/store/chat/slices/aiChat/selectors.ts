@@ -1,3 +1,4 @@
+import { laneScopedClearKey } from '@/store/chat/utils/conversationClearGeneration';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 
 import type { ChatStoreState } from '../../initialState';
@@ -29,7 +30,24 @@ const isCurrentPreSendCompacting = (s: ChatStoreState) => {
   return !!s.preSendCompactionOperations[operationKey];
 };
 
+/** True while active-topic memory compaction is enqueuing or attached as a durable job. */
+const isActiveTopicMemoryCompacting = (s: ChatStoreState) => {
+  if (!s.activeId || !s.activeTopicId) return false;
+
+  const mapKey = messageMapKey(s.activeId, s.activeTopicId);
+  const hasAttached = Object.values(s.serverGenerationOperations[mapKey] || {}).some(
+    (operation) => operation.kind === 'memory_compaction',
+  );
+  if (hasAttached) return true;
+
+  const laneKey = laneScopedClearKey(s.activeId, s.activeTopicId, null);
+  return (s.durableInFlightEnqueues[laneKey] || []).some(
+    (entry) => entry.kind === 'memory_compaction',
+  );
+};
+
 export const aiChatSelectors = {
+  isActiveTopicMemoryCompacting,
   isCurrentPreSendCompacting,
   isCurrentSendMessageError,
   isCurrentSendMessageLoading,

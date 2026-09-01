@@ -272,6 +272,7 @@ export default {
 
   memoryCompaction: {
     compactNow: '立即压缩上下文',
+    compacting: '正在压缩…',
     debug: {
       approxTokensAfter: '估算 Token（压缩后）',
       approxTokensBefore: '估算 Token（压缩前）',

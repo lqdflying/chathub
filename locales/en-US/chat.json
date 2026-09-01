@@ -255,6 +255,7 @@
   "members": "Members",
   "memoryCompaction": {
     "compactNow": "Compact context now",
+    "compacting": "Compacting…",
     "debug": {
       "approxTokensAfter": "Est. tokens (after)",
       "approxTokensBefore": "Est. tokens (before)",
