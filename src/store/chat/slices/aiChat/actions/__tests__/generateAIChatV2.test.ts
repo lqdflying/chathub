@@ -6,6 +6,7 @@ import { Mock, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LOADING_FLAT } from '@/const/message';
 import { DEFAULT_AGENT_CHAT_CONFIG, DEFAULT_MODEL, DEFAULT_PROVIDER } from '@/const/settings';
 import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableConversationGeneration';
+import * as modelContextWindowTokens from '@/helpers/modelContextWindowTokens';
 import { aiChatService } from '@/services/aiChat';
 import { chatService } from '@/services/chat';
 import { conversationGenerationService } from '@/services/conversationGeneration';
@@ -731,6 +732,7 @@ describe('generateAIChatV2 actions', () => {
       });
 
       it('does not enqueue chat when token compact fails at the high watermark', async () => {
+        vi.spyOn(modelContextWindowTokens, 'getModelContextWindowTokens').mockReturnValue(1_048_576);
         const compactionSpy = vi.fn(async () => ({
           estimatedTokensBefore: 950_000,
           highWatermark: 0.8,
@@ -769,6 +771,28 @@ describe('generateAIChatV2 actions', () => {
             topicId: TEST_IDS.TOPIC_ID,
           }),
         );
+      });
+
+      it('enqueues chat when target_unreachable compact still dropped below the high watermark', async () => {
+        vi.spyOn(modelContextWindowTokens, 'getModelContextWindowTokens').mockReturnValue(1_048_576);
+        const compactionSpy = vi.fn(async () => ({
+          estimatedTokensAfter: 100,
+          estimatedTokensBefore: 950_000,
+          highWatermark: 0.8,
+          status: 'target_unreachable',
+        }));
+        act(() => {
+          useChatStore.setState({ triggerTokenThresholdMemoryCompaction: compactionSpy });
+        });
+        const { result } = renderHook(() => useChatStore());
+
+        await act(async () => {
+          await result.current.sendMessageInServer({ message: TEST_CONTENT.USER_MESSAGE });
+        });
+
+        expect(aiChatService.sendMessageInServer).toHaveBeenCalled();
+        expect(messageService.updateMessageError).not.toHaveBeenCalled();
+        expect(result.current.internal_execAgentRuntime).toHaveBeenCalled();
       });
     });
 

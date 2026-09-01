@@ -74,9 +74,12 @@ export interface ChatTopicMetadata {
   model?: string;
   provider?: string;
   /**
-   * Newest usage-reporting assistant id at compaction time (usually the
-   * protected turn). Next-request token floors only use assistants after this
-   * id, so edits/`updatedAt` on that row cannot revive a pre-compaction 1M bill.
+   * Newest assistant/group id in the protected post-cursor window at compaction
+   * time, including an in-flight placeholder. Next-request token floors only
+   * use assistants after this id. A missing row fail-closes (no floor) instead
+   * of treating older usage as fresh. Compacted topics without this field treat
+   * every current post-cursor assistant as already-seen until a later compact
+   * stamps the boundary.
    */
   reportedInputTokenFloorAfterMessageId?: string;
 }

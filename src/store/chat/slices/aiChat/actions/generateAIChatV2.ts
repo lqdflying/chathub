@@ -34,7 +34,10 @@ import {
   getMimoTokenPlanEnvHint,
   isModelNativeSearchDisabledProvider,
 } from '@/helpers/modelNativeSearch';
-import { shouldBlockSendAfterCompactionFailure } from '@/helpers/shouldBlockSendAfterCompactionFailure';
+import {
+  compactionEstimateForSendGate,
+  shouldBlockSendAfterCompactionFailure,
+} from '@/helpers/shouldBlockSendAfterCompactionFailure';
 import {
   createGenerationDebugSpanId,
   logGenerationDebugClientSafe,
@@ -567,7 +570,7 @@ export const generateAIChatV2: StateCreator<
         if (shouldBlockSendAfterCompactionFailure(tokenCompactResult, contextWindowTokens)) {
           const overflowError = createEmptyCompletionAtContextCeilingError({
             contextWindowTokens,
-            totalInputTokens: tokenCompactResult.estimatedTokensBefore,
+            totalInputTokens: compactionEstimateForSendGate(tokenCompactResult),
           });
           get().internal_toggleMessageLoading(false, tempId);
           get().internal_dispatchMessage(

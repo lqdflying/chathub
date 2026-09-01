@@ -12,7 +12,11 @@ import {
 } from '@/helpers/contextUsageEstimate';
 import type { HistoryWindowDiagnostics } from '@/helpers/contextUsageEstimate';
 import { buildHistorySummaryForRequest } from '@/helpers/memoryArchivePrompt';
-import { applyReportedInputTokenFloor, getLatestReportedInputTokens } from '@/helpers/reportedContextTokens';
+import {
+  applyReportedInputTokenFloor,
+  getEffectiveReportedInputTokenFloorAfterMessageId,
+  getLatestReportedInputTokens,
+} from '@/helpers/reportedContextTokens';
 import { createChatToolsEngine } from '@/helpers/toolEngineering';
 import { useModelContextWindowTokens } from '@/hooks/useModelContextWindowTokens';
 import { useModelSupportToolUse } from '@/hooks/useModelSupportToolUse';
@@ -255,6 +259,12 @@ export const useEstimatedContextUsage = (
       pendingHasFiles: hasPendingFiles,
       pendingInput: input,
     });
+    const estimateMessages = sliced.filter(({ id }) => id !== PENDING_CONTEXT_INPUT_MESSAGE_ID);
+    const floorAfterMessageId = getEffectiveReportedInputTokenFloorAfterMessageId({
+      cursorId,
+      messages: estimateMessages,
+      storedAfterMessageId: reportedInputTokenFloorAfterMessageId,
+    });
 
     return {
       chatsString: serializeMessagesForContextEstimate(sliced, inputTemplate),
@@ -273,10 +283,8 @@ export const useEstimatedContextUsage = (
         pendingInput: input,
       }),
       reportedInputTokens: getLatestReportedInputTokens(
-        sliced.filter(({ id }) => id !== PENDING_CONTEXT_INPUT_MESSAGE_ID),
-        applyCursor && reportedInputTokenFloorAfterMessageId
-          ? { afterMessageId: reportedInputTokenFloorAfterMessageId }
-          : undefined,
+        estimateMessages,
+        floorAfterMessageId ? { afterMessageId: floorAfterMessageId } : undefined,
       ),
       topicChatsString: serializeMessagesForContextEstimate(chats, inputTemplate),
     };

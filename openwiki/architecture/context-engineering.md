@@ -26,7 +26,7 @@ blocks, which preserves provider prompt-cache hit rates.
 
 The chat-input token popover **Most recent reported cache** figure is not that live tokenizer estimate. It reads cache fields from the latest assistant or grouped tool-turn `usage` / `metadata` / children (`src/features/ChatInput/ActionBar/Token/getPromptCacheHitRate.ts`) and divides cached tokens by `totalInputTokens` when present. Durable Graphile turns must persist `ModelUsage` **flat** on `messages.metadata` (matching browser `generateAIChat` `onFinish`). Nested `{ usage: ModelUsage }` from older workers is unwrapped on read. The visible status line is rate · status · cached/input; the reporting model stays on the help icon so the popover stays narrow. In-flight `LOADING_FLAT` rows are skipped; a later completed reply that only has totals keeps a previous cache-bearing rate, or shows `0 / totalInput` with status `provider reported` when no cache counters exist in the topic. The rate definition does not change when Anthropic omits a zero write counter.
 
-The **next request estimate** (`estimateContextUsageAsync` / `useEstimatedContextUsage`) floors `totalToken` with that same latest settled `totalInputTokens` when the provider billed more than ChatHub's tokenizer (`tokenx` approximation above 10k chars, plus `CONTEXT_CHARS_PER_TOKEN_ESTIMATE = 2` for window math). The gap is added to `chatsToken` so the popover still adds up. After compaction, only assistants **after** `reportedInputTokenFloorAfterMessageId` (the newest usage-reporting assistant still in the protected window at compact time) are eligible as a floor: the protected turn still sits after the cursor, but its pre-compaction `totalInputTokens` included the now-summarized prefix. Editing that row or comparing clocks does not revive it. If a cursor exists without that watermark, the latest assistant in the sliced window still floors, so a new completed reply restores the safety floor. Cache telemetry stays independent of this next-request floor.
+The **next request estimate** (`estimateContextUsageAsync` / `useEstimatedContextUsage`) floors `totalToken` with that same latest settled `totalInputTokens` when the provider billed more than ChatHub's tokenizer (`tokenx` approximation above 10k chars, plus `CONTEXT_CHARS_PER_TOKEN_ESTIMATE = 2` for window math). The gap is added to `chatsToken` so the popover still adds up. After compaction, only assistants **after** `reportedInputTokenFloorAfterMessageId` (the newest assistant/group in the protected window at compact time, including an in-flight placeholder) are eligible as a floor: the protected turn still sits after the cursor, but its pre-compaction `totalInputTokens` included the now-summarized prefix. Editing that row does not revive it. A missing watermark row fail-closes (no floor) instead of treating older usage as fresh. Compacted topics that predate the field treat every current post-cursor assistant as already-seen, so a leftover 1M bill cannot pin Send. Compact stamps the boundary for later replies. Cache telemetry stays independent of this next-request floor.
 
 ## Chat Instruction composition
 
@@ -214,7 +214,9 @@ does not change watermarks or when compact runs. `planner_settled` may also incl
 Token compaction chooses the oldest complete turns needed to reach the low watermark. It never
 summarizes the latest user turn or an unresolved assistant/tool tail. If fixed prompt content and the
 protected turn already exceed the target, the action reports `target_unreachable` instead of retrying
-the same unchanged context continuously.
+the same unchanged fingerprint. The auto-compact watcher re-arms `failed` jobs after backoff (a
+retired idempotency key can start a new Graphile job) but keeps `target_unreachable` latched until
+messages, cursor, summary, model, or the token estimate change.
 
 The compaction prompt merges only messages after the cursor into the prior summary. Output caps scale
 with Assist preset (minimal 400 / balanced 600 / rich 800 tokens) via
@@ -227,7 +229,9 @@ overflow that window when early turns hold huge tool/code payloads; the worker s
 input. Token-aware splits stay on **complete-turn** boundaries (never a user row without its
 assistant/tool tail). If the first complete turn itself exceeds that budget, the worker/client
 **soft-stubs** it: a bounded placeholder is folded into the running summary (no message bodies)
-and the cursor advances past that turn so later batches can still compact. A budget-legal batch
+and the cursor advances past that turn so later batches can still compact. If many stubs would
+exceed 12,000 characters, the fallback keeps the **newest** tail of the running summary plus the
+new stub (not the oldest prefix). A budget-legal batch
 that still returns a provider context-length `ProviderBizError` (`maximum context length is …`)
 or an empty summary fails once (not Graphile-retried). Durable jobs carry the planner's resolved
 `summarizerContextWindow` (including custom/unlisted cards); the worker uses that snapshot before
@@ -237,11 +241,12 @@ the built-in model-bank / 128k fallback.
 `memory_compaction` row must not stick the topic. Enqueue retires that idempotency key and
 creates a new Graphile job; `succeeded` / in-flight keys still replay. The planner treats a
 returned terminal failure as `failed` (not `durable_enqueued`). The auto-compact watcher
-re-arms after a failed attempt.
+re-arms after a `failed` attempt, not after a stable `target_unreachable`.
 
 **Pre-send send gate:** after `token_threshold` compact, if the outcome is `failed` or
-`target_unreachable` and usage is still at/above the high watermark, Send does **not** enqueue
-chat. It persists the user message plus an assistant `ExceededContextWindow` error bubble and
+`target_unreachable` and **post-compaction** usage is still at/above the high watermark, Send does
+**not** enqueue chat. `target_unreachable` that drops usage into the band between low and high still
+sends. It persists the user message plus an assistant `ExceededContextWindow` error bubble and
 re-arms compact. Browser empty-at-ceiling completions also trigger another compact attempt.
 
 Durable enqueue returns status `enqueued` (not `ineligible`) so Compact now does not toast

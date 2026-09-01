@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as compactionDebugClient from '@/libs/logger/compactionDebugClient';
 import { agentChatConfigSelectors } from '@/store/agent/selectors';
 import { useChatStore } from '@/store/chat';
+import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 
 import ContextAutoCompactWatcher from './ContextAutoCompactWatcher';
 
@@ -101,5 +102,69 @@ describe('ContextAutoCompactWatcher', () => {
     });
 
     expect(armed).not.toHaveBeenCalled();
+  });
+
+  it('does not re-arm target_unreachable on an unchanged fingerprint', async () => {
+    const trigger = vi.fn(async () => ({ status: 'target_unreachable' }));
+    useChatStore.setState({ triggerTokenThresholdMemoryCompaction: trigger as any });
+    render(<ContextAutoCompactWatcher />);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(COMPACTION_DEBOUNCE_MS);
+    });
+    expect(trigger).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+    expect(trigger).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-arms a failed compact after backoff', async () => {
+    const trigger = vi.fn(async () => ({ status: 'failed' }));
+    useChatStore.setState({ triggerTokenThresholdMemoryCompaction: trigger as any });
+    render(<ContextAutoCompactWatcher />);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(COMPACTION_DEBOUNCE_MS);
+      await trigger.mock.results[0]?.value;
+    });
+    expect(trigger).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(COMPACTION_DEBOUNCE_MS);
+      await trigger.mock.results[1]?.value;
+    });
+    expect(trigger).toHaveBeenCalledTimes(2);
+  });
+
+  it('arms again after target_unreachable when the conversation fingerprint changes', async () => {
+    const trigger = vi.fn(async () => ({ status: 'target_unreachable' }));
+    useChatStore.setState({ triggerTokenThresholdMemoryCompaction: trigger as any });
+    const { rerender } = render(<ContextAutoCompactWatcher />);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(COMPACTION_DEBOUNCE_MS);
+    });
+    expect(trigger).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      useChatStore.setState({
+        messagesMap: {
+          [messageMapKey('session-1', 'topic-1')]: [
+            { content: 'next', id: 'u1', role: 'user', updatedAt: 1 } as any,
+          ],
+        },
+      });
+    });
+    rerender(<ContextAutoCompactWatcher />);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(COMPACTION_DEBOUNCE_MS);
+    });
+    expect(trigger).toHaveBeenCalledTimes(2);
   });
 });

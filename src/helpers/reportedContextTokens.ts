@@ -17,6 +17,9 @@ type NestedUsageMetadata = MessageMetadata & { usage?: ModelTokensUsage };
 const isFinitePositive = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value) && value > 0;
 
+const isAssistantLike = (message: UsageMessage): boolean =>
+  message.role === 'assistant' || message.role === 'group';
+
 const readTotalInput = (usage?: ModelTokensUsage | MessageMetadata | null): number | undefined => {
   if (!usage || typeof usage !== 'object') return undefined;
   const total = (usage as ModelTokensUsage).totalInputTokens;
@@ -24,7 +27,7 @@ const readTotalInput = (usage?: ModelTokensUsage | MessageMetadata | null): numb
 };
 
 const readReportedInputFromMessage = (message: UsageMessage): number | undefined => {
-  if ((message.role !== 'assistant' && message.role !== 'group') || message.content === LOADING_FLAT) {
+  if (!isAssistantLike(message) || message.content === LOADING_FLAT) {
     return undefined;
   }
 
@@ -40,14 +43,33 @@ const readReportedInputFromMessage = (message: UsageMessage): number | undefined
   return readTotalInput(message.usage) ?? readTotalInput(nested) ?? readTotalInput(message.metadata);
 };
 
-/** Messages strictly after `afterMessageId`; if that id is missing, keep the full list. */
+/**
+ * Messages strictly after `afterMessageId`. A missing id fail-closes to an
+ * empty window so a deleted watermark cannot revive older usage as “fresh”.
+ */
 export const messagesAfterId = <T extends { id?: string }>(
   messages: T[],
   afterMessageId?: string,
 ): T[] => {
   if (!afterMessageId) return messages;
   const index = messages.findIndex((message) => message.id === afterMessageId);
-  return index < 0 ? messages : messages.slice(index + 1);
+  return index < 0 ? [] : messages.slice(index + 1);
+};
+
+/**
+ * Newest assistant/group in the window, including in-flight `LOADING_FLAT`
+ * placeholders. Compact stamps this as the generation boundary so a request
+ * that straddles compaction cannot floor the next estimate with pre-compact
+ * usage when that placeholder later finalizes.
+ */
+export const getReportedInputTokenFloorBoundaryId = (
+  messages: UsageMessage[],
+): string | undefined => {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (isAssistantLike(message) && message.id) return message.id;
+  }
+  return undefined;
 };
 
 /** Newest settled assistant that currently reports `totalInputTokens`. */
@@ -56,6 +78,25 @@ export const getLatestReportedInputTokenSourceId = (messages: UsageMessage[]): s
     const message = messages[index];
     if (readReportedInputFromMessage(message) && message.id) return message.id;
   }
+  return undefined;
+};
+
+/**
+ * Floor boundary for estimators: a stored watermark wins (fail-closed if the
+ * row is gone). Compacted topics without a watermark (legacy) exclude every
+ * assistant already in the sliced window until a later row is stamped.
+ */
+export const getEffectiveReportedInputTokenFloorAfterMessageId = ({
+  cursorId,
+  messages,
+  storedAfterMessageId,
+}: {
+  cursorId?: string;
+  messages: UsageMessage[];
+  storedAfterMessageId?: string;
+}): string | undefined => {
+  if (storedAfterMessageId) return storedAfterMessageId;
+  if (cursorId) return getReportedInputTokenFloorBoundaryId(messages);
   return undefined;
 };
 
@@ -91,7 +132,7 @@ export const withReportedInputTokenFloorMetadata = (
   metadata: ChatTopicMetadata,
   remainingMessages: UsageMessage[],
 ): ChatTopicMetadata => {
-  const nextId = getLatestReportedInputTokenSourceId(remainingMessages);
+  const nextId = getReportedInputTokenFloorBoundaryId(remainingMessages);
   const nextMetadata = { ...metadata };
   delete nextMetadata.reportedInputTokenFloorAfterMessageId;
   if (nextId) nextMetadata.reportedInputTokenFloorAfterMessageId = nextId;

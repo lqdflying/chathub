@@ -328,7 +328,7 @@ describe('estimateContextUsageAsync', () => {
     expect(result.totalToken).toBe(400);
   });
 
-  it('restores the floor from a new assistant when a cursor exists without a watermark', async () => {
+  it('does not floor a protected assistant when a cursor exists without a watermark', async () => {
     mocks.chats = [
       { content: 'old', id: 'u1', role: 'user' },
       {
@@ -339,9 +339,9 @@ describe('estimateContextUsageAsync', () => {
       },
       { content: 'hi', id: 'u2', role: 'user' },
       {
-        content: 'fresh',
-        id: 'a3',
-        metadata: { totalInputTokens: 400 },
+        content: 'protected',
+        id: 'a2',
+        metadata: { totalInputTokens: 1_048_570 },
         role: 'assistant',
       },
     ];
@@ -356,7 +356,78 @@ describe('estimateContextUsageAsync', () => {
       chatState: { inputMessage: '' } as any,
     });
 
-    expect(result.totalToken).toBe(400);
-    expect(result.contextMessages.map(({ id }) => id)).toEqual(['u2', 'a3']);
+    expect(result.totalToken).toBeLessThan(1_048_570);
+    expect(result.contextMessages.map(({ id }) => id)).toEqual(['u2', 'a2']);
+  });
+
+  it('does not revive older usage after the watermark row is deleted', async () => {
+    mocks.chats = [
+      { content: 'old', id: 'u1', role: 'user' },
+      {
+        content: 'old-a',
+        id: 'a1',
+        metadata: { totalInputTokens: 1_048_570 },
+        role: 'assistant',
+      },
+      { content: 'hi', id: 'u2', role: 'user' },
+      {
+        content: 'older-protected',
+        id: 'a2',
+        metadata: { totalInputTokens: 1_048_570 },
+        role: 'assistant',
+      },
+      { content: 'later', id: 'u3', role: 'user' },
+    ];
+    mocks.topic = {
+      metadata: {
+        historySummaryLastMessageId: 'a1',
+        reportedInputTokenFloorAfterMessageId: 'deleted-a3',
+      },
+    };
+
+    const result = await estimateContextUsageAsync({
+      agentState: {} as any,
+      chatState: { inputMessage: '' } as any,
+    });
+
+    expect(result.totalToken).toBeLessThan(1_048_570);
+  });
+
+  it('does not floor a request that straddled compaction after the placeholder finalizes', async () => {
+    mocks.chats = [
+      { content: 'old', id: 'u1', role: 'user' },
+      {
+        content: 'old-a',
+        id: 'a1',
+        metadata: { totalInputTokens: 800 },
+        role: 'assistant',
+      },
+      { content: 'hi', id: 'u2', role: 'user' },
+      {
+        content: 'protected',
+        id: 'a2',
+        metadata: { totalInputTokens: 1_048_570 },
+        role: 'assistant',
+      },
+      {
+        content: 'final',
+        id: 'a3',
+        metadata: { totalInputTokens: 1_048_570 },
+        role: 'assistant',
+      },
+    ];
+    mocks.topic = {
+      metadata: {
+        historySummaryLastMessageId: 'a1',
+        reportedInputTokenFloorAfterMessageId: 'a3',
+      },
+    };
+
+    const result = await estimateContextUsageAsync({
+      agentState: {} as any,
+      chatState: { inputMessage: '' } as any,
+    });
+
+    expect(result.totalToken).toBeLessThan(1_048_570);
   });
 });

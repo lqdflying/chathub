@@ -185,6 +185,20 @@ describe('context compaction helpers', () => {
     expect(stub).not.toContain('TOOL_DUMP');
   });
 
+  it('keeps the newest running-summary tail when bounding repeated oversized stubs', () => {
+    const prior = `${'OLDEST-MARKER '}${'x'.repeat(12_400)} LATEST-MARKER`;
+    const bounded = buildOversizedCompactionTurnStub(
+      [{ content: 'SECRET_PAYLOAD', id: 'u0', role: 'user', updatedAt: 1 } as UIChatMessage],
+      prior,
+    );
+    expect(bounded.length).toBeLessThanOrEqual(12_000);
+    expect(bounded).toContain('LATEST-MARKER');
+    expect(bounded).not.toContain('OLDEST-MARKER');
+    expect(bounded).toContain('Earlier topic summary truncated');
+    expect(bounded.match(/oversized message/g)?.length).toBe(1);
+    expect(bounded).not.toContain('SECRET_PAYLOAD');
+  });
+
   it('rejects non-positive or non-integer summarizer windows', () => {
     expect(parseCompactionSummarizerContextWindow(8192)).toBe(8192);
     expect(parseCompactionSummarizerContextWindow(1.5)).toBeUndefined();

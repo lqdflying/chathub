@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { shouldBlockSendAfterCompactionFailure } from './shouldBlockSendAfterCompactionFailure';
+import {
+  compactionEstimateForSendGate,
+  shouldBlockSendAfterCompactionFailure,
+} from './shouldBlockSendAfterCompactionFailure';
 
 describe('shouldBlockSendAfterCompactionFailure', () => {
   it('blocks failed compact while still at/above the high watermark', () => {
@@ -40,6 +43,61 @@ describe('shouldBlockSendAfterCompactionFailure', () => {
         1_048_576,
       ),
     ).toBe(true);
+  });
+
+  it('allows target_unreachable when post-compaction usage is below the high watermark', () => {
+    expect(
+      shouldBlockSendAfterCompactionFailure(
+        {
+          estimatedTokensAfter: 700,
+          estimatedTokensBefore: 900,
+          highWatermark: 0.8,
+          status: 'target_unreachable',
+        },
+        1000,
+      ),
+    ).toBe(false);
+  });
+
+  it('blocks target_unreachable when post-compaction usage stays at/above the high watermark', () => {
+    expect(
+      shouldBlockSendAfterCompactionFailure(
+        {
+          estimatedTokensAfter: 850,
+          estimatedTokensBefore: 900,
+          highWatermark: 0.8,
+          status: 'target_unreachable',
+        },
+        1000,
+      ),
+    ).toBe(true);
+  });
+
+  it('falls back to the pre-compaction estimate when target_unreachable has no after value', () => {
+    expect(
+      shouldBlockSendAfterCompactionFailure(
+        {
+          estimatedTokensBefore: 900,
+          highWatermark: 0.8,
+          status: 'target_unreachable',
+        },
+        1000,
+      ),
+    ).toBe(true);
+    expect(
+      compactionEstimateForSendGate({
+        estimatedTokensAfter: 700,
+        estimatedTokensBefore: 900,
+        status: 'target_unreachable',
+      }),
+    ).toBe(700);
+    expect(
+      compactionEstimateForSendGate({
+        estimatedTokensAfter: 700,
+        estimatedTokensBefore: 900,
+        status: 'failed',
+      }),
+    ).toBe(900);
   });
 
   it('does not block successful or not_needed outcomes', () => {

@@ -1,5 +1,24 @@
 import type { MemoryCompactionResult } from '@lobechat/types';
 
+const isPositiveFinite = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value) && value > 0;
+
+/**
+ * Token count compared to the high watermark after pre-send compact.
+ * `target_unreachable` can still drop usage into the band between low and high —
+ * use the post-compaction estimate then. A true `failed` compact may not have
+ * persisted a new estimate, so keep `estimatedTokensBefore`.
+ */
+export const compactionEstimateForSendGate = (
+  result: MemoryCompactionResult,
+): number | undefined => {
+  if (result.status === 'target_unreachable' && isPositiveFinite(result.estimatedTokensAfter)) {
+    return result.estimatedTokensAfter;
+  }
+  if (isPositiveFinite(result.estimatedTokensBefore)) return result.estimatedTokensBefore;
+  return undefined;
+};
+
 /**
  * After pre-send token-threshold compaction, block chat enqueue when compact
  * failed (or could not reach the low watermark) and usage is still at/above the
@@ -11,17 +30,16 @@ export const shouldBlockSendAfterCompactionFailure = (
 ): boolean => {
   if (result.status !== 'failed' && result.status !== 'target_unreachable') return false;
 
-  const before = result.estimatedTokensBefore;
+  const used = compactionEstimateForSendGate(result);
   const high = result.highWatermark;
   if (
-    typeof before === 'number' &&
-    before > 0 &&
+    isPositiveFinite(used) &&
     typeof high === 'number' &&
     high > 0 &&
     typeof maxTokens === 'number' &&
     maxTokens > 0
   ) {
-    return before / maxTokens >= high;
+    return used / maxTokens >= high;
   }
 
   // Token-threshold compact was attempted and failed without usable estimate

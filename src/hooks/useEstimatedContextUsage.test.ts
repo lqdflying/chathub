@@ -444,7 +444,7 @@ describe('useEstimatedContextUsage', () => {
     expect(result.current.totalToken).toBe(400);
   });
 
-  it('restores the floor from a new assistant when a cursor exists without a watermark', () => {
+  it('does not floor a protected assistant when a cursor exists without a watermark', () => {
     mocks.setAgentState({
       enableCompressHistory: true,
       enableHistoryCount: true,
@@ -463,9 +463,9 @@ describe('useEstimatedContextUsage', () => {
       } as never,
       { content: 'hi', id: 'u2', role: 'user' } as never,
       {
-        content: 'fresh',
-        id: 'a3',
-        metadata: { totalInputTokens: 400 },
+        content: 'protected',
+        id: 'a2',
+        metadata: { totalInputTokens: 1_048_570 },
         role: 'assistant',
       } as never,
     );
@@ -474,6 +474,81 @@ describe('useEstimatedContextUsage', () => {
     });
 
     const { result } = renderHook(() => useEstimatedContextUsage('main'));
-    expect(result.current.totalToken).toBe(400);
+    expect(result.current.totalToken).toBeLessThan(1_048_570);
+  });
+
+  it('does not revive older usage after the watermark row is deleted', () => {
+    mocks.setAgentState({
+      enableCompressHistory: true,
+      enableHistoryCount: true,
+      historyCount: 20,
+      inputTemplate: '',
+    });
+    mocks.mainChats.splice(
+      0,
+      mocks.mainChats.length,
+      { content: 'old', id: 'u1', role: 'user' } as never,
+      {
+        content: 'old-a',
+        id: 'a1',
+        metadata: { totalInputTokens: 1_048_570 },
+        role: 'assistant',
+      } as never,
+      { content: 'hi', id: 'u2', role: 'user' } as never,
+      {
+        content: 'older-protected',
+        id: 'a2',
+        metadata: { totalInputTokens: 1_048_570 },
+        role: 'assistant',
+      } as never,
+      { content: 'later', id: 'u3', role: 'user' } as never,
+    );
+    mocks.setTopicMetadata({
+      historySummaryLastMessageId: 'a1',
+      reportedInputTokenFloorAfterMessageId: 'deleted-a3',
+    });
+
+    const { result } = renderHook(() => useEstimatedContextUsage('main'));
+    expect(result.current.totalToken).toBeLessThan(1_048_570);
+  });
+
+  it('does not floor a request that straddled compaction after the placeholder finalizes', () => {
+    mocks.setAgentState({
+      enableCompressHistory: true,
+      enableHistoryCount: true,
+      historyCount: 20,
+      inputTemplate: '',
+    });
+    mocks.mainChats.splice(
+      0,
+      mocks.mainChats.length,
+      { content: 'old', id: 'u1', role: 'user' } as never,
+      {
+        content: 'old-a',
+        id: 'a1',
+        metadata: { totalInputTokens: 800 },
+        role: 'assistant',
+      } as never,
+      { content: 'hi', id: 'u2', role: 'user' } as never,
+      {
+        content: 'protected',
+        id: 'a2',
+        metadata: { totalInputTokens: 1_048_570 },
+        role: 'assistant',
+      } as never,
+      {
+        content: 'final',
+        id: 'a3',
+        metadata: { totalInputTokens: 1_048_570 },
+        role: 'assistant',
+      } as never,
+    );
+    mocks.setTopicMetadata({
+      historySummaryLastMessageId: 'a1',
+      reportedInputTokenFloorAfterMessageId: 'a3',
+    });
+
+    const { result } = renderHook(() => useEstimatedContextUsage('main'));
+    expect(result.current.totalToken).toBeLessThan(1_048_570);
   });
 });

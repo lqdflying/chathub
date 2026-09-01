@@ -34,7 +34,11 @@ import {
   wrapHistorySummaryForTokenEstimate,
 } from './contextUsageEstimate';
 import { buildHistorySummaryForRequest } from './memoryArchivePrompt';
-import { applyReportedInputTokenFloor, getLatestReportedInputTokens } from './reportedContextTokens';
+import {
+  applyReportedInputTokenFloor,
+  getEffectiveReportedInputTokenFloorAfterMessageId,
+  getLatestReportedInputTokens,
+} from './reportedContextTokens';
 
 interface EstimateContextUsageOverrides {
   historySummary?: string;
@@ -216,11 +220,15 @@ export const estimateContextUsageAsync = async ({
     toolsToken +
     chatsToken +
     skillToken;
+  const estimateMessages = chats.filter(({ id }) => id !== PENDING_CONTEXT_INPUT_MESSAGE_ID);
+  const floorAfterMessageId = getEffectiveReportedInputTokenFloorAfterMessageId({
+    cursorId: enableHistoryCompaction ? historySummaryLastMessageId : undefined,
+    messages: estimateMessages,
+    storedAfterMessageId: reportedInputTokenFloorAfterMessageId,
+  });
   const reportedInput = getLatestReportedInputTokens(
-    chats.filter(({ id }) => id !== PENDING_CONTEXT_INPUT_MESSAGE_ID),
-    reportedInputTokenFloorAfterMessageId
-      ? { afterMessageId: reportedInputTokenFloorAfterMessageId }
-      : undefined,
+    estimateMessages,
+    floorAfterMessageId ? { afterMessageId: floorAfterMessageId } : undefined,
   );
   const floor = applyReportedInputTokenFloor(estimatedTotal, reportedInput);
 

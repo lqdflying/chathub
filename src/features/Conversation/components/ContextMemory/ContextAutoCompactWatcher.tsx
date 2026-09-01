@@ -99,7 +99,7 @@ const ContextAutoCompactWatcher = () => {
         .triggerTokenThresholdMemoryCompaction()
         .then((result) => {
           if (cancelled) return;
-          if (result.status === 'failed' || result.status === 'target_unreachable') {
+          if (result.status === 'failed') {
             // Allow the same fingerprint to re-arm after backoff (server can
             // now create a new job after retiring a failed idempotency key).
             lastAttemptRef.current = '';

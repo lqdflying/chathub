@@ -105,4 +105,34 @@ describe('buildConversationCompactionMetadata', () => {
 
     expect(metadata.reportedInputTokenFloorAfterMessageId).toBe('a2');
   });
+
+  it('watermarks an in-flight remaining assistant so its later 1M bill stays excluded', () => {
+    const metadata = buildConversationCompactionMetadata({
+      compactedThroughMessageId: 'a1',
+      currentMetadata: {},
+      messageCountIncluded: 2,
+      model: 'model',
+      plan: {
+        candidateMessageIds: ['u1', 'a1'],
+        enableUserMemoryArchive: false,
+        expectedFingerprint: 'fingerprint',
+        expectedHistorySummary: '',
+        trigger: 'manual',
+      },
+      provider: 'provider',
+      remainingMessages: [
+        {
+          content: 'protected',
+          id: 'a2',
+          metadata: { totalInputTokens: 1_048_570 },
+          role: 'assistant',
+        },
+        { content: '...', id: 'a3', role: 'assistant' },
+      ],
+      status: 'compacted',
+      summary: 'Summary',
+    });
+
+    expect(metadata.reportedInputTokenFloorAfterMessageId).toBe('a3');
+  });
 });

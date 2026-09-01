@@ -238,9 +238,15 @@ export const buildOversizedCompactionTurnStub = (
   const stub = `[Compaction omitted ${messages.length} oversized message(s) (${roleSummary || 'unknown'}); content exceeded the History Compress input budget.]`;
   const prior = previousSummary?.trim();
   if (!prior) return stub;
-  // Keep the running summary bounded even after many stubs.
   const merged = `${prior}\n\n${stub}`;
-  return merged.length > 12_000 ? `${merged.slice(0, 11_500)}\n\n${stub}` : merged;
+  const summaryCharLimit = 12_000;
+  if (merged.length <= summaryCharLimit) return merged;
+  const truncationMarker = '[Earlier topic summary truncated to keep recent facts.]';
+  const separator = '\n\n';
+  const reserved = truncationMarker.length + separator.length + stub.length + separator.length;
+  const maxPrior = Math.max(0, summaryCharLimit - reserved);
+  const newestTail = maxPrior > 0 ? prior.slice(-maxPrior) : '';
+  return `${truncationMarker}${separator}${newestTail}${separator}${stub}`;
 };
 
 export const getCompactionSummarizerInputBudget = (

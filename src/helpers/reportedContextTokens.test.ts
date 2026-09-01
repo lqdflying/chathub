@@ -4,8 +4,11 @@ import { LOADING_FLAT } from '@/const/message';
 
 import {
   applyReportedInputTokenFloor,
+  getEffectiveReportedInputTokenFloorAfterMessageId,
   getLatestReportedInputTokenSourceId,
   getLatestReportedInputTokens,
+  getReportedInputTokenFloorBoundaryId,
+  messagesAfterId,
   withReportedInputTokenFloorMetadata,
 } from './reportedContextTokens';
 
@@ -91,23 +94,80 @@ describe('reported context token floor', () => {
     ).toBe(400);
   });
 
-  it('keeps the latest assistant floor when a cursor exists without a watermark', () => {
+  it('fail-closes the floor window when the watermark row is missing', () => {
     expect(
-      getLatestReportedInputTokens([
+      messagesAfterId(
+        [
+          {
+            content: 'older',
+            id: 'a1',
+            metadata: { totalInputTokens: 1_048_570 },
+            role: 'assistant',
+          },
+          { content: 'later user', id: 'u3', role: 'user' },
+        ],
+        'deleted-boundary',
+      ),
+    ).toEqual([]);
+    expect(
+      getLatestReportedInputTokens(
+        [
+          {
+            content: 'older',
+            id: 'a1',
+            metadata: { totalInputTokens: 1_048_570 },
+            role: 'assistant',
+          },
+        ],
+        { afterMessageId: 'deleted-boundary' },
+      ),
+    ).toBeUndefined();
+  });
+
+  it('includes an in-flight assistant in the compaction generation boundary', () => {
+    expect(
+      getReportedInputTokenFloorBoundaryId([
         {
-          content: 'stale',
+          content: 'protected',
           id: 'a2',
           metadata: { totalInputTokens: 1_048_570 },
           role: 'assistant',
         },
-        {
-          content: 'fresh',
-          id: 'a3',
-          metadata: { totalInputTokens: 400 },
-          role: 'assistant',
-        },
+        { content: LOADING_FLAT, id: 'a3', role: 'assistant' },
       ]),
-    ).toBe(400);
+    ).toBe('a3');
+    expect(
+      getLatestReportedInputTokens(
+        [
+          {
+            content: 'protected',
+            id: 'a2',
+            metadata: { totalInputTokens: 1_048_570 },
+            role: 'assistant',
+          },
+          { content: 'final', id: 'a3', metadata: { totalInputTokens: 1_048_570 }, role: 'assistant' },
+        ],
+        { afterMessageId: 'a3' },
+      ),
+    ).toBeUndefined();
+  });
+
+  it('treats a compacted topic without a stored watermark as already-seen assistants', () => {
+    const messages = [
+      {
+        content: 'stale',
+        id: 'a2',
+        metadata: { totalInputTokens: 1_048_570 },
+        role: 'assistant',
+      },
+    ];
+    expect(
+      getEffectiveReportedInputTokenFloorAfterMessageId({
+        cursorId: 'a1',
+        messages,
+      }),
+    ).toBe('a2');
+    expect(getLatestReportedInputTokens(messages, { afterMessageId: 'a2' })).toBeUndefined();
   });
 
   it('records the remaining usage-reporting assistant as the next floor watermark', () => {
@@ -130,6 +190,20 @@ describe('reported context token floor', () => {
         [{ content: 'hi', id: 'u3', role: 'user' }],
       ).reportedInputTokenFloorAfterMessageId,
     ).toBeUndefined();
+    expect(
+      withReportedInputTokenFloorMetadata(
+        {},
+        [
+          {
+            content: 'protected',
+            id: 'a2',
+            metadata: { totalInputTokens: 1_048_570 },
+            role: 'assistant',
+          },
+          { content: LOADING_FLAT, id: 'a3', role: 'assistant' },
+        ],
+      ).reportedInputTokenFloorAfterMessageId,
+    ).toBe('a3');
   });
 
   it('floors an underestimate with the provider-reported input', () => {

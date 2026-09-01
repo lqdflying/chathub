@@ -28,7 +28,7 @@ import { getContextCompactionMaxSummaryTokens } from '@/helpers/contextUsageEsti
 import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableConversationGeneration';
 import { estimateContextUsageAsync } from '@/helpers/estimateContextUsageAsync';
 import {
-  getLatestReportedInputTokenSourceId,
+  getReportedInputTokenFloorBoundaryId,
   withReportedInputTokenFloorMetadata,
 } from '@/helpers/reportedContextTokens';
 import { getModelContextWindowTokens } from '@/helpers/modelContextWindowTokens';
@@ -759,7 +759,7 @@ async function runCompactionFromStore(
       historySummaryLastMessageId: compactedThroughMessageId,
       memoryArchives: nextArchives,
       reportedInputTokenFloorAfterMessageId:
-        getLatestReportedInputTokenSourceId(remainingAfterCursor) ?? null,
+        getReportedInputTokenFloorBoundaryId(remainingAfterCursor) ?? null,
     },
   });
   if (abortController?.signal.aborted) {
