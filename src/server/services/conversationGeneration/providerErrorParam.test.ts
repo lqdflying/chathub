@@ -16,7 +16,9 @@ describe('readProviderErrorParam', () => {
   });
 
   it('returns undefined when param is empty', () => {
-    expect(readProviderErrorParam({ error: { message: 'Invalid request parameters', param: '' } })).toBeUndefined();
+    expect(
+      readProviderErrorParam({ error: { message: 'Invalid request parameters', param: '' } }),
+    ).toBeUndefined();
   });
 });
 

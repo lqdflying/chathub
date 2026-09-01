@@ -180,16 +180,16 @@ describe('getSearchConfig', () => {
     } as any);
 
     vi.mocked(aiInfraSelectors.aiProviderSelectors.isProviderHasBuiltinSearch).mockReturnValue(
-      () => false
+      () => false,
     );
     vi.mocked(aiInfraSelectors.aiModelSelectors.modelBuiltinSearchImpl).mockReturnValue(
       () => 'internal' as any,
     );
     vi.mocked(aiInfraSelectors.aiModelSelectors.isModelHasBuiltinSearch).mockReturnValue(
-      () => true
+      () => true,
     );
     vi.mocked(aiInfraSelectors.aiModelSelectors.isModelBuiltinSearchInternal).mockReturnValue(
-      () => true
+      () => true,
     );
 
     const result = getSearchConfig(model, provider);
@@ -294,5 +294,34 @@ describe('getSearchConfig', () => {
 
     expect(result.useModelSearch).toBe(false);
     expect(result.useApplicationBuiltinSearchTool).toBe(true);
+  });
+
+  it('keeps ChatHub search for env-only MiMo Token Plan without a Settings base URL', () => {
+    const previous = (window as any).global_serverConfigStore;
+    (window as any).global_serverConfigStore = {
+      getState: () => ({ serverConfig: { mimoTokenPlanEnv: true } }),
+    };
+    try {
+      vi.mocked(agentSelectors.agentChatConfigSelectors.currentChatConfig).mockReturnValue({
+        searchMode: 'on',
+        useModelBuiltinSearch: true,
+      } as any);
+      vi.mocked(aiInfraSelectors.aiProviderSelectors.isProviderHasBuiltinSearch).mockReturnValue(
+        () => false,
+      );
+      vi.mocked(aiInfraSelectors.aiModelSelectors.modelBuiltinSearchImpl).mockReturnValue(
+        () => 'params' as any,
+      );
+      vi.mocked(aiInfraSelectors.aiProviderSelectors.providerKeyVaults).mockReturnValue(
+        () => undefined,
+      );
+
+      const result = getSearchConfig('mimo-v2.5-pro', 'mimo');
+
+      expect(result.useModelSearch).toBe(false);
+      expect(result.useApplicationBuiltinSearchTool).toBe(true);
+    } finally {
+      (window as any).global_serverConfigStore = previous;
+    }
   });
 });

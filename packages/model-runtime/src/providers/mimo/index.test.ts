@@ -1,7 +1,12 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
 
-import { LobeMimoAI, buildMimoPayload, isMimoTokenPlanBaseURL, shapeMimoGenerateObjectRequest } from './index';
+import {
+  LobeMimoAI,
+  buildMimoPayload,
+  isMimoTokenPlanBaseURL,
+  shapeMimoGenerateObjectRequest,
+} from './index';
 
 describe('buildMimoPayload', () => {
   const basePayload = {
@@ -406,33 +411,37 @@ describe('shapeMimoGenerateObjectRequest', () => {
     expect(shaped.messages[1]).toEqual({ content: 'Extract a person', role: 'user' });
   });
 
-  it('coerces non-auto tool_choice and omits user on the tools path', () => {
+  it('rewrites the tools path to json_object and omits user, tools, and tool_choice', () => {
     const shaped = shapeMimoGenerateObjectRequest({
       messages: [{ content: 'Decide', role: 'user' }],
       model: 'mimo-v2.5-pro',
       tool_choice: 'required',
-      tools: [{ function: { name: 'trigger_agent' }, type: 'function' }],
+      tools: [
+        { function: { name: 'trigger_agent', parameters: { type: 'object' } }, type: 'function' },
+      ],
       user: 'review-user',
     });
 
     expect(shaped).not.toHaveProperty('user');
-    expect(shaped.tool_choice).toBe('auto');
-    expect(shaped.tools).toEqual([{ function: { name: 'trigger_agent' }, type: 'function' }]);
+    expect(shaped).not.toHaveProperty('tools');
+    expect(shaped).not.toHaveProperty('tool_choice');
+    expect(shaped.response_format).toEqual({ type: 'json_object' });
+    expect(shaped.messages[0].role).toBe('system');
+    expect(shaped.messages[0].content).toContain('trigger_agent');
+    expect(shaped.messages[0].content).toContain('"tool_calls"');
   });
 });
 
 describe('LobeMimoAI chat', () => {
   it('maps stored reasoning.content through to reasoning_content on tool continuations', async () => {
     const instance = new LobeMimoAI({ apiKey: 'test-key' });
-    const create = vi
-      .spyOn((instance as any).client.chat.completions, 'create')
-      .mockResolvedValue({
-        choices: [{ message: { content: 'done', role: 'assistant' } }],
-        created: 123,
-        id: 'chatcmpl-mimo-reasoning',
-        model: 'mimo-v2.5-pro',
-        object: 'chat.completion',
-      });
+    const create = vi.spyOn((instance as any).client.chat.completions, 'create').mockResolvedValue({
+      choices: [{ message: { content: 'done', role: 'assistant' } }],
+      created: 123,
+      id: 'chatcmpl-mimo-reasoning',
+      model: 'mimo-v2.5-pro',
+      object: 'chat.completion',
+    });
     const toolCall = {
       function: { arguments: '{}', name: 'search' },
       id: 'call-1',
@@ -464,15 +473,13 @@ describe('LobeMimoAI chat', () => {
 
   it('maps stored reasoning.content when the bare field is null', async () => {
     const instance = new LobeMimoAI({ apiKey: 'test-key' });
-    const create = vi
-      .spyOn((instance as any).client.chat.completions, 'create')
-      .mockResolvedValue({
-        choices: [{ message: { content: 'done', role: 'assistant' } }],
-        created: 123,
-        id: 'chatcmpl-mimo-reasoning-null',
-        model: 'mimo-v2.5-pro',
-        object: 'chat.completion',
-      });
+    const create = vi.spyOn((instance as any).client.chat.completions, 'create').mockResolvedValue({
+      choices: [{ message: { content: 'done', role: 'assistant' } }],
+      created: 123,
+      id: 'chatcmpl-mimo-reasoning-null',
+      model: 'mimo-v2.5-pro',
+      object: 'chat.completion',
+    });
     const toolCall = {
       function: { arguments: '{}', name: 'search' },
       id: 'call-1',
@@ -508,15 +515,13 @@ describe('LobeMimoAI chat', () => {
       apiKey: 'test-key',
       baseURL: 'https://token-plan-cn.xiaomimimo.com/v1',
     });
-    const create = vi
-      .spyOn((instance as any).client.chat.completions, 'create')
-      .mockResolvedValue({
-        choices: [{ message: { content: 'ok', role: 'assistant' } }],
-        created: 123,
-        id: 'chatcmpl-mimo-token-plan',
-        model: 'mimo-v2.5-pro',
-        object: 'chat.completion',
-      });
+    const create = vi.spyOn((instance as any).client.chat.completions, 'create').mockResolvedValue({
+      choices: [{ message: { content: 'ok', role: 'assistant' } }],
+      created: 123,
+      id: 'chatcmpl-mimo-token-plan',
+      model: 'mimo-v2.5-pro',
+      object: 'chat.completion',
+    });
 
     await instance.chat({
       enabledSearch: true,
@@ -640,11 +645,9 @@ describe('LobeMimoAI generateObject', () => {
       apiKey: 'test-key',
       baseURL: 'https://token-plan-cn.xiaomimimo.com/v1',
     });
-    const create = vi
-      .spyOn((instance as any).client.chat.completions, 'create')
-      .mockResolvedValue({
-        choices: [{ message: { content: '{"name":"Ada"}' } }],
-      });
+    const create = vi.spyOn((instance as any).client.chat.completions, 'create').mockResolvedValue({
+      choices: [{ message: { content: '{"name":"Ada"}' } }],
+    });
 
     const result = await instance.generateObject(
       {
@@ -667,24 +670,17 @@ describe('LobeMimoAI generateObject', () => {
     expect(JSON.stringify(body)).not.toContain('review-user');
   });
 
-  it('sends tool_choice auto without user on the supervisor tools path', async () => {
+  it('parses JSON-mode tool selection without user, tools, or tool_choice', async () => {
     const instance = new LobeMimoAI({ apiKey: 'test-key' });
-    const create = vi
-      .spyOn((instance as any).client.chat.completions, 'create')
-      .mockResolvedValue({
-        choices: [
-          {
-            message: {
-              tool_calls: [
-                {
-                  function: { arguments: '{"id":"agent-1"}', name: 'trigger_agent' },
-                  type: 'function',
-                },
-              ],
-            },
+    const create = vi.spyOn((instance as any).client.chat.completions, 'create').mockResolvedValue({
+      choices: [
+        {
+          message: {
+            content: '{"tool_calls":[{"name":"trigger_agent","arguments":{"id":"agent-1"}}]}',
           },
-        ],
-      });
+        },
+      ],
+    });
 
     const result = await instance.generateObject(
       {
@@ -698,8 +694,66 @@ describe('LobeMimoAI generateObject', () => {
     expect(result).toEqual([{ arguments: { id: 'agent-1' }, name: 'trigger_agent' }]);
     const body = create.mock.calls[0][0];
     expect(body.user).toBeUndefined();
-    expect(body.tool_choice).toBe('auto');
+    expect(body.tools).toBeUndefined();
+    expect(body.tool_choice).toBeUndefined();
+    expect(body.response_format).toEqual({ type: 'json_object' });
     expect(JSON.stringify(body)).not.toContain('review-user');
     expect(JSON.stringify(body)).not.toContain('"required"');
+  });
+
+  it('still accepts a native tool_calls response on the tools path', async () => {
+    const instance = new LobeMimoAI({ apiKey: 'test-key' });
+    vi.spyOn((instance as any).client.chat.completions, 'create').mockResolvedValue({
+      choices: [
+        {
+          message: {
+            tool_calls: [
+              {
+                function: { arguments: '{"id":"agent-1"}', name: 'trigger_agent' },
+                type: 'function',
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    await expect(
+      instance.generateObject({
+        messages: [{ content: 'Pick an agent', role: 'user' }],
+        model: 'mimo-v2.5-pro',
+        tools: [{ function: { name: 'trigger_agent' }, type: 'function' }],
+      } as any),
+    ).resolves.toEqual([{ arguments: { id: 'agent-1' }, name: 'trigger_agent' }]);
+  });
+
+  it('rejects a valid auto text response instead of returning undefined', async () => {
+    const instance = new LobeMimoAI({ apiKey: 'test-key' });
+    vi.spyOn((instance as any).client.chat.completions, 'create').mockResolvedValue({
+      choices: [{ message: { content: 'No agent needs to speak.' } }],
+    });
+
+    await expect(
+      instance.generateObject({
+        messages: [{ content: 'Pick an agent', role: 'user' }],
+        model: 'mimo-v2.5-pro',
+        tools: [{ function: { name: 'trigger_agent' }, type: 'function' }],
+      } as any),
+    ).rejects.toThrow('generateObject expected JSON tool selection');
+  });
+
+  it('rejects an empty message with no tool_calls or content', async () => {
+    const instance = new LobeMimoAI({ apiKey: 'test-key' });
+    vi.spyOn((instance as any).client.chat.completions, 'create').mockResolvedValue({
+      choices: [{ message: {} }],
+    });
+
+    await expect(
+      instance.generateObject({
+        messages: [{ content: 'Pick an agent', role: 'user' }],
+        model: 'mimo-v2.5-pro',
+        tools: [{ function: { name: 'trigger_agent' }, type: 'function' }],
+      } as any),
+    ).rejects.toThrow('generateObject expected JSON tool selection');
   });
 });

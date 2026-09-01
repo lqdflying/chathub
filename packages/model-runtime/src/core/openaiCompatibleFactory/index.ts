@@ -52,6 +52,7 @@ import { createOpenAICompatibleImage } from './createImage';
 import { transformResponseAPIToStream, transformResponseToStream } from './nonStreamToStream';
 import { deriveCompatPromptCacheKey, normalizeOpenAICompatCacheUsage } from './openaicompatCache';
 import { debugOpenAICompatCacheRequest, debugOpenAICompatCacheUsage } from './openaicompatDebug';
+import { parseGenerateObjectToolCalls } from './parseGenerateObjectToolCalls';
 
 export * from './nonStreamToStream';
 
@@ -264,6 +265,11 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
     bizError: errorType?.bizError || AgentRuntimeErrorType.ProviderBizError,
     invalidAPIKey: errorType?.invalidAPIKey || AgentRuntimeErrorType.InvalidProviderAPIKey,
   };
+
+  const shapeGenerateObjectRequest = <T extends Record<string, any>>(request: T): T =>
+    generateObjectConfig?.handlePayload
+      ? (generateObjectConfig.handlePayload(request) as T)
+      : request;
 
   return class LobeOpenAICompatibleAI implements LobeRuntimeAI {
     client!: OpenAI;
@@ -762,10 +768,6 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
 
     async generateObject(payload: GenerateObjectPayload, options?: GenerateObjectOptions) {
       const { messages, schema, model, responseApi, tools } = payload;
-      const shapeGenerateObjectRequest = <T extends Record<string, any>>(request: T): T =>
-        generateObjectConfig?.handlePayload
-          ? (generateObjectConfig.handlePayload(request) as T)
-          : request;
 
       const log = debug(`${this.logPrefix}:generateObject`);
       log(
@@ -1567,14 +1569,8 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
       }
 
       log('calling chat.completions.create for tool calling');
-      const msgs = messages;
-      const shapeGenerateObjectRequest = <T extends Record<string, any>>(request: T): T =>
-        generateObjectConfig?.handlePayload
-          ? (generateObjectConfig.handlePayload(request) as T)
-          : request;
-
       const requestPayload = shapeGenerateObjectRequest({
-        messages: msgs,
+        messages,
         model,
         tool_choice: 'required' as const,
         tools,
@@ -1586,27 +1582,26 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
         signal: options?.signal,
       });
 
-      const toolCalls = res.choices[0].message.tool_calls!;
+      const result = parseGenerateObjectToolCalls(res.choices[0].message);
+      log('received %d tool calls from Chat Completions API', result?.length || 0);
 
-      log('received %d tool calls from Chat Completions API', toolCalls?.length || 0);
-
-      try {
-        const result = (toolCalls as OpenAI.ChatCompletionMessageFunctionToolCall[]).map(
-          (item) => ({
-            arguments: JSON.parse(item.function.arguments),
-            name: item.function.name,
-          }),
-        );
+      if (result !== undefined) {
         log(
           'successfully parsed tool calls: %O',
           result.map((r) => r.name),
         );
         return result;
-      } catch (error) {
-        log('failed to parse tool call arguments: %O', error);
-        console.error('parse tool call arguments error:', res);
-        return undefined;
       }
+
+      // Providers that rewrite tools into JSON mode (no `tools` on the wire)
+      // must not treat ordinary text as a successful empty selection.
+      if (!requestPayload.tools) {
+        throw new Error('generateObject expected JSON tool selection');
+      }
+
+      log('failed to parse tool call arguments');
+      console.error('parse tool call arguments error:', res);
+      return undefined;
     }
   };
 };

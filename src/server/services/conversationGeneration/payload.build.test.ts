@@ -5,8 +5,12 @@ import * as usage from '@/helpers/contextUsageEstimate';
 
 import { buildConversationChatPayload } from './payload';
 
+const llmMocks = vi.hoisted(() => ({
+  getLLMConfig: vi.fn(() => ({})),
+}));
+
 vi.mock('@/envs/llm', () => ({
-  getLLMConfig: () => ({}),
+  getLLMConfig: llmMocks.getLLMConfig,
 }));
 
 vi.mock('@/database/models/plugin', () => ({
@@ -36,6 +40,7 @@ vi.mock('@/server/services/file', () => ({
 describe('buildConversationChatPayload', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    llmMocks.getLLMConfig.mockReturnValue({});
   });
 
   const runtimeState = {
@@ -78,7 +83,9 @@ describe('buildConversationChatPayload', () => {
     expect(
       result.payload.messages.some((item) => item.role === 'system' && !item.content?.trim()),
     ).toBe(false);
-    expect(result.payload.messages.find((item) => item.role === 'user')?.content).toContain('Hello');
+    expect(result.payload.messages.find((item) => item.role === 'user')?.content).toContain(
+      'Hello',
+    );
   });
 
   it('counts memory, wrapped summary, skill XML, and per-user templates in the next-request window', async () => {
@@ -166,6 +173,44 @@ describe('buildConversationChatPayload', () => {
             keyVaults: { baseURL: 'https://token-plan-cn.xiaomimimo.com/v1' },
           },
         },
+      } as any,
+      sessionId: 'sess-1',
+      userId: 'user-1',
+    });
+
+    expect(result.payload.enabledSearch).toBeUndefined();
+    expect(result.enabledToolIds).toContain('lobe-web-browsing');
+  });
+
+  it('keeps ChatHub search when only MIMO_PROXY_URL is a Token Plan host', async () => {
+    llmMocks.getLLMConfig.mockReturnValue({
+      MIMO_PROXY_URL: 'https://token-plan-cn.xiaomimimo.com/v1',
+    });
+
+    const result = await buildConversationChatPayload({
+      config: {
+        ...baseConfig,
+        chatConfig: {
+          ...baseConfig.chatConfig,
+          searchMode: 'on',
+          useModelBuiltinSearch: true,
+        },
+        model: 'mimo-v2.5-pro',
+        provider: 'mimo',
+      } as any,
+      db: {} as any,
+      generalInstruction: '',
+      messages: [{ content: 'What happened today?', id: 'u1', role: 'user' } as any],
+      runtimeState: {
+        enabledAiModels: [
+          {
+            abilities: { functionCall: true },
+            id: 'mimo-v2.5-pro',
+            providerId: 'mimo',
+            settings: { searchImpl: 'params' },
+          },
+        ],
+        runtimeConfig: {},
       } as any,
       sessionId: 'sess-1',
       userId: 'user-1',

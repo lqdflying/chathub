@@ -1428,6 +1428,20 @@ describe('executeConversationGeneration supervisor children', () => {
     ]);
   });
 
+  it('does not succeed when generateObject returns no structured selection', async () => {
+    runtimeMocks.generateObject.mockResolvedValue(undefined);
+
+    await runOperation({ ...row, attempt: 8 });
+
+    expect(runtimeMocks.chat).not.toHaveBeenCalled();
+    expect(modelMocks.finalizeActive).toHaveBeenCalledWith(
+      row.id,
+      'failed',
+      expect.objectContaining({ type: 'GenerationError' }),
+      expect.anything(),
+    );
+  });
+
   it('clears a sequential child placeholder when Stop arrives before the first token', async () => {
     messageMocks.create.mockImplementation(async (params, id) => {
       const created = {

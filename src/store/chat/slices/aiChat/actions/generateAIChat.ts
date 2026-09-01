@@ -29,7 +29,10 @@ import {
   isClientDurableConversationGenerationEnabled,
 } from '@/helpers/durableConversationGeneration';
 import { buildHistorySummaryForRequest } from '@/helpers/memoryArchivePrompt';
-import { isModelNativeSearchDisabledProvider } from '@/helpers/modelNativeSearch';
+import {
+  getMimoTokenPlanEnvHint,
+  isModelNativeSearchDisabledProvider,
+} from '@/helpers/modelNativeSearch';
 import {
   createGenerationDebugSpanId,
   hashGenerationDebugClientValue,
@@ -797,7 +800,16 @@ export const generateAIChat: StateCreator<
       provider!,
     )(aiInfraStoreState);
     const useModelBuiltinSearch = agentChatConfigSelectors.useModelBuiltinSearch(agentStoreState);
-    const modelNativeSearchDisabled = isModelNativeSearchDisabledProvider(provider);
+    const providerBaseURL = aiProviderSelectors.providerKeyVaults(provider!)(
+      aiInfraStoreState,
+    )?.baseURL;
+    const modelNativeSearchDisabled = isModelNativeSearchDisabledProvider(
+      provider,
+      providerBaseURL,
+      {
+        mimoTokenPlanEnv: getMimoTokenPlanEnvHint(),
+      },
+    );
     const useModelSearch = modelNativeSearchDisabled
       ? false
       : ((isProviderHasBuiltinSearch || isModelHasBuiltinSearch) && useModelBuiltinSearch) ||

@@ -19,10 +19,7 @@ export const readProviderErrorParam = (error: unknown): string | undefined => {
   return visit(error, 0);
 };
 
-export type ProviderErrorParamClass =
-  | 'web_search_disabled'
-  | 'temperature_out_of_range'
-  | 'other';
+export type ProviderErrorParamClass = 'web_search_disabled' | 'temperature_out_of_range' | 'other';
 
 /**
  * Map a provider-controlled `error.param` string to a safe enum + fingerprint.
@@ -37,9 +34,11 @@ export const classifyProviderErrorParam = (
 } => {
   if (!param?.trim()) return {};
   const value = param.trim();
+  const lowered = value.toLowerCase();
   let errorParamClass: ProviderErrorParamClass = 'other';
-  if (/webSearchEnabled is false/i.test(value)) errorParamClass = 'web_search_disabled';
-  else if (/temperature must be within/i.test(value)) errorParamClass = 'temperature_out_of_range';
+  if (lowered.includes('websearchenabled is false')) errorParamClass = 'web_search_disabled';
+  else if (lowered.includes('temperature must be within'))
+    errorParamClass = 'temperature_out_of_range';
 
   return {
     errorParamClass,

@@ -1,3 +1,5 @@
+import { isMimoTokenPlanBaseURL } from '@lobechat/model-runtime';
+
 import { enableNextAuth } from '@/const/auth';
 import { appEnv, getAppConfig } from '@/envs/app';
 import { authEnv } from '@/envs/auth';
@@ -5,6 +7,7 @@ import { fileEnv } from '@/envs/file';
 import { imageEnv } from '@/envs/image';
 import { knowledgeEnv } from '@/envs/knowledge';
 import { langfuseEnv } from '@/envs/langfuse';
+import { getLLMConfig } from '@/envs/llm';
 import { isCompactionDebugEnabled } from '@/libs/logger/compactionDebug';
 import { isGenerationDebugEnabled } from '@/libs/logger/generationDebug';
 import { parseAuthProviders } from '@/libs/next-auth/parseAuthProviders';
@@ -19,6 +22,7 @@ import { parseFilesConfig } from './parseFilesConfig';
 
 export const getServerGlobalConfig = async () => {
   const { ACCESS_CODES, DEFAULT_AGENT_CONFIG } = getAppConfig();
+  const llmConfig = getLLMConfig() as Record<string, any>;
 
   const config: GlobalServerConfig = {
     aiProvider: await genServerAiProvidersConfig({
@@ -63,6 +67,7 @@ export const getServerGlobalConfig = async () => {
         fixedModelList: true,
       },
     }),
+    mimoTokenPlanEnv: isMimoTokenPlanBaseURL(llmConfig.MIMO_PROXY_URL),
     oAuthSSOProviders: parseAuthProviders(authEnv.NEXT_AUTH_SSO_PROVIDERS),
     systemAgent: parseSystemAgent(appEnv.SYSTEM_AGENT),
     telemetry: {

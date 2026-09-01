@@ -11,6 +11,7 @@ import { isModelNativeSearchDisabledProvider } from '@/helpers/modelNativeSearch
 import { useAgentStore } from '@/store/agent';
 import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/slices/chat';
 import { aiModelSelectors, aiProviderSelectors, useAiInfraStore } from '@/store/aiInfra';
+import { useServerConfigStore } from '@/store/serverConfig';
 import { SearchMode } from '@/types/search';
 
 import FCSearchModel from './FCSearchModel';
@@ -94,13 +95,15 @@ const Item = memo<NetworkOption>(({ value, description, icon, label }) => {
 
 const Controls = memo(() => {
   const { t } = useTranslation('chat');
-  const [model, provider, useModelBuiltinSearch, searchMode, updateAgentChatConfig] = useAgentStore((s) => [
-    agentSelectors.currentAgentModel(s),
-    agentSelectors.currentAgentModelProvider(s),
-    agentChatConfigSelectors.useModelBuiltinSearch(s),
-    agentChatConfigSelectors.currentChatConfig(s).searchMode,
-    s.updateAgentChatConfig,
-  ]);
+  const [model, provider, useModelBuiltinSearch, searchMode, updateAgentChatConfig] = useAgentStore(
+    (s) => [
+      agentSelectors.currentAgentModel(s),
+      agentSelectors.currentAgentModelProvider(s),
+      agentChatConfigSelectors.useModelBuiltinSearch(s),
+      agentChatConfigSelectors.currentChatConfig(s).searchMode,
+      s.updateAgentChatConfig,
+    ],
+  );
 
   const supportFC = useAiInfraStore(aiModelSelectors.isModelSupportToolUse(model, provider));
   const isProviderHasBuiltinSearchConfig = useAiInfraStore(
@@ -112,51 +115,47 @@ const Controls = memo(() => {
   const isModelBuiltinSearchInternal = useAiInfraStore(
     aiModelSelectors.isModelBuiltinSearchInternal(model, provider),
   );
-  const modelBuiltinSearchImpl = useAiInfraStore(aiModelSelectors.modelBuiltinSearchImpl(model, provider));
+  const modelBuiltinSearchImpl = useAiInfraStore(
+    aiModelSelectors.modelBuiltinSearchImpl(model, provider),
+  );
   const providerBaseURL = useAiInfraStore(aiProviderSelectors.providerKeyVaults(provider))?.baseURL;
+  const mimoTokenPlanEnv = useServerConfigStore((s) => Boolean(s.serverConfig.mimoTokenPlanEnv));
 
   /** Moonshot `$web_search` is not offered. MiMo Token Plan omits native web_search. */
-  const nativeSearchDisabled = isModelNativeSearchDisabledProvider(provider, providerBaseURL);
+  const nativeSearchDisabled = isModelNativeSearchDisabledProvider(provider, providerBaseURL, {
+    mimoTokenPlanEnv,
+  });
 
   useEffect(() => {
-    if (
-      isModelBuiltinSearchInternal &&
-      !nativeSearchDisabled &&
-      (searchMode ?? 'off') === 'off'
-    ) {
+    if (isModelBuiltinSearchInternal && !nativeSearchDisabled && (searchMode ?? 'off') === 'off') {
       updateAgentChatConfig({ searchMode: 'auto' });
     }
-  }, [
-    isModelBuiltinSearchInternal,
-    nativeSearchDisabled,
-    searchMode,
-    updateAgentChatConfig,
-  ]);
+  }, [isModelBuiltinSearchInternal, nativeSearchDisabled, searchMode, updateAgentChatConfig]);
 
   const options: NetworkOption[] =
     isModelBuiltinSearchInternal && !nativeSearchDisabled
-    ? [
-      {
-        description: t('search.mode.auto.desc'),
-        icon: SparkleIcon,
-        label: t('search.mode.auto.title'),
-        value: 'auto',
-      },
-    ]
-    : [
-      {
-        description: t('search.mode.off.desc'),
-        icon: GlobeOffIcon,
-        label: t('search.mode.off.title'),
-        value: 'off',
-      },
-      {
-        description: t('search.mode.auto.desc'),
-        icon: SparkleIcon,
-        label: t('search.mode.auto.title'),
-        value: 'auto',
-      },
-    ];
+      ? [
+          {
+            description: t('search.mode.auto.desc'),
+            icon: SparkleIcon,
+            label: t('search.mode.auto.title'),
+            value: 'auto',
+          },
+        ]
+      : [
+          {
+            description: t('search.mode.off.desc'),
+            icon: GlobeOffIcon,
+            label: t('search.mode.off.title'),
+            value: 'off',
+          },
+          {
+            description: t('search.mode.auto.desc'),
+            icon: SparkleIcon,
+            label: t('search.mode.auto.title'),
+            value: 'auto',
+          },
+        ];
 
   const showModelBuiltinSearch =
     !nativeSearchDisabled &&

@@ -219,19 +219,65 @@ const appendMimoJsonObjectInstruction = (messages: unknown[], schema: unknown): 
   return [{ content: instruction, role: 'system' }, ...messages];
 };
 
+const mimoToolFunction = (tool: unknown): Record<string, unknown> | undefined => {
+  if (!tool || typeof tool !== 'object') return undefined;
+  const fn = (tool as { function?: unknown }).function;
+  if (!fn || typeof fn !== 'object') return undefined;
+  return fn as Record<string, unknown>;
+};
+
+const mimoToolsJsonSchema = (tools: unknown[]) => {
+  const functions = tools.map(mimoToolFunction).filter(Boolean) as Record<string, unknown>[];
+  const names = functions
+    .map((fn) => fn.name)
+    .filter((name): name is string => typeof name === 'string');
+  return {
+    properties: {
+      tool_calls: {
+        items: {
+          properties: {
+            arguments: { type: 'object' },
+            name: names.length ? { enum: names, type: 'string' } : { type: 'string' },
+          },
+          required: ['name', 'arguments'],
+          type: 'object',
+        },
+        type: 'array',
+      },
+    },
+    required: ['tool_calls'],
+    tools: functions,
+    type: 'object',
+  };
+};
+
 export const shapeMimoGenerateObjectRequest = (
   payload: Record<string, any>,
 ): Record<string, any> => {
-  const { user: _user, ...rest } = payload;
-  const next: Record<string, any> = { ...rest };
+  const next: Record<string, any> = { ...payload };
+  delete next.user;
+
+  const tools = Array.isArray(next.tools) ? next.tools : undefined;
+  // Xiaomi documents only tool_choice: auto, so required/named choices are
+  // stripped and a text reply is valid. Translate tools into JSON mode so
+  // generateObject still returns a parsed selection.
+  // https://mimo.mi.com/docs/en-US/api/chat/openai-api
+  if (tools?.length) {
+    next.response_format = { type: 'json_object' };
+    if (Array.isArray(next.messages)) {
+      next.messages = appendMimoJsonObjectInstruction(next.messages, mimoToolsJsonSchema(tools));
+    }
+    delete next.tools;
+    delete next.tool_choice;
+    return next;
+  }
 
   if (next.tool_choice !== undefined && next.tool_choice !== 'auto') {
     next.tool_choice = 'auto';
   }
 
   const responseFormat = next.response_format as
-    | { json_schema?: unknown; type?: string }
-    | undefined;
+    { json_schema?: unknown; type?: string } | undefined;
   if (responseFormat?.type === 'json_schema') {
     next.response_format = { type: 'json_object' };
     if (Array.isArray(next.messages)) {

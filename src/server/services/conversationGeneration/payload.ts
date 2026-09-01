@@ -1,7 +1,7 @@
+import { INBOX_GUIDE_SYSTEMROLE, INBOX_SESSION_ID } from '@lobechat/const';
 import {
   AgentMemoryProvider,
   ContextEngine,
-  formatSkillInstructionsBlock,
   HistorySummaryProvider,
   HistoryTruncateProcessor,
   InboxGuideProvider,
@@ -14,10 +14,11 @@ import {
   ToolCallProcessor,
   ToolMessageReorder,
   ToolNameResolver,
-  ToolsEngine,
   ToolSystemRoleProvider,
+  ToolsEngine,
+  formatSkillInstructionsBlock,
 } from '@lobechat/context-engine';
-import { INBOX_GUIDE_SYSTEMROLE, INBOX_SESSION_ID } from '@lobechat/const';
+import type { LobeChatDatabase } from '@lobechat/database';
 import { agentMemoryPrompt, historySummaryPrompt, pluginPrompts } from '@lobechat/prompts';
 import type {
   ConversationGenerationConfigSnapshot,
@@ -36,18 +37,14 @@ import {
   resolveEffectiveHistoryWindow,
 } from '@/helpers/contextCompaction';
 import { estimateFixedContextOverheadTokens } from '@/helpers/contextUsageEstimate';
-import { composeSystemRole } from '@/services/chat/composeSystemRole';
-import {
-  buildModelExtendParams,
-  resolveModelSearchConfig,
-} from '@/services/chat/requestShaping';
-import { trimMinimaxChatContext } from '@/services/chat/trimMinimaxContext';
 import { FileService } from '@/server/services/file';
+import { composeSystemRole } from '@/services/chat/composeSystemRole';
+import { buildModelExtendParams, resolveModelSearchConfig } from '@/services/chat/requestShaping';
+import { trimMinimaxChatContext } from '@/services/chat/trimMinimaxContext';
 import { builtinTools } from '@/tools';
 import { MemoryManifest } from '@/tools/memory';
 import { SkillLoaderManifest } from '@/tools/skills';
 import { WebBrowsingManifest } from '@/tools/web-browsing';
-import type { LobeChatDatabase } from '@lobechat/database';
 
 import type { ConversationRuntimeState } from './credentials';
 import { resolveConversationInboxSessionId } from './inboxSession';

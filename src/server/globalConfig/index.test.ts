@@ -1,16 +1,21 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { enableNextAuth } from '@/const/auth';
 import { getAppConfig } from '@/envs/app';
 import { authEnv } from '@/envs/auth';
 import { fileEnv } from '@/envs/file';
 import { imageEnv } from '@/envs/image';
+import { getLLMConfig } from '@/envs/llm';
 import { SystemEmbeddingConfig } from '@/types/knowledgeBase';
 import { FilesConfigItem } from '@/types/user/settings/filesConfig';
 
-import { getServerDefaultAgentConfig, getServerDefaultFilesConfig, getServerGlobalConfig } from './index';
 import { genServerLLMConfig } from './_deprecated';
 import { genServerAiProvidersConfig } from './genServerAiProviderConfig';
+import {
+  getServerDefaultAgentConfig,
+  getServerDefaultFilesConfig,
+  getServerGlobalConfig,
+} from './index';
 import { parseAgentConfig } from './parseDefaultAgent';
 import { parseFilesConfig } from './parseFilesConfig';
 import { parseSystemAgent } from './parseSystemAgent';
@@ -54,6 +59,10 @@ vi.mock('@/envs/langfuse', () => ({
   langfuseEnv: {
     ENABLE_LANGFUSE: false,
   },
+}));
+
+vi.mock('@/envs/llm', () => ({
+  getLLMConfig: vi.fn(() => ({})),
 }));
 
 vi.mock('./_deprecated', () => ({
@@ -130,6 +139,10 @@ describe('getServerDefaultFilesConfig', () => {
 });
 
 describe('getServerGlobalConfig', () => {
+  beforeEach(() => {
+    vi.mocked(getLLMConfig).mockReturnValue({} as any);
+  });
+
   it('normalizes oauth provider tokens for the sign-in UI', async () => {
     vi.mocked(getAppConfig).mockReturnValue({
       ACCESS_CODES: [],
@@ -147,5 +160,21 @@ describe('getServerGlobalConfig', () => {
     expect(parseSystemAgent).toHaveBeenCalledWith('system-agent');
     expect(fileEnv.S3_SECRET_ACCESS_KEY).toBeUndefined();
     expect(imageEnv.AI_IMAGE_DEFAULT_IMAGE_NUM).toBe(1);
+    expect(result.mimoTokenPlanEnv).toBe(false);
+  });
+
+  it('sets mimoTokenPlanEnv when MIMO_PROXY_URL is a Token Plan host', async () => {
+    vi.mocked(getAppConfig).mockReturnValue({
+      ACCESS_CODES: [],
+      DEFAULT_AGENT_CONFIG: 'test_agent_config',
+    } as any);
+    vi.mocked(parseAgentConfig).mockReturnValue({});
+    vi.mocked(getLLMConfig).mockReturnValue({
+      MIMO_PROXY_URL: 'https://token-plan-cn.xiaomimimo.com/v1',
+    } as any);
+
+    const result = await getServerGlobalConfig();
+
+    expect(result.mimoTokenPlanEnv).toBe(true);
   });
 });

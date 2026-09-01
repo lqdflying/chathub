@@ -1,7 +1,5 @@
-import {
-  type ModelSearchConfig,
-  resolveModelSearchConfig,
-} from '@/services/chat/requestShaping';
+import { getMimoTokenPlanEnvHint } from '@/helpers/modelNativeSearch';
+import { type ModelSearchConfig, resolveModelSearchConfig } from '@/services/chat/requestShaping';
 import { getAgentStoreState } from '@/store/agent';
 import { agentChatConfigSelectors } from '@/store/agent/selectors';
 import { getAiInfraStoreState } from '@/store/aiInfra';
@@ -25,10 +23,11 @@ export const getSearchConfig = (model: string, provider: string): SearchConfig =
     model,
     provider,
   )(aiInfraStoreState);
-  const providerBaseURL = aiProviderSelectors.providerKeyVaults(provider)(aiInfraStoreState)
-    ?.baseURL;
+  const providerBaseURL =
+    aiProviderSelectors.providerKeyVaults(provider)(aiInfraStoreState)?.baseURL;
 
   return resolveModelSearchConfig({
+    mimoTokenPlanEnv: getMimoTokenPlanEnvHint(),
     modelSearchImpl,
     provider,
     providerBaseURL,

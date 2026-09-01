@@ -223,13 +223,7 @@ export class EmptyCompactionSummaryError extends Error {
   readonly contentChars: number;
   readonly reasoningChars: number;
 
-  constructor({
-    contentChars,
-    reasoningChars,
-  }: {
-    contentChars: number;
-    reasoningChars: number;
-  }) {
+  constructor({ contentChars, reasoningChars }: { contentChars: number; reasoningChars: number }) {
     super('Memory compaction returned an empty summary.');
     this.name = 'EmptyCompactionSummaryError';
     this.contentChars = contentChars;
@@ -1363,8 +1357,7 @@ const runSimpleCompletion = async (
   const sampling = buildSimpleCompletionSampling({
     model: operation.config.model,
     provider: operation.config.provider,
-    summaryMaxTokens:
-      typeof payload.max_tokens === 'number' ? payload.max_tokens : undefined,
+    summaryMaxTokens: typeof payload.max_tokens === 'number' ? payload.max_tokens : undefined,
   });
   const chatPayload = {
     ...payload,
@@ -1623,12 +1616,8 @@ const executeTranslation = async (
   }
   const from =
     translation.from ||
-    (await runSimpleCompletion(
-      db,
-      operation,
-      chainLangDetect(message.content),
-      options?.runSignal,
-    )).content;
+    (await runSimpleCompletion(db, operation, chainLangDetect(message.content), options?.runSignal))
+      .content;
   const { content } = await runSimpleCompletion(
     db,
     operation,
@@ -2281,6 +2270,10 @@ const executeSupervisor = async (
         user: operation.userId,
       },
     );
+
+    if (supervisorResponse == null) {
+      throw new Error('Group supervisor returned no structured tool selection');
+    }
 
     const applied = applySupervisorToolCalls({
       allowDM: group?.config?.allowDM,

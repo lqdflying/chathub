@@ -23,6 +23,7 @@ export interface ModelSearchConfig {
 }
 
 export const resolveModelSearchConfig = ({
+  mimoTokenPlanEnv,
   modelSearchImpl,
   provider,
   providerBaseURL,
@@ -30,6 +31,7 @@ export const resolveModelSearchConfig = ({
   searchMode,
   useModelBuiltinSearch,
 }: {
+  mimoTokenPlanEnv?: boolean;
   modelSearchImpl?: ModelSearchImplementType;
   provider: string;
   providerBaseURL?: string;
@@ -39,12 +41,14 @@ export const resolveModelSearchConfig = ({
 }): ModelSearchConfig => {
   const enabledSearch = searchMode !== 'off';
   const isModelHasBuiltinSearch = Boolean(modelSearchImpl);
-  const modelNativeSearchDisabled = isModelNativeSearchDisabledProvider(provider, providerBaseURL);
+  const modelNativeSearchDisabled = isModelNativeSearchDisabledProvider(provider, providerBaseURL, {
+    mimoTokenPlanEnv,
+  });
   const useModelSearch = modelNativeSearchDisabled
     ? false
-    : (((providerHasBuiltinSearch || isModelHasBuiltinSearch) && useModelBuiltinSearch) ||
-        modelSearchImpl === 'internal' ||
-        false);
+    : ((providerHasBuiltinSearch || isModelHasBuiltinSearch) && useModelBuiltinSearch) ||
+      modelSearchImpl === 'internal' ||
+      false;
 
   return {
     enabledSearch,
@@ -141,9 +145,7 @@ export const buildModelExtendParams = ({
     if (provider === ModelProvider.DeepSeek) {
       if (chatConfig.enableReasoning) extendParams.reasoning_effort = 'max';
     } else {
-      extendParams.reasoning_effort = VALID_REASONING_EFFORTS.has(
-        chatConfig.reasoningEffort || '',
-      )
+      extendParams.reasoning_effort = VALID_REASONING_EFFORTS.has(chatConfig.reasoningEffort || '')
         ? chatConfig.reasoningEffort
         : undefined;
     }
@@ -167,10 +169,7 @@ export const buildModelExtendParams = ({
     extendParams.thinking = { type: chatConfig.thinking };
   }
 
-  if (
-    modelExtendParams.includes('thinkingBudget') &&
-    chatConfig.thinkingBudget !== undefined
-  ) {
+  if (modelExtendParams.includes('thinkingBudget') && chatConfig.thinkingBudget !== undefined) {
     extendParams.thinkingBudget = chatConfig.thinkingBudget;
   }
 

@@ -117,6 +117,23 @@ describe('resolveModelSearchConfig', () => {
       },
       name: 'MiMo pay-as-you-go still uses native search when toggle is on',
     },
+    {
+      expected: {
+        enabledSearch: true,
+        isModelHasBuiltinSearch: true,
+        isProviderHasBuiltinSearch: false,
+        useApplicationBuiltinSearchTool: true,
+        useModelSearch: false,
+      },
+      input: {
+        mimoTokenPlanEnv: true,
+        modelSearchImpl: 'params' as const,
+        provider: ModelProvider.Mimo,
+        searchMode: 'on' as const,
+        useModelBuiltinSearch: true,
+      },
+      name: 'MiMo env-only Token Plan keeps ChatHub search',
+    },
   ])('resolves $name', ({ expected, input }) => {
     expect(resolveModelSearchConfig(input)).toEqual(expected);
   });
@@ -211,11 +228,7 @@ describe('buildModelExtendParams', () => {
           zhipuReasoningEffort: 'skip',
         },
         model: 'glm-5.2',
-        modelExtendParams: [
-          'enableReasoning',
-          'zhipuPreservedThinking',
-          'zhipuReasoningEffort',
-        ],
+        modelExtendParams: ['enableReasoning', 'zhipuPreservedThinking', 'zhipuReasoningEffort'],
         provider: ModelProvider.Zhipu,
       }),
     ).toEqual({
