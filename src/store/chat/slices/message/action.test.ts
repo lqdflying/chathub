@@ -47,6 +47,7 @@ vi.mock('@/services/topic', () => ({
     createTopic: vi.fn(() => Promise.resolve()),
     updateTopic: vi.fn(() => Promise.resolve()),
     mergeReportedInputTokenFloorWatermark: vi.fn(() => Promise.resolve()),
+    persistMemoryCompaction: vi.fn(() => Promise.resolve({ accepted: false })),
     removeTopic: vi.fn(() => Promise.resolve()),
   },
 }));

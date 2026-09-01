@@ -44,7 +44,27 @@ export interface ITopicService {
 
   mergeReportedInputTokenFloorWatermark(
     id: string,
-  ): Promise<{ metadata: ChatTopicMetadata; updated: boolean } | undefined>;
+  ): Promise<
+    | {
+        historySummary?: string | null;
+        historySummaryLastMessageId?: string;
+        reportedInputTokenFloorAfterMessageId?: string;
+        updated: boolean;
+      }
+    | undefined
+  >;
+  persistMemoryCompaction(
+    id: string,
+    params: {
+      candidateMessageIds: string[];
+      compactedThroughMessageId: string;
+      expectedCursorId?: string;
+      expectedFingerprint: string;
+      expectedHistorySummary: string;
+      historySummary: string;
+      metadata: ChatTopicMetadata;
+    },
+  ): Promise<{ accepted: boolean; metadata?: ChatTopicMetadata }>;
   updateTopic(
     id: string,
     data: Partial<ChatTopic>,

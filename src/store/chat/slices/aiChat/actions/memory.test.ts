@@ -56,6 +56,7 @@ vi.mock('@/services/message', () => ({
 vi.mock('@/services/topic', () => ({
   topicService: {
     mergeReportedInputTokenFloorWatermark: vi.fn(),
+    persistMemoryCompaction: vi.fn(),
     removeTopic: vi.fn(),
     updateTopic: vi.fn(),
   },
@@ -156,6 +157,10 @@ describe('chat memory actions', () => {
       await onFinish?.('updated cumulative summary', {} as any);
     });
     vi.mocked(topicService.updateTopic).mockResolvedValue(undefined);
+    vi.mocked(topicService.persistMemoryCompaction).mockImplementation(async (_id, params) => ({
+      accepted: true,
+      metadata: params.metadata,
+    }));
     vi.mocked(topicService.mergeReportedInputTokenFloorWatermark).mockImplementation(async (id) => {
       const state = useChatStore.getState();
       const topic = topicSelectors.getTopicInContainer(state.activeId, id)(state);
@@ -166,10 +171,12 @@ describe('chat memory actions', () => {
         storedAfterMessageId: stored,
         topicMessages: chatSelectors.mainTopicAIChats(state),
       });
-      const metadata = { ...(topic.metadata ?? {}) };
-      if (nextId) metadata.reportedInputTokenFloorAfterMessageId = nextId;
-      else delete metadata.reportedInputTokenFloorAfterMessageId;
-      return { metadata, updated: nextId !== stored };
+      return {
+        historySummary: topic.historySummary,
+        historySummaryLastMessageId: topic.metadata?.historySummaryLastMessageId,
+        reportedInputTokenFloorAfterMessageId: nextId,
+        updated: nextId !== stored,
+      };
     });
     setConversation();
   });
@@ -197,8 +204,8 @@ describe('chat memory actions', () => {
     expect(vi.mocked(chatService.fetchPresetTaskResult).mock.calls[0][0].params.messages[0].content).toContain(
       'limited to 600 tokens',
     );
-    expect(topicService.updateTopic).toHaveBeenCalledTimes(1);
-    expect(topicService.updateTopic).toHaveBeenCalledWith(
+    expect(topicService.persistMemoryCompaction).toHaveBeenCalledTimes(1);
+    expect(topicService.persistMemoryCompaction).toHaveBeenCalledWith(
       TOPIC_ID,
       expect.objectContaining({
         historySummary: 'updated cumulative summary',
@@ -223,7 +230,7 @@ describe('chat memory actions', () => {
     const result = await useChatStore.getState().triggerManualMemoryCompaction();
 
     expect(result).toMatchObject({ status: 'compacted' });
-    expect(topicService.updateTopic).toHaveBeenCalledWith(
+    expect(topicService.persistMemoryCompaction).toHaveBeenCalledWith(
       TOPIC_ID,
       expect.objectContaining({
         metadata: expect.objectContaining({
@@ -355,6 +362,7 @@ describe('chat memory actions', () => {
     expect(spanSpy).not.toHaveBeenCalled();
     expect(chatService.fetchPresetTaskResult).not.toHaveBeenCalled();
     expect(topicService.updateTopic).not.toHaveBeenCalled();
+    expect(topicService.persistMemoryCompaction).not.toHaveBeenCalled();
   });
 
   it('persists the same debug span on enqueue when compaction debug is enabled', async () => {
@@ -614,7 +622,7 @@ describe('chat memory actions', () => {
       reason: 'protected_context_exceeds_low_watermark',
       status: 'target_unreachable',
     });
-    expect(topicService.updateTopic).toHaveBeenCalledWith(
+    expect(topicService.persistMemoryCompaction).toHaveBeenCalledWith(
       TOPIC_ID,
       expect.objectContaining({
         metadata: expect.objectContaining({
@@ -665,6 +673,7 @@ describe('chat memory actions', () => {
 
     expect(result.status).toBe('failed');
     expect(topicService.updateTopic).not.toHaveBeenCalled();
+    expect(topicService.persistMemoryCompaction).not.toHaveBeenCalled();
   });
 
   it('returns a failed result when the summarizer rejects', async () => {
@@ -675,6 +684,7 @@ describe('chat memory actions', () => {
       status: 'failed',
     });
     expect(topicService.updateTopic).not.toHaveBeenCalled();
+    expect(topicService.persistMemoryCompaction).not.toHaveBeenCalled();
   });
 
   it('shares one in-flight compaction job per topic', async () => {
@@ -694,7 +704,7 @@ describe('chat memory actions', () => {
 
     const [manualResult, backgroundResult] = await Promise.all([manual, background]);
     expect(manualResult).toEqual(backgroundResult);
-    expect(topicService.updateTopic).toHaveBeenCalledTimes(1);
+    expect(topicService.persistMemoryCompaction).toHaveBeenCalledTimes(1);
   });
 
   it('lets an abortable caller bail out of a running job without cancelling it', async () => {
@@ -720,7 +730,7 @@ describe('chat memory actions', () => {
     // the background job is untouched and still completes with its single topic write
     release();
     await background;
-    expect(topicService.updateTopic).toHaveBeenCalledTimes(1);
+    expect(topicService.persistMemoryCompaction).toHaveBeenCalledTimes(1);
   });
 
   it('caps pre-send token compaction at three batches without advancing the cursor past them', async () => {
@@ -754,7 +764,7 @@ describe('chat memory actions', () => {
     expect(result).toMatchObject({ messageCountIncluded: 120, status: 'compacted' });
     expect(chatService.fetchPresetTaskResult).toHaveBeenCalledTimes(3);
     // the cursor must stop at the end of batch 3 (messages[119]), not the last candidate
-    expect(topicService.updateTopic).toHaveBeenCalledWith(
+    expect(topicService.persistMemoryCompaction).toHaveBeenCalledWith(
       TOPIC_ID,
       expect.objectContaining({
         metadata: expect.objectContaining({ historySummaryLastMessageId: 'a60' }),
@@ -785,7 +795,7 @@ describe('chat memory actions', () => {
     const followUpRequest = vi.mocked(chatService.fetchPresetTaskResult).mock.calls[3][0];
     expect(followUpRequest.params.messages?.[1].content).toContain('<user>u61</user>');
     expect(followUpRequest.params.messages?.[1].content).not.toContain('<user>u60</user>');
-    expect(vi.mocked(topicService.updateTopic).mock.calls.at(-1)?.[1]).toMatchObject({
+    expect(vi.mocked(topicService.persistMemoryCompaction).mock.calls.at(-1)?.[1]).toMatchObject({
       metadata: expect.objectContaining({ historySummaryLastMessageId: 'a84' }),
     });
   });
@@ -820,7 +830,7 @@ describe('chat memory actions', () => {
     expect(result).toMatchObject({ messageCountIncluded: 6, status: 'compacted' });
     // Oversized complete turns are stubbed locally — no History Compress API calls.
     expect(chatService.fetchPresetTaskResult).not.toHaveBeenCalled();
-    expect(topicService.updateTopic).toHaveBeenCalledWith(
+    expect(topicService.persistMemoryCompaction).toHaveBeenCalledWith(
       TOPIC_ID,
       expect.objectContaining({
         historySummary: expect.stringContaining('oversized message'),
@@ -830,21 +840,22 @@ describe('chat memory actions', () => {
   });
 
   it('undoes a summary write that raced an invalidation', async () => {
+    vi.mocked(topicService.persistMemoryCompaction).mockReset();
     vi.mocked(topicService.updateTopic).mockReset();
-    // the first (real) write lands, but an invalidation bumps the generation mid-flight
-    vi.mocked(topicService.updateTopic).mockImplementationOnce(async () => {
+    vi.mocked(topicService.persistMemoryCompaction).mockImplementationOnce(async (_id, params) => {
       useChatStore.setState((s) => ({
         memoryCompactionInvalidationGeneration: s.memoryCompactionInvalidationGeneration + 1,
       }));
+      return { accepted: true, metadata: params.metadata };
     });
     vi.mocked(topicService.updateTopic).mockResolvedValue(undefined);
 
     const result = await useChatStore.getState().triggerManualMemoryCompaction();
 
     expect(result).toMatchObject({ reason: 'conversation_changed', status: 'ineligible' });
-    // the stale summary is compensated with the same cleared state as invalidation
-    expect(topicService.updateTopic).toHaveBeenCalledTimes(2);
-    expect(vi.mocked(topicService.updateTopic).mock.calls[1][1]).toMatchObject({
+    expect(topicService.persistMemoryCompaction).toHaveBeenCalledTimes(1);
+    expect(topicService.updateTopic).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(topicService.updateTopic).mock.calls[0][1]).toMatchObject({
       historySummary: '',
       metadata: expect.objectContaining({
         historySummaryLastMessageId: undefined,
@@ -866,6 +877,7 @@ describe('chat memory actions', () => {
 
     expect(result).toEqual({ reason: 'aborted', status: 'ineligible' });
     expect(topicService.updateTopic).not.toHaveBeenCalled();
+    expect(topicService.persistMemoryCompaction).not.toHaveBeenCalled();
   });
 
   it('does not persist a summary when Stop lands after the summarizer finishes', async () => {
@@ -879,6 +891,7 @@ describe('chat memory actions', () => {
 
     expect(result).toEqual({ reason: 'aborted', status: 'ineligible' });
     expect(topicService.updateTopic).not.toHaveBeenCalled();
+    expect(topicService.persistMemoryCompaction).not.toHaveBeenCalled();
   });
 
   it('restores the prior summary when Stop races the persistence write', async () => {
@@ -902,17 +915,20 @@ describe('chat memory actions', () => {
         ],
       },
     });
+    vi.mocked(topicService.persistMemoryCompaction).mockReset();
     vi.mocked(topicService.updateTopic).mockReset();
-    vi.mocked(topicService.updateTopic).mockImplementationOnce(async () => {
+    vi.mocked(topicService.persistMemoryCompaction).mockImplementationOnce(async (_id, params) => {
       controller.abort();
+      return { accepted: true, metadata: params.metadata };
     });
     vi.mocked(topicService.updateTopic).mockResolvedValue(undefined);
 
     const result = await useChatStore.getState().triggerTokenThresholdMemoryCompaction(controller);
 
     expect(result).toEqual({ reason: 'aborted', status: 'ineligible' });
-    expect(topicService.updateTopic).toHaveBeenCalledTimes(2);
-    expect(vi.mocked(topicService.updateTopic).mock.calls[1]).toEqual([
+    expect(topicService.persistMemoryCompaction).toHaveBeenCalledTimes(1);
+    expect(topicService.updateTopic).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(topicService.updateTopic).mock.calls[0]).toEqual([
       TOPIC_ID,
       { historySummary: 'previous summary', metadata: previousMetadata },
     ]);
@@ -1009,7 +1025,7 @@ describe('chat memory actions', () => {
       });
 
     expect(result.status).toBe('compacted');
-    expect(topicService.updateTopic).toHaveBeenCalledWith(
+    expect(topicService.persistMemoryCompaction).toHaveBeenCalledWith(
       sourceTopicId,
       expect.objectContaining({ historySummary: 'updated cumulative summary' }),
     );
@@ -1227,7 +1243,7 @@ describe('chat memory actions', () => {
     const result = await useChatStore.getState().triggerManualMemoryCompaction();
 
     expect(result).toMatchObject({ status: 'compacted' });
-    expect(topicService.updateTopic).toHaveBeenCalledWith(
+    expect(topicService.persistMemoryCompaction).toHaveBeenCalledWith(
       TOPIC_ID,
       expect.objectContaining({
         metadata: expect.objectContaining({
@@ -1280,26 +1296,19 @@ describe('chat memory actions', () => {
     expect(getLatestReportedInputTokens(chats, { afterMessageId: 'a3' })).toBeUndefined();
   });
 
-  it('does not let a delayed migration write replace compaction metadata', async () => {
-    let releaseMigration: (() => void) | undefined;
-    const migrationGate = new Promise<void>((resolve) => {
-      releaseMigration = resolve;
+  it('does not apply a delayed merge response over newer local compaction metadata', async () => {
+    let releaseMerge: (() => void) | undefined;
+    const mergeGate = new Promise<void>((resolve) => {
+      releaseMerge = resolve;
     });
-    vi.mocked(topicService.mergeReportedInputTokenFloorWatermark).mockImplementation(async (id) => {
-      await migrationGate;
-      const state = useChatStore.getState();
-      const topic = topicSelectors.getTopicInContainer(state.activeId, id)(state);
-      if (!topic) return undefined;
-      const stored = topic.metadata?.reportedInputTokenFloorAfterMessageId;
-      const nextId = nextReportedInputTokenFloorAfterMessageId({
-        cursorId: topic.metadata?.historySummaryLastMessageId,
-        storedAfterMessageId: stored,
-        topicMessages: chatSelectors.mainTopicAIChats(state),
-      });
-      const metadata = { ...(topic.metadata ?? {}) };
-      if (nextId) metadata.reportedInputTokenFloorAfterMessageId = nextId;
-      else delete metadata.reportedInputTokenFloorAfterMessageId;
-      return { metadata, updated: nextId !== stored };
+    vi.mocked(topicService.mergeReportedInputTokenFloorWatermark).mockImplementation(async () => {
+      await mergeGate;
+      return {
+        historySummary: 'existing summary',
+        historySummaryLastMessageId: 'a1',
+        reportedInputTokenFloorAfterMessageId: 'a3',
+        updated: true,
+      };
     });
 
     setConversation({
@@ -1322,29 +1331,32 @@ describe('chat memory actions', () => {
       expect(topicService.mergeReportedInputTokenFloorWatermark).toHaveBeenCalled();
     });
 
-    const compactPromise = useChatStore.getState().triggerManualMemoryCompaction();
-    await Promise.resolve();
-    expect(topicService.updateTopic).not.toHaveBeenCalled();
-
-    releaseMigration?.();
-    await ensurePromise;
-    const compactResult = await compactPromise;
-
-    expect(compactResult.status).toBe('compacted');
-    expect(vi.mocked(topicService.updateTopic).mock.calls.at(-1)?.[1]).toEqual(
-      expect.objectContaining({
-        historySummary: 'updated cumulative summary',
-        metadata: expect.objectContaining({
-          historySummaryLastMessageId: 'a2',
-          memoryDebugLog: expect.any(Array),
-          reportedInputTokenFloorAfterMessageId: 'a3',
-        }),
-      }),
+    useChatStore.getState().internal_dispatchTopic(
+      {
+        id: TOPIC_ID,
+        type: 'updateTopic',
+        value: {
+          historySummary: 'new summary',
+          metadata: {
+            historySummaryLastMessageId: 'a2',
+            memoryArchives: [{ at: 2, summaryExcerpt: 'new summary', trigger: 'manual' }],
+            memoryDebugLog: [{ at: 2, status: 'compacted', trigger: 'manual' }],
+            reportedInputTokenFloorAfterMessageId: 'a3',
+          },
+        },
+      },
+      'durableCompactionRefresh',
     );
+
+    releaseMerge?.();
+    await ensurePromise;
+
     expect(topicSelectors.currentActiveTopic(useChatStore.getState())).toMatchObject({
-      historySummary: 'updated cumulative summary',
+      historySummary: 'new summary',
       metadata: expect.objectContaining({
         historySummaryLastMessageId: 'a2',
+        memoryArchives: [{ at: 2, summaryExcerpt: 'new summary', trigger: 'manual' }],
+        memoryDebugLog: [{ at: 2, status: 'compacted', trigger: 'manual' }],
         reportedInputTokenFloorAfterMessageId: 'a3',
       }),
     });
@@ -1438,7 +1450,7 @@ describe('chat memory actions', () => {
 
     const result = await compactPromise;
     expect(result).toMatchObject({ reason: 'conversation_changed', status: 'ineligible' });
-    expect(topicService.updateTopic).not.toHaveBeenCalledWith(
+    expect(topicService.persistMemoryCompaction).not.toHaveBeenCalledWith(
       TOPIC_ID,
       expect.objectContaining({ historySummary: 'stale candidate summary' }),
     );
@@ -1479,7 +1491,7 @@ describe('chat memory actions', () => {
 
     const result = await compactPromise;
     expect(result).toMatchObject({ reason: 'conversation_changed', status: 'ineligible' });
-    expect(topicService.updateTopic).not.toHaveBeenCalledWith(
+    expect(topicService.persistMemoryCompaction).not.toHaveBeenCalledWith(
       TOPIC_ID,
       expect.objectContaining({ historySummary: 'deleted candidate summary' }),
     );

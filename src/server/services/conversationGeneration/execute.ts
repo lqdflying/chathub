@@ -44,7 +44,6 @@ import {
   getCompactionSummarizerContextWindow,
   getCompactionSummarizerInputBudget,
   getListedModelContextWindowTokens,
-  getMessagesAfterHistorySummaryCursor,
   parseCompactionSummarizerContextWindow,
   splitCompactionBatches,
 } from '@/helpers/contextCompaction';
@@ -76,6 +75,7 @@ import {
   getConversationVersion,
   withConversationWriteLockOrThrow,
 } from '@/server/services/conversationWriteLock';
+import { persistMemoryCompactionIfCurrent } from '@/server/services/memoryCompactionPersist';
 import { RagEmbeddingService, resolveRagEmbeddingConfig } from '@/server/services/rag/embedding';
 import { composeSystemRole } from '@/services/chat/composeSystemRole';
 
@@ -1875,37 +1875,9 @@ const executeCompaction = async (
     operation.userId,
     async (transaction) => {
       const topicModel = new TopicModel(transaction, operation.userId);
+      const messageModel = new MessageModel(transaction, operation.userId);
       const topic = await topicModel.findById(operation.topicId!);
       const metadata = (topic?.metadata || {}) as ChatTopicMetadata;
-      if (
-        !topic ||
-        (topic.historySummary || '') !== compaction.expectedHistorySummary ||
-        (metadata.historySummaryLastMessageId || undefined) !== compaction.expectedCursorId
-      ) {
-        return false;
-      }
-
-      const latestMessages = await new MessageModel(transaction, operation.userId).query({
-        pageSize: 9999,
-        sessionId: operation.sessionId,
-        topicId: operation.topicId,
-      });
-      const latestById = new Map(latestMessages.map((message) => [message.id, message]));
-      const latestCandidates = compaction.candidateMessageIds
-        .map((id) => latestById.get(id))
-        .filter(Boolean) as UIChatMessage[];
-      const latestFingerprint = createCompactionFingerprint({
-        cursorId: metadata.historySummaryLastMessageId,
-        messages: latestCandidates,
-        summary: topic.historySummary || undefined,
-      });
-      if (
-        latestCandidates.length !== compaction.candidateMessageIds.length ||
-        latestFingerprint !== compaction.expectedFingerprint
-      ) {
-        return false;
-      }
-
       const status =
         compaction.trigger === 'token_threshold' && compaction.targetReachable === false
           ? 'target_unreachable'
@@ -1917,18 +1889,24 @@ const executeCompaction = async (
         model: operation.config.model,
         plan: compaction,
         provider: operation.config.provider,
-        remainingMessages: getMessagesAfterHistorySummaryCursor(
-          latestMessages as UIChatMessage[],
-          compactedThroughMessageId,
-        ),
+        remainingMessages: [],
         status,
         summary: historySummary,
       });
-      await topicModel.update(operation.topicId!, {
+      const result = await persistMemoryCompactionIfCurrent({
+        candidateMessageIds: compaction.candidateMessageIds,
+        compactedThroughMessageId,
+        expectedCursorId: compaction.expectedCursorId,
+        expectedFingerprint: compaction.expectedFingerprint,
+        expectedHistorySummary: compaction.expectedHistorySummary,
         historySummary,
+        messageModel,
         metadata: nextMetadata,
+        topicId: operation.topicId!,
+        topicModel,
       });
-      return { metadata: nextMetadata, status };
+      if (!result.accepted) return false;
+      return { metadata: result.metadata, status };
     },
     operation.conversationVersion ?? undefined,
   );

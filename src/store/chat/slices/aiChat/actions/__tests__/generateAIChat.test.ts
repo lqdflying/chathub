@@ -41,6 +41,7 @@ vi.mock('@/helpers/durableConversationGeneration', async (importOriginal) => ({
 vi.mock('@/services/topic', () => ({
   topicService: {
     mergeReportedInputTokenFloorWatermark: vi.fn(async () => undefined),
+    persistMemoryCompaction: vi.fn(async () => ({ accepted: false })),
     removeTopic: vi.fn(),
     updateTopic: vi.fn(),
   },

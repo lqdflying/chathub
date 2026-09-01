@@ -59,6 +59,9 @@ export class ServerService implements ITopicService {
     id,
   ) => lambdaClient.topic.mergeReportedInputTokenFloorWatermark.mutate({ id });
 
+  persistMemoryCompaction: ITopicService['persistMemoryCompaction'] = (id, params) =>
+    lambdaClient.topic.persistMemoryCompaction.mutate({ id, ...params });
+
   updateTopic: ITopicService['updateTopic'] = (id, data, options) =>
     lambdaClient.topic.updateTopic.mutate({ id, ...options, value: data });
 

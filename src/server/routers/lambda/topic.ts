@@ -7,6 +7,7 @@ import { getServerDB } from '@/database/server';
 import { authedProcedure, publicProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { withConversationWriteLockOrThrow } from '@/server/services/conversationWriteLock';
+import { persistMemoryCompactionIfCurrent } from '@/server/services/memoryCompactionPersist';
 import { mergeReportedInputTokenFloorWatermark } from '@/server/services/topicReportedInputTokenFloor';
 import { BatchTaskResult } from '@/types/service';
 
@@ -186,6 +187,36 @@ export const topicRouter = router({
       return withConversationWriteLockOrThrow(ctx.serverDB, ctx.userId, async (transaction) => {
         return mergeReportedInputTokenFloorWatermark({
           messageModel: new MessageModel(transaction, ctx.userId),
+          topicId: input.id,
+          topicModel: new TopicModel(transaction, ctx.userId),
+        });
+      });
+    }),
+
+  persistMemoryCompaction: topicProcedure
+    .input(
+      z.object({
+        candidateMessageIds: z.array(z.string()),
+        compactedThroughMessageId: z.string(),
+        expectedCursorId: z.string().optional(),
+        expectedFingerprint: z.string(),
+        expectedHistorySummary: z.string(),
+        historySummary: z.string(),
+        id: z.string(),
+        metadata: ChatTopicMetadataSchema,
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      return withConversationWriteLockOrThrow(ctx.serverDB, ctx.userId, async (transaction) => {
+        return persistMemoryCompactionIfCurrent({
+          candidateMessageIds: input.candidateMessageIds,
+          compactedThroughMessageId: input.compactedThroughMessageId,
+          expectedCursorId: input.expectedCursorId,
+          expectedFingerprint: input.expectedFingerprint,
+          expectedHistorySummary: input.expectedHistorySummary,
+          historySummary: input.historySummary,
+          messageModel: new MessageModel(transaction, ctx.userId),
+          metadata: input.metadata,
           topicId: input.id,
           topicModel: new TopicModel(transaction, ctx.userId),
         });

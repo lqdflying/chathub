@@ -9,6 +9,7 @@ import {
   LARGE_CONTEXT_WINDOW_TOKENS,
   buildOversizedCompactionTurnStub,
   buildSimpleCompletionSampling,
+  createCompactionFingerprint,
   estimateCompactionPromptTokens,
   getCompactionSummarizerInputBudget,
   getContextCompactionWatermarks,
@@ -388,5 +389,20 @@ describe('buildSimpleCompletionSampling', () => {
     expect(selectMessageCountCompactionPrefix(withTail, included.length).map(({ id }) => id)).toEqual(
       ['u1', 'a1'],
     );
+  });
+
+  it('changes the compaction fingerprint when candidate content changes at the same length', () => {
+    const before = createCompactionFingerprint({
+      cursorId: 'a1',
+      messages: [message('a2', 'assistant')],
+      summary: 'existing',
+    });
+    const after = createCompactionFingerprint({
+      cursorId: 'a1',
+      messages: [{ ...message('a2', 'assistant'), content: 'b2' }],
+      summary: 'existing',
+    });
+    expect('b2').toHaveLength(message('a2', 'assistant').content.length);
+    expect(after).not.toBe(before);
   });
 });

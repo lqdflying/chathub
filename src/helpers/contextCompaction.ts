@@ -615,14 +615,11 @@ export const createCompactionFingerprint = ({
   summary,
 }: {
   cursorId?: string;
-  messages: UIChatMessage[];
+  messages: Array<Pick<UIChatMessage, 'content' | 'id' | 'role'>>;
   summary?: string;
 }) =>
   [
     cursorId ?? '',
-    summary?.length ?? 0,
-    ...messages.map(
-      ({ content, id, role, updatedAt }) =>
-        `${id}:${role}:${updatedAt ? new Date(updatedAt).toISOString() : ''}:${content.length}`,
-    ),
-  ].join('|');
+    summary ?? '',
+    ...messages.map(({ content, id, role }) => `${id}:${role}:${content ?? ''}`),
+  ].join('\u001F');

@@ -50,7 +50,9 @@ const messageMocks = vi.hoisted(() => ({
   create: vi.fn(),
   findById: vi.fn(),
   findToolMessageByCall: vi.fn(),
+  lockCompactionCandidateRows: vi.fn(),
   query: vi.fn(),
+  queryMainTopicBoundaryRows: vi.fn(),
   update: vi.fn(),
   updateMetadata: vi.fn(),
   updateTranslate: vi.fn(),
@@ -145,7 +147,9 @@ vi.mock('@/database/models/message', () => ({
     create = messageMocks.create;
     findById = messageMocks.findById;
     findToolMessageByCall = messageMocks.findToolMessageByCall;
+    lockCompactionCandidateRows = messageMocks.lockCompactionCandidateRows;
     query = messageMocks.query;
+    queryMainTopicBoundaryRows = messageMocks.queryMainTopicBoundaryRows;
     update = messageMocks.update;
     updateMetadata = messageMocks.updateMetadata;
     updateTranslate = messageMocks.updateTranslate;
@@ -2565,7 +2569,15 @@ describe('executeConversationGeneration memory compaction', () => {
       id: 'topic-1',
       metadata: {},
     });
-    messageMocks.query.mockResolvedValue(candidateMessages);
+    messageMocks.lockCompactionCandidateRows.mockImplementation(async (ids: string[]) =>
+      ids
+        .map((id) => candidateMessages.find((message) => message.id === id))
+        .filter(Boolean)
+        .map((message) => ({ ...message, threadId: null })),
+    );
+    messageMocks.queryMainTopicBoundaryRows.mockResolvedValue(
+      candidateMessages.map(({ id, role }) => ({ id, role })),
+    );
     topicMocks.update.mockResolvedValue({ id: 'topic-1' });
     vi.mocked(withConversationWriteLockOrThrow).mockImplementation(async (_db, _userId, work) =>
       work({} as any),

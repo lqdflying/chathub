@@ -880,12 +880,20 @@ async function runCompactionFromStore(
       remainingAfterCursor,
     );
 
-    await topicService.updateTopic(requestedTopicId, {
+    const persistResult = await topicService.persistMemoryCompaction(requestedTopicId, {
+      candidateMessageIds: candidateIdList,
+      compactedThroughMessageId,
+      expectedCursorId: (latestTopic?.metadata ?? previousMetadata).historySummaryLastMessageId,
+      expectedFingerprint,
+      expectedHistorySummary: latestTopic?.historySummary ?? previousHistorySummary,
       historySummary,
       metadata: persistMetadata,
     });
+    if (!persistResult?.accepted) {
+      return finish('ineligible', { reason: 'conversation_changed' });
+    }
 
-    // If an invalidation landed while updateTopic was in flight, our summary is now stale on
+    // If an invalidation landed while persist was in flight, our summary is now stale on
     // disk. Undo it with the same cleared state internal_invalidateMemoryCompaction writes,
     // so the next run rebuilds instead of trusting a summary tied to a since-changed message.
     const invalidationRacedWrite =
@@ -896,7 +904,7 @@ async function runCompactionFromStore(
           .updateTopic(requestedTopicId, {
             historySummary: '',
             metadata: {
-              ...persistMetadata,
+              ...persistResult.metadata,
               historySummaryLastMessageId: undefined,
               memoryArchives: [],
               reportedInputTokenFloorAfterMessageId: undefined,
@@ -924,7 +932,7 @@ async function runCompactionFromStore(
         {
           id: requestedTopicId,
           type: 'updateTopic',
-          value: { historySummary, metadata: persistMetadata },
+          value: { historySummary, metadata: persistResult.metadata },
         },
         'memoryCompaction',
         requestedSessionId,
@@ -1023,17 +1031,30 @@ const persistReportedInputTokenFloorWatermark = async (get: () => ChatStore) => 
     if (latestState.activeId !== sessionId || latestState.activeTopicId !== topicId) return;
 
     const result = await topicService.mergeReportedInputTokenFloorWatermark(topicId);
+    const latestTopic = topicSelectors.currentActiveTopic(get());
     if (
       !result?.updated ||
+      !latestTopic ||
       !isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) ||
       get().activeId !== sessionId ||
-      get().activeTopicId !== topicId
+      get().activeTopicId !== topicId ||
+      (latestTopic.historySummary || '') !== (result.historySummary || '') ||
+      (latestTopic.metadata?.historySummaryLastMessageId || undefined) !==
+        (result.historySummaryLastMessageId || undefined)
     ) {
       return;
     }
 
+    const nextMetadata: ChatTopicMetadata = { ...latestTopic.metadata };
+    if (result.reportedInputTokenFloorAfterMessageId) {
+      nextMetadata.reportedInputTokenFloorAfterMessageId =
+        result.reportedInputTokenFloorAfterMessageId;
+    } else {
+      delete nextMetadata.reportedInputTokenFloorAfterMessageId;
+    }
+
     get().internal_dispatchTopic(
-      { id: topicId, type: 'updateTopic', value: { metadata: result.metadata } },
+      { id: topicId, type: 'updateTopic', value: { metadata: nextMetadata } },
       'reportedInputTokenFloorWatermark',
     );
   });

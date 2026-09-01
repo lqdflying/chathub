@@ -391,6 +391,58 @@ export class MessageModel {
     return result.map(removeMessageOrder) as DBMessageItem[];
   };
 
+  /**
+   * Main-topic id/role rows in persisted order. Used for watermark migration so
+   * thread replies cannot become the floor marker and so long topics are not
+   * truncated to the first hydrated page.
+   */
+  queryMainTopicBoundaryRows = async ({
+    sessionId,
+    topicId,
+  }: {
+    sessionId?: string | null;
+    topicId?: string | null;
+  }) => {
+    return this.db
+      .select({
+        id: messages.id,
+        role: messages.role,
+      })
+      .from(messages)
+      .where(
+        and(
+          eq(messages.userId, this.userId),
+          this.matchSession(sessionId),
+          this.matchTopic(topicId),
+          isNull(messages.threadId),
+        ),
+      )
+      .orderBy(asc(messages.createdAt), asc(messages.messageOrder));
+  };
+
+  /**
+   * Lock candidate rows for compaction persist. PostgreSQL `FOR UPDATE` waits
+   * for a concurrent UPDATE/DELETE, then returns the latest row version (or
+   * none if it was deleted).
+   * @see https://www.postgresql.org/docs/current/explicit-locking.html#LOCKING-ROWS
+   */
+  lockCompactionCandidateRows = async (ids: string[]) => {
+    if (ids.length === 0) return [];
+
+    return this.db
+      .select({
+        content: messages.content,
+        id: messages.id,
+        role: messages.role,
+        threadId: messages.threadId,
+        updatedAt: messages.updatedAt,
+      })
+      .from(messages)
+      .where(and(eq(messages.userId, this.userId), inArray(messages.id, ids)))
+      .orderBy(asc(messages.id))
+      .for('update');
+  };
+
   count = async (params?: {
     endDate?: string;
     range?: [string, string];

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { MessageModel } from '@/database/models/message';
 import { TopicModel } from '@/database/models/topic';
+import { createCompactionFingerprint } from '@/helpers/contextCompaction';
 
 import { messageRouter } from '../message';
 import { topicRouter } from '../topic';
@@ -139,7 +140,7 @@ describe('conversation write barrier routers', () => {
       sessionId: 'session-1',
     }));
     const mockUpdate = vi.fn();
-    const mockQuery = vi.fn(async () => [{ id: 'a3', role: 'assistant' }]);
+    const mockQueryMainTopicBoundaryRows = vi.fn(async () => [{ id: 'a3', role: 'assistant' }]);
     vi.mocked(TopicModel).mockImplementation(
       () =>
         ({
@@ -152,7 +153,7 @@ describe('conversation write barrier routers', () => {
       () =>
         ({
           batchCreate: mockBatchCreateMessages,
-          query: mockQuery,
+          queryMainTopicBoundaryRows: mockQueryMainTopicBoundaryRows,
         }) as any,
     );
 
@@ -202,6 +203,72 @@ describe('conversation write barrier routers', () => {
         metadata: { historySummaryLastMessageId: 'a2' },
       },
       { touchActivity: undefined },
+    );
+  });
+
+  it('persists inline compaction inside the conversation write lock', async () => {
+    const candidates = [
+      { content: 'u1', id: 'u1', role: 'user', threadId: null },
+      { content: 'a2', id: 'a2', role: 'assistant', threadId: null },
+    ];
+    const expectedFingerprint = createCompactionFingerprint({
+      cursorId: 'a1',
+      messages: candidates,
+      summary: 'existing summary',
+    });
+    const mockFindById = vi.fn(async () => ({
+      historySummary: 'existing summary',
+      metadata: { historySummaryLastMessageId: 'a1' },
+      sessionId: 'session-1',
+    }));
+    const mockUpdate = vi.fn();
+    const mockLock = vi.fn(async () => candidates);
+    const mockBoundary = vi.fn(async () => [
+      { id: 'u1', role: 'user' },
+      { id: 'a1', role: 'assistant' },
+      { id: 'u2', role: 'user' },
+      { id: 'a2', role: 'assistant' },
+    ]);
+    vi.mocked(TopicModel).mockImplementation(
+      () =>
+        ({
+          batchCreate: mockBatchCreateTopics,
+          findById: mockFindById,
+          update: mockUpdate,
+        }) as any,
+    );
+    vi.mocked(MessageModel).mockImplementation(
+      () =>
+        ({
+          batchCreate: mockBatchCreateMessages,
+          lockCompactionCandidateRows: mockLock,
+          queryMainTopicBoundaryRows: mockBoundary,
+        }) as any,
+    );
+
+    const caller = topicRouter.createCaller(context as any);
+    const result = await caller.persistMemoryCompaction({
+      candidateMessageIds: ['u1', 'a2'],
+      compactedThroughMessageId: 'a2',
+      expectedCursorId: 'a1',
+      expectedFingerprint,
+      expectedHistorySummary: 'existing summary',
+      historySummary: 'new summary',
+      id: 'topic-1',
+      metadata: { historySummaryLastMessageId: 'a2' },
+    });
+
+    expect(mockWithConversationWriteLockOrThrow).toHaveBeenCalledWith(
+      mockServerDB,
+      'user-1',
+      expect.any(Function),
+    );
+    expect(MessageModel).toHaveBeenCalledWith(mockTransaction, 'user-1');
+    expect(mockLock).toHaveBeenCalledWith(['u1', 'a2']);
+    expect(result).toMatchObject({ accepted: true });
+    expect(mockUpdate).toHaveBeenCalledWith(
+      'topic-1',
+      expect.objectContaining({ historySummary: 'new summary' }),
     );
   });
 });

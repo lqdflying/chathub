@@ -65,6 +65,7 @@ vi.mock('@/services/topic', () => ({
     removeTopics: vi.fn(),
     searchTopics: vi.fn(),
     mergeReportedInputTokenFloorWatermark: vi.fn(),
+    persistMemoryCompaction: vi.fn(),
     updateTopic: vi.fn(),
     updateTopicFavorite: vi.fn(),
     updateTopicTitle: vi.fn(),
