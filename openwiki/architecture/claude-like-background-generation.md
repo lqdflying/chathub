@@ -323,6 +323,18 @@ Copy-paste APL: **`.cursor/rules/debug-log-checks.mdc`**.
     again. `attachedCount=N` with Prompt-only cards is this wipe, not a failed
     generation.
 
+11. **Retry after a deferred abort is not a history clear.** Regenerating the
+    last main-thread bubble sends `threadId: null` (`activeThreadId` is
+    `string | null`). Zod `.optional()` rejects JSON `null` (`Expected string,
+    received null`) and the client logs `enqueue_client_settled(lost,
+    BAD_REQUEST)` then falls through to browser send, which fails the same
+    way. Use `.nullish()` and coerce `?? undefined` at the RPC boundary.
+    The matching `Conversation write was rejected because conversation
+    history was cleared` 500 on `message.removeMessage` is usually an
+    idempotent delete of a row rewind already removed: `deleteMessage`
+    returns `undefined`, and `withConversationWriteLockOrThrow` must not
+    treat a successful void mutation as a version mismatch.
+
 ## How to extend this without breaking it
 
 When adding a tool, retrieval step, or send-path gate:

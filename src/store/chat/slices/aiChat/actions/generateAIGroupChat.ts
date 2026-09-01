@@ -1052,7 +1052,7 @@ export const chatAiGroupChat: StateCreator<
               kind: 'group_agent',
               replaceActive: true,
               sessionId: requestedSessionId,
-              topicId: activeTopicId,
+              topicId: activeTopicId ?? undefined,
             });
           } finally {
             set(

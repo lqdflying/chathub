@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   ConversationGenerationConfigSchema,
+  ConversationGenerationEnqueueSchema,
   buildConversationGenerationLane,
   getConversationGenerationLaneFamily,
   isActiveConversationGenerationStatus,
@@ -159,5 +160,31 @@ describe('isRetryableTerminalConversationGenerationStatus', () => {
     expect(isRetryableTerminalConversationGenerationStatus('succeeded')).toBe(false);
     expect(isRetryableTerminalConversationGenerationStatus('pending')).toBe(false);
     expect(isRetryableTerminalConversationGenerationStatus('processing')).toBe(false);
+  });
+});
+
+describe('ConversationGenerationEnqueueSchema', () => {
+  const base = {
+    config: { model: 'gpt-5-mini', provider: 'openai' },
+    kind: 'regenerate' as const,
+  };
+
+  it('accepts JSON null threadId and topicId for the main conversation', () => {
+    expect(
+      ConversationGenerationEnqueueSchema.parse({
+        ...base,
+        threadId: null,
+        topicId: null,
+      }),
+    ).toMatchObject({ threadId: null, topicId: null });
+  });
+
+  it('still rejects a non-string threadId', () => {
+    expect(
+      ConversationGenerationEnqueueSchema.safeParse({
+        ...base,
+        threadId: 1,
+      }).success,
+    ).toBe(false);
   });
 });

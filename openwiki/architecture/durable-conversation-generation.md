@@ -131,6 +131,19 @@ Lanes still use the public inbox id (`session:{sessionId|inbox}`).
 `topicId` is present it sets `omitSessionFilter` so already-persisted
 `'inbox'` operation rows still load the transcript.
 
+Main-conversation `threadId` / `topicId` are often JSON `null` from the client
+(`activeThreadId` is `string | null`). Enqueue, send, and create-assistant
+schemas use Zod `.nullish()` so `null` is the main lane (`threadId ?? 'main'`),
+not a `BAD_REQUEST`. Writers should still coerce `?? undefined` at the RPC
+boundary so SuperJSON does not need to round-trip `null`.
+
+`withConversationWriteLockOrThrow` rejects only when the conversation epoch
+changed (or the user row is missing). A successful mutation that returns
+`undefined` — including idempotent `message.removeMessage` when the row is
+already gone after rewind — is not a clear. Treating that void result as
+`ConversationWriteRejectedError` produced false "history was cleared" 500s
+during Retry after a deferred Kagi abort.
+
 Context Export arms a one-shot browser capture. While that capture is armed,
 the send skips durable enqueue so the existing preview still records the
 request.

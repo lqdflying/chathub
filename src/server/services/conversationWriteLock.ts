@@ -14,6 +14,12 @@ type ConversationWriteCallback<Result> = (
   transaction: Transaction,
 ) => Promise<Result>;
 
+/**
+ * Lock rejection sentinel. Must not be confused with a successful callback that
+ * returns `undefined` (idempotent deletes, void mutations).
+ */
+const CONVERSATION_WRITE_REJECTED = Symbol('conversation-write-rejected');
+
 export const getConversationVersion = async (
   database: LobeChatDatabase,
   userId: string,
@@ -25,6 +31,33 @@ export const getConversationVersion = async (
     .limit(1);
 
   return user?.version;
+};
+
+const runConversationWriteLock = async <Result>(
+  database: LobeChatDatabase,
+  userId: string,
+  callback: ConversationWriteCallback<Result>,
+  expectedConversationVersion?: number,
+): Promise<Result | typeof CONVERSATION_WRITE_REJECTED> => {
+  const observedConversationVersion =
+    expectedConversationVersion ?? (await getConversationVersion(database, userId));
+
+  if (observedConversationVersion === undefined) return CONVERSATION_WRITE_REJECTED;
+
+  return database.transaction(async (transaction) => {
+    const [lockedUser] = await transaction
+      .select({ version: users.conversationVersion })
+      .from(users)
+      .where(eq(users.id, userId))
+      .for('update')
+      .limit(1);
+
+    if (!lockedUser || lockedUser.version !== observedConversationVersion) {
+      return CONVERSATION_WRITE_REJECTED;
+    }
+
+    return callback(transaction);
+  });
 };
 
 /**
@@ -40,23 +73,16 @@ export const withConversationWriteLock = async <Result>(
   callback: ConversationWriteCallback<Result>,
   expectedConversationVersion?: number,
 ): Promise<Result | undefined> => {
-  const observedConversationVersion =
-    expectedConversationVersion ?? (await getConversationVersion(database, userId));
+  const outcome = await runConversationWriteLock(
+    database,
+    userId,
+    callback,
+    expectedConversationVersion,
+  );
 
-  if (observedConversationVersion === undefined) return undefined;
+  if (outcome === CONVERSATION_WRITE_REJECTED) return undefined;
 
-  return database.transaction(async (transaction) => {
-    const [lockedUser] = await transaction
-      .select({ version: users.conversationVersion })
-      .from(users)
-      .where(eq(users.id, userId))
-      .for('update')
-      .limit(1);
-
-    if (!lockedUser || lockedUser.version !== observedConversationVersion) return undefined;
-
-    return callback(transaction);
-  });
+  return outcome;
 };
 
 export const withConversationWriteLockOrThrow = async <Result>(
@@ -65,18 +91,18 @@ export const withConversationWriteLockOrThrow = async <Result>(
   callback: ConversationWriteCallback<Result>,
   expectedConversationVersion?: number,
 ): Promise<Result> => {
-  const result = await withConversationWriteLock(
+  const outcome = await runConversationWriteLock(
     database,
     userId,
     callback,
     expectedConversationVersion,
   );
 
-  if (result === undefined) {
+  if (outcome === CONVERSATION_WRITE_REJECTED) {
     throw new ConversationWriteRejectedError();
   }
 
-  return result;
+  return outcome;
 };
 
 export const advanceConversationVersion = async (

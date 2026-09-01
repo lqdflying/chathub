@@ -116,6 +116,42 @@ describe('durable request keys', () => {
     expect(keys[1]).toContain('regenerate');
   });
 
+  it('omits a null activeThreadId from regenerate enqueue so Zod does not reject JSON null', async () => {
+    const enqueue = vi.spyOn(conversationGenerationService, 'enqueue').mockImplementation(
+      async (input: any) =>
+        ({
+          assistantMessageId: `asst-${input.idempotencyKey}`,
+          id: `cgo-${input.idempotencyKey}`,
+          kind: 'regenerate',
+          lane: 'lane-regenerate',
+          laneGeneration: 1,
+          revision: 1,
+        }) as any,
+    );
+    const user = createMockMessage({ id: 'user-1', role: 'user' });
+    const assistant = createMockMessage({
+      id: 'assistant-1',
+      parentId: user.id,
+      role: 'assistant',
+    });
+    act(() => {
+      setupStoreWithMessages([user, assistant]);
+      useChatStore.setState({
+        activeThreadId: null,
+        activeTopicId: undefined,
+        attachConversationGeneration: vi.fn(),
+      });
+    });
+    const { result } = renderHook(() => useChatStore());
+
+    await act(async () => {
+      await result.current.internal_resendMessage(assistant.id);
+    });
+
+    expect(enqueue).toHaveBeenCalledTimes(1);
+    expect(enqueue.mock.calls[0][0].threadId).toBeUndefined();
+  });
+
   it('never enqueues a supervisor decision when its topic is deleted during the version lookup', async () => {
     const enqueue = vi.spyOn(conversationGenerationService, 'enqueue').mockResolvedValue({} as any);
     vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValue([]);

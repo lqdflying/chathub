@@ -188,8 +188,8 @@ export interface ConversationGenerationEnqueueInput {
   parentMessageId?: string;
   replaceActive?: boolean;
   sessionId?: string;
-  threadId?: string;
-  topicId?: string;
+  threadId?: string | null;
+  topicId?: string | null;
   userMessageId?: string;
 }
 
@@ -260,8 +260,8 @@ export const ConversationGenerationEnqueueSchema = z.object({
   parentMessageId: z.string().optional(),
   replaceActive: z.boolean().optional(),
   sessionId: z.string().optional(),
-  threadId: z.string().optional(),
-  topicId: z.string().optional(),
+  threadId: z.string().nullish(),
+  topicId: z.string().nullish(),
   userMessageId: z.string().optional(),
 });
 

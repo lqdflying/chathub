@@ -30,9 +30,9 @@ export interface SendMessageServerParams {
   };
   newUserMessage: SendNewMessage;
   sessionId?: string;
-  threadId?: string;
+  threadId?: string | null;
   // if there is activeTopicId，then add topicId to message
-  topicId?: string;
+  topicId?: string | null;
 }
 
 export const AiSendMessageServerSchema = z.object({
@@ -56,8 +56,8 @@ export const AiSendMessageServerSchema = z.object({
     metadata: z.record(z.string(), z.any()).optional(),
   }),
   sessionId: z.string().optional(),
-  threadId: z.string().optional(),
-  topicId: z.string().optional(),
+  threadId: z.string().nullish(),
+  topicId: z.string().nullish(),
 });
 
 export interface CreateAssistantMessageServerParams {
@@ -67,8 +67,8 @@ export interface CreateAssistantMessageServerParams {
   parentId: string;
   provider: string;
   sessionId?: string;
-  threadId?: string;
-  topicId?: string;
+  threadId?: string | null;
+  topicId?: string | null;
 }
 
 export const AiCreateAssistantMessageSchema = z.object({
@@ -78,8 +78,8 @@ export const AiCreateAssistantMessageSchema = z.object({
   parentId: z.string().min(1),
   provider: z.string().min(1),
   sessionId: z.string().optional(),
-  threadId: z.string().optional(),
-  topicId: z.string().optional(),
+  threadId: z.string().nullish(),
+  topicId: z.string().nullish(),
 });
 
 export interface CreateAssistantMessageServerResponse {

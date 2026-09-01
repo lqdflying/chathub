@@ -601,7 +601,7 @@ export const generateAIChat: StateCreator<
             conversationContext.sessionId === INBOX_SESSION_ID
               ? undefined
               : conversationContext.sessionId,
-          threadId: params?.threadId,
+          threadId: params?.threadId ?? undefined,
           topicId: conversationContext.topicId ?? undefined,
           userMessageId,
         });
@@ -1906,8 +1906,8 @@ export const generateAIChat: StateCreator<
             parentMessageId: anchor.message.id,
             replaceActive: true,
             sessionId: activeId === INBOX_SESSION_ID ? undefined : activeId,
-            threadId,
-            topicId: activeTopicId,
+            threadId: threadId ?? undefined,
+            topicId: activeTopicId ?? undefined,
             userMessageId: anchor.message.id,
           });
         } finally {

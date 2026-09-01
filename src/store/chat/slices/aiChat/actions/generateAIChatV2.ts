@@ -763,8 +763,8 @@ export const generateAIChatV2: StateCreator<
             ...(messageMetadata && { metadata: messageMetadata }),
           },
           // if there is activeTopicId，then add topicId to message
-          topicId: sendTopicId,
-          threadId: activeThreadId,
+          topicId: sendTopicId ?? undefined,
+          threadId: activeThreadId ?? undefined,
           newTopic: createNewTopicOnSend
             ? {
                 topicMessageIds: messages.map((m) => m.id),
@@ -1213,7 +1213,7 @@ export const generateAIChatV2: StateCreator<
               parentId: data.userMessageId,
               provider: provider!,
               sessionId: activeId === INBOX_SESSION_ID ? undefined : activeId,
-              threadId: activeThreadId,
+              threadId: activeThreadId ?? undefined,
               topicId: data.topicId,
             },
             compactionController,
