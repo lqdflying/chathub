@@ -362,12 +362,20 @@ export const chatMessage: StateCreator<
       threadId: message.threadId,
       topicId: requestedTopicId,
     });
-    await get().internal_invalidateMemoryCompaction(ids, {
-      rotateReportedInputTokenFloor: true,
-    }).catch(console.error);
+    await get().internal_invalidateMemoryCompaction(ids).catch(console.error);
     get().internal_dispatchMessage({ type: 'deleteMessages', ids });
-    await messageService.removeMessages(ids);
-    if (isCurrentRequest()) await get().refreshMessages();
+    try {
+      await messageService.removeMessages(ids);
+      if (isCurrentRequest()) {
+        await get().internal_ensureReportedInputTokenFloorWatermark();
+        await get().refreshMessages();
+      }
+    } catch (error) {
+      if (isCurrentRequest()) {
+        await Promise.allSettled([get().refreshMessages(), get().refreshTopic()]);
+      }
+      throw error;
+    }
   },
 
   deleteToolMessage: async (id) => {
@@ -1288,12 +1296,20 @@ export const chatMessage: StateCreator<
       get().activeId === requestedSessionId &&
       get().activeTopicId === requestedTopicId;
 
-    await get().internal_invalidateMemoryCompaction([id], {
-      rotateReportedInputTokenFloor: true,
-    }).catch(console.error);
+    await get().internal_invalidateMemoryCompaction([id]).catch(console.error);
     get().internal_dispatchMessage({ type: 'deleteMessage', id });
-    await messageService.removeMessage(id);
-    if (isCurrentRequest()) await get().refreshMessages();
+    try {
+      await messageService.removeMessage(id);
+      if (isCurrentRequest()) {
+        await get().internal_ensureReportedInputTokenFloorWatermark();
+        await get().refreshMessages();
+      }
+    } catch (error) {
+      if (isCurrentRequest()) {
+        await Promise.allSettled([get().refreshMessages(), get().refreshTopic()]);
+      }
+      throw error;
+    }
   },
   internal_traceMessage: async (id, payload) => {
     const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());

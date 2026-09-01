@@ -29,7 +29,6 @@ import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableC
 import { estimateContextUsageAsync } from '@/helpers/estimateContextUsageAsync';
 import {
   getReportedInputTokenFloorBoundaryId,
-  nextReportedInputTokenFloorAfterMessageId,
   withReportedInputTokenFloorMetadata,
 } from '@/helpers/reportedContextTokens';
 import { getModelContextWindowTokens } from '@/helpers/modelContextWindowTokens';
@@ -71,6 +70,7 @@ import { encodeAsync } from '@/utils/tokenizer';
 const MAX_MEMORY_DEBUG_LOG = 20;
 const MAX_MEMORY_ARCHIVES = 24;
 const compactionJobs = new Map<string, Promise<MemoryCompactionResult>>();
+const compactionCandidateIds = new Map<string, string[]>();
 const topicMetadataWriteLocks = new Map<string, Promise<void>>();
 
 const withTopicMetadataWriteLock = async <T>(key: string, task: () => Promise<T>): Promise<T> => {
@@ -110,10 +110,7 @@ export interface MemoryCompactionConversationScope {
 
 export interface ChatMemoryAction {
   internal_ensureReportedInputTokenFloorWatermark: () => Promise<void>;
-  internal_invalidateMemoryCompaction: (
-    messageIds: string[],
-    options?: { rotateReportedInputTokenFloor?: boolean },
-  ) => Promise<void>;
+  internal_invalidateMemoryCompaction: (messageIds: string[]) => Promise<void>;
   triggerManualMemoryCompaction: () => Promise<MemoryCompactionResult>;
   triggerMessageCountMemoryCompaction: (
     abortController?: AbortController,
@@ -560,6 +557,15 @@ async function runCompactionFromStore(
     });
   }
 
+  const candidateIdList = candidateMessages.map(({ id }) => id).filter(Boolean);
+  const compactionKey = `${accountMutationSnapshot.scope}:${requestedSessionId}:${requestedTopicId}`;
+  const expectedFingerprint = createCompactionFingerprint({
+    cursorId: topic.metadata?.historySummaryLastMessageId,
+    messages: candidateMessages,
+    summary: topic.historySummary,
+  });
+  compactionCandidateIds.set(compactionKey, candidateIdList);
+  try {
   let historySummary = pending.previousSummary;
   const summaryMaxTokens = getContextCompactionMaxSummaryTokens(
     agentChatConfigSelectors.assistanceLevel(getAgentStoreState()),
@@ -830,7 +836,7 @@ async function runCompactionFromStore(
   // Re-check right before the write to shrink the window where an invalidation
   // (e.g. the user edited/deleted an included message) races this persist.
   const metadataWriteKey = `${accountMutationSnapshot.scope}:${requestedSessionId}:${requestedTopicId}`;
-  return withTopicMetadataWriteLock(metadataWriteKey, async () => {
+  return await withTopicMetadataWriteLock(metadataWriteKey, async () => {
     if (abortController?.signal.aborted) {
       return finish('ineligible', { reason: 'aborted' });
     }
@@ -841,6 +847,23 @@ async function runCompactionFromStore(
       requestedSessionId,
       requestedTopicId,
     )(get());
+    const latestMessages = chatSelectors.mainTopicAIChats(afterChatState);
+    const latestById = new Map(latestMessages.map((message) => [message.id, message]));
+    const latestCandidates = candidateIdList
+      .map((id) => latestById.get(id))
+      .filter((message): message is UIChatMessage => message !== undefined);
+    const latestFingerprint = createCompactionFingerprint({
+      cursorId: (latestTopic?.metadata ?? previousMetadata).historySummaryLastMessageId,
+      messages: latestCandidates,
+      summary: latestTopic?.historySummary ?? previousHistorySummary,
+    });
+    if (
+      latestCandidates.length !== candidateIdList.length ||
+      latestFingerprint !== expectedFingerprint
+    ) {
+      return finish('ineligible', { reason: 'conversation_changed' });
+    }
+
     const baseMetadata = latestTopic?.metadata ?? previousMetadata;
     const persistMetadata: ChatTopicMetadata = withReportedInputTokenFloorMetadata(
       {
@@ -917,6 +940,11 @@ async function runCompactionFromStore(
       reason,
     });
   });
+  } finally {
+    if (compactionCandidateIds.get(compactionKey) === candidateIdList) {
+      compactionCandidateIds.delete(compactionKey);
+    }
+  }
 }
 
 const triggerCompaction = async (
@@ -973,10 +1001,7 @@ const triggerCompaction = async (
   }
 };
 
-const persistReportedInputTokenFloorWatermark = async (
-  get: () => ChatStore,
-  options?: { nextWatermarkId?: string | null },
-) => {
+const persistReportedInputTokenFloorWatermark = async (get: () => ChatStore) => {
   const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
   const state = get();
   const topicId = state.activeTopicId;
@@ -990,47 +1015,27 @@ const persistReportedInputTokenFloorWatermark = async (
 
   const cursorId = topic.metadata?.historySummaryLastMessageId;
   const storedAfterMessageId = topic.metadata?.reportedInputTokenFloorAfterMessageId;
-  if (!cursorId && !storedAfterMessageId && options?.nextWatermarkId === undefined) return;
+  if (!cursorId && !storedAfterMessageId) return;
 
   const metadataWriteKey = `${accountMutationSnapshot.scope}:${sessionId}:${topicId}`;
   await withTopicMetadataWriteLock(metadataWriteKey, async () => {
     const latestState = get();
     if (latestState.activeId !== sessionId || latestState.activeTopicId !== topicId) return;
 
-    const latestTopic = topicSelectors.getTopicInContainer(sessionId, topicId)(latestState);
-    if (!latestTopic) return;
-
-    const latestCursorId = latestTopic.metadata?.historySummaryLastMessageId;
-    const latestStoredAfterMessageId = latestTopic.metadata?.reportedInputTokenFloorAfterMessageId;
-    const nextId =
-      options?.nextWatermarkId === undefined
-        ? nextReportedInputTokenFloorAfterMessageId({
-            cursorId: latestCursorId,
-            storedAfterMessageId: latestStoredAfterMessageId,
-            topicMessages: chatSelectors.mainTopicAIChats(latestState),
-          })
-        : (options.nextWatermarkId ?? undefined);
-    if (nextId === latestStoredAfterMessageId) return;
-
-    const metadata: ChatTopicMetadata = { ...latestTopic.metadata };
-    if (nextId) {
-      metadata.reportedInputTokenFloorAfterMessageId = nextId;
-    } else {
-      delete metadata.reportedInputTokenFloorAfterMessageId;
-    }
-
-    await topicService.updateTopic(topicId, { metadata });
-
+    const result = await topicService.mergeReportedInputTokenFloorWatermark(topicId);
     if (
-      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
-      get().activeId === sessionId &&
-      get().activeTopicId === topicId
+      !result?.updated ||
+      !isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) ||
+      get().activeId !== sessionId ||
+      get().activeTopicId !== topicId
     ) {
-      get().internal_dispatchTopic(
-        { id: topicId, type: 'updateTopic', value: { metadata } },
-        'reportedInputTokenFloorWatermark',
-      );
+      return;
     }
+
+    get().internal_dispatchTopic(
+      { id: topicId, type: 'updateTopic', value: { metadata: result.metadata } },
+      'reportedInputTokenFloorWatermark',
+    );
   });
 };
 
@@ -1042,7 +1047,7 @@ export const chatMemory: StateCreator<
 > = (set, get) => ({
   internal_ensureReportedInputTokenFloorWatermark: () => persistReportedInputTokenFloorWatermark(get),
 
-  internal_invalidateMemoryCompaction: async (messageIds, options) => {
+  internal_invalidateMemoryCompaction: async (messageIds) => {
     const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
     const state = get();
     const topicId = state.activeTopicId;
@@ -1056,7 +1061,12 @@ export const chatMemory: StateCreator<
 
     const cursorId = topic.metadata?.historySummaryLastMessageId;
     const storedAfterMessageId = topic.metadata?.reportedInputTokenFloorAfterMessageId;
-    if (!topic.historySummary && !cursorId && !storedAfterMessageId) return;
+    const inFlightCandidateIds =
+      compactionCandidateIds.get(`${accountMutationSnapshot.scope}:${sessionId}:${topicId}`) ?? [];
+    const affectsInFlightCandidates = messageIds.some((id) => inFlightCandidateIds.includes(id));
+    if (!topic.historySummary && !cursorId && !storedAfterMessageId && !affectsInFlightCandidates) {
+      return;
+    }
 
     const mainMessages = chatSelectors.mainTopicAIChats(state);
     const cursorIndex = cursorId ? mainMessages.findIndex(({ id }) => id === cursorId) : -1;
@@ -1064,19 +1074,7 @@ export const chatMemory: StateCreator<
       const index = mainMessages.findIndex((message) => message.id === id);
       return index >= 0 && (cursorIndex < 0 || index <= cursorIndex);
     });
-    if (!affectsSummary) {
-      if (options?.rotateReportedInputTokenFloor) {
-        const remainingMessages = mainMessages.filter((message) => !messageIds.includes(message.id));
-        const nextWatermarkId =
-          nextReportedInputTokenFloorAfterMessageId({
-            cursorId,
-            storedAfterMessageId,
-            topicMessages: remainingMessages,
-          }) ?? null;
-        await persistReportedInputTokenFloorWatermark(get, { nextWatermarkId });
-      }
-      return;
-    }
+    if (!affectsSummary && !affectsInFlightCandidates) return;
 
     set(
       (s) => ({
@@ -1085,6 +1083,8 @@ export const chatMemory: StateCreator<
       false,
       'invalidateMemoryCompaction/bumpGeneration',
     );
+
+    if (!affectsSummary) return;
 
     const metadata: ChatTopicMetadata = {
       ...topic.metadata,

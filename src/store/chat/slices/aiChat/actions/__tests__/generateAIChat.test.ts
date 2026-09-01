@@ -8,6 +8,7 @@ import { chatService } from '@/services/chat';
 import { conversationGenerationService } from '@/services/conversationGeneration';
 import { messageService } from '@/services/message';
 import { ragService } from '@/services/rag';
+import { topicService } from '@/services/topic';
 import { agentChatConfigSelectors } from '@/store/agent/selectors';
 import { aiChatSelectors, chatSelectors } from '@/store/chat/selectors';
 import { deferredBrowserGenerationLaneKey } from '@/store/chat/utils/deferredBrowserGeneration';
@@ -36,6 +37,13 @@ vi.mock('@/components/AntdStaticMethods', () => ({
 vi.mock('@/helpers/durableConversationGeneration', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/helpers/durableConversationGeneration')>()),
   isClientDurableConversationGenerationEnabled: vi.fn(() => false),
+}));
+vi.mock('@/services/topic', () => ({
+  topicService: {
+    mergeReportedInputTokenFloorWatermark: vi.fn(async () => undefined),
+    removeTopic: vi.fn(),
+    updateTopic: vi.fn(),
+  },
 }));
 vi.mock('@/services/aiChat', () => ({
   aiChatService: {
@@ -2736,6 +2744,52 @@ describe('chatMessage actions', () => {
         });
 
         expect(useChatStore.getState().messagesMap[key]).toEqual(messages);
+        expect(result.current.internal_coreProcessMessage).not.toHaveBeenCalled();
+      });
+
+      it('does not rotate the floor watermark when rewind persistence fails', async () => {
+        const { result } = renderHook(() => useChatStore());
+        const messages = [
+          createMockMessage({ id: 'user-1', role: 'user' }),
+          createMockMessage({
+            id: 'assistant-1',
+            metadata: { totalInputTokens: 1_048_570 },
+            parentId: 'user-1',
+            role: 'assistant',
+          }),
+        ];
+        const key = chatSelectors.currentChatKey(useChatStore.getState() as any);
+        vi.mocked(messageService.rewindMessages).mockRejectedValueOnce(new Error('db unavailable'));
+
+        act(() => {
+          useChatStore.setState({
+            messagesMap: { [key]: messages },
+            topicMaps: {
+              [useChatStore.getState().activeId]: [
+                {
+                  createdAt: 1,
+                  historySummary: 'existing summary',
+                  id: useChatStore.getState().activeTopicId,
+                  metadata: {
+                    historySummaryLastMessageId: 'user-1',
+                    reportedInputTokenFloorAfterMessageId: 'assistant-1',
+                  },
+                  title: 'Topic',
+                  updatedAt: 1,
+                },
+              ],
+            },
+          });
+        });
+
+        await act(async () => {
+          await result.current.internal_resendMessage('assistant-1');
+        });
+
+        expect(topicService.mergeReportedInputTokenFloorWatermark).not.toHaveBeenCalled();
+        expect(useChatStore.getState().topicMaps[useChatStore.getState().activeId]?.[0]?.metadata).toMatchObject({
+          reportedInputTokenFloorAfterMessageId: 'assistant-1',
+        });
         expect(result.current.internal_coreProcessMessage).not.toHaveBeenCalled();
       });
 

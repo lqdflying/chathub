@@ -127,4 +127,81 @@ describe('conversation write barrier routers', () => {
     expect(TopicModel).toHaveBeenCalledWith(mockTransaction, 'user-1');
     expect(mockBatchCreateTopics).toHaveBeenCalledWith([{ title: 'Imported topic' }]);
   });
+
+  it('merges the reported input watermark inside the conversation write lock', async () => {
+    const mockFindById = vi.fn(async () => ({
+      historySummary: 'new summary',
+      metadata: {
+        historySummaryLastMessageId: 'a2',
+        memoryArchives: [{ at: 1, summaryExcerpt: 'new summary' }],
+        reportedInputTokenFloorAfterMessageId: 'a3',
+      },
+      sessionId: 'session-1',
+    }));
+    const mockUpdate = vi.fn();
+    const mockQuery = vi.fn(async () => [{ id: 'a3', role: 'assistant' }]);
+    vi.mocked(TopicModel).mockImplementation(
+      () =>
+        ({
+          batchCreate: mockBatchCreateTopics,
+          findById: mockFindById,
+          update: mockUpdate,
+        }) as any,
+    );
+    vi.mocked(MessageModel).mockImplementation(
+      () =>
+        ({
+          batchCreate: mockBatchCreateMessages,
+          query: mockQuery,
+        }) as any,
+    );
+
+    const caller = topicRouter.createCaller(context as any);
+    const result = await caller.mergeReportedInputTokenFloorWatermark({ id: 'topic-1' });
+
+    expect(mockWithConversationWriteLockOrThrow).toHaveBeenCalledWith(
+      mockServerDB,
+      'user-1',
+      expect.any(Function),
+    );
+    expect(TopicModel).toHaveBeenCalledWith(mockTransaction, 'user-1');
+    expect(MessageModel).toHaveBeenCalledWith(mockTransaction, 'user-1');
+    expect(result).toMatchObject({ updated: false });
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('replaces compaction metadata inside the conversation write lock', async () => {
+    const mockUpdate = vi.fn(async () => [{ id: 'topic-1' }]);
+    vi.mocked(TopicModel).mockImplementation(
+      () =>
+        ({
+          batchCreate: mockBatchCreateTopics,
+          update: mockUpdate,
+        }) as any,
+    );
+
+    const caller = topicRouter.createCaller(context as any);
+    await caller.updateTopic({
+      id: 'topic-1',
+      value: {
+        historySummary: 'new summary',
+        metadata: { historySummaryLastMessageId: 'a2' },
+      },
+    });
+
+    expect(mockWithConversationWriteLockOrThrow).toHaveBeenCalledWith(
+      mockServerDB,
+      'user-1',
+      expect.any(Function),
+    );
+    expect(TopicModel).toHaveBeenCalledWith(mockTransaction, 'user-1');
+    expect(mockUpdate).toHaveBeenCalledWith(
+      'topic-1',
+      {
+        historySummary: 'new summary',
+        metadata: { historySummaryLastMessageId: 'a2' },
+      },
+      { touchActivity: undefined },
+    );
+  });
 });

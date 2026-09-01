@@ -3,7 +3,7 @@ import type { TopicMemoryRollupRow } from '@/database/models/topic';
 
 import type { ConversationWriteOptions } from '@/services/conversationWrite';
 import { BatchTaskResult } from '@/types/service';
-import { ChatTopic, TopicRankItem } from '@/types/topic';
+import { ChatTopic, ChatTopicMetadata, TopicRankItem } from '@/types/topic';
 
 export interface CreateTopicParams {
   /** Stable client id for idempotent create retries (maps to topics.clientId). */
@@ -42,6 +42,9 @@ export interface ITopicService {
   rankTopics(limit?: number): Promise<TopicRankItem[]>;
   searchTopics(keyword: string, sessionId?: string, groupId?: string): Promise<ChatTopic[]>;
 
+  mergeReportedInputTokenFloorWatermark(
+    id: string,
+  ): Promise<{ metadata: ChatTopicMetadata; updated: boolean } | undefined>;
   updateTopic(
     id: string,
     data: Partial<ChatTopic>,

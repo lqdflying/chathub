@@ -1,11 +1,13 @@
 import { ChatTopicMetadataSchema } from '@lobechat/types';
 import { z } from 'zod';
 
+import { MessageModel } from '@/database/models/message';
 import { TopicModel } from '@/database/models/topic';
 import { getServerDB } from '@/database/server';
 import { authedProcedure, publicProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { withConversationWriteLockOrThrow } from '@/server/services/conversationWriteLock';
+import { mergeReportedInputTokenFloorWatermark } from '@/server/services/topicReportedInputTokenFloor';
 import { BatchTaskResult } from '@/types/service';
 
 const topicProcedure = authedProcedure.use(serverDatabase).use(async (opts) => {
@@ -178,6 +180,18 @@ export const topicRouter = router({
       return ctx.topicModel.listTopicsForAgentMemoryRollup(input.agentId, input.limit);
     }),
 
+  mergeReportedInputTokenFloorWatermark: topicProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      return withConversationWriteLockOrThrow(ctx.serverDB, ctx.userId, async (transaction) => {
+        return mergeReportedInputTokenFloorWatermark({
+          messageModel: new MessageModel(transaction, ctx.userId),
+          topicId: input.id,
+          topicModel: new TopicModel(transaction, ctx.userId),
+        });
+      });
+    }),
+
   rankTopics: topicProcedure.input(z.number().optional()).query(async ({ ctx, input }) => {
     return ctx.topicModel.rank(input);
   }),
@@ -214,8 +228,19 @@ export const topicRouter = router({
       }),
     )
     .mutation(async ({ input, ctx }) => {
-      return ctx.topicModel.update(input.id, input.value, {
-        touchActivity: input.touchActivity,
+      const replacesCompactionState =
+        input.value.historySummary !== undefined || input.value.metadata !== undefined;
+      if (!replacesCompactionState) {
+        return ctx.topicModel.update(input.id, input.value, {
+          touchActivity: input.touchActivity,
+        });
+      }
+
+      return withConversationWriteLockOrThrow(ctx.serverDB, ctx.userId, async (transaction) => {
+        const topicModel = new TopicModel(transaction, ctx.userId);
+        return topicModel.update(input.id, input.value, {
+          touchActivity: input.touchActivity,
+        });
       });
     }),
 });

@@ -55,6 +55,10 @@ export class ServerService implements ITopicService {
       sessionId: this.toDbSessionId(sessionId),
     }) as any;
 
+  mergeReportedInputTokenFloorWatermark: ITopicService['mergeReportedInputTokenFloorWatermark'] = (
+    id,
+  ) => lambdaClient.topic.mergeReportedInputTokenFloorWatermark.mutate({ id });
+
   updateTopic: ITopicService['updateTopic'] = (id, data, options) =>
     lambdaClient.topic.updateTopic.mutate({ id, ...options, value: data });
 

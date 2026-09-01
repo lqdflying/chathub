@@ -1684,9 +1684,7 @@ export const generateAIChat: StateCreator<
       const activeTopic = topicSelectors.currentActiveTopic(get());
       if (activeTopic?.historySummary || activeTopic?.metadata?.historySummaryLastMessageId) {
         await get()
-          .internal_invalidateMemoryCompaction([...discardedIds], {
-            rotateReportedInputTokenFloor: true,
-          })
+          .internal_invalidateMemoryCompaction([...discardedIds])
           .catch(console.error);
       }
       set(
@@ -1758,6 +1756,9 @@ export const generateAIChat: StateCreator<
           ? await messageService.rewindMessages(persistentTailIds)
           : { messageIds: [], threadIds: [] };
       rewindPersisted = true;
+      if (!isCurrentConversation()) return;
+
+      await get().internal_ensureReportedInputTokenFloorWatermark().catch(console.error);
       if (!isCurrentConversation()) return;
 
       // The database is authoritative and may discover dependent threads not present in this tab.
@@ -2008,7 +2009,11 @@ export const generateAIChat: StateCreator<
         );
       }
       if (isCurrentConversation()) {
-        await Promise.allSettled([get().refreshMessages(), get().refreshThreads()]);
+        await Promise.allSettled([
+          get().refreshMessages(),
+          get().refreshThreads(),
+          rewindPersisted ? Promise.resolve() : get().refreshTopic(),
+        ]);
       }
       console.error(
         rewindPersisted
