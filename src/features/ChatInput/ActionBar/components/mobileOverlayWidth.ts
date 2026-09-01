@@ -6,7 +6,12 @@ export const MOBILE_ACTION_OVERLAY_GUTTER_PX = 16;
 /** Stable class on the positioned Ant Design popup root (popover/dropdown). */
 export const MOBILE_ACTION_OVERLAY_ROOT_CLASS = 'chathub-mobile-action-overlay';
 
-/** Compact card cap for the context-usage popover (matches Search's 320px). */
+/**
+ * Fixed width for the context-usage popover on desktop and mobile
+ * (matches Search's 320px). Without this, long compaction status lines
+ * grow the Ant Design popover, which sizes to its content by default:
+ * https://ant.design/components/popover
+ */
 export const MOBILE_ACTION_OVERLAY_COMPACT_MAX_PX = 320;
 
 /**

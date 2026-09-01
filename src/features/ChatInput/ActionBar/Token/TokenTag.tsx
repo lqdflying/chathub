@@ -12,7 +12,6 @@ import {
   EstimatedContextConversationSource,
   useEstimatedContextUsage,
 } from '@/hooks/useEstimatedContextUsage';
-import { useIsMobile } from '@/hooks/useIsMobile';
 import { useAgentStore } from '@/store/agent';
 import { agentChatConfigSelectors } from '@/store/agent/selectors';
 import { useChatStore } from '@/store/chat';
@@ -25,13 +24,18 @@ import { formatHistoryWindowLimitLine } from './formatHistoryWindowLimitLine';
 import PromptCacheHitRate from './PromptCacheHitRate';
 import TokenProgress from './TokenProgress';
 
+const TOKEN_POPOVER_SECONDARY_TEXT_STYLE = {
+  fontSize: 12,
+  overflowWrap: 'anywhere' as const,
+  whiteSpace: 'normal' as const,
+};
+
 interface TokenTagProps {
   conversationSource?: EstimatedContextConversationSource;
 }
 const Token = memo<TokenTagProps>(({ conversationSource }) => {
   const { t } = useTranslation(['chat', 'components']);
   const theme = useTheme();
-  const isMobile = useIsMobile();
   const [awaitingTrigger, setAwaitingTrigger] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(false);
 
@@ -97,9 +101,11 @@ const Token = memo<TokenTagProps>(({ conversationSource }) => {
   );
 
   const content = (
-    <Flexbox gap={8} style={{ minWidth: 200 }}>
+    <Flexbox gap={8} style={{ maxWidth: '100%', minWidth: 0, width: '100%' }}>
       <Flexbox align={'center'} gap={4} horizontal justify={'space-between'} width={'100%'}>
-        <div style={{ color: theme.colorTextDescription }}>{t('tokenDetails.title')}</div>
+        <div style={{ color: theme.colorTextDescription, minWidth: 0 }}>
+          {t('tokenDetails.title')}
+        </div>
         <Tooltip
           styles={{ root: { maxWidth: 'unset', pointerEvents: 'none' } }}
           title={t('ModelSelect.featureTag.tokens', {
@@ -190,17 +196,17 @@ const Token = memo<TokenTagProps>(({ conversationSource }) => {
         showTotal={t('tokenDetails.total')}
       />
       {historyWindow.enableHistoryCount && (
-        <Flexbox gap={4}>
-          <div style={{ color: theme.colorTextDescription, fontSize: 12 }}>
+        <Flexbox gap={4} style={{ maxWidth: '100%', minWidth: 0 }}>
+          <div style={{ color: theme.colorTextDescription, ...TOKEN_POPOVER_SECONDARY_TEXT_STYLE }}>
             {t('tokenDetails.historyWindow.title')}
           </div>
-          <div style={{ color: theme.colorTextSecondary, fontSize: 12 }}>
+          <div style={{ color: theme.colorTextSecondary, ...TOKEN_POPOVER_SECONDARY_TEXT_STYLE }}>
             {t('tokenDetails.historyWindow.includedOfTopic', {
               included: historyWindow.includedMessageCount,
               topic: historyWindow.topicMessageCount,
             })}
           </div>
-          <div style={{ color: theme.colorTextSecondary, fontSize: 12 }}>
+          <div style={{ color: theme.colorTextSecondary, ...TOKEN_POPOVER_SECONDARY_TEXT_STYLE }}>
             {formatHistoryWindowLimitLine(historyWindow, t)}
             {historyWindow.excludedByCursor > 0
               ? ` · ${t('tokenDetails.historyWindow.excludedByCursor')}: ${historyWindow.excludedByCursor}`
@@ -209,11 +215,11 @@ const Token = memo<TokenTagProps>(({ conversationSource }) => {
               ? ` · ${t('tokenDetails.historyWindow.excludedByHistoryCount')}: ${historyWindow.excludedByHistoryCount}`
               : ''}
           </div>
-          <div style={{ color: theme.colorTextSecondary, fontSize: 12 }}>
+          <div style={{ color: theme.colorTextSecondary, ...TOKEN_POPOVER_SECONDARY_TEXT_STYLE }}>
             {t('tokenDetails.historyWindow.topicChats')}: {numeral(topicChatsToken).format('0,0')}
           </div>
           {lastCompactionStatus && (
-            <div style={{ color: theme.colorTextSecondary, fontSize: 12 }}>
+            <div style={{ color: theme.colorTextSecondary, ...TOKEN_POPOVER_SECONDARY_TEXT_STYLE }}>
               {t('tokenDetails.historyWindow.compactionStatus')}:{' '}
               {t(`memoryCompaction.result.${lastCompactionStatus}`, {
                 defaultValue: lastCompactionStatus,
@@ -221,7 +227,7 @@ const Token = memo<TokenTagProps>(({ conversationSource }) => {
             </div>
           )}
           {historyWindow.warnUncoveredExclusion && (
-            <div style={{ color: theme.colorWarning, fontSize: 12 }}>
+            <div style={{ color: theme.colorWarning, ...TOKEN_POPOVER_SECONDARY_TEXT_STYLE }}>
               {t('tokenDetails.historyWindow.warnUncovered')}
             </div>
           )}
@@ -295,7 +301,8 @@ const Token = memo<TokenTagProps>(({ conversationSource }) => {
     <ActionPopover
       compact
       content={content}
-      maxWidth={isMobile ? MOBILE_ACTION_OVERLAY_COMPACT_MAX_PX : undefined}
+      maxWidth={MOBILE_ACTION_OVERLAY_COMPACT_MAX_PX}
+      minWidth={MOBILE_ACTION_OVERLAY_COMPACT_MAX_PX}
       title={t('tokenTag.popoverTitle')}
     >
       <TokenTag

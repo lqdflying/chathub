@@ -8,7 +8,6 @@ import { useTranslation } from 'react-i18next';
 import { Center, Flexbox } from 'react-layout-kit';
 
 import { createChatToolsEngine } from '@/helpers/toolEngineering';
-import { useIsMobile } from '@/hooks/useIsMobile';
 import { useModelContextWindowTokens } from '@/hooks/useModelContextWindowTokens';
 import { useModelSupportToolUse } from '@/hooks/useModelSupportToolUse';
 import { useTokenCount } from '@/hooks/useTokenCount';
@@ -41,7 +40,6 @@ interface TokenTagForGroupChatProps {
 const TokenTagForGroupChat = memo<TokenTagForGroupChatProps>(({ total: messageString }) => {
   const { t } = useTranslation(['chat', 'components']);
   const theme = useTheme();
-  const isMobile = useIsMobile();
 
   const input = useChatStore((s) => s.inputMessage);
   const activeTopicId = useChatStore((s) => s.activeTopicId);
@@ -227,9 +225,9 @@ const TokenTagForGroupChat = memo<TokenTagForGroupChatProps>(({ total: messageSt
   );
 
   const content = (
-    <Flexbox gap={8} style={{ minWidth: 200 }}>
+    <Flexbox gap={8} style={{ maxWidth: '100%', minWidth: 0, width: '100%' }}>
       <Flexbox align={'center'} gap={4} horizontal justify={'space-between'} width={'100%'}>
-        <div style={{ color: theme.colorTextDescription }}>{t('tokenDetails.title')}</div>
+        <div style={{ color: theme.colorTextDescription, minWidth: 0 }}>{t('tokenDetails.title')}</div>
         <Tooltip
           styles={{ root: { maxWidth: 'unset', pointerEvents: 'none' } }}
           title={t('ModelSelect.featureTag.tokens', {
@@ -326,7 +324,8 @@ const TokenTagForGroupChat = memo<TokenTagForGroupChatProps>(({ total: messageSt
     <ActionPopover
       compact
       content={content}
-      maxWidth={isMobile ? MOBILE_ACTION_OVERLAY_COMPACT_MAX_PX : undefined}
+      maxWidth={MOBILE_ACTION_OVERLAY_COMPACT_MAX_PX}
+      minWidth={MOBILE_ACTION_OVERLAY_COMPACT_MAX_PX}
     >
       <TokenTag
         maxValue={maxTokens}
