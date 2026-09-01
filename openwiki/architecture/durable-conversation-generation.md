@@ -418,8 +418,14 @@ foreign card's thinking fields. GPT-5 uses `resolveGPT5ReasoningEffort(model,
 quality floor `high`). Visible text only is stored; reasoning SSE is dropped.
 An empty compaction summary throws
 `EmptyCompactionSummaryError` and finalizes `failed` once — it does **not**
-enter Graphile's 8-attempt loop. `TitleTranscriptEmptyError` still uses the
-delayed title retry, because that is a transcript-binding race.
+enter Graphile's 8-attempt loop. A complete turn that exceeds the History
+Compress input budget is **soft-stubbed** (bounded placeholder, cursor advances)
+instead of failing the whole job; a provider context-length error on a
+budget-legal batch still fails once. Re-enqueue after `failed` /
+`interrupted` / `cancelled` `memory_compaction` retires the prior idempotency
+key so a new Graphile job can run (`succeeded` and in-flight keys still replay).
+`TitleTranscriptEmptyError` still uses the delayed title retry, because that is
+a transcript-binding race.
 
 The tool continuation budget is checked before creating another assistant
 placeholder. Creating that placeholder and recording its id happen in one

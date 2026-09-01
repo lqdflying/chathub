@@ -225,10 +225,25 @@ batches, then **again by estimated summarizer prompt size** against the History 
 overflow that window when early turns hold huge tool/code payloads; the worker sizes each
 `chainSummaryHistory` prompt at 1 char ≈ 1 token and keeps about 45% of the summarizer window for
 input. Token-aware splits stay on **complete-turn** boundaries (never a user row without its
-assistant/tool tail). If the first complete turn itself exceeds that budget, the worker fails it
-once as `CompactionPromptTooLargeError` rather than splitting roles. Durable jobs carry the
-planner's resolved `summarizerContextWindow` (including custom/unlisted cards); the worker uses
-that snapshot before the built-in model-bank / 128k fallback. A context-length `ProviderBizError` (`maximum context length is …`) is not Graphile-retried.
+assistant/tool tail). If the first complete turn itself exceeds that budget, the worker/client
+**soft-stubs** it: a bounded placeholder is folded into the running summary (no message bodies)
+and the cursor advances past that turn so later batches can still compact. A budget-legal batch
+that still returns a provider context-length `ProviderBizError` (`maximum context length is …`)
+or an empty summary fails once (not Graphile-retried). Durable jobs carry the planner's resolved
+`summarizerContextWindow` (including custom/unlisted cards); the worker uses that snapshot before
+the built-in model-bank / 128k fallback.
+
+**Failed compaction idempotency:** a terminal `failed` / `interrupted` / `cancelled`
+`memory_compaction` row must not stick the topic. Enqueue retires that idempotency key and
+creates a new Graphile job; `succeeded` / in-flight keys still replay. The planner treats a
+returned terminal failure as `failed` (not `durable_enqueued`). The auto-compact watcher
+re-arms after a failed attempt.
+
+**Pre-send send gate:** after `token_threshold` compact, if the outcome is `failed` or
+`target_unreachable` and usage is still at/above the high watermark, Send does **not** enqueue
+chat. It persists the user message plus an assistant `ExceededContextWindow` error bubble and
+re-arms compact. Browser empty-at-ceiling completions also trigger another compact attempt.
+
 Durable enqueue returns status `enqueued` (not `ineligible`) so Compact now does not toast
 “this conversation cannot compact”. **Any** abortable pre-send run (`message_count` or `token_threshold`) processes at most
 three batches; it persists a cursor only through the batches actually summarized, and a later run
