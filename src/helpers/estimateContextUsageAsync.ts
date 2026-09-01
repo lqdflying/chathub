@@ -225,10 +225,13 @@ export const estimateContextUsageAsync = async ({
     cursorId: enableHistoryCompaction ? historySummaryLastMessageId : undefined,
     messages: estimateMessages,
     storedAfterMessageId: reportedInputTokenFloorAfterMessageId,
+    topicMessages: rawMessages,
   });
   const reportedInput = getLatestReportedInputTokens(
     estimateMessages,
-    floorAfterMessageId ? { afterMessageId: floorAfterMessageId } : undefined,
+    floorAfterMessageId
+      ? { afterMessageId: floorAfterMessageId, lookupMessages: rawMessages }
+      : undefined,
   );
   const floor = applyReportedInputTokenFloor(estimatedTotal, reportedInput);
 

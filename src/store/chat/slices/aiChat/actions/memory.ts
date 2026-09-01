@@ -29,6 +29,7 @@ import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableC
 import { estimateContextUsageAsync } from '@/helpers/estimateContextUsageAsync';
 import {
   getReportedInputTokenFloorBoundaryId,
+  nextReportedInputTokenFloorAfterMessageId,
   withReportedInputTokenFloorMetadata,
 } from '@/helpers/reportedContextTokens';
 import { getModelContextWindowTokens } from '@/helpers/modelContextWindowTokens';
@@ -83,6 +84,7 @@ export interface MemoryCompactionConversationScope {
 }
 
 export interface ChatMemoryAction {
+  internal_ensureReportedInputTokenFloorWatermark: () => Promise<void>;
   internal_invalidateMemoryCompaction: (messageIds: string[]) => Promise<void>;
   triggerManualMemoryCompaction: () => Promise<MemoryCompactionResult>;
   triggerMessageCountMemoryCompaction: (
@@ -935,12 +937,65 @@ const triggerCompaction = async (
   }
 };
 
+const persistReportedInputTokenFloorWatermark = async (
+  get: () => ChatStore,
+  options?: { excludeMessageIds?: string[] },
+) => {
+  const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+  const state = get();
+  const topicId = state.activeTopicId;
+  const sessionId = state.activeId;
+  if (!accountMutationSnapshot || !topicId || !sessionId || state.activeSessionType === 'group') {
+    return;
+  }
+
+  const topic = topicSelectors.currentActiveTopic(state);
+  if (!topic) return;
+
+  const cursorId = topic.metadata?.historySummaryLastMessageId;
+  const storedAfterMessageId = topic.metadata?.reportedInputTokenFloorAfterMessageId;
+  if (!cursorId && !storedAfterMessageId) return;
+
+  const excluded = new Set(options?.excludeMessageIds ?? []);
+  const topicMessages = chatSelectors
+    .mainTopicAIChats(state)
+    .filter((message) => !excluded.has(message.id));
+  const nextId = nextReportedInputTokenFloorAfterMessageId({
+    cursorId,
+    storedAfterMessageId,
+    topicMessages,
+  });
+  if (nextId === storedAfterMessageId) return;
+
+  const metadata: ChatTopicMetadata = { ...topic.metadata };
+  if (nextId) {
+    metadata.reportedInputTokenFloorAfterMessageId = nextId;
+  } else {
+    delete metadata.reportedInputTokenFloorAfterMessageId;
+  }
+
+  await topicService.updateTopic(topicId, { metadata });
+
+  if (
+    isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
+    get().activeId === sessionId &&
+    get().activeTopicId === topicId
+  ) {
+    get().internal_dispatchTopic(
+      { id: topicId, type: 'updateTopic', value: { metadata } },
+      'reportedInputTokenFloorWatermark',
+    );
+  }
+};
+
 export const chatMemory: StateCreator<
   ChatStore,
   [['zustand/devtools', never]],
   [],
   ChatMemoryAction
 > = (set, get) => ({
+  internal_ensureReportedInputTokenFloorWatermark: () => persistReportedInputTokenFloorWatermark(get),
+
   internal_invalidateMemoryCompaction: async (messageIds) => {
     const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
     const state = get();
@@ -951,8 +1006,11 @@ export const chatMemory: StateCreator<
     }
 
     const topic = topicSelectors.currentActiveTopic(state);
-    const cursorId = topic?.metadata?.historySummaryLastMessageId;
-    if (!topic?.historySummary && !cursorId) return;
+    if (!topic) return;
+
+    const cursorId = topic.metadata?.historySummaryLastMessageId;
+    const storedAfterMessageId = topic.metadata?.reportedInputTokenFloorAfterMessageId;
+    if (!topic.historySummary && !cursorId && !storedAfterMessageId) return;
 
     const mainMessages = chatSelectors.mainTopicAIChats(state);
     const cursorIndex = cursorId ? mainMessages.findIndex(({ id }) => id === cursorId) : -1;
@@ -960,7 +1018,10 @@ export const chatMemory: StateCreator<
       const index = mainMessages.findIndex((message) => message.id === id);
       return index >= 0 && (cursorIndex < 0 || index <= cursorIndex);
     });
-    if (!affectsSummary) return;
+    if (!affectsSummary) {
+      await persistReportedInputTokenFloorWatermark(get, { excludeMessageIds: messageIds });
+      return;
+    }
 
     set(
       (s) => ({

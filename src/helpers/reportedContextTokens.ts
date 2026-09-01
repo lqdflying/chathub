@@ -44,23 +44,44 @@ const readReportedInputFromMessage = (message: UsageMessage): number | undefined
 };
 
 /**
- * Messages strictly after `afterMessageId`. A missing id fail-closes to an
- * empty window so a deleted watermark cannot revive older usage as “fresh”.
+ * Messages strictly after `afterMessageId` in `lookupMessages` order (defaults
+ * to `messages`). A missing id fail-closes to an empty window so a deleted
+ * watermark cannot revive older usage as “fresh”. When the marker is older
+ * than a HistoryTruncate slice, later selected rows still floor.
  */
 export const messagesAfterId = <T extends { id?: string }>(
   messages: T[],
   afterMessageId?: string,
+  lookupMessages: T[] = messages,
 ): T[] => {
   if (!afterMessageId) return messages;
-  const index = messages.findIndex((message) => message.id === afterMessageId);
-  return index < 0 ? [] : messages.slice(index + 1);
+  const index = lookupMessages.findIndex((message) => message.id === afterMessageId);
+  if (index < 0) return [];
+  if (lookupMessages === messages) return messages.slice(index + 1);
+
+  const afterIds = new Set<string>();
+  for (const message of lookupMessages.slice(index + 1)) {
+    if (message.id) afterIds.add(message.id);
+  }
+  return messages.filter((message) => !!message.id && afterIds.has(message.id));
+};
+
+/** Remaining topic rows after the compaction cursor. A missing cursor keeps the list. */
+export const remainingMessagesAfterCursor = <T extends { id?: string }>(
+  messages: T[],
+  cursorId?: string,
+): T[] => {
+  if (!cursorId) return messages;
+  const index = messages.findIndex((message) => message.id === cursorId);
+  return index < 0 ? messages : messages.slice(index + 1);
 };
 
 /**
  * Newest assistant/group in the window, including in-flight `LOADING_FLAT`
- * placeholders. Compact stamps this as the generation boundary so a request
- * that straddles compaction cannot floor the next estimate with pre-compact
- * usage when that placeholder later finalizes.
+ * placeholders; otherwise the newest message with an id (protected user after
+ * compact). Compact stamps this as the generation boundary so a request that
+ * straddles compaction cannot floor the next estimate with pre-compact usage
+ * when that placeholder later finalizes.
  */
 export const getReportedInputTokenFloorBoundaryId = (
   messages: UsageMessage[],
@@ -69,7 +90,33 @@ export const getReportedInputTokenFloorBoundaryId = (
     const message = messages[index];
     if (isAssistantLike(message) && message.id) return message.id;
   }
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.id) return message.id;
+  }
   return undefined;
+};
+
+/**
+ * Persisted watermark: keep a stored id still present in the topic; otherwise
+ * stamp the remaining post-cursor window (legacy migration or deleted row).
+ */
+export const nextReportedInputTokenFloorAfterMessageId = ({
+  cursorId,
+  storedAfterMessageId,
+  topicMessages,
+}: {
+  cursorId?: string;
+  storedAfterMessageId?: string;
+  topicMessages: UsageMessage[];
+}): string | undefined => {
+  if (storedAfterMessageId && topicMessages.some((message) => message.id === storedAfterMessageId)) {
+    return storedAfterMessageId;
+  }
+  if (!cursorId && !storedAfterMessageId) return undefined;
+  return getReportedInputTokenFloorBoundaryId(
+    remainingMessagesAfterCursor(topicMessages, cursorId),
+  );
 };
 
 /** Newest settled assistant that currently reports `totalInputTokens`. */
@@ -83,29 +130,35 @@ export const getLatestReportedInputTokenSourceId = (messages: UsageMessage[]): s
 
 /**
  * Floor boundary for estimators: a stored watermark wins (fail-closed if the
- * row is gone). Compacted topics without a watermark (legacy) exclude every
- * assistant already in the sliced window until a later row is stamped.
+ * row is gone from the full topic). Compacted topics without a watermark
+ * (legacy) exclude assistants already in the remaining post-cursor window
+ * until that id is persisted.
  */
 export const getEffectiveReportedInputTokenFloorAfterMessageId = ({
   cursorId,
   messages,
   storedAfterMessageId,
+  topicMessages,
 }: {
   cursorId?: string;
   messages: UsageMessage[];
   storedAfterMessageId?: string;
+  topicMessages?: UsageMessage[];
 }): string | undefined => {
+  const lookup = topicMessages ?? messages;
   if (storedAfterMessageId) return storedAfterMessageId;
-  if (cursorId) return getReportedInputTokenFloorBoundaryId(messages);
+  if (cursorId) {
+    return getReportedInputTokenFloorBoundaryId(remainingMessagesAfterCursor(lookup, cursorId));
+  }
   return undefined;
 };
 
 /** Newest settled assistant `totalInputTokens` in the supplied window. */
 export const getLatestReportedInputTokens = (
   messages: UsageMessage[],
-  options?: { afterMessageId?: string },
+  options?: { afterMessageId?: string; lookupMessages?: UsageMessage[] },
 ): number | undefined => {
-  const window = messagesAfterId(messages, options?.afterMessageId);
+  const window = messagesAfterId(messages, options?.afterMessageId, options?.lookupMessages);
   for (let index = window.length - 1; index >= 0; index -= 1) {
     const value = readReportedInputFromMessage(window[index]);
     if (value) return value;

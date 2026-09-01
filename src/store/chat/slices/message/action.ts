@@ -751,14 +751,17 @@ export const chatMessage: StateCreator<
             ),
           };
 
-          // no need to update map if the messages have been init and the map is the same
-          if (get().messagesInit && isEqual(nextMap, get().messagesMap)) return;
+          if (!(get().messagesInit && isEqual(nextMap, get().messagesMap))) {
+            set(
+              { messagesInit: true, messagesMap: nextMap },
+              false,
+              n('useFetchMessages', { messages, queryKey: key }),
+            );
+          }
 
-          set(
-            { messagesInit: true, messagesMap: nextMap },
-            false,
-            n('useFetchMessages', { messages, queryKey: key }),
-          );
+          if (type !== 'group') {
+            void get().internal_ensureReportedInputTokenFloorWatermark().catch(console.error);
+          }
         },
       },
     );
@@ -1247,14 +1250,15 @@ export const chatMessage: StateCreator<
     if (!isCurrentRequest()) return;
 
     const nextMap = { ...get().messagesMap, [chatSelectors.currentChatKey(get())]: messages };
-    // no need to update map if the messages have been init and the map is the same
-    if (get().messagesInit && isEqual(nextMap, get().messagesMap)) return;
+    if (!(get().messagesInit && isEqual(nextMap, get().messagesMap))) {
+      set(
+        { messagesInit: true, messagesMap: nextMap },
+        false,
+        n('internal_fetchMessages', { messages }),
+      );
+    }
 
-    set(
-      { messagesInit: true, messagesMap: nextMap },
-      false,
-      n('internal_fetchMessages', { messages }),
-    );
+    void get().internal_ensureReportedInputTokenFloorWatermark().catch(console.error);
   },
   internal_createTmpMessage: (message) => {
     const { internal_dispatchMessage } = get();

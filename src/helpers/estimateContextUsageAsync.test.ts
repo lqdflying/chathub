@@ -430,4 +430,155 @@ describe('estimateContextUsageAsync', () => {
 
     expect(result.totalToken).toBeLessThan(1_048_570);
   });
+
+  it('floors a later assistant after a persisted migration boundary', async () => {
+    mocks.chats = [
+      { content: 'old', id: 'u1', role: 'user' },
+      {
+        content: 'old-a',
+        id: 'a1',
+        metadata: { totalInputTokens: 1_048_570 },
+        role: 'assistant',
+      },
+      { content: 'hi', id: 'u2', role: 'user' },
+      {
+        content: 'protected',
+        id: 'a2',
+        metadata: { totalInputTokens: 1_048_570 },
+        role: 'assistant',
+      },
+      { content: 'next', id: 'u3', role: 'user' },
+      {
+        content: 'fresh',
+        id: 'a3',
+        metadata: { totalInputTokens: 700_000 },
+        role: 'assistant',
+      },
+    ];
+    mocks.topic = {
+      metadata: {
+        historySummaryLastMessageId: 'a1',
+        reportedInputTokenFloorAfterMessageId: 'a2',
+      },
+    };
+
+    const result = await estimateContextUsageAsync({
+      agentState: {} as any,
+      chatState: { inputMessage: '' } as any,
+    });
+
+    expect(result.totalToken).toBe(700_000);
+  });
+
+  it('floors a selected assistant when historyCount drops the stored marker', async () => {
+    mocks.historyCount = 1;
+    mocks.chats = [
+      { content: 'old', id: 'u1', role: 'user' },
+      {
+        content: 'old-a',
+        id: 'a1',
+        metadata: { totalInputTokens: 1_048_570 },
+        role: 'assistant',
+      },
+      { content: 'hi', id: 'u2', role: 'user' },
+      {
+        content: 'protected',
+        id: 'a2',
+        metadata: { totalInputTokens: 1_048_570 },
+        role: 'assistant',
+      },
+      { content: 'next', id: 'u3', role: 'user' },
+      {
+        content: 'fresh',
+        id: 'a3',
+        metadata: { totalInputTokens: 700_000 },
+        role: 'assistant',
+      },
+    ];
+    mocks.topic = {
+      metadata: {
+        historySummaryLastMessageId: 'a1',
+        reportedInputTokenFloorAfterMessageId: 'a2',
+      },
+    };
+
+    const result = await estimateContextUsageAsync({
+      agentState: {} as any,
+      chatState: { inputMessage: '' } as any,
+    });
+
+    expect(result.contextMessages.map(({ id }) => id)).toEqual(['u3', 'a3']);
+    expect(result.totalToken).toBe(700_000);
+  });
+
+  it('floors a new assistant after the deleted marker is rotated', async () => {
+    mocks.chats = [
+      { content: 'old', id: 'u1', role: 'user' },
+      {
+        content: 'old-a',
+        id: 'a1',
+        metadata: { totalInputTokens: 1_048_570 },
+        role: 'assistant',
+      },
+      { content: 'hi', id: 'u2', role: 'user' },
+      {
+        content: 'older-protected',
+        id: 'a2',
+        metadata: { totalInputTokens: 1_048_570 },
+        role: 'assistant',
+      },
+      { content: 'later', id: 'u3', role: 'user' },
+      {
+        content: 'fresh',
+        id: 'a4',
+        metadata: { totalInputTokens: 700_000 },
+        role: 'assistant',
+      },
+    ];
+    mocks.topic = {
+      metadata: {
+        historySummaryLastMessageId: 'a1',
+        reportedInputTokenFloorAfterMessageId: 'a2',
+      },
+    };
+
+    const result = await estimateContextUsageAsync({
+      agentState: {} as any,
+      chatState: { inputMessage: '' } as any,
+    });
+
+    expect(result.totalToken).toBe(700_000);
+  });
+
+  it('floors a post-compaction assistant after a user-only remaining window', async () => {
+    mocks.chats = [
+      { content: 'old', id: 'u1', role: 'user' },
+      {
+        content: 'old-a',
+        id: 'a1',
+        metadata: { totalInputTokens: 800 },
+        role: 'assistant',
+      },
+      { content: 'hi', id: 'u3', role: 'user' },
+      {
+        content: 'fresh',
+        id: 'a3',
+        metadata: { totalInputTokens: 700_000 },
+        role: 'assistant',
+      },
+    ];
+    mocks.topic = {
+      metadata: {
+        historySummaryLastMessageId: 'a1',
+        reportedInputTokenFloorAfterMessageId: 'u3',
+      },
+    };
+
+    const result = await estimateContextUsageAsync({
+      agentState: {} as any,
+      chatState: { inputMessage: '' } as any,
+    });
+
+    expect(result.totalToken).toBe(700_000);
+  });
 });

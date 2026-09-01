@@ -74,8 +74,10 @@ const setConversation = (overrides: Record<string, unknown> = {}) => {
       activeSessionType: undefined,
       activeThreadId: undefined,
       activeTopicId: TOPIC_ID,
+      chatLoadingIds: [],
       conversationClearGeneration: 0,
       conversationScopedClearGenerations: {},
+      memoryCompactionInvalidationGeneration: 0,
       messagesMap: { [messageMapKey(SESSION_ID, TOPIC_ID)]: messages },
       portalThreadId: undefined,
       topicMaps: {
@@ -1086,6 +1088,129 @@ describe('chat memory actions', () => {
           historySummaryLastMessageId: undefined,
           memoryArchives: [],
           reportedInputTokenFloorAfterMessageId: undefined,
+        }),
+      }),
+    );
+  });
+
+  it('persists a one-time migration floor watermark for compacted topics that predate the field', async () => {
+    const topicMessages = [
+      message('u1', 'user'),
+      message('a1', 'assistant'),
+      message('u2', 'user'),
+      message('a2', 'assistant'),
+    ];
+    setConversation({
+      messagesMap: { [messageMapKey(SESSION_ID, TOPIC_ID)]: topicMessages },
+      topicMaps: {
+        [SESSION_ID]: [
+          {
+            createdAt: 1,
+            historySummary: 'existing summary',
+            id: TOPIC_ID,
+            metadata: { historySummaryLastMessageId: 'a1' },
+            title: 'Topic',
+            updatedAt: 1,
+          },
+        ],
+      },
+    });
+
+    await useChatStore.getState().internal_ensureReportedInputTokenFloorWatermark();
+
+    expect(topicService.updateTopic).toHaveBeenCalledWith(
+      TOPIC_ID,
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          historySummaryLastMessageId: 'a1',
+          reportedInputTokenFloorAfterMessageId: 'a2',
+        }),
+      }),
+    );
+  });
+
+  it('does not rewrite an already-valid floor watermark', async () => {
+    setConversation({
+      topicMaps: {
+        [SESSION_ID]: [
+          {
+            createdAt: 1,
+            historySummary: 'existing summary',
+            id: TOPIC_ID,
+            metadata: {
+              historySummaryLastMessageId: 'a1',
+              reportedInputTokenFloorAfterMessageId: 'a2',
+            },
+            title: 'Topic',
+            updatedAt: 1,
+          },
+        ],
+      },
+    });
+
+    await useChatStore.getState().internal_ensureReportedInputTokenFloorWatermark();
+
+    expect(topicService.updateTopic).not.toHaveBeenCalled();
+  });
+
+  it('rotates the floor watermark when its row is deleted without clearing the summary', async () => {
+    setConversation({
+      topicMaps: {
+        [SESSION_ID]: [
+          {
+            createdAt: 1,
+            historySummary: 'existing summary',
+            id: TOPIC_ID,
+            metadata: {
+              historySummaryLastMessageId: 'a1',
+              reportedInputTokenFloorAfterMessageId: 'a3',
+            },
+            title: 'Topic',
+            updatedAt: 1,
+          },
+        ],
+      },
+    });
+
+    await useChatStore.getState().internal_invalidateMemoryCompaction(['a3']);
+
+    expect(topicService.updateTopic).toHaveBeenCalledWith(
+      TOPIC_ID,
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          historySummaryLastMessageId: 'a1',
+          reportedInputTokenFloorAfterMessageId: 'a2',
+        }),
+      }),
+    );
+    expect(topicService.updateTopic).not.toHaveBeenCalledWith(
+      TOPIC_ID,
+      expect.objectContaining({ historySummary: '' }),
+    );
+    expect(useChatStore.getState().memoryCompactionInvalidationGeneration).toBe(0);
+  });
+
+  it('watermarks a protected remaining user when compact leaves no assistant', async () => {
+    const topicMessages = [
+      message('u1', 'user'),
+      message('a1', 'assistant'),
+      message('u2', 'user'),
+      message('a2', 'assistant'),
+      message('u3', 'user'),
+    ];
+    setConversation({
+      messagesMap: { [messageMapKey(SESSION_ID, TOPIC_ID)]: topicMessages },
+    });
+
+    const result = await useChatStore.getState().triggerManualMemoryCompaction();
+
+    expect(result).toMatchObject({ status: 'compacted' });
+    expect(topicService.updateTopic).toHaveBeenCalledWith(
+      TOPIC_ID,
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          historySummaryLastMessageId: 'a2',
+          reportedInputTokenFloorAfterMessageId: 'u3',
         }),
       }),
     );

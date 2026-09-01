@@ -74,12 +74,12 @@ export interface ChatTopicMetadata {
   model?: string;
   provider?: string;
   /**
-   * Newest assistant/group id in the protected post-cursor window at compaction
-   * time, including an in-flight placeholder. Next-request token floors only
-   * use assistants after this id. A missing row fail-closes (no floor) instead
-   * of treating older usage as fresh. Compacted topics without this field treat
-   * every current post-cursor assistant as already-seen until a later compact
-   * stamps the boundary.
+   * Generation boundary for next-request token floors: newest remaining
+   * assistant/group (or protected user) at compact time, including an in-flight
+   * placeholder. Estimators resolve this id against the full topic, then
+   * intersect with the HistoryTruncate window. A missing row fail-closes until
+   * the id is rotated. Compacted topics without this field persist a one-time
+   * migration boundary from the remaining post-cursor window.
    */
   reportedInputTokenFloorAfterMessageId?: string;
 }

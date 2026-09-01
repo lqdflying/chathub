@@ -135,4 +135,26 @@ describe('buildConversationCompactionMetadata', () => {
 
     expect(metadata.reportedInputTokenFloorAfterMessageId).toBe('a3');
   });
+
+  it('watermarks a protected remaining user when no assistant is in the window', () => {
+    const metadata = buildConversationCompactionMetadata({
+      compactedThroughMessageId: 'a1',
+      currentMetadata: {},
+      messageCountIncluded: 2,
+      model: 'model',
+      plan: {
+        candidateMessageIds: ['u1', 'a1'],
+        enableUserMemoryArchive: false,
+        expectedFingerprint: 'fingerprint',
+        expectedHistorySummary: '',
+        trigger: 'manual',
+      },
+      provider: 'provider',
+      remainingMessages: [{ content: 'hi', id: 'u3', role: 'user' }],
+      status: 'compacted',
+      summary: 'Summary',
+    });
+
+    expect(metadata.reportedInputTokenFloorAfterMessageId).toBe('u3');
+  });
 });

@@ -264,6 +264,7 @@ export const useEstimatedContextUsage = (
       cursorId,
       messages: estimateMessages,
       storedAfterMessageId: reportedInputTokenFloorAfterMessageId,
+      topicMessages: chats,
     });
 
     return {
@@ -284,7 +285,9 @@ export const useEstimatedContextUsage = (
       }),
       reportedInputTokens: getLatestReportedInputTokens(
         estimateMessages,
-        floorAfterMessageId ? { afterMessageId: floorAfterMessageId } : undefined,
+        floorAfterMessageId
+          ? { afterMessageId: floorAfterMessageId, lookupMessages: chats }
+          : undefined,
       ),
       topicChatsString: serializeMessagesForContextEstimate(chats, inputTemplate),
     };

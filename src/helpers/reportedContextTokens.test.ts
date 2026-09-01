@@ -9,6 +9,7 @@ import {
   getLatestReportedInputTokens,
   getReportedInputTokenFloorBoundaryId,
   messagesAfterId,
+  nextReportedInputTokenFloorAfterMessageId,
   withReportedInputTokenFloorMetadata,
 } from './reportedContextTokens';
 
@@ -189,7 +190,7 @@ describe('reported context token floor', () => {
         { reportedInputTokenFloorAfterMessageId: 'a2' },
         [{ content: 'hi', id: 'u3', role: 'user' }],
       ).reportedInputTokenFloorAfterMessageId,
-    ).toBeUndefined();
+    ).toBe('u3');
     expect(
       withReportedInputTokenFloorMetadata(
         {},
@@ -215,5 +216,128 @@ describe('reported context token floor', () => {
       chatsTokenDelta: 0,
       totalToken: 900_000,
     });
+  });
+
+  it('keeps a stored marker that HistoryTruncate dropped and floors a later selected assistant', () => {
+    const topicMessages = [
+      {
+        content: 'protected',
+        id: 'a2',
+        metadata: { totalInputTokens: 1_048_570 },
+        role: 'assistant' as const,
+      },
+      { content: 'next', id: 'u3', role: 'user' as const },
+      {
+        content: 'fresh',
+        id: 'a3',
+        metadata: { totalInputTokens: 700_000 },
+        role: 'assistant' as const,
+      },
+    ];
+    const selected = topicMessages.slice(1);
+    expect(
+      getEffectiveReportedInputTokenFloorAfterMessageId({
+        cursorId: 'a1',
+        messages: selected,
+        storedAfterMessageId: 'a2',
+        topicMessages,
+      }),
+    ).toBe('a2');
+    expect(
+      getLatestReportedInputTokens(selected, {
+        afterMessageId: 'a2',
+        lookupMessages: topicMessages,
+      }),
+    ).toBe(700_000);
+    expect(messagesAfterId(selected, 'a2', topicMessages).map(({ id }) => id)).toEqual(['u3', 'a3']);
+  });
+
+  it('persists a stable migration boundary so a later assistant can floor', () => {
+    const stale = [
+      {
+        content: 'stale',
+        id: 'a2',
+        metadata: { totalInputTokens: 1_048_570 },
+        role: 'assistant' as const,
+      },
+    ];
+    expect(
+      nextReportedInputTokenFloorAfterMessageId({
+        cursorId: 'a1',
+        topicMessages: stale,
+      }),
+    ).toBe('a2');
+    const afterMigration = [
+      ...stale,
+      {
+        content: 'fresh',
+        id: 'a3',
+        metadata: { totalInputTokens: 700_000 },
+        role: 'assistant' as const,
+      },
+    ];
+    expect(
+      getEffectiveReportedInputTokenFloorAfterMessageId({
+        cursorId: 'a1',
+        messages: afterMigration,
+        storedAfterMessageId: 'a2',
+        topicMessages: afterMigration,
+      }),
+    ).toBe('a2');
+    expect(getLatestReportedInputTokens(afterMigration, { afterMessageId: 'a2' })).toBe(700_000);
+  });
+
+  it('rotates a missing stored marker to the remaining post-cursor assistant', () => {
+    const remaining = [
+      {
+        content: 'older-protected',
+        id: 'a2',
+        metadata: { totalInputTokens: 1_048_570 },
+        role: 'assistant' as const,
+      },
+      { content: 'later', id: 'u3', role: 'user' as const },
+    ];
+    expect(
+      nextReportedInputTokenFloorAfterMessageId({
+        cursorId: 'a1',
+        storedAfterMessageId: 'deleted-a3',
+        topicMessages: remaining,
+      }),
+    ).toBe('a2');
+    const afterRotate = [
+      ...remaining,
+      {
+        content: 'fresh',
+        id: 'a4',
+        metadata: { totalInputTokens: 700_000 },
+        role: 'assistant' as const,
+      },
+    ];
+    expect(
+      getLatestReportedInputTokens(afterRotate, {
+        afterMessageId: 'a2',
+        lookupMessages: afterRotate,
+      }),
+    ).toBe(700_000);
+  });
+
+  it('accepts a post-compaction assistant after a user-only remaining window', () => {
+    expect(getReportedInputTokenFloorBoundaryId([{ content: 'hi', id: 'u3', role: 'user' }])).toBe(
+      'u3',
+    );
+    expect(
+      getLatestReportedInputTokens(
+        [
+          { content: 'hi', id: 'u3', role: 'user' },
+          {
+            content: 'fresh',
+            id: 'a3',
+            metadata: { totalInputTokens: 700_000 },
+            role: 'assistant',
+          },
+        ],
+        { afterMessageId: 'u3' },
+      ),
+    ).toBe(700_000);
   });
 });
