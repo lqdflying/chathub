@@ -729,6 +729,47 @@ describe('generateAIChatV2 actions', () => {
 
         expect(aiChatService.sendMessageInServer).toHaveBeenCalled();
       });
+
+      it('does not enqueue chat when token compact fails at the high watermark', async () => {
+        const compactionSpy = vi.fn(async () => ({
+          estimatedTokensBefore: 950_000,
+          highWatermark: 0.8,
+          status: 'failed',
+        }));
+        act(() => {
+          useChatStore.setState({ triggerTokenThresholdMemoryCompaction: compactionSpy });
+        });
+        const { result } = renderHook(() => useChatStore());
+
+        await act(async () => {
+          await result.current.sendMessageInServer({ message: TEST_CONTENT.USER_MESSAGE });
+        });
+
+        expect(aiChatService.sendMessageInServer).not.toHaveBeenCalled();
+        expect(aiChatService.createAssistantMessageInServer).not.toHaveBeenCalled();
+        expect(result.current.internal_execAgentRuntime).not.toHaveBeenCalled();
+        expect(messageService.updateMessageError).toHaveBeenCalledWith(
+          TEST_IDS.NEW_MESSAGE_ID,
+          expect.objectContaining({ type: 'ExceededContextWindow' }),
+        );
+        expect(compactionSpy).toHaveBeenCalledTimes(2);
+        expect(compactionSpy).toHaveBeenNthCalledWith(
+          1,
+          expect.any(AbortController),
+          expect.objectContaining({
+            sessionId: TEST_IDS.SESSION_ID,
+            topicId: TEST_IDS.TOPIC_ID,
+          }),
+        );
+        expect(compactionSpy).toHaveBeenNthCalledWith(
+          2,
+          undefined,
+          expect.objectContaining({
+            sessionId: TEST_IDS.SESSION_ID,
+            topicId: TEST_IDS.TOPIC_ID,
+          }),
+        );
+      });
     });
 
     describe('message creation', () => {

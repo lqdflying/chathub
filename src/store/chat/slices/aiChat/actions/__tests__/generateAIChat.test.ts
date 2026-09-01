@@ -2257,6 +2257,9 @@ describe('chatMessage actions', () => {
     it('fails a silent empty MiMo completion that filled the listed 1M window', async () => {
       const { result } = renderHook(() => useChatStore());
       const messages = [createMockMessage({ role: 'user' })];
+      const compactionSpy = vi
+        .spyOn(useChatStore.getState(), 'triggerTokenThresholdMemoryCompaction')
+        .mockResolvedValue({ status: 'not_needed' } as any);
 
       vi.spyOn(chatService, 'createAssistantMessageStream').mockImplementation(
         async ({ onFinish }) => {
@@ -2279,6 +2282,7 @@ describe('chatMessage actions', () => {
         TEST_IDS.ASSISTANT_MESSAGE_ID,
         expect.objectContaining({ type: 'ExceededContextWindow' }),
       );
+      expect(compactionSpy).toHaveBeenCalled();
     });
 
     it('marks an empty MiMo tool continuation as a failed runtime outcome', async () => {
