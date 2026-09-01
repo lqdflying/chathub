@@ -174,15 +174,16 @@ const shouldResumeModelAfterTools = (
 ): boolean => {
   if (hardCancelled) return false;
   if (isPluginMessageResourceActive(state, assistantResource)) return true;
-  if (
-    !findDeferredBrowserGenerationLaneByAssistantId(
+  // Leave (topic or session) is not Stop: a deferred browser-fallback lane
+  // keeps tool → model continue in this tab via conversationContext.
+  // Requiring activeId === sessionId left LOADING_FLAT white circles after
+  // session switch (prod: tool_loop_continue_skipped reason=session_changed).
+  return Boolean(
+    findDeferredBrowserGenerationLaneByAssistantId(
       state.deferredBrowserGenerationLanes,
       assistantResource.messageId,
-    )
-  ) {
-    return false;
-  }
-  return state.activeId === assistantResource.sessionId;
+    ),
+  );
 };
 
 const countToolLoopOutcomes = (results: ToolBatchExecutionResult[]) => {
@@ -1059,16 +1060,8 @@ export const chatPlugin: StateCreator<
       return;
     }
     if (!shouldResumeModelAfterTools(get(), assistantResource, invocationIsHardCancelled())) {
-      const visible = isPluginMessageResourceActive(get(), assistantResource);
-      const deferred = findDeferredBrowserGenerationLaneByAssistantId(
-        get().deferredBrowserGenerationLanes,
-        assistantId,
-      );
       logToolLoopContinue('tool_loop_continue_skipped', assistantId, get(), {
-        reason:
-          !visible && deferred && get().activeId !== assistantResource.sessionId
-            ? 'session_changed'
-            : 'not_visible',
+        reason: 'not_visible',
         ...outcomeCounts,
       });
       return;

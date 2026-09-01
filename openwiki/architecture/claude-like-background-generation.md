@@ -114,14 +114,16 @@ While the tab stays alive:
 
 1. Mark `deferredBrowserGenerationLanes` keyed by
    `laneScopedClearKey(sessionId, topicId, threadId)`.
-2. Topic switch calls `internal_invalidateConversation` which **preserves**
-   protected message ids (assistant, user RAG row, in-flight tool children)
-   and does **not** abort those AbortControllers.
+2. Topic **or session** switch calls `internal_invalidateConversation` which
+   **preserves** protected message ids (assistant, user RAG row, in-flight
+   tool children) and does **not** abort those AbortControllers.
 3. RAG retrieve, builtin tools, and HTTP MCP run under the **hard-cancel**
-   fence (account snapshot + clear generation), not `activeTopicId`.
+   fence (account snapshot + clear generation), not `activeTopicId` /
+   `activeId`.
 4. When a step finishes, **continue the model immediately**
    (`triggerAIMessage` / `tool_loop_continue`) with the original
-   `conversationContext`, even if `visible=false`.
+   `conversationContext`, even if `visible=false` or the UI is on another
+   session (do not skip with `session_changed` for a deferred lane).
 5. Return-sync (`syncActiveConversationGenerations`) is a **backup**:
    `still_producing` if the continue already started; `resume_tools` /
    `resume_model` only if it was skipped; never blank a leftover

@@ -878,6 +878,88 @@ describe('MCP tool-result persistence recovery', () => {
     );
   });
 
+  it('continues the model after MCP tools finish on a deferred browser lane after session switch', async () => {
+    const assistantId = 'assistant-deferred-session-switch';
+    const toolMessageId = 'tool-message-deferred-session-switch';
+    const toolPayload = {
+      apiName: 'tavily_search',
+      arguments: '{"query":"azure regions"}',
+      id: 'tool-deferred-session-switch',
+      identifier: 'tavily',
+      type: 'mcp',
+    } as const;
+    const assistantMessage = {
+      content: 'searching',
+      id: assistantId,
+      role: 'assistant',
+      sessionId: 'session-id',
+      tools: [toolPayload],
+      topicId: 'topic-id',
+    } as UIChatMessage;
+    const triggerAIMessage = vi.fn();
+    const conversationKey = deferredBrowserGenerationLaneKey('session-id', 'topic-id', null);
+    const logSpy = vi
+      .spyOn(generationDebugClient, 'logDeferredGenerationLane')
+      .mockResolvedValue();
+
+    vi.mocked(toolTelemetryService.getCapabilities).mockResolvedValue({
+      cacheContinuationEnabled: false,
+      toolLifecycleEnabled: false,
+    });
+    vi.spyOn(chatSelectors, 'getTraceIdByMessageId').mockReturnValue(
+      vi.fn().mockReturnValue('trace-id'),
+    );
+
+    useChatStore.setState({
+      // Viewing a different session while the deferred lane is still the producer.
+      activeId: 'other-session',
+      activeTopicId: 'other-topic',
+      deferredBrowserGenerationLanes: {
+        [conversationKey]: {
+          assistantMessageId: assistantId,
+          reason: 'unsupported_tool',
+          toolName: 'kagi',
+        },
+      },
+      internal_createMessage: vi.fn().mockResolvedValue(toolMessageId),
+      internal_invokeDifferentTypePlugin: vi.fn().mockResolvedValue({
+        data: '{"ok":true}',
+        outcome: 'completed',
+      }),
+      internal_toggleMessageInToolsCalling: vi.fn().mockResolvedValue(undefined),
+      messagesMap: {
+        [messageMapKey('session-id', 'topic-id')]: [assistantMessage],
+        [messageMapKey('other-session', 'other-topic')]: [],
+      },
+      triggerAIMessage,
+    });
+
+    await useChatStore.getState().triggerToolCalls(assistantId);
+
+    expect(triggerAIMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationContext: expect.objectContaining({
+          sessionId: 'session-id',
+          topicId: 'topic-id',
+        }),
+        parentId: toolMessageId,
+      }),
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'tool_loop_continue',
+      expect.objectContaining({
+        completedCount: 1,
+        hasDeferredLane: true,
+        sameSession: false,
+        visible: false,
+      }),
+    );
+    expect(logSpy).not.toHaveBeenCalledWith(
+      'tool_loop_continue_skipped',
+      expect.objectContaining({ reason: 'session_changed' }),
+    );
+  });
+
   it('continues the model after MCP tools finish on a deferred browser lane in the same session', async () => {
     const assistantId = 'assistant-deferred-mcp';
     const toolMessageId = 'tool-message-deferred-mcp';

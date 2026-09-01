@@ -35,13 +35,16 @@ program errors). DALL·E stays stubbed with `shouldContinue: false`.
 
 | Action | Durable job | Browser-fallback lane |
 |--------|-------------|------------------------|
-| Topic switch / mobile Back / hide tab | Keep running | Keep running in **this** tab |
+| Topic **or session** switch / mobile Back / hide tab | Keep running | Keep running in **this** tab |
 | Stop, retry, rewind, clear, account switch, topic delete | Cancel / fence | Abort + clear marker |
 | Close tab / kill PWA | Job keeps running | **Stops** |
 
 Never abort deferred `chatLoadingIds`, plugin controllers, `messageRAGLoadingIds`,
 or rewrite a successful tool result as `cancelled` just because `activeTopicId`
-changed. Hard-cancel only on account mutation + `conversationClearGeneration`.
+or `activeId` changed. Hard-cancel only on account mutation +
+`conversationClearGeneration`. After tools finish on a deferred lane, always
+call `triggerAIMessage` with the original `conversationContext` — do not skip
+continue with `session_changed` merely because the UI is on another session.
 
 ## Persistence vs visibility
 

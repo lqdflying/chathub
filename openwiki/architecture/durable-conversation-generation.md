@@ -809,16 +809,18 @@ Product contract for deferred browser turns:
 - Keep a started tool batch alive after leave: do not abort in-flight plugin
   controllers whose parent is a deferred assistant, do not rewrite a
   successful MCP **or builtin** result as `cancelled` just because the topic
-  is inactive, and always clear `messageInToolsCallingIds` in `finally`.
-  Knowledge Base / RAG retrieval uses the same hard-cancel fence (account +
-  clear generation), not `activeTopicId`. Browser-fallback RAG also puts the
-  **assistant** on `chatLoadingIds` for the whole retrieve + model path, so
-  leave-topic `producerAlive` stays true and `InterruptibleLoading` does not
-  collapse the placeholder into a white circle under Reference Source.
-  Continue the model immediately via
-  `triggerAIMessage` with the original `conversationContext`. On return,
-  `resume_model` only if that continue was skipped and tools already have
-  results with no follow-up assistant.
+  **or session** is inactive, and always clear `messageInToolsCallingIds` in
+  `finally`. Knowledge Base / RAG retrieval uses the same hard-cancel fence
+  (account + clear generation), not `activeTopicId` / `activeId`.
+  Browser-fallback RAG also puts the **assistant** on `chatLoadingIds` for the
+  whole retrieve + model path, so leave `producerAlive` stays true and
+  `InterruptibleLoading` does not collapse the placeholder into a white circle
+  under Reference Source. Continue the model immediately via
+  `triggerAIMessage` with the original `conversationContext` — including when
+  the user switched to another session in the same tab
+  (`shouldResumeModelAfterTools` must not require `activeId === sessionId` for
+  a deferred lane). On return, `resume_model` only if that continue was skipped
+  and tools already have results with no follow-up assistant.
 - Stop with no text still **deletes** the empty row. Topic switch does not
   abort deferred producers, so `onAbort` is Stop / lost fetch, not Leave.
 - Finalize never blanks leftover `LOADING_FLAT` into a white circle. Sync
