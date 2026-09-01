@@ -254,6 +254,30 @@ describe('chat memory actions', () => {
     },
   );
 
+  it('surfaces durable enqueue of a terminal failed compaction as failed', async () => {
+    durableMocks.enabled = true;
+    vi.mocked(tryEnqueueConversationGeneration).mockResolvedValue({
+      attempt: 1,
+      config: { model: 'summary-model', provider: 'summary-provider' },
+      id: 'operation-failed',
+      kind: 'memory_compaction',
+      lane: 'lane-1',
+      laneGeneration: 1,
+      revision: 1,
+      status: 'failed',
+      topicId: TOPIC_ID,
+      userId: 'user-1',
+    });
+    const attach = vi
+      .spyOn(useChatStore.getState(), 'attachConversationGeneration')
+      .mockImplementation(vi.fn());
+
+    const result = await useChatStore.getState().triggerManualMemoryCompaction();
+
+    expect(result).toEqual({ reason: 'durable_enqueue_failed', status: 'failed' });
+    expect(attach).not.toHaveBeenCalled();
+  });
+
   it('enqueues the planned compaction snapshot with version and invalidation guards', async () => {
     durableMocks.enabled = true;
     vi.mocked(tryEnqueueConversationGeneration).mockResolvedValue({

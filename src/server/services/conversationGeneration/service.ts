@@ -5,6 +5,7 @@ import {
   ConversationGenerationEnqueueSchema,
   buildConversationGenerationLane,
   isActiveConversationGenerationStatus,
+  isRetryableTerminalConversationGenerationStatus,
 } from '@lobechat/types';
 import { TRPCError } from '@trpc/server';
 import { sql } from 'drizzle-orm';
@@ -222,13 +223,46 @@ export class ConversationGenerationService {
             message: 'Generation idempotency key was already used for another request.',
           });
         }
-        logGenerationDebugSafe('enqueue_persisted', {
-          idempotentReplay: true,
-          kind: parsed.kind,
-          spanId: parsed.debugSpanId,
-          status: existing.status,
-        });
-        return existing;
+
+        // Failed/interrupted/cancelled memory compaction must not stick the topic:
+        // retire the key and fall through to create a new Graphile job. Keep true
+        // idempotency for pending/processing/cancelling/succeeded.
+        const canRetryCompaction =
+          parsed.kind === 'memory_compaction' &&
+          isRetryableTerminalConversationGenerationStatus(existing.status);
+        if (canRetryCompaction) {
+          const released = await model.releaseIdempotencyKey(existing.id, parsed.idempotencyKey);
+          if (!released) {
+            // Lost a race (another enqueue retired the key or status changed).
+            // Re-read; if still present, replay as before.
+            const raced = await model.findByIdempotencyKey(parsed.idempotencyKey);
+            if (raced) {
+              logGenerationDebugSafe('enqueue_persisted', {
+                idempotentReplay: true,
+                kind: parsed.kind,
+                spanId: parsed.debugSpanId,
+                status: raced.status,
+              });
+              return raced;
+            }
+          } else {
+            logGenerationDebugSafe('enqueue_persisted', {
+              idempotentReplay: false,
+              kind: parsed.kind,
+              reason: 'retry_after_terminal',
+              spanId: parsed.debugSpanId,
+              status: existing.status,
+            });
+          }
+        } else {
+          logGenerationDebugSafe('enqueue_persisted', {
+            idempotentReplay: true,
+            kind: parsed.kind,
+            spanId: parsed.debugSpanId,
+            status: existing.status,
+          });
+          return existing;
+        }
       }
     }
 

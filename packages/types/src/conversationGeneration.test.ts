@@ -5,6 +5,7 @@ import {
   buildConversationGenerationLane,
   getConversationGenerationLaneFamily,
   isActiveConversationGenerationStatus,
+  isRetryableTerminalConversationGenerationStatus,
 } from './conversationGeneration';
 
 describe('buildConversationGenerationLane', () => {
@@ -144,5 +145,19 @@ describe('isActiveConversationGenerationStatus', () => {
     expect(isActiveConversationGenerationStatus('succeeded')).toBe(false);
     expect(isActiveConversationGenerationStatus('cancelled')).toBe(false);
     expect(isActiveConversationGenerationStatus('failed')).toBe(false);
+  });
+});
+
+describe('isRetryableTerminalConversationGenerationStatus', () => {
+  it('allows retry after failed, interrupted, or cancelled', () => {
+    expect(isRetryableTerminalConversationGenerationStatus('failed')).toBe(true);
+    expect(isRetryableTerminalConversationGenerationStatus('interrupted')).toBe(true);
+    expect(isRetryableTerminalConversationGenerationStatus('cancelled')).toBe(true);
+  });
+
+  it('keeps succeeded and in-flight statuses non-retryable for the same key', () => {
+    expect(isRetryableTerminalConversationGenerationStatus('succeeded')).toBe(false);
+    expect(isRetryableTerminalConversationGenerationStatus('pending')).toBe(false);
+    expect(isRetryableTerminalConversationGenerationStatus('processing')).toBe(false);
   });
 });

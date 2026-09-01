@@ -630,6 +630,20 @@ async function runCompactionFromStore(
       return finish('ineligible', { reason: 'stale_request' });
     }
     if (operation) {
+      // Belt-and-suspenders: never treat a terminal failed compact as "enqueued".
+      // Server should retire failed compaction keys and return a new pending op;
+      // if a terminal failure is still returned, surface it honestly.
+      if (
+        operation.status === 'failed' ||
+        operation.status === 'interrupted' ||
+        operation.status === 'cancelled'
+      ) {
+        return finish('failed', { reason: 'durable_enqueue_failed' });
+      }
+      if (operation.status === 'succeeded') {
+        return finish('compacted', { reason: 'idempotent_succeeded' });
+      }
+
       get().attachConversationGeneration({
         clearGeneration: requestedClearFence,
         generation: get().conversationNavigationGeneration,

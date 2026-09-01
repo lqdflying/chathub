@@ -26,6 +26,7 @@ const modelMocks = vi.hoisted(() => ({
   listStaleProcessing: vi.fn(),
   listUncleanedFinished: vi.fn(),
   markPlaceholdersCleaned: vi.fn(),
+  releaseIdempotencyKey: vi.fn(),
   requestCancel: vi.fn(),
   requeueStaleProcessing: vi.fn(),
   update: vi.fn(),
@@ -73,6 +74,7 @@ vi.mock('@/database/models/conversationGeneration', () => ({
     findByIdempotencyKey = bindDbMethod(modelMocks.findByIdempotencyKey);
     findMaxLaneGeneration = bindDbMethod(modelMocks.findMaxLaneGeneration);
     insertEvent = bindDbMethod(modelMocks.insertEvent);
+    releaseIdempotencyKey = bindDbMethod(modelMocks.releaseIdempotencyKey);
     latestEventId = bindDbMethod(modelMocks.latestEventId);
     listEventsAfter = bindDbMethod(modelMocks.listEventsAfter);
     listPendingWithoutJob = bindDbMethod(modelMocks.listPendingWithoutJob);
@@ -611,9 +613,13 @@ describe('ConversationGenerationService.enqueueInTransaction', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     modelMocks.findActiveByLane.mockResolvedValue(undefined);
+    modelMocks.findByIdempotencyKey.mockReset();
     modelMocks.findByIdempotencyKey.mockResolvedValue(undefined);
     modelMocks.findMaxLaneGeneration.mockResolvedValue(0);
     modelMocks.listPendingWithoutJob.mockResolvedValue([]);
+    modelMocks.releaseIdempotencyKey.mockReset();
+    modelMocks.releaseIdempotencyKey.mockResolvedValue(undefined);
+    modelMocks.create.mockReset();
     modelMocks.update.mockImplementation(async (id, value) => ({ id, ...value }));
   });
 
@@ -665,6 +671,96 @@ describe('ConversationGenerationService.enqueueInTransaction', () => {
     ).enqueueInTransaction(db as any, input);
 
     expect(result).toBe(existing);
+    expect(modelMocks.create).not.toHaveBeenCalled();
+  });
+
+  it('retries memory_compaction after a failed idempotent key by retiring the old key', async () => {
+    const compactionInput = {
+      config: {
+        compaction: {
+          candidateMessageIds: ['m1'],
+          expectedFingerprint: 'fp',
+          expectedHistorySummary: '',
+          trigger: 'token_threshold' as const,
+        },
+        model: 'deepseek-v4-flash',
+        provider: 'deepseek',
+      },
+      idempotencyKey: 'compaction:topic-1:fpxxxxxxxx',
+      kind: 'memory_compaction' as const,
+      replaceActive: true,
+      sessionId: 'session-1',
+      topicId: 'topic-1',
+    };
+    const existing = {
+      ...compactionInput,
+      id: 'operation-failed',
+      lane: 'user-1:session:session-1:topic-1:main:memory_compaction',
+      laneGeneration: 1,
+      status: 'failed',
+      userId: 'user-1',
+    };
+    const db = { execute: vi.fn().mockResolvedValue([{ workerJobId: '77' }]) };
+    modelMocks.findByIdempotencyKey.mockResolvedValueOnce(existing).mockResolvedValue(undefined);
+    modelMocks.releaseIdempotencyKey.mockResolvedValue({
+      ...existing,
+      idempotencyKey: `${compactionInput.idempotencyKey}:retired:operation-failed`,
+    });
+    modelMocks.create.mockResolvedValue({
+      ...compactionInput,
+      id: 'operation-retry',
+      lane: existing.lane,
+      laneGeneration: 2,
+      revision: 0,
+      status: 'pending',
+      userId: 'user-1',
+    });
+
+    const result = await new ConversationGenerationService(
+      db as any,
+      'user-1',
+    ).enqueueInTransaction(db as any, compactionInput);
+
+    expect(modelMocks.releaseIdempotencyKey).toHaveBeenCalledWith(
+      'operation-failed',
+      compactionInput.idempotencyKey,
+    );
+    expect(modelMocks.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        idempotencyKey: compactionInput.idempotencyKey,
+        kind: 'memory_compaction',
+      }),
+    );
+    expect(db.execute).toHaveBeenCalled();
+    expect(result).toMatchObject({ id: 'operation-retry' });
+  });
+
+  it('still replays a succeeded memory_compaction for the same key', async () => {
+    const compactionInput = {
+      config: { model: 'deepseek-v4-flash', provider: 'deepseek' },
+      idempotencyKey: 'compaction:topic-1:fpsuccess',
+      kind: 'memory_compaction' as const,
+      sessionId: 'session-1',
+      topicId: 'topic-1',
+    };
+    const existing = {
+      ...compactionInput,
+      id: 'operation-ok',
+      lane: 'user-1:session:session-1:topic-1:main:memory_compaction',
+      laneGeneration: 1,
+      status: 'succeeded',
+      userId: 'user-1',
+    };
+    const db = { execute: vi.fn() };
+    modelMocks.findByIdempotencyKey.mockResolvedValue(existing);
+
+    const result = await new ConversationGenerationService(
+      db as any,
+      'user-1',
+    ).enqueueInTransaction(db as any, compactionInput);
+
+    expect(result).toBe(existing);
+    expect(modelMocks.releaseIdempotencyKey).not.toHaveBeenCalled();
     expect(modelMocks.create).not.toHaveBeenCalled();
   });
 

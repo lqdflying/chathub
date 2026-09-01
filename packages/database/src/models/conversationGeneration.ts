@@ -92,6 +92,33 @@ export class ConversationGenerationModel {
     });
   };
 
+  /**
+   * Retire an idempotency key on a finished operation so a new enqueue can reuse
+   * the original key (unique on userId + idempotencyKey). Used when memory
+   * compaction failed/interrupted/cancelled and must be retryable.
+   */
+  releaseIdempotencyKey = async (id: string, previousKey: string) => {
+    const retiredKey = `${previousKey}:retired:${id}`;
+    const [item] = await this.db
+      .update(conversationGenerationOperations)
+      .set({ idempotencyKey: retiredKey, updatedAt: new Date() })
+      .where(
+        and(
+          eq(conversationGenerationOperations.id, id),
+          eq(conversationGenerationOperations.userId, this.userId),
+          eq(conversationGenerationOperations.idempotencyKey, previousKey),
+          inArray(conversationGenerationOperations.status, [
+            'cancelled',
+            'failed',
+            'interrupted',
+          ]),
+        ),
+      )
+      .returning();
+
+    return item;
+  };
+
   findActiveByLane = async (lane: string) => {
     return this.db.query.conversationGenerationOperations.findFirst({
       orderBy: [

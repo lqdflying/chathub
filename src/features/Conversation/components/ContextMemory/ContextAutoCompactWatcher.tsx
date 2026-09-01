@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import {
   createCompactionFingerprint,
@@ -16,6 +16,8 @@ import { chatSelectors, topicSelectors } from '@/store/chat/selectors';
 import { isGroupSessionContext } from './isGroupSessionContext';
 
 const COMPACTION_DEBOUNCE_MS = 750;
+/** After a failed auto-compact, re-arm once the same high-water state persists. */
+const COMPACTION_FAILED_RETRY_MS = 10_000;
 
 const ContextAutoCompactWatcher = () => {
   const { knowledgeBaseToken, maxTokens, ratio, totalToken } = useEstimatedContextUsage();
@@ -51,6 +53,7 @@ const ContextAutoCompactWatcher = () => {
     };
   });
   const lastAttemptRef = useRef('');
+  const [retryTick, setRetryTick] = useState(0);
 
   useEffect(() => {
     if (!config.enableTokenThresholdAutoCompact) return;
@@ -77,6 +80,9 @@ const ContextAutoCompactWatcher = () => {
     ].join('|');
     if (lastAttemptRef.current === attemptFingerprint) return;
 
+    let cancelled = false;
+    let retryTimer: number | undefined;
+
     const timer = window.setTimeout(() => {
       lastAttemptRef.current = attemptFingerprint;
       void logCompactionWatcherArmed({
@@ -88,11 +94,36 @@ const ContextAutoCompactWatcher = () => {
         topicId: conversation.topicId,
         totalToken,
       });
-      void useChatStore.getState().triggerTokenThresholdMemoryCompaction().catch(console.error);
+      void useChatStore
+        .getState()
+        .triggerTokenThresholdMemoryCompaction()
+        .then((result) => {
+          if (cancelled) return;
+          if (result.status === 'failed' || result.status === 'target_unreachable') {
+            // Allow the same fingerprint to re-arm after backoff (server can
+            // now create a new job after retiring a failed idempotency key).
+            lastAttemptRef.current = '';
+            retryTimer = window.setTimeout(() => {
+              if (!cancelled) setRetryTick((tick) => tick + 1);
+            }, COMPACTION_FAILED_RETRY_MS);
+          }
+        })
+        .catch((error) => {
+          console.error(error);
+          if (cancelled) return;
+          lastAttemptRef.current = '';
+          retryTimer = window.setTimeout(() => {
+            if (!cancelled) setRetryTick((tick) => tick + 1);
+          }, COMPACTION_FAILED_RETRY_MS);
+        });
     }, COMPACTION_DEBOUNCE_MS);
 
-    return () => window.clearTimeout(timer);
-  }, [config, conversation, knowledgeBaseToken, maxTokens, ratio, totalToken]);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
+    };
+  }, [config, conversation, knowledgeBaseToken, maxTokens, ratio, retryTick, totalToken]);
 
   return null;
 };

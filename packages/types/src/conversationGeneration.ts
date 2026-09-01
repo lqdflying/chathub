@@ -322,3 +322,17 @@ export const isActiveConversationGenerationStatus = (
   ConversationGenerationActiveStatuses.includes(
     status as (typeof ConversationGenerationActiveStatuses)[number],
   );
+
+/** Terminal statuses that must not block a new memory_compaction enqueue. */
+export const ConversationGenerationRetryableTerminalStatuses = [
+  'failed',
+  'interrupted',
+  'cancelled',
+] as const satisfies readonly ConversationGenerationStatus[];
+
+export const isRetryableTerminalConversationGenerationStatus = (
+  status: ConversationGenerationStatus | string,
+) =>
+  ConversationGenerationRetryableTerminalStatuses.includes(
+    status as (typeof ConversationGenerationRetryableTerminalStatuses)[number],
+  );
