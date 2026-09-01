@@ -434,7 +434,9 @@ export class MessageModel {
         content: messages.content,
         id: messages.id,
         role: messages.role,
+        sessionId: messages.sessionId,
         threadId: messages.threadId,
+        topicId: messages.topicId,
         updatedAt: messages.updatedAt,
       })
       .from(messages)

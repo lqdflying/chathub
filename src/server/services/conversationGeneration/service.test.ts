@@ -679,7 +679,7 @@ describe('ConversationGenerationService.enqueueInTransaction', () => {
       config: {
         compaction: {
           candidateMessageIds: ['m1'],
-          expectedFingerprint: 'fp',
+          expectedFingerprint: 'a'.repeat(64),
           expectedHistorySummary: '',
           trigger: 'token_threshold' as const,
         },

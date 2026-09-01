@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { buildDeepSeekPayload } from '../../packages/model-runtime/src/providers/deepseek';
 import { buildMimoPayload } from '../../packages/model-runtime/src/providers/mimo';
 import {
+  COMPACTION_FINGERPRINT_HEX_PATTERN,
   CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS,
   CONTEXT_COMPACTION_REASONING_HEADROOM_TOKENS,
   LARGE_CONTEXT_WINDOW_TOKENS,
@@ -22,6 +23,7 @@ import {
   selectMessagesForContext,
   splitCompactionBatches,
 } from './contextCompaction';
+import { conversationGenerationIdempotencyKey } from './conversationGenerationIdempotency';
 
 const message = (id: string, role: UIChatMessage['role']): UIChatMessage =>
   ({ content: id, id, role, updatedAt: 1 }) as UIChatMessage;
@@ -404,5 +406,31 @@ describe('buildSimpleCompletionSampling', () => {
     });
     expect('b2').toHaveLength(message('a2', 'assistant').content.length);
     expect(after).not.toBe(before);
+    expect(after).toMatch(COMPACTION_FINGERPRINT_HEX_PATTERN);
+    expect(before).toMatch(COMPACTION_FINGERPRINT_HEX_PATTERN);
+  });
+
+  it('hashes large candidate text to a fixed digest that does not contain the source', () => {
+    const secret = 'SECRET-PATIENT-NAME';
+    const huge = `${secret}${'x'.repeat(1_000_000 - secret.length)}`;
+    const digest = createCompactionFingerprint({
+      cursorId: 'a1',
+      messages: [{ content: huge, id: 'a2', role: 'assistant' }],
+      summary: 'existing',
+    });
+    expect(digest).toHaveLength(64);
+    expect(digest).toMatch(COMPACTION_FINGERPRINT_HEX_PATTERN);
+    expect(digest).not.toContain(secret);
+    expect(
+      createCompactionFingerprint({
+        cursorId: 'a1',
+        messages: [{ content: huge, id: 'a2', role: 'assistant' }],
+        summary: 'existing',
+      }),
+    ).toBe(digest);
+
+    const key = conversationGenerationIdempotencyKey('compaction', 'topic-1', digest);
+    expect(key).not.toContain(secret);
+    expect(key.length).toBeLessThanOrEqual(180);
   });
 });

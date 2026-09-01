@@ -1,7 +1,9 @@
+import type { LobeChatDatabase } from '@lobechat/database';
 import { BatchTaskResult, UIChatMessage, UpdateMessageRAGParamsSchema } from '@lobechat/types';
 import { z } from 'zod';
 
 import { MessageModel } from '@/database/models/message';
+import { TopicModel } from '@/database/models/topic';
 import { updateMessagePluginSchema } from '@/database/schemas';
 import { getServerDB } from '@/database/server';
 import { authedProcedure, publicProcedure, router } from '@/libs/trpc/lambda';
@@ -12,8 +14,30 @@ import {
   withConversationWriteLockOrThrow,
 } from '@/server/services/conversationWriteLock';
 import { FileService } from '@/server/services/file';
+import { invalidateCompactionIfMutatedPrefix } from '@/server/services/memoryCompactionInvalidate';
 
 type ChatMessageList = UIChatMessage[];
+
+const withCompactionPrefixInvalidation = async <Result>(
+  ctx: { serverDB: LobeChatDatabase; userId: string },
+  messageIds: string[],
+  mutate: (messageModel: MessageModel) => Promise<Result>,
+) => {
+  if (messageIds.length === 0) {
+    return mutate(new MessageModel(ctx.serverDB, ctx.userId));
+  }
+
+  return ctx.serverDB.transaction(async (transaction) => {
+    const messageModel = new MessageModel(transaction, ctx.userId);
+    const topicModel = new TopicModel(transaction, ctx.userId);
+    await invalidateCompactionIfMutatedPrefix({
+      messageIds,
+      messageModel,
+      topicModel,
+    });
+    return mutate(messageModel);
+  });
+};
 
 const messageProcedure = authedProcedure.use(serverDatabase).use(async (opts) => {
   const { ctx } = opts;
@@ -192,7 +216,9 @@ export const messageRouter = router({
   removeMessage: messageProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ input, ctx }) => {
-      return ctx.messageModel.deleteMessage(input.id);
+      return withCompactionPrefixInvalidation(ctx, [input.id], (messageModel) =>
+        messageModel.deleteMessage(input.id),
+      );
     }),
 
   removeMessageQuery: messageProcedure
@@ -204,7 +230,9 @@ export const messageRouter = router({
   removeMessages: messageProcedure
     .input(z.object({ ids: z.array(z.string()) }))
     .mutation(async ({ input, ctx }) => {
-      return ctx.messageModel.deleteMessages(input.ids);
+      return withCompactionPrefixInvalidation(ctx, input.ids, (messageModel) =>
+        messageModel.deleteMessages(input.ids),
+      );
     }),
 
   removeMessagesByAssistant: messageProcedure
@@ -237,7 +265,9 @@ export const messageRouter = router({
   rewindMessages: messageProcedure
     .input(z.object({ ids: z.array(z.string()) }))
     .mutation(async ({ input, ctx }) => {
-      return ctx.messageModel.rewindMessages(input.ids);
+      return withCompactionPrefixInvalidation(ctx, input.ids, (messageModel) =>
+        messageModel.rewindMessages(input.ids),
+      );
     }),
 
   searchMessages: messageProcedure
@@ -254,7 +284,13 @@ export const messageRouter = router({
       }),
     )
     .mutation(async ({ input, ctx }) => {
-      return ctx.messageModel.update(input.id, input.value);
+      if (!Object.hasOwn(input.value, 'content')) {
+        return ctx.messageModel.update(input.id, input.value);
+      }
+
+      return withCompactionPrefixInvalidation(ctx, [input.id], (messageModel) =>
+        messageModel.update(input.id, input.value),
+      );
     }),
 
   updateMessagePlugin: messageProcedure

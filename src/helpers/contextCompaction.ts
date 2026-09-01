@@ -6,6 +6,7 @@ import {
   resolveGPT5ReasoningEffort,
   type UIChatMessage,
 } from '@lobechat/types';
+import { sha256 } from 'js-sha256';
 import { LOBE_DEFAULT_MODEL_LIST, ModelProvider } from 'model-bank';
 
 /** Models at or above this window may expand past configured historyCount when budget remains. */
@@ -609,7 +610,9 @@ export const splitCompactionBatches = (
   return splitCompactionBatchesByMessageCount(messages, maxMessages);
 };
 
-export const createCompactionFingerprint = ({
+export const COMPACTION_FINGERPRINT_HEX_PATTERN = /^[\da-f]{64}$/;
+
+const compactionFingerprintPreimage = ({
   cursorId,
   messages,
   summary,
@@ -623,3 +626,13 @@ export const createCompactionFingerprint = ({
     summary ?? '',
     ...messages.map(({ content, id, role }) => `${id}:${role}:${content ?? ''}`),
   ].join('\u001F');
+
+export const createCompactionFingerprint = ({
+  cursorId,
+  messages,
+  summary,
+}: {
+  cursorId?: string;
+  messages: Array<Pick<UIChatMessage, 'content' | 'id' | 'role'>>;
+  summary?: string;
+}) => sha256(compactionFingerprintPreimage({ cursorId, messages, summary }));

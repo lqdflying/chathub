@@ -1362,6 +1362,77 @@ describe('chat memory actions', () => {
     });
   });
 
+  it('does not apply a delayed merge watermark over a newer same-generation marker', async () => {
+    let releaseMerge: (() => void) | undefined;
+    const mergeGate = new Promise<void>((resolve) => {
+      releaseMerge = resolve;
+    });
+    vi.mocked(topicService.mergeReportedInputTokenFloorWatermark).mockImplementation(async () => {
+      await mergeGate;
+      return {
+        historySummary: 'existing summary',
+        historySummaryLastMessageId: 'a1',
+        reportedInputTokenFloorAfterMessageId: 'a3',
+        updated: true,
+      };
+    });
+
+    setConversation({
+      topicMaps: {
+        [SESSION_ID]: [
+          {
+            createdAt: 1,
+            historySummary: 'existing summary',
+            id: TOPIC_ID,
+            metadata: {
+              historySummaryLastMessageId: 'a1',
+              memoryArchives: [{ at: 1, summaryExcerpt: 'existing summary', trigger: 'manual' }],
+              memoryDebugLog: [{ at: 1, status: 'compacted', trigger: 'manual' }],
+              reportedInputTokenFloorAfterMessageId: 'a3',
+            },
+            title: 'Topic',
+            updatedAt: 1,
+          },
+        ],
+      },
+    });
+
+    const ensurePromise = useChatStore.getState().internal_ensureReportedInputTokenFloorWatermark();
+    await vi.waitFor(() => {
+      expect(topicService.mergeReportedInputTokenFloorWatermark).toHaveBeenCalled();
+    });
+
+    useChatStore.getState().internal_dispatchTopic(
+      {
+        id: TOPIC_ID,
+        type: 'updateTopic',
+        value: {
+          historySummary: 'existing summary',
+          metadata: {
+            historySummaryLastMessageId: 'a1',
+            memoryArchives: [{ at: 1, summaryExcerpt: 'existing summary', trigger: 'manual' }],
+            memoryDebugLog: [{ at: 1, status: 'compacted', trigger: 'manual' }],
+            reportedInputTokenFloorAfterMessageId: 'u3',
+          },
+        },
+      },
+      'newerWatermarkRefresh',
+    );
+
+    releaseMerge?.();
+    await ensurePromise;
+
+    expect(topicSelectors.currentActiveTopic(useChatStore.getState())).toMatchObject({
+      historySummary: 'existing summary',
+      metadata: expect.objectContaining({
+        historySummaryLastMessageId: 'a1',
+        memoryArchives: [{ at: 1, summaryExcerpt: 'existing summary', trigger: 'manual' }],
+        memoryDebugLog: [{ at: 1, status: 'compacted', trigger: 'manual' }],
+        reportedInputTokenFloorAfterMessageId: 'u3',
+      }),
+    });
+  });
+
   it('keeps the cursor as the floor watermark after deleting the sole post-cursor row', async () => {
     setConversation({
       messagesMap: {

@@ -23,7 +23,7 @@ describe('buildConversationCompactionMetadata', () => {
         candidateMessageIds: ['message-1', 'message-42'],
         enableUserMemoryArchive: true,
         estimatedTokensBefore: 9000,
-        expectedFingerprint: 'fingerprint',
+        expectedFingerprint: 'a'.repeat(64),
         expectedHistorySummary: 'previous',
         highWatermark: 0.8,
         lowWatermark: 0.6,
@@ -65,7 +65,7 @@ describe('buildConversationCompactionMetadata', () => {
       plan: {
         candidateMessageIds: ['message-1', 'message-2'],
         enableUserMemoryArchive: true,
-        expectedFingerprint: 'fingerprint',
+        expectedFingerprint: 'a'.repeat(64),
         expectedHistorySummary: '',
         trigger: 'manual',
       },
@@ -87,7 +87,7 @@ describe('buildConversationCompactionMetadata', () => {
       plan: {
         candidateMessageIds: ['u1', 'a1'],
         enableUserMemoryArchive: false,
-        expectedFingerprint: 'fingerprint',
+        expectedFingerprint: 'a'.repeat(64),
         expectedHistorySummary: '',
         trigger: 'manual',
       },
@@ -116,7 +116,7 @@ describe('buildConversationCompactionMetadata', () => {
       plan: {
         candidateMessageIds: ['u1', 'a1'],
         enableUserMemoryArchive: false,
-        expectedFingerprint: 'fingerprint',
+        expectedFingerprint: 'a'.repeat(64),
         expectedHistorySummary: '',
         trigger: 'manual',
       },
@@ -146,7 +146,7 @@ describe('buildConversationCompactionMetadata', () => {
       plan: {
         candidateMessageIds: ['u1', 'a1'],
         enableUserMemoryArchive: false,
-        expectedFingerprint: 'fingerprint',
+        expectedFingerprint: 'a'.repeat(64),
         expectedHistorySummary: '',
         trigger: 'manual',
       },

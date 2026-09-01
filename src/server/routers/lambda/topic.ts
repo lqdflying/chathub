@@ -199,7 +199,10 @@ export const topicRouter = router({
         candidateMessageIds: z.array(z.string()),
         compactedThroughMessageId: z.string(),
         expectedCursorId: z.string().optional(),
-        expectedFingerprint: z.string(),
+        expectedFingerprint: z
+          .string()
+          .length(64)
+          .regex(/^[\da-f]{64}$/),
         expectedHistorySummary: z.string(),
         historySummary: z.string(),
         id: z.string(),

@@ -98,7 +98,7 @@ describe('ConversationGenerationConfigSchema', () => {
       ConversationGenerationConfigSchema.parse({
         compaction: {
           candidateMessageIds: ['message-1', 'message-2'],
-          expectedFingerprint: 'fingerprint',
+          expectedFingerprint: 'a'.repeat(64),
           expectedHistorySummary: 'existing summary',
           summarizerContextWindow: 8192,
           trigger: 'scheduled',
@@ -122,7 +122,7 @@ describe('ConversationGenerationConfigSchema', () => {
       ConversationGenerationConfigSchema.parse({
         compaction: {
           candidateMessageIds: ['message-1'],
-          expectedFingerprint: 'fingerprint',
+          expectedFingerprint: 'a'.repeat(64),
           expectedHistorySummary: '',
           summarizerContextWindow: 0,
           trigger: 'manual',

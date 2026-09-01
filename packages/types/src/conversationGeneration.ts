@@ -205,7 +205,10 @@ export const ConversationGenerationConfigSchema = z.object({
       enableUserMemoryArchive: z.boolean().optional(),
       estimatedTokensBefore: z.number().optional(),
       expectedCursorId: z.string().optional(),
-      expectedFingerprint: z.string().min(1),
+      expectedFingerprint: z
+        .string()
+        .length(64)
+        .regex(/^[\da-f]{64}$/),
       expectedHistorySummary: z.string(),
       highWatermark: z.number().optional(),
       lowWatermark: z.number().optional(),

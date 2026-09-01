@@ -1030,6 +1030,7 @@ const persistReportedInputTokenFloorWatermark = async (get: () => ChatStore) => 
     const latestState = get();
     if (latestState.activeId !== sessionId || latestState.activeTopicId !== topicId) return;
 
+    const requestedWatermark = storedAfterMessageId;
     const result = await topicService.mergeReportedInputTokenFloorWatermark(topicId);
     const latestTopic = topicSelectors.currentActiveTopic(get());
     if (
@@ -1040,7 +1041,9 @@ const persistReportedInputTokenFloorWatermark = async (get: () => ChatStore) => 
       get().activeTopicId !== topicId ||
       (latestTopic.historySummary || '') !== (result.historySummary || '') ||
       (latestTopic.metadata?.historySummaryLastMessageId || undefined) !==
-        (result.historySummaryLastMessageId || undefined)
+        (result.historySummaryLastMessageId || undefined) ||
+      (latestTopic.metadata?.reportedInputTokenFloorAfterMessageId || undefined) !==
+        (requestedWatermark || undefined)
     ) {
       return;
     }
