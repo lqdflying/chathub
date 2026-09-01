@@ -34,7 +34,12 @@ describe('cross-session deferred tool continuation agent binding', () => {
         activeId: 'session-b',
         agentMap: {
           'session-a': {
-            chatConfig: { enableHistoryCount: true, searchMode: 'off' },
+            chatConfig: {
+              enableCompressHistory: true,
+              enableHistoryCount: true,
+              enableUserMemoryArchive: true,
+              searchMode: 'off',
+            },
             model: 'kimi-k2.7-code',
             params: {},
             plugins: [],
@@ -42,7 +47,12 @@ describe('cross-session deferred tool continuation agent binding', () => {
             systemRole: 'session A role',
           },
           'session-b': {
-            chatConfig: { enableHistoryCount: true, searchMode: 'off' },
+            chatConfig: {
+              enableCompressHistory: true,
+              enableHistoryCount: true,
+              enableUserMemoryArchive: true,
+              searchMode: 'off',
+            },
             model: 'mimo-v2.5-pro',
             params: {},
             plugins: [],
@@ -117,6 +127,44 @@ describe('cross-session deferred tool continuation agent binding', () => {
         ] as UIChatMessage[],
         [messageMapKey('session-b', 'topic-b')]: [],
       },
+      // Summary/archives live only under session A; getTopicById would miss them
+      // while activeId is session B.
+      topicMaps: {
+        'session-a': [
+          {
+            historySummary: 'Session A compacted summary',
+            id: 'topic-a',
+            metadata: {
+              historySummaryLastMessageId: 'cursor-msg-a',
+              memoryArchives: [
+                {
+                  at: Date.parse('2026-09-01T00:00:00.000Z'),
+                  id: 'arch-a',
+                  summaryExcerpt: 'Archive A only',
+                },
+              ],
+            },
+            title: 'Topic A',
+          } as any,
+        ],
+        'session-b': [
+          {
+            historySummary: 'WRONG Session B summary',
+            id: 'topic-b',
+            metadata: {
+              historySummaryLastMessageId: 'cursor-msg-b',
+              memoryArchives: [
+                {
+                  at: Date.parse('2026-09-01T00:00:00.000Z'),
+                  id: 'arch-b',
+                  summaryExcerpt: 'Archive B wrong',
+                },
+              ],
+            },
+            title: 'Topic B',
+          } as any,
+        ],
+      },
       refreshMessages: vi.fn(),
     });
 
@@ -133,6 +181,8 @@ describe('cross-session deferred tool continuation agent binding', () => {
 
     expect(enqueueSpy).toHaveBeenCalled();
     const enqueueConfig = enqueueSpy.mock.calls[0]?.[0]?.config as {
+      historySummary?: string;
+      historySummaryLastMessageId?: string;
       model?: string;
       provider?: string;
       systemRole?: string;
@@ -141,12 +191,20 @@ describe('cross-session deferred tool continuation agent binding', () => {
     expect(enqueueConfig.provider).toBe('moonshot');
     expect(enqueueConfig.systemRole).toBe('session A role');
     expect(enqueueConfig.model).not.toBe('mimo-v2.5-pro');
+    expect(enqueueConfig.historySummary).toContain('Session A compacted summary');
+    expect(enqueueConfig.historySummary).toContain('Archive A only');
+    expect(enqueueConfig.historySummary).not.toContain('WRONG Session B summary');
+    expect(enqueueConfig.historySummaryLastMessageId).toBe('cursor-msg-a');
 
     expect(streamSpy).toHaveBeenCalled();
     const streamArgs = streamSpy.mock.calls[0]?.[0] as {
+      historySummary?: string;
       params?: { model?: string; provider?: string };
     };
     expect(streamArgs.params?.model).toBe('kimi-k2.7-code');
     expect(streamArgs.params?.provider).toBe('moonshot');
+    expect(streamArgs.historySummary).toContain('Session A compacted summary');
+    expect(streamArgs.historySummary).toContain('Archive A only');
+    expect(streamArgs.historySummary).not.toContain('WRONG Session B summary');
   });
 });

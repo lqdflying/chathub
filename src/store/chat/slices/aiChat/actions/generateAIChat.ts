@@ -517,8 +517,13 @@ export const generateAIChat: StateCreator<
     const agentConfig = agentRuntime.agentConfig;
     const chatConfig = agentRuntime.chatConfig;
     const { model, provider } = agentConfig;
+    // Topic maps are per session container — never search activeId's map for an
+    // off-screen conversation's historySummary / archives / cursor.
     const activeTopic = conversationContext.topicId
-      ? topicSelectors.getTopicById(conversationContext.topicId)(get())
+      ? topicSelectors.getTopicInContainer(
+          conversationContext.sessionId,
+          conversationContext.topicId,
+        )(get())
       : undefined;
     const isRegularTopicRequest =
       !!conversationContext.topicId &&
@@ -1104,7 +1109,10 @@ export const generateAIChat: StateCreator<
     const uploadTasks: Map<string, Promise<{ id?: string; url?: string }>> = new Map();
 
     const activeTopic = conversationContext.topicId
-      ? topicSelectors.getTopicById(conversationContext.topicId)(get())
+      ? topicSelectors.getTopicInContainer(
+          conversationContext.sessionId,
+          conversationContext.topicId,
+        )(get())
       : undefined;
     const isRegularTopicRequest =
       !!conversationContext.topicId &&
