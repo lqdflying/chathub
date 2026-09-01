@@ -819,8 +819,12 @@ Product contract for deferred browser turns:
   `triggerAIMessage` with the original `conversationContext` — including when
   the user switched to another session in the same tab
   (`shouldResumeModelAfterTools` must not require `activeId === sessionId` for
-  a deferred lane). On return, `resume_model` only if that continue was skipped
-  and tools already have results with no follow-up assistant.
+  a deferred lane). Resolve model/provider/systemRole/chatConfig/knowledge from
+  `resolveConversationAgentRuntime(conversationContext.sessionId)`, never from
+  `agentSelectors.currentAgentConfig` / `activeId`, so session A's transcript is
+  not sent through session B's provider. On return, `resume_model` only if that
+  continue was skipped and tools already have results with no follow-up
+  assistant.
 - Stop with no text still **deletes** the empty row. Topic switch does not
   abort deferred producers, so `onAbort` is Stop / lost fetch, not Leave.
 - Finalize never blanks leftover `LOADING_FLAT` into a white circle. Sync

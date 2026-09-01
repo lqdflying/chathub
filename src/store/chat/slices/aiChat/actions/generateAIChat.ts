@@ -69,6 +69,7 @@ import {
   createKnowledgeBaseSummary,
   getKnowledgeDiagnosticIdFromError,
 } from '@/store/chat/helpers/knowledgeBaseContext';
+import { resolveConversationAgentRuntime } from '@/store/chat/helpers/resolveConversationAgentRuntime';
 import { ChatStore } from '@/store/chat/store';
 import type { ConversationContext } from '@/store/chat/types';
 import { preventLeavingFn, toggleBooleanList } from '@/store/chat/utils';
@@ -509,16 +510,19 @@ export const generateAIChat: StateCreator<
     // create a new array to avoid the original messages array change
     const messages = [...originalMessages];
 
-    const agentStoreState = getAgentStoreState();
-    const agentConfig = agentSelectors.currentAgentConfig(agentStoreState);
-    const chatConfig = agentChatConfigSelectors.currentChatConfig(agentStoreState);
+    // Always bind config to the conversation session — not the visible activeId —
+    // so deferred tool → model continue after session leave keeps the original
+    // model/provider/system/memory/chat settings (privacy + correctness).
+    const agentRuntime = resolveConversationAgentRuntime(conversationContext.sessionId);
+    const agentConfig = agentRuntime.agentConfig;
+    const chatConfig = agentRuntime.chatConfig;
     const { model, provider } = agentConfig;
     const activeTopic = conversationContext.topicId
       ? topicSelectors.getTopicById(conversationContext.topicId)(get())
       : undefined;
     const isRegularTopicRequest =
       !!conversationContext.topicId &&
-      get().activeSessionType !== 'group' &&
+      !agentRuntime.isGroupSession &&
       !params?.threadId &&
       !params?.inPortalThread &&
       !params?.groupId &&
@@ -526,7 +530,7 @@ export const generateAIChat: StateCreator<
       !messages.some(({ groupId }) => !!groupId);
     const enableHistoryCompaction =
       isRegularTopicRequest &&
-      !!chatConfig.enableHistoryCount &&
+      agentRuntime.enableHistoryCount &&
       !!chatConfig.enableCompressHistory;
     const historySummary = buildHistorySummaryForRequest({
       archives: activeTopic?.metadata?.memoryArchives,
@@ -566,7 +570,7 @@ export const generateAIChat: StateCreator<
             chatConfig,
             enableMemoryTool:
               chatConfig.enableAssistantMemory !== false &&
-              get().activeSessionType !== 'group' &&
+              !agentRuntime.isGroupSession &&
               !params?.groupId &&
               !params?.agentId &&
               !messages.some(({ groupId }) => !!groupId),
@@ -579,7 +583,7 @@ export const generateAIChat: StateCreator<
             isWelcomeQuestion: params?.isWelcomeQuestion,
             locale: globalHelpers.getCurrentLanguage(),
             ragQuery: params?.ragQuery,
-            systemRole: agentSelectors.currentAgentSystemRole(agentStoreState),
+            systemRole: agentRuntime.systemRole,
           }),
           conversationVersion: expectedConversationVersion,
           expectedConversationVersion,
@@ -678,7 +682,7 @@ export const generateAIChat: StateCreator<
           chunks,
           userQuery: lastMsg.content,
           rewriteQuery,
-          knowledge: agentSelectors.currentEnabledKnowledge(agentStoreState),
+          knowledge: agentRuntime.enabledKnowledge,
         });
 
         // 3. add the retrieve context messages to the messages history
@@ -806,7 +810,7 @@ export const generateAIChat: StateCreator<
       model,
       provider!,
     )(aiInfraStoreState);
-    const useModelBuiltinSearch = agentChatConfigSelectors.useModelBuiltinSearch(agentStoreState);
+    const useModelBuiltinSearch = !!chatConfig.useModelBuiltinSearch;
     const providerBaseURL = aiProviderSelectors.providerKeyVaults(provider!)(
       aiInfraStoreState,
     )?.baseURL;
@@ -821,10 +825,11 @@ export const generateAIChat: StateCreator<
       ? false
       : ((isProviderHasBuiltinSearch || isModelHasBuiltinSearch) && useModelBuiltinSearch) ||
         isModelBuiltinSearchInternal;
-    const isAgentEnableSearch = agentChatConfigSelectors.isAgentEnableSearch(agentStoreState);
+    const isAgentEnableSearch = (chatConfig.searchMode || 'off') !== 'off';
 
     if (isAgentEnableSearch && !useModelSearch && !isModelSupportToolUse) {
-      const { model, provider } = agentChatConfigSelectors.searchFCModel(agentStoreState);
+      const { model, provider } = chatConfig.searchFCModel ||
+        agentChatConfigSelectors.searchFCModel(getAgentStoreState());
 
       let isToolsCalling = false;
       let isError = false;
@@ -1059,13 +1064,19 @@ export const generateAIChat: StateCreator<
       conversationContext,
     );
 
-    const agentStoreState = getAgentStoreState();
-    const agentConfig = params?.agentConfig || agentSelectors.currentAgentConfig(agentStoreState);
-    // Use the target agent's own chat config for member/agent-scoped requests instead of
-    // leaking the host session's config (mirrors currentChatConfig's raw `|| {}` shape).
+    const agentRuntime = resolveConversationAgentRuntime(conversationContext.sessionId);
+    // Member/agent-scoped requests pass their own config; otherwise use the
+    // conversation session (not the visible activeId).
+    const agentConfig = params?.agentConfig || agentRuntime.agentConfig;
     const chatConfig = params?.agentConfig
       ? params.agentConfig.chatConfig || {}
-      : agentChatConfigSelectors.currentChatConfig(agentStoreState);
+      : agentRuntime.chatConfig;
+    const isGroupSession = params?.agentConfig
+      ? get().activeSessionType === 'group'
+      : agentRuntime.isGroupSession;
+    const enableHistoryCountForRequest = params?.agentConfig
+      ? agentChatConfigSelectors.enableHistoryCount(getAgentStoreState())
+      : agentRuntime.enableHistoryCount;
 
     // ================================== //
     //   messages uniformly preprocess    //
@@ -1097,7 +1108,7 @@ export const generateAIChat: StateCreator<
       : undefined;
     const isRegularTopicRequest =
       !!conversationContext.topicId &&
-      get().activeSessionType !== 'group' &&
+      !isGroupSession &&
       !params?.threadId &&
       !params?.inPortalThread &&
       !params?.groupId &&
@@ -1105,7 +1116,7 @@ export const generateAIChat: StateCreator<
       !messages.some(({ groupId }) => !!groupId);
     const enableHistoryCompaction =
       isRegularTopicRequest &&
-      !!agentChatConfigSelectors.enableHistoryCount(agentStoreState) &&
+      enableHistoryCountForRequest &&
       !!chatConfig.enableCompressHistory;
     const historySummaryForRequest = buildHistorySummaryForRequest({
       archives: activeTopic?.metadata?.memoryArchives,
@@ -1129,11 +1140,11 @@ export const generateAIChat: StateCreator<
           activeTopic?.metadata?.historySummaryLastMessageId,
         )
       : messages;
-    // the implicit save-memory tool writes to the ACTIVE session's agent, so it is
-    // offered only for that agent's own sends (never group/member requests)
+    // the implicit save-memory tool writes to the conversation session's agent;
+    // never offer it for group/member requests
     const enableMemoryTool =
       chatConfig.enableAssistantMemory !== false &&
-      get().activeSessionType !== 'group' &&
+      !isGroupSession &&
       !params?.groupId &&
       !params?.agentId &&
       !messages.some(({ groupId }) => !!groupId);

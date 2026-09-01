@@ -60,6 +60,7 @@ import {
   createKnowledgeBaseSummary,
   getKnowledgeDiagnosticIdFromError,
 } from '@/store/chat/helpers/knowledgeBaseContext';
+import { resolveConversationAgentRuntime } from '@/store/chat/helpers/resolveConversationAgentRuntime';
 import { MainSendMessageOperation } from '@/store/chat/slices/aiChat/initialState';
 import type { ChatStore } from '@/store/chat/store';
 import type { ConversationContext } from '@/store/chat/types';
@@ -1480,8 +1481,8 @@ export const generateAIChatV2: StateCreator<
     // create a new array to avoid the original messages array change
     const messages = [...originalMessages];
 
-    const agentStoreState = getAgentStoreState();
-    const { model, provider } = agentSelectors.currentAgentConfig(agentStoreState);
+    const agentRuntime = resolveConversationAgentRuntime(conversationContext.sessionId);
+    const { model, provider } = agentRuntime.agentConfig;
 
     let fileChunks: MessageSemanticSearchChunk[] | undefined;
     let ragQueryId;
@@ -1537,7 +1538,7 @@ export const generateAIChatV2: StateCreator<
             chunks,
             userQuery: lastMsg.content,
             rewriteQuery,
-            knowledge: agentSelectors.currentEnabledKnowledge(agentStoreState),
+            knowledge: agentRuntime.enabledKnowledge,
           });
 
           // 3. add the retrieve context messages to the messages history
@@ -1651,7 +1652,7 @@ export const generateAIChatV2: StateCreator<
         model,
         provider!,
       )(aiInfraStoreState);
-      const useModelBuiltinSearch = agentChatConfigSelectors.useModelBuiltinSearch(agentStoreState);
+      const useModelBuiltinSearch = !!agentRuntime.chatConfig.useModelBuiltinSearch;
       const providerBaseURL = aiProviderSelectors.providerKeyVaults(provider!)(
         aiInfraStoreState,
       )?.baseURL;
@@ -1666,10 +1667,12 @@ export const generateAIChatV2: StateCreator<
         ? false
         : ((isProviderHasBuiltinSearch || isModelHasBuiltinSearch) && useModelBuiltinSearch) ||
           isModelBuiltinSearchInternal;
-      const isAgentEnableSearch = agentChatConfigSelectors.isAgentEnableSearch(agentStoreState);
+      const isAgentEnableSearch = (agentRuntime.chatConfig.searchMode || 'off') !== 'off';
 
       if (isAgentEnableSearch && !useModelSearch && !isModelSupportToolUse) {
-        const { model, provider } = agentChatConfigSelectors.searchFCModel(agentStoreState);
+        const { model, provider } =
+          agentRuntime.chatConfig.searchFCModel ||
+          agentChatConfigSelectors.searchFCModel(getAgentStoreState());
 
         let isToolsCalling = false;
         let isError = false;
