@@ -37,6 +37,7 @@ import { UserModel } from '@/database/models/user';
 import { idGenerator } from '@/database/utils/idGenerator';
 import {
   CONTEXT_COMPACTION_MAX_BATCH_MESSAGES,
+  buildOversizedCompactionTurnStub,
   buildSimpleCompletionSampling,
   createCompactionFingerprint,
   estimateCompactionPromptTokens,
@@ -1844,10 +1845,10 @@ const executeCompaction = async (
       summaryMaxTokens,
     );
     if (estimatedTokens > summarizerBudget) {
-      throw new CompactionPromptTooLargeError({
-        budgetTokens: summarizerBudget,
-        estimatedTokens,
-      });
+      // Soft-skip oversized complete turns so the cursor can advance past
+      // tool/code dumps that will never fit History Compress.
+      historySummary = buildOversizedCompactionTurnStub(batch, historySummary || undefined);
+      continue;
     }
     const { content, reasoningChars } = await runSimpleCompletion(
       db,

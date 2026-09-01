@@ -7,6 +7,7 @@ import {
   CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS,
   CONTEXT_COMPACTION_REASONING_HEADROOM_TOKENS,
   LARGE_CONTEXT_WINDOW_TOKENS,
+  buildOversizedCompactionTurnStub,
   buildSimpleCompletionSampling,
   estimateCompactionPromptTokens,
   getCompactionSummarizerInputBudget,
@@ -166,6 +167,22 @@ describe('context compaction helpers', () => {
     for (const batch of batches) {
       expect(batch.at(-1)?.role).not.toBe('user');
     }
+  });
+
+  it('builds a bounded oversized-turn stub without message content', () => {
+    const stub = buildOversizedCompactionTurnStub(
+      [
+        { content: 'SECRET_PAYLOAD', id: 'u0', role: 'user', updatedAt: 1 } as UIChatMessage,
+        { content: 'TOOL_DUMP', id: 'a0', role: 'assistant', updatedAt: 1 } as UIChatMessage,
+      ],
+      'Prior summary',
+    );
+    expect(stub).toContain('Prior summary');
+    expect(stub).toContain('oversized message');
+    expect(stub).toContain('1 user');
+    expect(stub).toContain('1 assistant');
+    expect(stub).not.toContain('SECRET_PAYLOAD');
+    expect(stub).not.toContain('TOOL_DUMP');
   });
 
   it('rejects non-positive or non-integer summarizer windows', () => {

@@ -10,8 +10,11 @@ import { StateCreator } from 'zustand/vanilla';
 
 import {
   CONTEXT_COMPACTION_MAX_BATCH_MESSAGES,
+  buildOversizedCompactionTurnStub,
   buildSimpleCompletionSampling,
   createCompactionFingerprint,
+  estimateCompactionPromptTokens,
+  getCompactionSummarizerInputBudget,
   getContextCompactionWatermarks,
   getMessagesAfterHistorySummaryCursor,
   getSettledCompactionPrefixes,
@@ -661,9 +664,23 @@ async function runCompactionFromStore(
     }
   }
 
+  const summarizerBudget = getCompactionSummarizerInputBudget(
+    summarizerWindow ?? 0,
+    summaryMaxTokens,
+  );
+
   for (const batch of processedBatches) {
     if (abortController?.signal.aborted) {
       return finish('ineligible', { reason: 'aborted' });
+    }
+    const estimatedTokens = estimateCompactionPromptTokens(
+      batch,
+      historySummary || undefined,
+      summaryMaxTokens,
+    );
+    if (summarizerWindow && estimatedTokens > summarizerBudget) {
+      historySummary = buildOversizedCompactionTurnStub(batch, historySummary || undefined);
+      continue;
     }
     const nextSummary = await summarizeBatch({
       abortController,

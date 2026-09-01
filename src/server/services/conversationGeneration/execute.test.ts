@@ -50,6 +50,7 @@ const messageMocks = vi.hoisted(() => ({
   create: vi.fn(),
   findById: vi.fn(),
   findToolMessageByCall: vi.fn(),
+  query: vi.fn(),
   update: vi.fn(),
   updateMetadata: vi.fn(),
   updateTranslate: vi.fn(),
@@ -144,6 +145,7 @@ vi.mock('@/database/models/message', () => ({
     create = messageMocks.create;
     findById = messageMocks.findById;
     findToolMessageByCall = messageMocks.findToolMessageByCall;
+    query = messageMocks.query;
     update = messageMocks.update;
     updateMetadata = messageMocks.updateMetadata;
     updateTranslate = messageMocks.updateTranslate;
@@ -2521,7 +2523,7 @@ describe('executeConversationGeneration memory compaction', () => {
     );
   });
 
-  it('uses the snapshot summarizer window for a custom 8k History Compress model', async () => {
+  it('soft-stubs oversized turns using the snapshot summarizer window instead of failing the job', async () => {
     const candidateMessages = [
       { content: '汉'.repeat(20_000), id: 'u1', role: 'user', updatedAt: 1 },
       { content: '汉'.repeat(20_000), id: 'a1', role: 'assistant', updatedAt: 1 },
@@ -2558,19 +2560,34 @@ describe('executeConversationGeneration memory compaction', () => {
       messages: candidateMessages,
       topics: [],
     });
+    topicMocks.findById.mockResolvedValue({
+      historySummary: expectedHistorySummary,
+      id: 'topic-1',
+      metadata: {},
+    });
+    messageMocks.query.mockResolvedValue(candidateMessages);
+    topicMocks.update.mockResolvedValue({ id: 'topic-1' });
+    vi.mocked(withConversationWriteLockOrThrow).mockImplementation(async (_db, _userId, work) =>
+      work({} as any),
+    );
 
     await runOperation(row);
 
-    const budget = getCompactionSummarizerInputBudget(8192, 600);
     expect(runtimeMocks.chat).not.toHaveBeenCalled();
     expect(modelMocks.markForRetry).not.toHaveBeenCalled();
+    expect(topicMocks.update).toHaveBeenCalledWith(
+      'topic-1',
+      expect.objectContaining({
+        historySummary: expect.stringContaining('oversized message'),
+        metadata: expect.objectContaining({
+          historySummaryLastMessageId: 'a1',
+        }),
+      }),
+    );
     expect(modelMocks.finalizeActive).toHaveBeenCalledWith(
       row.id,
-      'failed',
-      expect.objectContaining({
-        body: expect.objectContaining({ budgetTokens: budget }),
-        type: 'ExceededContextWindow',
-      }),
+      'succeeded',
+      undefined,
       expect.anything(),
     );
   });

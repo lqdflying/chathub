@@ -219,6 +219,30 @@ export const estimateCompactionPromptTokens = (
   return Math.max(1, Math.ceil(serialized.length / COMPACTION_SUMMARIZER_CHARS_PER_TOKEN));
 };
 
+/**
+ * Bounded placeholder when a complete turn exceeds the History Compress budget.
+ * Advances the compaction cursor without sending tool/code dumps to the summarizer.
+ * Does not include message content.
+ */
+export const buildOversizedCompactionTurnStub = (
+  messages: UIChatMessage[],
+  previousSummary?: string,
+): string => {
+  const roleCounts = messages.reduce<Record<string, number>>((acc, message) => {
+    acc[message.role] = (acc[message.role] ?? 0) + 1;
+    return acc;
+  }, {});
+  const roleSummary = Object.entries(roleCounts)
+    .map(([role, count]) => `${count} ${role}`)
+    .join(', ');
+  const stub = `[Compaction omitted ${messages.length} oversized message(s) (${roleSummary || 'unknown'}); content exceeded the History Compress input budget.]`;
+  const prior = previousSummary?.trim();
+  if (!prior) return stub;
+  // Keep the running summary bounded even after many stubs.
+  const merged = `${prior}\n\n${stub}`;
+  return merged.length > 12_000 ? `${merged.slice(0, 11_500)}\n\n${stub}` : merged;
+};
+
 export const getCompactionSummarizerInputBudget = (
   summarizerContextWindow: number,
   summaryMaxTokens = CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS,
@@ -534,7 +558,8 @@ const splitCompactionBatchesByTokens = (
       options.previousSummary,
       options.summaryMaxTokens,
     );
-    // Keep an oversized complete turn intact; the worker fails it as one prompt.
+    // Keep an oversized complete turn as its own batch; the worker/client soft-stubs
+    // it (advances the cursor) instead of failing the whole compaction job.
     if (firstTurnTokens > budget) {
       batches.push(remaining.slice(0, firstTurnEnd));
       remaining = remaining.slice(firstTurnEnd);
