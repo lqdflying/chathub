@@ -328,7 +328,9 @@ Copy-paste APL: **`.cursor/rules/debug-log-checks.mdc`**.
     `string | null`). Zod `.optional()` rejects JSON `null` (`Expected string,
     received null`) and the client logs `enqueue_client_settled(lost,
     BAD_REQUEST)` then falls through to browser send, which fails the same
-    way. Use `.nullish()` and coerce `?? undefined` at the RPC boundary.
+    Use `.nullish()` (transformed to `undefined`) and coerce `?? undefined` at
+    the RPC boundary. Handlers must compare the canonical form against stored
+    SQL `NULL`, or create-assistant `BAD_REQUEST` / send `CONFLICT` return.
     The matching `Conversation write was rejected because conversation
     history was cleared` 500 on `message.removeMessage` is usually an
     idempotent delete of a row rewind already removed: `deleteMessage`

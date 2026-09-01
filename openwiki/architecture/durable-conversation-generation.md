@@ -133,9 +133,12 @@ Lanes still use the public inbox id (`session:{sessionId|inbox}`).
 
 Main-conversation `threadId` / `topicId` are often JSON `null` from the client
 (`activeThreadId` is `string | null`). Enqueue, send, and create-assistant
-schemas use Zod `.nullish()` so `null` is the main lane (`threadId ?? 'main'`),
-not a `BAD_REQUEST`. Writers should still coerce `?? undefined` at the RPC
-boundary so SuperJSON does not need to round-trip `null`.
+schemas accept `.nullish()` and **transform `null` to `undefined`** so handlers
+compare against stored SQL `NULL` (`value ?? undefined`) as the main lane
+(`threadId ?? 'main'`). A request that still carries JSON `null` after parse
+must not `BAD_REQUEST` / `CONFLICT` against a null stored row. Writers should
+still coerce `?? undefined` at the client RPC boundary so SuperJSON does not
+need to round-trip `null`.
 
 `withConversationWriteLockOrThrow` rejects only when the conversation epoch
 changed (or the user row is missing). A successful mutation that returns

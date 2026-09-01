@@ -6,6 +6,7 @@ import {
   CreateAssistantMessageServerResponse,
   SendMessageServerResponse,
   StructureOutputSchema,
+  toOptionalConversationScopeId,
 } from '@lobechat/types';
 import { TRPCError } from '@trpc/server';
 import debug from 'debug';
@@ -49,6 +50,10 @@ export const aiChatRouter = router({
   createAssistantMessageInServer: aiChatProcedure
     .input(AiCreateAssistantMessageSchema)
     .mutation(async ({ input, ctx }) => {
+      const sessionId = toOptionalConversationScopeId(input.sessionId);
+      const threadId = toOptionalConversationScopeId(input.threadId);
+      const topicId = toOptionalConversationScopeId(input.topicId);
+
       await withConversationWriteLockOrThrow(
         ctx.serverDB,
         ctx.userId,
@@ -60,9 +65,9 @@ export const aiChatRouter = router({
             threadId?: string | null;
             topicId?: string | null;
           }) =>
-            (message.sessionId ?? undefined) === input.sessionId &&
-            (message.topicId ?? undefined) === input.topicId &&
-            (message.threadId ?? undefined) === input.threadId;
+            (message.sessionId ?? undefined) === sessionId &&
+            (message.topicId ?? undefined) === topicId &&
+            (message.threadId ?? undefined) === threadId;
 
           if (
             !parentMessage ||
@@ -101,9 +106,9 @@ export const aiChatRouter = router({
               fromProvider: input.provider,
               parentId: input.parentId,
               role: 'assistant',
-              sessionId: input.sessionId!,
-              threadId: input.threadId,
-              topicId: input.topicId,
+              sessionId: sessionId!,
+              threadId,
+              topicId,
             },
             input.assistantMessageId,
           );
@@ -114,8 +119,8 @@ export const aiChatRouter = router({
       );
 
       const { messages } = await ctx.aiChatService.getMessagesAndTopics({
-        sessionId: input.sessionId,
-        topicId: input.topicId,
+        sessionId,
+        topicId,
       });
 
       return { messages } as CreateAssistantMessageServerResponse;
@@ -239,8 +244,11 @@ export const aiChatRouter = router({
     .input(AiSendMessageServerSchema)
     .mutation(async ({ input, ctx }) => {
       const start = Date.now();
-      log('sendMessageInServer called for sessionId: %s', input.sessionId);
-      log('topicId: %s, newTopic: %O', input.topicId, input.newTopic);
+      const sessionId = toOptionalConversationScopeId(input.sessionId);
+      const threadId = toOptionalConversationScopeId(input.threadId);
+      const requestedTopicId = toOptionalConversationScopeId(input.topicId);
+      log('sendMessageInServer called for sessionId: %s', sessionId);
+      log('topicId: %s, newTopic: %O', requestedTopicId, input.newTopic);
 
       const durableEnabled = await isDurableConversationGenerationEnabled(ctx.userId);
       const requestedDurableGeneration = durableEnabled ? input.generation : undefined;
@@ -300,9 +308,9 @@ export const aiChatRouter = router({
             if (existing) {
               const matchesRequest =
                 existing.kind === 'chat' &&
-                (existing.sessionId ?? undefined) === input.sessionId &&
-                (existing.threadId ?? undefined) === input.threadId &&
-                (!input.topicId || existing.topicId === input.topicId) &&
+                (existing.sessionId ?? undefined) === sessionId &&
+                (existing.threadId ?? undefined) === threadId &&
+                (!requestedTopicId || existing.topicId === requestedTopicId) &&
                 existing.config.model === durableGeneration.config.model &&
                 existing.config.provider === durableGeneration.config.provider;
               if (!matchesRequest) {
@@ -323,20 +331,20 @@ export const aiChatRouter = router({
                 isCreateNewTopic: Boolean(input.newTopic),
                 operation: existing,
                 operationId: existing.id,
-                topicId: existing.topicId ?? input.topicId,
+                topicId: existing.topicId ?? requestedTopicId,
                 userMessageId: existing.userMessageId,
               };
             }
           }
 
-          let topicId = input.topicId!;
+          let topicId = requestedTopicId!;
           let isCreateNewTopic = false;
 
           if (input.newTopic) {
             log('creating new topic with title: %s', input.newTopic.title);
             const topicItem = await topicModel.create({
               messages: input.newTopic.topicMessageIds,
-              sessionId: input.sessionId,
+              sessionId,
               title: input.newTopic.title,
             });
             topicId = topicItem.id;
@@ -362,8 +370,8 @@ export const aiChatRouter = router({
             files: input.newUserMessage.files,
             metadata: input.newUserMessage.metadata,
             role: 'user',
-            sessionId: input.sessionId!,
-            threadId: input.threadId,
+            sessionId: sessionId!,
+            threadId,
             topicId,
           });
 
@@ -382,8 +390,8 @@ export const aiChatRouter = router({
                 fromProvider: durableGeneration.config.provider,
                 parentId: userMessageItem.id,
                 role: 'assistant',
-                sessionId: input.sessionId!,
-                threadId: input.threadId,
+                sessionId: sessionId!,
+                threadId,
                 topicId,
               },
               assistantMessageId,
@@ -402,8 +410,8 @@ export const aiChatRouter = router({
               kind: 'chat',
               parentMessageId: userMessageItem.id,
               replaceActive: true,
-              sessionId: input.sessionId,
-              threadId: input.threadId,
+              sessionId,
+              threadId,
               topicId,
               userMessageId: userMessageItem.id,
             });
@@ -427,13 +435,13 @@ export const aiChatRouter = router({
       log('retrieving messages and topics');
       const { messages, topics } = await ctx.aiChatService.getMessagesAndTopics({
         includeTopic: true,
-        sessionId: input.sessionId,
+        sessionId,
         topicId: writeResult.topicId,
       });
 
       log('retrieved %d messages, %d topics', messages.length, topics?.length ?? 0);
       pino.debug(
-        `sendMessageInServer completed in ${Date.now() - start}ms (sessionId=${input.sessionId})`,
+        `sendMessageInServer completed in ${Date.now() - start}ms (sessionId=${sessionId})`,
       );
 
       return {

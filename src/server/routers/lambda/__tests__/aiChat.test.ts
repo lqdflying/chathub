@@ -232,6 +232,45 @@ describe('aiChatRouter', () => {
     });
   });
 
+  it('replays an idempotent durable send when request and stored IDs are JSON/SQL null', async () => {
+    vi.mocked(isDurableConversationGenerationEnabled).mockResolvedValue(true);
+    durableMocks.findByIdempotencyKey.mockResolvedValue({
+      assistantMessageId: 'msg_existing0001',
+      config: { model: 'gpt-4o', provider: 'openai' },
+      id: 'operation-existing',
+      kind: 'chat',
+      sessionId: 's1',
+      threadId: null,
+      topicId: null,
+      userMessageId: 'message-user-existing',
+    });
+    const mockCreateMessage = vi.fn();
+    const mockGet = vi.fn().mockResolvedValue({ messages: [], topics: [] });
+    vi.mocked(MessageModel).mockImplementation(() => ({ create: mockCreateMessage }) as any);
+    vi.mocked(AiChatService).mockImplementation(() => ({ getMessagesAndTopics: mockGet }) as any);
+
+    const caller = aiChatRouter.createCaller(mockCtx as any);
+    const result = await caller.sendMessageInServer({
+      expectedConversationVersion: 7,
+      generation: {
+        config: { model: 'gpt-4o', provider: 'openai' },
+        idempotencyKey: 'chat-send-null-scope',
+      },
+      newUserMessage: { content: 'hi' },
+      sessionId: 's1',
+      threadId: null,
+      topicId: null,
+    });
+
+    expect(mockCreateMessage).not.toHaveBeenCalled();
+    expect(durableMocks.enqueueInTransaction).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      assistantMessageId: 'msg_existing0001',
+      operationId: 'operation-existing',
+      userMessageId: 'message-user-existing',
+    });
+  });
+
   it('enqueues a new durable send with replacement and conversation-version guards', async () => {
     vi.mocked(isDurableConversationGenerationEnabled).mockResolvedValue(true);
     const mockCreateMessage = vi
@@ -450,6 +489,51 @@ describe('aiChatRouter', () => {
     expect(result.messages).toEqual(messages);
   });
 
+  it('creates an assistant placeholder when request and parent IDs are JSON/SQL null', async () => {
+    const parentMessage = {
+      id: 'm-user',
+      role: 'user',
+      sessionId: 's1',
+      threadId: null,
+      topicId: null,
+    };
+    const mockFindById = vi.fn(async (id: string) =>
+      id === parentMessage.id ? parentMessage : undefined,
+    );
+    const mockCreateMessage = vi.fn().mockResolvedValue({ id: 'msg_1234567890ABCD' });
+    const messages = [{ id: 'm-user' }, { id: 'msg_1234567890ABCD' }];
+    const mockGet = vi.fn().mockResolvedValue({ messages });
+
+    vi.mocked(MessageModel).mockImplementation(
+      () => ({ create: mockCreateMessage, findById: mockFindById }) as any,
+    );
+    vi.mocked(AiChatService).mockImplementation(() => ({ getMessagesAndTopics: mockGet }) as any);
+
+    const caller = aiChatRouter.createCaller(mockCtx as any);
+    const result = await caller.createAssistantMessageInServer({
+      assistantMessageId: 'msg_1234567890ABCD',
+      model: 'gpt-4o',
+      parentId: 'm-user',
+      provider: 'openai',
+      sessionId: 's1',
+      threadId: null,
+      topicId: null,
+    });
+
+    expect(mockCreateMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parentId: 'm-user',
+        role: 'assistant',
+        sessionId: 's1',
+        threadId: undefined,
+        topicId: undefined,
+      }),
+      'msg_1234567890ABCD',
+    );
+    expect(mockGet).toHaveBeenCalledWith({ sessionId: 's1', topicId: undefined });
+    expect(result.messages).toEqual(messages);
+  });
+
   it('treats an existing matching assistant placeholder as an idempotent retry', async () => {
     const parentMessage = {
       id: 'm-user',
@@ -487,6 +571,49 @@ describe('aiChatRouter', () => {
       provider: 'openai',
       sessionId: 's1',
       topicId: 't1',
+    });
+
+    expect(mockCreateMessage).not.toHaveBeenCalled();
+  });
+
+  it('reuses an existing placeholder when request and stored IDs are JSON/SQL null', async () => {
+    const parentMessage = {
+      id: 'm-user',
+      role: 'user',
+      sessionId: 's1',
+      threadId: null,
+      topicId: null,
+    };
+    const assistantMessage = {
+      id: 'msg_1234567890ABCD',
+      model: 'gpt-4o',
+      parentId: 'm-user',
+      provider: 'openai',
+      role: 'assistant',
+      sessionId: 's1',
+      threadId: null,
+      topicId: null,
+    };
+    const mockFindById = vi.fn(async (id: string) =>
+      id === parentMessage.id ? parentMessage : assistantMessage,
+    );
+    const mockCreateMessage = vi.fn();
+    const mockGet = vi.fn().mockResolvedValue({ messages: [parentMessage, assistantMessage] });
+
+    vi.mocked(MessageModel).mockImplementation(
+      () => ({ create: mockCreateMessage, findById: mockFindById }) as any,
+    );
+    vi.mocked(AiChatService).mockImplementation(() => ({ getMessagesAndTopics: mockGet }) as any);
+
+    const caller = aiChatRouter.createCaller(mockCtx as any);
+    await caller.createAssistantMessageInServer({
+      assistantMessageId: 'msg_1234567890ABCD',
+      model: 'gpt-4o',
+      parentId: 'm-user',
+      provider: 'openai',
+      sessionId: 's1',
+      threadId: null,
+      topicId: null,
     });
 
     expect(mockCreateMessage).not.toHaveBeenCalled();

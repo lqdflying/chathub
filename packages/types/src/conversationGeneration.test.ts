@@ -7,6 +7,7 @@ import {
   getConversationGenerationLaneFamily,
   isActiveConversationGenerationStatus,
   isRetryableTerminalConversationGenerationStatus,
+  toOptionalConversationScopeId,
 } from './conversationGeneration';
 
 describe('buildConversationGenerationLane', () => {
@@ -163,6 +164,14 @@ describe('isRetryableTerminalConversationGenerationStatus', () => {
   });
 });
 
+describe('toOptionalConversationScopeId', () => {
+  it('collapses JSON null and omitted values to undefined', () => {
+    expect(toOptionalConversationScopeId(null)).toBeUndefined();
+    expect(toOptionalConversationScopeId(undefined)).toBeUndefined();
+    expect(toOptionalConversationScopeId('thread-1')).toBe('thread-1');
+  });
+});
+
 describe('ConversationGenerationEnqueueSchema', () => {
   const base = {
     config: { model: 'gpt-5-mini', provider: 'openai' },
@@ -170,13 +179,13 @@ describe('ConversationGenerationEnqueueSchema', () => {
   };
 
   it('accepts JSON null threadId and topicId for the main conversation', () => {
-    expect(
-      ConversationGenerationEnqueueSchema.parse({
-        ...base,
-        threadId: null,
-        topicId: null,
-      }),
-    ).toMatchObject({ threadId: null, topicId: null });
+    const parsed = ConversationGenerationEnqueueSchema.parse({
+      ...base,
+      threadId: null,
+      topicId: null,
+    });
+    expect(parsed.threadId).toBeUndefined();
+    expect(parsed.topicId).toBeUndefined();
   });
 
   it('still rejects a non-string threadId', () => {

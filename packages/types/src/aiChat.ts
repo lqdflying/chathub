@@ -4,6 +4,7 @@ import {
   ConversationGenerationConfigSchema,
   ConversationGenerationConfigSnapshot,
   ConversationGenerationOperation,
+  optionalConversationScopeIdSchema,
 } from './conversationGeneration';
 import { UIChatMessage } from './message';
 import { OpenAIChatMessage } from './openai/chat';
@@ -56,8 +57,8 @@ export const AiSendMessageServerSchema = z.object({
     metadata: z.record(z.string(), z.any()).optional(),
   }),
   sessionId: z.string().optional(),
-  threadId: z.string().nullish(),
-  topicId: z.string().nullish(),
+  threadId: optionalConversationScopeIdSchema,
+  topicId: optionalConversationScopeIdSchema,
 });
 
 export interface CreateAssistantMessageServerParams {
@@ -78,8 +79,8 @@ export const AiCreateAssistantMessageSchema = z.object({
   parentId: z.string().min(1),
   provider: z.string().min(1),
   sessionId: z.string().optional(),
-  threadId: z.string().nullish(),
-  topicId: z.string().nullish(),
+  threadId: optionalConversationScopeIdSchema,
+  topicId: optionalConversationScopeIdSchema,
 });
 
 export interface CreateAssistantMessageServerResponse {

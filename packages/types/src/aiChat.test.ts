@@ -7,14 +7,14 @@ describe('AiSendMessageServerSchema', () => {
     newUserMessage: { content: 'hi' },
   };
 
-  it('accepts JSON null threadId for the main conversation', () => {
-    expect(
-      AiSendMessageServerSchema.parse({
-        ...base,
-        threadId: null,
-        topicId: null,
-      }),
-    ).toMatchObject({ threadId: null, topicId: null });
+  it('collapses JSON null threadId and topicId to the main conversation', () => {
+    const parsed = AiSendMessageServerSchema.parse({
+      ...base,
+      threadId: null,
+      topicId: null,
+    });
+    expect(parsed.threadId).toBeUndefined();
+    expect(parsed.topicId).toBeUndefined();
   });
 });
 
@@ -26,13 +26,13 @@ describe('AiCreateAssistantMessageSchema', () => {
     provider: 'openai',
   };
 
-  it('accepts JSON null threadId for the main conversation', () => {
-    expect(
-      AiCreateAssistantMessageSchema.parse({
-        ...base,
-        threadId: null,
-        topicId: null,
-      }),
-    ).toMatchObject({ threadId: null, topicId: null });
+  it('collapses JSON null threadId and topicId to the main conversation', () => {
+    const parsed = AiCreateAssistantMessageSchema.parse({
+      ...base,
+      threadId: null,
+      topicId: null,
+    });
+    expect(parsed.threadId).toBeUndefined();
+    expect(parsed.topicId).toBeUndefined();
   });
 });

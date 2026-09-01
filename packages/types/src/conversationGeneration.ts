@@ -247,6 +247,16 @@ export const ConversationGenerationConfigSchema = z.object({
     .optional(),
 });
 
+/** JSON `null` and omitted IDs both mean the main conversation lane. */
+export const toOptionalConversationScopeId = (
+  value?: string | null,
+): string | undefined => value ?? undefined;
+
+export const optionalConversationScopeIdSchema = z
+  .string()
+  .nullish()
+  .transform(toOptionalConversationScopeId);
+
 export const ConversationGenerationEnqueueSchema = z.object({
   agentId: z.string().optional(),
   assistantMessageId: z.string().optional(),
@@ -260,8 +270,8 @@ export const ConversationGenerationEnqueueSchema = z.object({
   parentMessageId: z.string().optional(),
   replaceActive: z.boolean().optional(),
   sessionId: z.string().optional(),
-  threadId: z.string().nullish(),
-  topicId: z.string().nullish(),
+  threadId: optionalConversationScopeIdSchema,
+  topicId: optionalConversationScopeIdSchema,
   userMessageId: z.string().optional(),
 });
 
