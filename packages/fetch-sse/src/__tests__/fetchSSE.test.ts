@@ -587,7 +587,7 @@ describe('fetchSSE', () => {
       expect(mockOnErrorHandle).not.toHaveBeenCalled();
     });
 
-    it('should call onErrorHandle when Safari Load failed leaves empty output', async () => {
+    it('should call only onAbort when Safari Load failed leaves empty output', async () => {
       const mockOnAbort = vi.fn();
       const mockOnErrorHandle = vi.fn();
 
@@ -607,12 +607,55 @@ describe('fetchSSE', () => {
         '',
         expect.objectContaining({ errorKind: 'webkit_load_failed' }),
       );
-      expect(mockOnErrorHandle).toHaveBeenCalledWith(
-        expect.objectContaining({
-          message: 'Load failed',
-          type: expect.anything(),
-        }),
+      expect(mockOnErrorHandle).not.toHaveBeenCalled();
+    });
+
+    it('should call only onAbort for empty intentional MESSAGE_CANCEL_FLAT', async () => {
+      const mockOnAbort = vi.fn();
+      const mockOnErrorHandle = vi.fn();
+
+      (fetchEventSource as any).mockImplementationOnce(
+        (url: string, options: FetchEventSourceInit) => {
+          options.onerror!(MESSAGE_CANCEL_FLAT);
+        },
       );
+
+      await fetchSSE('/', {
+        onAbort: mockOnAbort,
+        onErrorHandle: mockOnErrorHandle,
+        responseAnimation: 'none',
+      });
+
+      expect(mockOnAbort).toHaveBeenCalledWith(
+        '',
+        expect.objectContaining({ errorKind: 'abort' }),
+      );
+      expect(mockOnErrorHandle).not.toHaveBeenCalled();
+    });
+
+    it('should call only onAbort for empty AbortError', async () => {
+      const mockOnAbort = vi.fn();
+      const mockOnErrorHandle = vi.fn();
+      const abortError = new Error('Aborted');
+      abortError.name = 'AbortError';
+
+      (fetchEventSource as any).mockImplementationOnce(
+        (url: string, options: FetchEventSourceInit) => {
+          options.onerror!(abortError);
+        },
+      );
+
+      await fetchSSE('/', {
+        onAbort: mockOnAbort,
+        onErrorHandle: mockOnErrorHandle,
+        responseAnimation: 'none',
+      });
+
+      expect(mockOnAbort).toHaveBeenCalledWith(
+        '',
+        expect.objectContaining({ errorKind: 'abort' }),
+      );
+      expect(mockOnErrorHandle).not.toHaveBeenCalled();
     });
 
     it('should call onAbort when Chromium Failed to fetch is thrown', async () => {

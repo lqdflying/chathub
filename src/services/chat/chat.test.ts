@@ -1856,7 +1856,7 @@ describe('ChatService', () => {
   });
 
   describe('fetchPresetTaskResult', () => {
-    it('should keep OpenAI-compatible Chat Completions connection checks token-limit free', async () => {
+    it('keeps OpenAI-compatible connection checks token-limit free and non-streaming', async () => {
       const { fetchSSE } = await import('@lobechat/fetch-sse');
       const mockFetchSSE = vi.fn().mockResolvedValue(new Response('mock response'));
       vi.mocked(fetchSSE).mockImplementation(mockFetchSSE);
@@ -1889,7 +1889,7 @@ describe('ChatService', () => {
       const body = JSON.parse(mockFetchSSE.mock.calls[0][1].body);
       expect(body).toMatchObject({
         model: 'gpt-5.5',
-        stream: true,
+        stream: false,
       });
       expect(body).not.toHaveProperty('apiMode');
       expect(body).not.toHaveProperty('max_tokens');

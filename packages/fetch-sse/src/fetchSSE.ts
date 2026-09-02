@@ -327,19 +327,11 @@ export const fetchSSE = async (url: string, options: RequestInit & FetchSSEOptio
     onerror: (error) => {
       if (isChatStreamNetworkInterrupt(error)) {
         finishedType = 'abort';
+        // Keep abort and error callbacks mutually exclusive. Callers such as
+        // Connectivity Check convert empty WebKit interrupts in onAbort; chat
+        // Stop-before-first-token must not also receive onErrorHandle.
         options?.onAbort?.(output, describeChatStreamInterrupt(error));
         textController.stopAnimation();
-        // Safari/WebKit often throws TypeError "Load failed" after the SSE body
-        // was already delivered (or when the body never reached JS). Connectivity
-        // Check and similar callers that only listen for onFinish/onError must
-        // still get a failure signal when nothing was streamed.
-        if (!output && !thinking) {
-          options.onErrorHandle?.({
-            body: describeChatStreamInterrupt(error),
-            message: interruptMessage(error) || 'Load failed',
-            type: ChatErrorType.UnknownChatFetchError,
-          });
-        }
       } else {
         finishedType = 'error';
 

@@ -14,11 +14,7 @@ import { useProviderName } from '@/hooks/useProviderName';
 import { chatService } from '@/services/chat';
 import { aiModelSelectors, aiProviderSelectors, useAiInfraStore } from '@/store/aiInfra';
 
-import {
-  buildConnectionCheckParams,
-  hasConnectionCheckOutput,
-  hasConnectionCheckResult,
-} from './connectionCheckParams';
+import { buildConnectionCheckParams, hasConnectionCheckResult } from './connectionCheckParams';
 
 export { hasConnectionCheckOutput, hasConnectionCheckResult } from './connectionCheckParams';
 
@@ -108,6 +104,10 @@ const Checker = memo<ConnectionCheckerProps>(
 
       let isError = false;
       let settled: 'pass' | 'fail' | null = null;
+      // onAbort only receives text output; accumulate reasoning chunks so a
+      // WebKit interrupt after reasoning-only content still counts as pass
+      // (same rule as onFinish / hasConnectionCheckResult).
+      let reasoningContent = '';
 
       const settlePass = () => {
         settled = 'pass';
@@ -132,8 +132,8 @@ const Checker = memo<ConnectionCheckerProps>(
       await chatService.fetchPresetTaskResult({
         onAbort: async (value, interrupt) => {
           // Safari/WebKit often ends a completed SSE with TypeError "Load failed".
-          // Treat streamed content as success; only fail when nothing arrived.
-          if (hasConnectionCheckResult(value)) {
+          // Treat streamed text or reasoning as success; only fail when neither arrived.
+          if (hasConnectionCheckResult(value, { content: reasoningContent })) {
             settlePass();
             return;
           }
@@ -155,6 +155,11 @@ const Checker = memo<ConnectionCheckerProps>(
         },
         onLoadingChange: (nextLoading) => {
           setLoading(nextLoading);
+        },
+        onMessageHandle: (chunk) => {
+          if (chunk.type === 'reasoning' && typeof chunk.text === 'string') {
+            reasoningContent += chunk.text;
+          }
         },
         params: buildConnectionCheckParams(provider, activeCheckModel),
         responseAnimation: { text: 'none' },
