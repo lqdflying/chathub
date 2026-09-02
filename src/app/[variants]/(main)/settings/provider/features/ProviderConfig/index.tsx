@@ -797,9 +797,10 @@ const ProviderConfig = memo<ProviderConfigProps>(
       clientFetchItem,
       showChecker
         ? {
-            children: isLoading ? (
-              <Skeleton.Button active />
-            ) : (
+            // Keep Checker mounted while provider config loads. Swapping it for a
+            // Skeleton mid-check (mobile Safari + SWR refresh) wiped pass/fail UI
+            // after the server had already returned a successful hello.
+            children: (
               <Checker
                 checkErrorRender={checkErrorRender}
                 model={data?.checkModel || checkModel!}

@@ -9,10 +9,15 @@ export const hasConnectionCheckResult = (
 ) => hasConnectionCheckOutput(text) || hasConnectionCheckOutput(reasoning?.content);
 
 export const buildConnectionCheckParams = (provider: string, model: string) => {
+  // Non-streaming upstream: ChatHub still wraps the reply as a short SSE for the
+  // browser, but MiniMax/WebKit no longer depend on a multi-chunk chat stream.
+  // Mobile Safari Connectivity Check was clearing the spinner with no pass/fail
+  // even when the server finished successfully (Axiom: finishReason stop + text).
   const base = {
     messages: [{ content: 'hello', role: 'user' as const }],
     model,
     provider,
+    stream: false as const,
   };
   const cappedBase = {
     ...base,

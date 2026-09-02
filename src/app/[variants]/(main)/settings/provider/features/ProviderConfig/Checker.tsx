@@ -85,10 +85,19 @@ const Checker = memo<ConnectionCheckerProps>(
     const [error, setError] = useState<ChatMessageError | undefined>();
 
     useEffect(() => {
-      setCheckModel(model);
-      setPass(false);
-      setError(undefined);
+      setCheckModel((prev) => {
+        if (prev === model) return prev;
+        setPass(false);
+        setError(undefined);
+        return model;
+      });
     }, [model]);
+
+    const connectionCheckFailedError = (body?: unknown): ChatMessageError => ({
+      body,
+      message: t('response.ConnectionCheckFailed', { ns: 'error' }),
+      type: 'ConnectionCheckFailed',
+    });
 
     const checkConnection = async () => {
       const activeCheckModel = resolveConnectionCheckModel(checkModel, model);
@@ -98,37 +107,73 @@ const Checker = memo<ConnectionCheckerProps>(
       setError(undefined);
 
       let isError = false;
+      let settled: 'pass' | 'fail' | null = null;
+
+      const settlePass = () => {
+        settled = 'pass';
+        setError(undefined);
+        setPass(true);
+      };
+
+      const settleFail = (nextError: ChatMessageError) => {
+        settled = 'fail';
+        setPass(false);
+        setError(nextError);
+      };
+
+      const applyConnectionResult = (value: unknown, reasoning?: { content?: string }) => {
+        if (!isError && hasConnectionCheckResult(value, reasoning)) {
+          settlePass();
+        } else {
+          settleFail(connectionCheckFailedError(value));
+        }
+      };
 
       await chatService.fetchPresetTaskResult({
-        onError: (_, rawError) => {
-          setError(rawError);
-          setPass(false);
-          isError = true;
-        },
-
-        onFinish: async (value, context) => {
-          if (!isError && hasConnectionCheckResult(value, context?.reasoning)) {
-            setError(undefined);
-            setPass(true);
-          } else {
-            setPass(false);
-            setError({
-              body: value,
-              message: t('response.ConnectionCheckFailed', { ns: 'error' }),
-              type: 'ConnectionCheckFailed',
-            });
+        onAbort: async (value, interrupt) => {
+          // Safari/WebKit often ends a completed SSE with TypeError "Load failed".
+          // Treat streamed content as success; only fail when nothing arrived.
+          if (hasConnectionCheckResult(value)) {
+            settlePass();
+            return;
           }
+          settleFail(
+            connectionCheckFailedError({
+              interrupt,
+              reason: 'stream_interrupted_empty',
+            }),
+          );
         },
-        onLoadingChange: (loading) => {
-          setLoading(loading);
+        onError: (_, rawError) => {
+          isError = true;
+          settleFail(rawError ?? connectionCheckFailedError());
+        },
+        onFinish: async (value, context) => {
+          // Prefer a prior onAbort settle (Safari) when it already decided.
+          if (settled) return;
+          applyConnectionResult(value, context?.reasoning);
+        },
+        onLoadingChange: (nextLoading) => {
+          setLoading(nextLoading);
         },
         params: buildConnectionCheckParams(provider, activeCheckModel),
+        responseAnimation: { text: 'none' },
         trace: {
           sessionId: `connection:${provider}`,
           topicId: activeCheckModel,
           traceName: TraceNameMap.ConnectivityChecker,
         },
       });
+
+      // Guarantee visible feedback: server can succeed while the browser drops
+      // onFinish (observed on Safari iOS for MiniMax Connectivity Check).
+      if (!settled) {
+        settleFail(
+          connectionCheckFailedError({
+            reason: 'no_client_result',
+          }),
+        );
+      }
     };
 
     const defaultError = error ? <Error error={error as ChatMessageError} /> : null;
@@ -171,13 +216,25 @@ const Checker = memo<ConnectionCheckerProps>(
             virtual
           />
           <Button
-            disabled={isProviderConfigUpdating}
+            disabled={isProviderConfigUpdating && !loading}
             loading={loading}
             onClick={async () => {
-              await onBeforeCheck();
+              setLoading(true);
+              setPass(false);
+              setError(undefined);
               try {
+                await onBeforeCheck();
                 await checkConnection();
+              } catch (e) {
+                setPass(false);
+                setError(
+                  connectionCheckFailedError({
+                    message: e instanceof Error ? e.message : String(e),
+                    reason: 'check_threw',
+                  }),
+                );
               } finally {
+                setLoading(false);
                 await onAfterCheck();
               }
             }}

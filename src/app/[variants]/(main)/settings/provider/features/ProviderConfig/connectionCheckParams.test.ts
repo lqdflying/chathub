@@ -13,11 +13,17 @@ describe('connectionCheckParams', () => {
     );
   });
 
+  it('disables streaming for connectivity probes', () => {
+    expect(buildConnectionCheckParams('openai', 'gpt-4o').stream).toBe(false);
+    expect(buildConnectionCheckParams('minimax', 'MiniMax-M3').stream).toBe(false);
+  });
+
   it('omits token limit fields for OpenAI-compatible connectivity probes', () => {
     const params = buildConnectionCheckParams('openaicompatible', 'gpt-5.5');
 
     expect(params).not.toHaveProperty('max_tokens');
     expect(params).not.toHaveProperty('max_output_tokens');
+    expect(params.stream).toBe(false);
   });
 
   it('disables Kimi thinking for moonshot connectivity probes', () => {

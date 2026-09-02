@@ -587,6 +587,34 @@ describe('fetchSSE', () => {
       expect(mockOnErrorHandle).not.toHaveBeenCalled();
     });
 
+    it('should call onErrorHandle when Safari Load failed leaves empty output', async () => {
+      const mockOnAbort = vi.fn();
+      const mockOnErrorHandle = vi.fn();
+
+      (fetchEventSource as any).mockImplementationOnce(
+        (url: string, options: FetchEventSourceInit) => {
+          options.onerror!(new TypeError('Load failed'));
+        },
+      );
+
+      await fetchSSE('/', {
+        onAbort: mockOnAbort,
+        onErrorHandle: mockOnErrorHandle,
+        responseAnimation: 'none',
+      });
+
+      expect(mockOnAbort).toHaveBeenCalledWith(
+        '',
+        expect.objectContaining({ errorKind: 'webkit_load_failed' }),
+      );
+      expect(mockOnErrorHandle).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'Load failed',
+          type: expect.anything(),
+        }),
+      );
+    });
+
     it('should call onAbort when Chromium Failed to fetch is thrown', async () => {
       const mockOnAbort = vi.fn();
       const mockOnErrorHandle = vi.fn();

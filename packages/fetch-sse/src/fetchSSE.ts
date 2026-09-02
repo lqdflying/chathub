@@ -329,6 +329,17 @@ export const fetchSSE = async (url: string, options: RequestInit & FetchSSEOptio
         finishedType = 'abort';
         options?.onAbort?.(output, describeChatStreamInterrupt(error));
         textController.stopAnimation();
+        // Safari/WebKit often throws TypeError "Load failed" after the SSE body
+        // was already delivered (or when the body never reached JS). Connectivity
+        // Check and similar callers that only listen for onFinish/onError must
+        // still get a failure signal when nothing was streamed.
+        if (!output && !thinking) {
+          options.onErrorHandle?.({
+            body: describeChatStreamInterrupt(error),
+            message: interruptMessage(error) || 'Load failed',
+            type: ChatErrorType.UnknownChatFetchError,
+          });
+        }
       } else {
         finishedType = 'error';
 

@@ -586,7 +586,9 @@ class ChatService {
     onFinish,
     onError,
     onLoadingChange,
+    onAbort,
     abortController,
+    responseAnimation,
     trace,
   }: FetchAITaskResultParams) => {
     const errorHandle = (error: Error, errorContent?: any) => {
@@ -631,11 +633,14 @@ class ChatService {
       await this.getChatCompletion(
         { ...params, messages: oaiMessages, tools },
         {
+          onAbort,
           onErrorHandle: (error) => {
             errorHandle(new Error(error.message), error);
           },
           onFinish,
           onMessageHandle,
+          // Preset tasks (connectivity check, titles) must not wait on smooth rAF.
+          responseAnimation: responseAnimation ?? { text: 'none' },
           signal: abortController?.signal,
           trace: this.mapTrace(trace, TraceTagMap.SystemChain),
         },
