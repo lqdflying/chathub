@@ -115,6 +115,7 @@ describe('LobeAzureAI', () => {
         openAICompatResponsesParams: {
           responseStateMode: 'prompt-key-store',
         },
+        responseMode: 'json',
         responseStateMode: 'prompt-key-store',
         stream: false,
       } as any);
@@ -122,6 +123,7 @@ describe('LobeAzureAI', () => {
       const requestBody = mockPost.mock.calls[0][0].body;
       expect(requestBody).not.toHaveProperty('openAICompatCache');
       expect(requestBody).not.toHaveProperty('openAICompatResponsesParams');
+      expect(requestBody).not.toHaveProperty('responseMode');
       expect(requestBody).not.toHaveProperty('responseStateMode');
     });
 

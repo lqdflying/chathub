@@ -31,7 +31,9 @@ const extractMessageReasoning = (message: Record<string, unknown> | undefined) =
 };
 
 const extractResponsesOutput = (data: Record<string, unknown>) => {
-  let text = typeof data.output_text === 'string' ? data.output_text : '';
+  const outputText =
+    typeof data.output_text === 'string' && data.output_text.trim() ? data.output_text : '';
+  let messageText = '';
   let reasoning = '';
   const output = Array.isArray(data.output) ? data.output : [];
 
@@ -39,14 +41,16 @@ const extractResponsesOutput = (data: Record<string, unknown>) => {
     const record = asRecord(item);
     if (!record) continue;
     if (record.type === 'message') {
-      text += joinTextParts(record.content);
+      messageText += joinTextParts(record.content);
     }
     if (record.type === 'reasoning') {
       reasoning += joinTextParts(record.summary ?? record.content ?? record.text);
     }
   }
 
-  return { reasoning, text };
+  // `output_text` is the SDK's synthesized helper for the same message content.
+  // Do not concatenate both representations.
+  return { reasoning, text: outputText || messageText };
 };
 
 /**

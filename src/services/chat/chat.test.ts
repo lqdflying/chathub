@@ -1279,6 +1279,22 @@ describe('ChatService', () => {
       );
     });
 
+    it('reuses the opened event-stream response when JSON mode is ignored', async () => {
+      const streamResponse = new Response('event: text\ndata: "hi"\n\n', {
+        headers: { 'Content-Type': 'text/event-stream' },
+        status: 200,
+      });
+      const fetchMock = vi.mocked(fetch);
+      fetchMock.mockResolvedValueOnce(streamResponse);
+
+      await chatService.getChatCompletion(buildConnectionCheckParams('azure', 'gpt-4o'));
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(mockFetchSSE).toHaveBeenCalledTimes(1);
+      const fallbackResponse = await mockFetchSSE.mock.calls[0][1].fetcher();
+      expect(fallbackResponse).toBe(streamResponse);
+    });
+
     it('should strip legacy provider params from serialized payload', async () => {
       const params: Partial<ChatStreamPayload> = {
         frequency_penalty: 0.5,

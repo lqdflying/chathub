@@ -50,6 +50,7 @@ export class LobeAzureAI implements LobeRuntimeAI {
     delete params.openAICompatCache;
     delete params.openAICompatResponsesParams;
     delete params.provider;
+    delete params.responseMode;
     delete params.responseStateMode;
     // o1 series models on Azure OpenAI does not support streaming currently
     const enableStreaming = model.includes('o1') ? false : (params.stream ?? true);

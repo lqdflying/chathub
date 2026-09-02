@@ -54,13 +54,61 @@ describe('extractJsonChatCompletionResult', () => {
     ).toBe('Hello world');
   });
 
-  it('reads Responses API output_text', () => {
+  it('reads Responses API output_text when output is absent', () => {
     expect(
       extractJsonChatCompletionResult({
         object: 'response',
         output_text: 'ok',
       }),
     ).toEqual({ reasoning: '', text: 'ok' });
+  });
+
+  it('reads Responses API output_text once when output also contains the answer', () => {
+    expect(
+      extractJsonChatCompletionResult({
+        object: 'response',
+        output: [
+          {
+            content: [{ text: 'ok', type: 'output_text' }],
+            role: 'assistant',
+            type: 'message',
+          },
+        ],
+        output_text: 'ok',
+      }),
+    ).toEqual({ reasoning: '', text: 'ok' });
+  });
+
+  it('reads Responses API output[] when output_text is absent', () => {
+    expect(
+      extractJsonChatCompletionResult({
+        object: 'response',
+        output: [
+          {
+            content: [{ text: 'from-output', type: 'output_text' }],
+            role: 'assistant',
+            type: 'message',
+          },
+        ],
+      }).text,
+    ).toBe('from-output');
+  });
+
+  it('reads Responses API reasoning independently of output_text', () => {
+    expect(
+      extractJsonChatCompletionResult({
+        object: 'response',
+        output: [
+          { summary: [{ text: 'trace' }], type: 'reasoning' },
+          {
+            content: [{ text: 'ok', type: 'output_text' }],
+            role: 'assistant',
+            type: 'message',
+          },
+        ],
+        output_text: 'ok',
+      }),
+    ).toEqual({ reasoning: 'trace', text: 'ok' });
   });
 
   it('returns empty for unrelated JSON', () => {

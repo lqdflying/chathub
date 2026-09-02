@@ -97,12 +97,14 @@ describe('LobeAzureOpenAI', () => {
         openAICompatResponsesParams: {
           responseStateMode: 'prompt-key-store',
         },
+        responseMode: 'json',
         responseStateMode: 'prompt-key-store',
       } as any);
 
       const requestPayload = (instance['client'].chat.completions.create as Mock).mock.calls[0][0];
       expect(requestPayload).not.toHaveProperty('openAICompatCache');
       expect(requestPayload).not.toHaveProperty('openAICompatResponsesParams');
+      expect(requestPayload).not.toHaveProperty('responseMode');
       expect(requestPayload).not.toHaveProperty('responseStateMode');
     });
 
