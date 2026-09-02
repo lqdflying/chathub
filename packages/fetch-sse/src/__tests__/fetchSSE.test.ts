@@ -587,6 +587,71 @@ describe('fetchSSE', () => {
       expect(mockOnErrorHandle).not.toHaveBeenCalled();
     });
 
+    it('delivers reasoning before onAbort when Load failed follows reasoning under text:none', async () => {
+      const order: string[] = [];
+      const mockOnAbort = vi.fn(async () => {
+        order.push('abort');
+      });
+      const mockOnMessageHandle = vi.fn((chunk: { type?: string }) => {
+        if (chunk.type === 'reasoning') order.push('reasoning');
+      });
+
+      (fetchEventSource as any).mockImplementationOnce(
+        (url: string, options: FetchEventSourceInit) => {
+          options.onmessage!({ event: 'reasoning', data: JSON.stringify('think') } as any);
+          options.onerror!(new TypeError('Load failed'));
+        },
+      );
+
+      await fetchSSE('/', {
+        onAbort: mockOnAbort,
+        onMessageHandle: mockOnMessageHandle,
+        responseAnimation: 'none',
+      });
+
+      expect(order).toEqual(['reasoning', 'abort']);
+      expect(mockOnAbort).toHaveBeenCalledWith(
+        '',
+        expect.objectContaining({
+          errorKind: 'webkit_load_failed',
+          reasoning: 'think',
+        }),
+      );
+    });
+
+    it('flushes buffered reasoning before onAbort on WebKit Load failed (fadeIn)', async () => {
+      const order: string[] = [];
+      const mockOnAbort = vi.fn(async () => {
+        order.push('abort');
+      });
+      const mockOnMessageHandle = vi.fn((chunk: { type?: string }) => {
+        if (chunk.type === 'reasoning') order.push('reasoning');
+      });
+
+      (fetchEventSource as any).mockImplementationOnce(
+        (url: string, options: FetchEventSourceInit) => {
+          options.onmessage!({ event: 'reasoning', data: JSON.stringify('trace') } as any);
+          // Abort before the 300ms coalesce timer would fire.
+          options.onerror!(new TypeError('Load failed'));
+        },
+      );
+
+      await fetchSSE('/', {
+        onAbort: mockOnAbort,
+        onMessageHandle: mockOnMessageHandle,
+        responseAnimation: 'fadeIn',
+      });
+
+      expect(order).toEqual(['reasoning', 'abort']);
+      expect(mockOnAbort).toHaveBeenCalledWith(
+        '',
+        expect.objectContaining({
+          errorKind: 'webkit_load_failed',
+          reasoning: 'trace',
+        }),
+      );
+    });
+
     it('should call only onAbort when Safari Load failed leaves empty output', async () => {
       const mockOnAbort = vi.fn();
       const mockOnErrorHandle = vi.fn();

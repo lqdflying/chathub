@@ -17,11 +17,22 @@ describe('ProviderConfig Checker', () => {
     expect(hasConnectionCheckResult('', { content: 'trace' })).toBe(true);
   });
 
-  it('Safari abort path accepts reasoning-only content the same as onFinish', () => {
-    // Mirrors Checker onAbort: hasConnectionCheckResult(text, { content: reasoningContent })
-    expect(hasConnectionCheckResult('', { content: 'thinking trace' })).toBe(true);
-    expect(hasConnectionCheckResult('', { content: '' })).toBe(false);
-    expect(hasConnectionCheckResult('hello', { content: '' })).toBe(true);
+  it('Safari abort path accepts reasoning from interrupt.reasoning or message buffer', () => {
+    // Ordering (reasoning event then WebKit Load failed before 300ms) is in
+    // packages/fetch-sse fetchSSE tests. This asserts Checker's consume rule.
+    const reasoningAtAbort = (interruptReasoning?: string, buffered?: string) =>
+      interruptReasoning || buffered || '';
+
+    expect(
+      hasConnectionCheckResult('', { content: reasoningAtAbort('thinking trace', '') }),
+    ).toBe(true);
+    expect(hasConnectionCheckResult('', { content: reasoningAtAbort(undefined, 'buffered') })).toBe(
+      true,
+    );
+    expect(hasConnectionCheckResult('', { content: reasoningAtAbort(undefined, '') })).toBe(false);
+    expect(hasConnectionCheckResult('hello', { content: reasoningAtAbort(undefined, '') })).toBe(
+      true,
+    );
   });
 
   it('uses the selected checker model when present', () => {

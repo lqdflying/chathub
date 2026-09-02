@@ -29,6 +29,12 @@ export type ChatStreamInterruptKind =
 export interface ChatStreamInterruptInfo {
   errorClass?: string;
   errorKind: ChatStreamInterruptKind;
+  /**
+   * Accumulated reasoning text at interrupt time (already tracked synchronously
+   * inside fetchSSE). Callers that settle on abort (e.g. Connectivity Check)
+   * must not wait for the 300ms reasoning onMessageHandle buffer.
+   */
+  reasoning?: string;
 }
 
 const interruptMessage = (error: unknown) => {
@@ -327,10 +333,25 @@ export const fetchSSE = async (url: string, options: RequestInit & FetchSSEOptio
     onerror: (error) => {
       if (isChatStreamNetworkInterrupt(error)) {
         finishedType = 'abort';
+        // Flush pending buffers before onAbort so onMessageHandle sees text /
+        // reasoning that was still inside the 300ms coalesce window.
+        if (bufferTimer) {
+          clearTimeout(bufferTimer);
+          bufferTimer = null;
+          flushTextBuffer();
+        }
+        if (thinkingBufferTimer) {
+          clearTimeout(thinkingBufferTimer);
+          thinkingBufferTimer = null;
+          flushThinkingBuffer();
+        }
         // Keep abort and error callbacks mutually exclusive. Callers such as
         // Connectivity Check convert empty WebKit interrupts in onAbort; chat
         // Stop-before-first-token must not also receive onErrorHandle.
-        options?.onAbort?.(output, describeChatStreamInterrupt(error));
+        options?.onAbort?.(output, {
+          ...describeChatStreamInterrupt(error),
+          reasoning: thinking || undefined,
+        });
         textController.stopAnimation();
       } else {
         finishedType = 'error';
@@ -460,6 +481,11 @@ export const fetchSSE = async (url: string, options: RequestInit & FetchSSEOptio
             thinkingController.pushToQueue(data);
 
             if (!thinkingController.isAnimationActive) thinkingController.startAnimation();
+          } else if (shouldSkipTextProcessing) {
+            // Match text:'none' — deliver immediately so abort settlement does
+            // not race the 300ms coalesce timer (Connectivity Check / presets).
+            thinking += data;
+            options.onMessageHandle?.({ text: data, type: 'reasoning' });
           } else {
             thinking += data;
 

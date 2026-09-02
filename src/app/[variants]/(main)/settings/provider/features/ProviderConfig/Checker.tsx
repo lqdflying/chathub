@@ -104,9 +104,8 @@ const Checker = memo<ConnectionCheckerProps>(
 
       let isError = false;
       let settled: 'pass' | 'fail' | null = null;
-      // onAbort only receives text output; accumulate reasoning chunks so a
-      // WebKit interrupt after reasoning-only content still counts as pass
-      // (same rule as onFinish / hasConnectionCheckResult).
+      // fetchSSE also puts accumulated thinking on interrupt.reasoning so a
+      // WebKit abort does not race the 300ms onMessageHandle buffer.
       let reasoningContent = '';
 
       const settlePass = () => {
@@ -132,8 +131,10 @@ const Checker = memo<ConnectionCheckerProps>(
       await chatService.fetchPresetTaskResult({
         onAbort: async (value, interrupt) => {
           // Safari/WebKit often ends a completed SSE with TypeError "Load failed".
-          // Treat streamed text or reasoning as success; only fail when neither arrived.
-          if (hasConnectionCheckResult(value, { content: reasoningContent })) {
+          // Prefer interrupt.reasoning (sync from fetchSSE) over the message
+          // buffer, which can still race if a coalesce timer has not flushed.
+          const reasoningAtAbort = interrupt?.reasoning || reasoningContent;
+          if (hasConnectionCheckResult(value, { content: reasoningAtAbort })) {
             settlePass();
             return;
           }
