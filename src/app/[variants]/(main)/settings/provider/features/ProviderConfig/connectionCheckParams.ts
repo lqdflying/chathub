@@ -38,9 +38,19 @@ export const buildConnectionCheckParams = (provider: string, model: string) => {
         thinking: { type: 'disabled' as const },
       };
     case 'minimax':
+      // MiniMax-M3 thinking is on by default when `thinking` is omitted.
+      // `reasoning_split` only changes output format (content <think> tags vs
+      // reasoning_content) — it does NOT disable thinking. The old probe set
+      // reasoning_split:false, which forced a different stream shape than
+      // normal chat (default reasoning_split:true). That check path spun
+      // forever on Safari iOS while desktop and normal mobile chat succeeded.
+      // Disable thinking for the probe (same pattern as moonshot/zhipu/mimo);
+      // leave reasoning_split unset so the adapter keeps the chat default.
+      // Official: https://platform.minimax.io/docs/api-reference/text-chat-openai
+      // M2.x cannot disable thinking; disabled is accepted but thinking stays on.
       return {
         ...cappedBase,
-        reasoning_split: false,
+        thinking: { type: 'disabled' as const },
       };
     case 'mimo':
       // MiMo Chat Completions defaults thinking to enabled; the 256-token

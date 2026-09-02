@@ -76,8 +76,9 @@ export interface LobeAgentChatConfig {
    */
   moonshotPreservedReasoning?: boolean;
   /**
-   * MiniMax M2.x (OpenAI-compatible): when false, disables `reasoning_split` so thinking
-   * is not split into `reasoning_details`. Default on (matches historical behavior).
+   * MiniMax OpenAI-compatible: when false, sets `reasoning_split: false` so thinking
+   * stays in `content` (`<think>` tags) instead of `reasoning_content` /
+   * `reasoning_details`. Does **not** turn thinking off. Default on.
    */
   minimaxReasoningSplit?: boolean;
   /**

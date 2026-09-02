@@ -34,10 +34,11 @@ describe('connectionCheckParams', () => {
     expect(params.max_tokens).toBe(CONNECTION_CHECK_MAX_TOKENS);
   });
 
-  it('disables MiniMax reasoning_split for connectivity probes', () => {
-    const params = buildConnectionCheckParams('minimax', 'MiniMax-M2.5');
+  it('disables MiniMax thinking for connectivity probes and leaves reasoning_split unset', () => {
+    const params = buildConnectionCheckParams('minimax', 'MiniMax-M3');
 
-    expect(params.reasoning_split).toBe(false);
+    expect(params.thinking).toEqual({ type: 'disabled' });
+    expect(params).not.toHaveProperty('reasoning_split');
     expect(params.max_tokens).toBe(CONNECTION_CHECK_MAX_TOKENS);
   });
 

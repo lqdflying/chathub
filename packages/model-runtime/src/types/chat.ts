@@ -169,10 +169,11 @@ export interface ChatStreamPayload {
     verbosity?: 'low' | 'medium' | 'high';
   };
   /**
-   * use for Claude and Gemini
+   * Provider thinking control (Anthropic / Gemini / Moonshot / Zhipu / MiniMax-M3, …).
+   * MiniMax-M3 documents `{ type: "disabled" | "adaptive" }` without `budget_tokens`.
    */
   thinking?: {
-    budget_tokens: number;
+    budget_tokens?: number;
     /**
      * Zhipu GLM only: Preserved Thinking — when `false`, historical `reasoning_content`
      * is replayed unmodified (see Zhipu chat API `thinking.clear_thinking`). Default true.
