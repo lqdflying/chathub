@@ -19,6 +19,13 @@ export interface FetchEventSourceInit extends RequestInit {
   headers?: Record<string, string>;
 
   /**
+   * Optional: each raw body chunk before SSE line parsing. Callers that need
+   * abort-time recovery (Safari Load failed) must capture here — response.clone()
+   * shares the same errored tee and cannot re-read successfully.
+   */
+  onRawChunk?: (chunk: Uint8Array) => void;
+
+  /**
    * Called when a response finishes. If you don't expect the server to kill
    * the connection, you can throw an exception here and retry using onerror.
    */
@@ -60,6 +67,7 @@ export function fetchEventSource(
     onmessage,
     onclose,
     onerror,
+    onRawChunk,
     fetch: inputFetch,
     ...rest
   }: FetchEventSourceInit,
@@ -82,20 +90,22 @@ export function fetchEventSource(
 
         await inputOnOpen(response);
 
-        await getBytes(
-          response.body!,
-          getLines(
-            getMessages((id) => {
-              if (id) {
-                // store the id and send it back on the next retry:
-                headers[LastEventId] = id;
-              } else {
-                // don't send the last-event-id header anymore:
-                delete headers[LastEventId];
-              }
-            }, onmessage),
-          ),
+        const onParsedChunk = getLines(
+          getMessages((id) => {
+            if (id) {
+              // store the id and send it back on the next retry:
+              headers[LastEventId] = id;
+            } else {
+              // don't send the last-event-id header anymore:
+              delete headers[LastEventId];
+            }
+          }, onmessage),
         );
+
+        await getBytes(response.body!, (arr) => {
+          onRawChunk?.(arr);
+          onParsedChunk(arr);
+        });
 
         onclose?.();
         resolve();

@@ -541,6 +541,7 @@ class ChatService {
       onErrorHandle: options?.onErrorHandle,
       onFinish: options?.onFinish,
       onMessageHandle: options?.onMessageHandle,
+      rawByteCaptureMax: options?.rawByteCaptureMax,
       responseAnimation: mergedResponseAnimation,
       signal,
     });
@@ -639,6 +640,9 @@ class ChatService {
           },
           onFinish,
           onMessageHandle,
+          // Preset probes are short; keep raw bytes so Safari Load failed can
+          // still recover text (clone() shares the errored body tee).
+          rawByteCaptureMax: 64 * 1024,
           // Preset tasks (connectivity check, titles) must not wait on smooth rAF.
           responseAnimation: responseAnimation ?? { text: 'none' },
           signal: abortController?.signal,

@@ -140,6 +140,12 @@ export interface FetchSSEOptions {
       | MessageBase64ImageChunk
       | MessageSpeedChunk,
   ) => void;
+  /**
+   * Opt-in bounded capture of raw SSE body bytes for empty-abort recovery.
+   * Safari Load failed rejects response.clone(); bytes must be kept while reading.
+   * Leave unset for normal chat so long streams are not double-buffered.
+   */
+  rawByteCaptureMax?: number;
   responseAnimation?: ResponseAnimation;
 }
 
@@ -254,9 +260,13 @@ export const standardizeAnimationStyle = (
   return typeof animationStyle === 'object' ? animationStyle : { text: animationStyle };
 };
 
+/** True when the body looks like SSE framing (not plain assistant text). */
+export const looksLikeSse = (raw: string): boolean =>
+  /(^|\r?\n)event\s*:/i.test(raw) || /(^|\r?\n)data\s*:/i.test(raw);
+
 /** Pull concatenated `event: text` JSON string payloads from an SSE body. */
 export const extractAssistantTextFromSse = (raw: string): string => {
-  if (!raw.includes('event:') && !raw.includes('data:')) return '';
+  if (!looksLikeSse(raw)) return '';
 
   let text = '';
   for (const block of raw.split(/\r?\n\r?\n/)) {
@@ -278,6 +288,16 @@ export const extractAssistantTextFromSse = (raw: string): string => {
   return text;
 };
 
+const concatCapturedBytes = (chunks: Uint8Array[], total: number) => {
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out;
+};
+
 /**
  * Fetch data using stream method
  */
@@ -287,12 +307,19 @@ export const fetchSSE = async (url: string, options: RequestInit & FetchSSEOptio
 
   let finishedType: SSEFinishType = 'done';
   let response!: Response;
+  let sawFatalStreamEvent = false;
 
   const { text, speed: smoothingSpeed } = standardizeAnimationStyle(
     options.responseAnimation ?? {},
   );
   const shouldSkipTextProcessing = text === 'none';
   const textSmoothing = text === 'smooth';
+  const rawByteCaptureMax =
+    typeof options.rawByteCaptureMax === 'number' && options.rawByteCaptureMax > 0
+      ? options.rawByteCaptureMax
+      : 0;
+  const rawChunks: Uint8Array[] = [];
+  let rawCapturedBytes = 0;
 
   // 添加文本buffer和计时器相关变量
   let textBuffer = '';
@@ -353,6 +380,17 @@ export const fetchSSE = async (url: string, options: RequestInit & FetchSSEOptio
     fetch: options?.fetcher,
     headers: options.headers as Record<string, string>,
     method: options.method,
+    onRawChunk:
+      rawByteCaptureMax > 0
+        ? (chunk) => {
+            if (rawCapturedBytes >= rawByteCaptureMax) return;
+            const remaining = rawByteCaptureMax - rawCapturedBytes;
+            const slice =
+              chunk.byteLength > remaining ? chunk.subarray(0, remaining) : chunk;
+            rawChunks.push(slice.slice());
+            rawCapturedBytes += slice.byteLength;
+          }
+        : undefined,
     onerror: (error) => {
       if (isChatStreamNetworkInterrupt(error)) {
         finishedType = 'abort';
@@ -428,6 +466,7 @@ export const fetchSSE = async (url: string, options: RequestInit & FetchSSEOptio
 
         case 'error': {
           finishedType = 'error';
+          sawFatalStreamEvent = true;
           options.onErrorHandle?.(data);
           break;
         }
@@ -561,10 +600,9 @@ export const fetchSSE = async (url: string, options: RequestInit & FetchSSEOptio
   });
 
   // Prefer onFinish whenever we have a Response, including after WebKit abort.
-  // Safari often throws TypeError "Load failed" after the server already wrote a
-  // complete short SSE (Axiom: MiniMax Connectivity Check). onAbort may see
-  // empty output; recovering via response.clone().text() must not throw out of
-  // fetchSSE (that used to hit caller onError and wipe a settle).
+  // Safari often throws TypeError "Load failed" after a complete short SSE
+  // (Axiom: MiniMax Connectivity Check). response.clone() shares the errored
+  // tee and cannot recover — use opt-in rawByteCaptureMax bytes instead.
   if (response) {
     textController.stopAnimation();
 
@@ -580,18 +618,41 @@ export const fetchSSE = async (url: string, options: RequestInit & FetchSSEOptio
     }
 
     if (response.ok) {
-      // Recover when no assistant text/reasoning was parsed yet. Usage-only
-      // chunks must not block this path (Safari Connectivity Check).
-      if (!output && !thinking) {
+      const hasParsedOrQueuedPayload =
+        !!output ||
+        !!thinking ||
+        !!toolCalls?.length ||
+        images.length > 0 ||
+        textController.isTokenRemain() ||
+        thinkingController.isTokenRemain() ||
+        sawFatalStreamEvent;
+
+      // Never dump raw SSE as assistant text (tool-only) and never race smooth
+      // animation. Prefer in-stream capture (Safari abort). Legacy clone().text
+      // remains only for non-abort empty parses when capture was not enabled.
+      const applyRecoveredBody = (recovered: string) => {
+        const extracted = extractAssistantTextFromSse(recovered);
+        if (extracted) {
+          output = extracted;
+          options.onMessageHandle?.({ text: output, type: 'text' });
+          return;
+        }
+        if (!looksLikeSse(recovered) && recovered.trim()) {
+          output = recovered;
+          options.onMessageHandle?.({ text: output, type: 'text' });
+        }
+      };
+
+      if (!hasParsedOrQueuedPayload && rawCapturedBytes > 0) {
+        applyRecoveredBody(
+          new TextDecoder().decode(concatCapturedBytes(rawChunks, rawCapturedBytes)),
+        );
+      } else if (!hasParsedOrQueuedPayload && finishedType !== 'abort') {
         try {
           const recovered = await response.clone().text();
-          if (recovered) {
-            const extracted = extractAssistantTextFromSse(recovered);
-            output = extracted || recovered;
-            options.onMessageHandle?.({ text: output, type: 'text' });
-          }
+          if (recovered) applyRecoveredBody(recovered);
         } catch {
-          // Body re-read after Load failed is unreliable on WebKit; keep output.
+          // ignore unreadable bodies
         }
       }
 

@@ -5,7 +5,7 @@ import { fetchEventSource } from '@lobechat/utils/client/fetchEventSource/index'
 import { sleep } from '@lobechat/utils/sleep';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { extractAssistantTextFromSse, fetchSSE } from '../fetchSSE';
+import { extractAssistantTextFromSse, fetchSSE, looksLikeSse } from '../fetchSSE';
 
 // 模拟 i18next
 vi.mock('i18next', () => ({
@@ -32,8 +32,12 @@ describe('extractAssistantTextFromSse', () => {
     expect(extractAssistantTextFromSse(raw)).toBe('Hello!');
   });
 
-  it('returns empty for non-SSE bodies', () => {
+  it('returns empty for non-SSE bodies and tool-only SSE', () => {
     expect(extractAssistantTextFromSse('plain hello')).toBe('');
+    expect(looksLikeSse('plain hello')).toBe(false);
+    const toolOnly = `event: tool_calls\ndata: ${JSON.stringify([{ id: '1' }])}\n\n`;
+    expect(looksLikeSse(toolOnly)).toBe(true);
+    expect(extractAssistantTextFromSse(toolOnly)).toBe('');
   });
 });
 
@@ -691,23 +695,29 @@ describe('fetchSSE', () => {
       expect(mockOnErrorHandle).not.toHaveBeenCalled();
     });
 
-    it('recovers assistant text via response.clone after empty WebKit Load failed', async () => {
+    it('recovers assistant text from onRawChunk after empty WebKit Load failed', async () => {
+      // Models real topology: bytes arrive before body-reader error; clone().text
+      // would reject on the shared tee, so recovery must use captured chunks.
       const mockOnAbort = vi.fn();
       const mockOnFinish = vi.fn();
       const mockOnErrorHandle = vi.fn();
+      const mockOnMessageHandle = vi.fn();
       const hello = 'Hello! How can I help you today?';
       const sseBody = `event: text\ndata: ${JSON.stringify(hello)}\n\n`;
 
-      const makeResponse = (): any => ({
-        clone: () => makeResponse(),
+      const makeErroredCloneResponse = (): any => ({
+        clone: () => makeErroredCloneResponse(),
         headers: new Headers(),
         ok: true,
-        text: async () => sseBody,
+        text: async () => {
+          throw new TypeError('Load failed');
+        },
       });
 
       (fetchEventSource as any).mockImplementationOnce(
         async (_url: string, options: FetchEventSourceInit) => {
-          await options.onopen!(makeResponse());
+          await options.onopen!(makeErroredCloneResponse());
+          options.onRawChunk?.(new TextEncoder().encode(sseBody));
           options.onerror!(new TypeError('Load failed'));
         },
       );
@@ -716,6 +726,8 @@ describe('fetchSSE', () => {
         onAbort: mockOnAbort,
         onErrorHandle: mockOnErrorHandle,
         onFinish: mockOnFinish,
+        onMessageHandle: mockOnMessageHandle,
+        rawByteCaptureMax: 64 * 1024,
         responseAnimation: 'none',
       });
 
@@ -727,16 +739,93 @@ describe('fetchSSE', () => {
         hello,
         expect.objectContaining({ type: 'abort' }),
       );
+      expect(mockOnMessageHandle).toHaveBeenCalledWith({ text: hello, type: 'text' });
       expect(mockOnErrorHandle).not.toHaveBeenCalled();
     });
 
-    it('does not throw to caller when clone().text fails after WebKit abort', async () => {
+    it('does not recover raw SSE as assistant text for tool-only streams', async () => {
+      const mockOnFinish = vi.fn();
+      const mockOnMessageHandle = vi.fn();
+      const toolPayload = [
+        { function: { arguments: '{}', name: 'fn' }, id: '1', type: 'function' },
+      ];
+      const sseBody = `event: tool_calls\ndata: ${JSON.stringify(toolPayload)}\n\n`;
+
+      (fetchEventSource as any).mockImplementationOnce(
+        async (_url: string, options: FetchEventSourceInit) => {
+          await options.onopen!({
+            clone: () => ({ headers: new Headers(), ok: true }),
+            headers: new Headers(),
+            ok: true,
+          } as any);
+          options.onRawChunk?.(new TextEncoder().encode(sseBody));
+          options.onmessage!({
+            data: JSON.stringify(toolPayload),
+            event: 'tool_calls',
+          } as any);
+        },
+      );
+
+      await fetchSSE('/', {
+        onFinish: mockOnFinish,
+        onMessageHandle: mockOnMessageHandle,
+        rawByteCaptureMax: 64 * 1024,
+        responseAnimation: 'none',
+      });
+
+      expect(mockOnMessageHandle).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'tool_calls' }),
+      );
+      expect(mockOnMessageHandle).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'text' }),
+      );
+      expect(mockOnFinish).toHaveBeenCalledWith(
+        '',
+        expect.objectContaining({
+          toolCalls: expect.any(Array),
+          type: 'done',
+        }),
+      );
+    });
+
+    it('does not duplicate smooth text via raw capture when tokens remain queued', async () => {
+      const texts: string[] = [];
+      const mockOnFinish = vi.fn();
+      const sseBody = `event: text\ndata: ${JSON.stringify('Hi')}\n\n`;
+
+      (fetchEventSource as any).mockImplementationOnce(
+        async (_url: string, options: FetchEventSourceInit) => {
+          await options.onopen!({
+            clone: () => ({ headers: new Headers(), ok: true }),
+            headers: new Headers(),
+            ok: true,
+          } as any);
+          options.onRawChunk?.(new TextEncoder().encode(sseBody));
+          options.onmessage!({ data: JSON.stringify('Hi'), event: 'text' } as any);
+        },
+      );
+
+      await fetchSSE('/', {
+        onFinish: mockOnFinish,
+        onMessageHandle: (chunk) => {
+          if (chunk.type === 'text' && typeof chunk.text === 'string') texts.push(chunk.text);
+        },
+        rawByteCaptureMax: 64 * 1024,
+        responseAnimation: 'smooth',
+      });
+
+      // Recovery must not prepend a second full "Hi" before smooth animation.
+      expect(texts.join('')).toBe('Hi');
+      expect(mockOnFinish).toHaveBeenCalledWith('Hi', expect.objectContaining({ type: 'done' }));
+    });
+
+    it('leaves output empty when clone would reject and no raw bytes were captured', async () => {
       const mockOnAbort = vi.fn();
       const mockOnFinish = vi.fn();
       const mockOnErrorHandle = vi.fn();
 
-      const makeResponse = (): any => ({
-        clone: () => makeResponse(),
+      const makeErroredCloneResponse = (): any => ({
+        clone: () => makeErroredCloneResponse(),
         headers: new Headers(),
         ok: true,
         text: async () => {
@@ -746,7 +835,7 @@ describe('fetchSSE', () => {
 
       (fetchEventSource as any).mockImplementationOnce(
         async (_url: string, options: FetchEventSourceInit) => {
-          await options.onopen!(makeResponse());
+          await options.onopen!(makeErroredCloneResponse());
           options.onerror!(new TypeError('Load failed'));
         },
       );
@@ -756,6 +845,7 @@ describe('fetchSSE', () => {
           onAbort: mockOnAbort,
           onErrorHandle: mockOnErrorHandle,
           onFinish: mockOnFinish,
+          rawByteCaptureMax: 64 * 1024,
           responseAnimation: 'none',
         }),
       ).resolves.toBeTruthy();
