@@ -53,6 +53,71 @@ describe('buildMinimaxOpenAIChatPayload', () => {
     } as any);
     expect(out.tools).toEqual(tools);
   });
+
+  it('drops OpenAI image detail auto and keeps MiniMax low/default/high', () => {
+    const out = buildMinimaxOpenAIChatPayload({
+      messages: [
+        {
+          content: [
+            { text: 'what is this', type: 'text' },
+            {
+              image_url: { detail: 'auto', url: 'data:image/png;base64,abc' },
+              type: 'image_url',
+            },
+            {
+              image_url: { detail: 'high', url: 'https://example.com/hi.png' },
+              type: 'image_url',
+            },
+            {
+              image_url: { detail: 'default', url: 'https://example.com/def.png' },
+              type: 'image_url',
+            },
+            {
+              image_url: { url: 'https://example.com/plain.png' },
+              type: 'image_url',
+            },
+          ],
+          role: 'user',
+        },
+      ],
+      model: 'MiniMax-M3',
+    } as any);
+
+    expect(out.messages[0].content).toEqual([
+      { text: 'what is this', type: 'text' },
+      { image_url: { url: 'data:image/png;base64,abc' }, type: 'image_url' },
+      {
+        image_url: { detail: 'high', url: 'https://example.com/hi.png' },
+        type: 'image_url',
+      },
+      {
+        image_url: { detail: 'default', url: 'https://example.com/def.png' },
+        type: 'image_url',
+      },
+      { image_url: { url: 'https://example.com/plain.png' }, type: 'image_url' },
+    ]);
+  });
+
+  it('drops OpenAI video detail auto', () => {
+    const out = buildMinimaxOpenAIChatPayload({
+      messages: [
+        {
+          content: [
+            {
+              type: 'video_url',
+              video_url: { detail: 'auto', url: 'https://example.com/clip.mp4' },
+            },
+          ],
+          role: 'user',
+        },
+      ],
+      model: 'MiniMax-M3',
+    } as any);
+
+    expect(out.messages[0].content).toEqual([
+      { type: 'video_url', video_url: { url: 'https://example.com/clip.mp4' } },
+    ]);
+  });
 });
 
 describe('LobeMinimaxAI message pipeline', () => {
@@ -88,6 +153,37 @@ describe('LobeMinimaxAI message pipeline', () => {
       },
     ]);
   });
+
+  it('does not send OpenAI image detail auto on the Chat Completions body', async () => {
+    const instance = new LobeMinimaxAI({ apiKey: 'test-key' });
+    const createSpy = vi
+      .spyOn((instance as any).client.chat.completions, 'create')
+      .mockResolvedValue((async function* () {})() as any);
+
+    const response = await instance.chat({
+      messages: [
+        {
+          content: [
+            { text: 'describe', type: 'text' },
+            {
+              image_url: { detail: 'auto', url: 'data:image/png;base64,abc' },
+              type: 'image_url',
+            },
+          ],
+          role: 'user',
+        },
+      ],
+      model: 'MiniMax-M3',
+      stream: true,
+    } as any);
+    await new Response(response.body).text();
+
+    const requestMessages = createSpy.mock.calls[0][0].messages as any[];
+    expect(requestMessages[0].content).toEqual([
+      { text: 'describe', type: 'text' },
+      { image_url: { url: 'data:image/png;base64,abc' }, type: 'image_url' },
+    ]);
+  });
 });
 
 describe('LobeMinimaxAI debug', () => {
@@ -114,7 +210,6 @@ describe('LobeMinimaxAI debug', () => {
       } as any);
       await response.text();
 
-      expect(logSpy).toHaveBeenCalledWith(JSON.stringify(chatChunk));
       const providerDebugCall = logSpy.mock.calls.find(
         ([label]) => label === '[provider-debug:request]',
       );

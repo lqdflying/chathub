@@ -12,37 +12,76 @@ export const getMinimaxMaxOutputs = (modelId: string): number | undefined => {
   return model ? model.maxOutput : undefined;
 };
 
+/** MiniMax Chat Completions vision `detail` is `low` | `default` | `high` (default `default`). */
+const MINIMAX_VISION_DETAILS = new Set(['low', 'default', 'high']);
+
+/**
+ * ChatHub stamps OpenAI `image_url.detail: auto` on every attached image.
+ * MiniMax rejects that enum with HTTP 400 `invalid image detail: auto (2013)`.
+ *
+ * @see https://platform.minimax.io/docs/api-reference/text-chat-openai
+ */
+const sanitizeMinimaxVisionDetail = (
+  media: { detail?: unknown } | undefined,
+): Record<string, unknown> | undefined => {
+  if (!media || typeof media !== 'object') return media as undefined;
+  const { detail, ...rest } = media as { detail?: unknown } & Record<string, unknown>;
+  if (typeof detail === 'string' && MINIMAX_VISION_DETAILS.has(detail)) {
+    return { ...rest, detail };
+  }
+  return rest;
+};
+
+const sanitizeMinimaxVisionPart = (part: any): any => {
+  if (!part || typeof part !== 'object') return part;
+  if (part.type === 'image_url' && part.image_url && typeof part.image_url === 'object') {
+    return { ...part, image_url: sanitizeMinimaxVisionDetail(part.image_url) };
+  }
+  if (part.type === 'video_url' && part.video_url && typeof part.video_url === 'object') {
+    return { ...part, video_url: sanitizeMinimaxVisionDetail(part.video_url) };
+  }
+  return part;
+};
+
+const sanitizeMinimaxVisionMessages = (messages: any[]) =>
+  messages.map((message) => {
+    if (!message || !Array.isArray(message.content)) return message;
+    return { ...message, content: message.content.map(sanitizeMinimaxVisionPart) };
+  });
+
 /** Exported for unit tests — MiniMax OpenAI-compatible `/v1/chat/completions` body. */
 export const buildMinimaxOpenAIChatPayload = (payload: ChatStreamPayload) => {
   const { max_tokens, messages, temperature, tools, top_p, ...params } = payload;
 
-  // Interleaved thinking
-  const processedMessages = messages.map((message: any) => {
-    if (message.role === 'assistant' && message.reasoning) {
-      // 只处理没有 signature 的历史推理内容
-      if (!message.reasoning.signature && message.reasoning.content) {
-        const { reasoning, ...messageWithoutReasoning } = message;
-        return {
-          ...messageWithoutReasoning,
-          reasoning_details: [
-            {
-              format: 'MiniMax-response-v1',
-              id: 'reasoning-text-0',
-              index: 0,
-              text: reasoning.content,
-              type: 'reasoning.text',
-            },
-          ],
-        };
-      }
+  // Interleaved thinking, then drop OpenAI-only vision `detail` values.
+  const processedMessages = sanitizeMinimaxVisionMessages(
+    messages.map((message: any) => {
+      if (message.role === 'assistant' && message.reasoning) {
+        // 只处理没有 signature 的历史推理内容
+        if (!message.reasoning.signature && message.reasoning.content) {
+          const { reasoning, ...messageWithoutReasoning } = message;
+          return {
+            ...messageWithoutReasoning,
+            reasoning_details: [
+              {
+                format: 'MiniMax-response-v1',
+                id: 'reasoning-text-0',
+                index: 0,
+                text: reasoning.content,
+                type: 'reasoning.text',
+              },
+            ],
+          };
+        }
 
-      // 有 signature 或没有 content 的情况，移除 reasoning 字段
-      // eslint-disable-next-line unused-imports/no-unused-vars, @typescript-eslint/no-unused-vars
-      const { reasoning, ...messageWithoutReasoning } = message;
-      return messageWithoutReasoning;
-    }
-    return message;
-  });
+        // 有 signature 或没有 content 的情况，移除 reasoning 字段
+        // eslint-disable-next-line unused-imports/no-unused-vars, @typescript-eslint/no-unused-vars
+        const { reasoning, ...messageWithoutReasoning } = message;
+        return messageWithoutReasoning;
+      }
+      return message;
+    }),
+  );
 
   // Resolve parameters with constraints
   const resolvedParams = resolveParameters(

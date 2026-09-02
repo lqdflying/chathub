@@ -182,6 +182,14 @@ The default model list ships 8 GLM cards (`glm-5.2`, `glm-5.1`, `glm-5`, `glm-5-
 - **UI brand mark** — ChatHub provider id is `mimo`; `@lobehub/icons` v3+ uses `xiaomimimo`. While ChatHub pins icons 2.x, Settings/model pickers load vendored assets from `public/icons/providers/mimo*` via `resolveProviderLogoUrl` / `ProviderBrandIcon`.
 - **Request whitelist** — `buildMimoPayload` emits only documented Chat Completions fields (Token Plan has returned `400 Invalid request parameters` for ChatHub-internal keys). Also `excludeUsage` / `noUserId` so `stream_options` and `user` are not sent. Temperature is clamped to `[0, 1.5]` and `top_p` to `[0.01, 1.0]`. Omit `frequency_penalty` / `presence_penalty` unless they are numbers — JSON `null` is a Token Plan 400 with empty `param`. A connectivity check can still pass while chat fails: the check body has no tools and no out-of-range sampling. Other Token Plan 400s include temperature `> 1.5` (`param=temperature must be within [0, 1.5]`) and native `web_search` without the plugin.
 
+### MiniMax
+
+`minimax` is a first-class OpenAI-compatible Chat Completions provider (`packages/model-runtime/src/providers/minimax/index.ts`). Default base URL is `https://api.minimax.io/v1`. Auth is Bearer `MINIMAX_API_KEY`. `buildMinimaxOpenAIChatPayload` is the request shaper:
+
+- **reasoning_split** — output-format flag; defaults to `true` unless the payload sets `false` (connection probe).
+- **Vision `detail`** — MiniMax documents `image_url.detail` / `video_url.detail` as `low` | `default` | `high` (default `default`). ChatHub's message processor stamps OpenAI `detail: auto` on every attached image. MiniMax rejects that with HTTP 400 `invalid params, invalid image detail: auto (2013)`. The adapter keeps `low` / `default` / `high` and **omits** `auto` and any other value so MiniMax applies `default`. Live-probed 2026-09-02: hello, stream, tools, and images without `auto` succeed; the same image with `detail: auto` fails in ~300ms. Official schema: [Chat Completions](https://platform.minimax.io/docs/api-reference/text-chat-openai). Error `2013`: [error codes](https://platform.minimaxi.com/docs/api-reference/errorcode.md).
+- **max_tokens** — falls back to the model-bank `maxOutput` (32_768 on MiniMax-M3) when omitted.
+
 ### Provider brand icons (all providers)
 
 Standing policy: **always vendor brand marks into the repo** for first-class providers. Do not ship a letter fallback waiting on a CDN or an `@lobehub/icons` major bump. Preferred layout: `public/icons/providers/<id>.*` plus optional inline mono SVG for `currentColor` / dark mode; wire through `ProviderBrandIcon` / `ModelBrandIcon`. Agent rule: **`.cursor/rules/provider-icons.mdc`**.
