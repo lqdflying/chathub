@@ -1256,12 +1256,16 @@ describe('ChatService', () => {
 
     it('uses JSON fetch for Connectivity Check instead of SSE', async () => {
       const onFinish = vi.fn();
+      const onJsonResponse = vi.fn();
       const fetchMock = vi.mocked(fetch);
       fetchMock.mockResolvedValueOnce(
         new Response(
           JSON.stringify({
             choices: [
-              { message: { content: 'Hello! How can I help you today?', role: 'assistant' } },
+              {
+                finish_reason: 'stop',
+                message: { content: 'Hello! How can I help you today?', role: 'assistant' },
+              },
             ],
           }),
           { headers: { 'Content-Type': 'application/json' }, status: 200 },
@@ -1270,6 +1274,7 @@ describe('ChatService', () => {
 
       await chatService.getChatCompletion(buildConnectionCheckParams('minimax', 'MiniMax-M3'), {
         onFinish,
+        onJsonResponse,
       });
 
       expect(mockFetchSSE).not.toHaveBeenCalled();
@@ -1277,6 +1282,44 @@ describe('ChatService', () => {
         'Hello! How can I help you today?',
         expect.objectContaining({ type: 'done' }),
       );
+      expect(onJsonResponse).toHaveBeenCalledWith({
+        completed: true,
+        summary: expect.objectContaining({
+          choiceCount: 1,
+          finishReason: 'stop',
+          transport: 'server',
+        }),
+      });
+    });
+
+    it('reports browser transport for a browser-direct JSON Connectivity Check', async () => {
+      const onJsonResponse = vi.fn();
+      vi.spyOn(helpers, 'isEnableFetchOnClient').mockReturnValue(true);
+      vi.spyOn(clientModelRuntime, 'initializeWithClientStore').mockResolvedValue({
+        chat: vi.fn().mockResolvedValue(
+          Response.json({
+            base_resp: { status_code: 0 },
+            choices: [
+              {
+                finish_reason: 'stop',
+                message: { content: 'hello', role: 'assistant' },
+              },
+            ],
+          }),
+        ),
+      } as any);
+
+      await chatService.getChatCompletion(buildConnectionCheckParams('minimax', 'MiniMax-M3'), {
+        onJsonResponse,
+      });
+
+      expect(onJsonResponse).toHaveBeenCalledWith({
+        completed: true,
+        summary: expect.objectContaining({
+          baseStatus: 0,
+          transport: 'browser',
+        }),
+      });
     });
 
     it('reuses the opened event-stream response when JSON mode is ignored', async () => {

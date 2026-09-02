@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { extractJsonChatCompletionResult } from './extractJsonChatCompletion';
+import {
+  extractJsonChatCompletionResult,
+  inspectJsonChatCompletion,
+} from './extractJsonChatCompletion';
 
 describe('extractJsonChatCompletionResult', () => {
   it('reads MiniMax Chat Completions hello text', () => {
@@ -115,6 +118,64 @@ describe('extractJsonChatCompletionResult', () => {
     expect(extractJsonChatCompletionResult({ some: 'data' })).toEqual({
       reasoning: '',
       text: '',
+    });
+  });
+});
+
+describe('inspectJsonChatCompletion', () => {
+  it('recognizes a completed MiniMax envelope without copying response text', () => {
+    const inspection = inspectJsonChatCompletion({
+      base_resp: { status_code: 0 },
+      choices: [
+        {
+          finish_reason: 'stop',
+          message: { content: 'private answer', role: 'assistant' },
+        },
+      ],
+      object: 'chat.completion',
+    });
+
+    expect(inspection).toEqual({
+      completed: true,
+      summary: {
+        baseStatus: 0,
+        choiceCount: 1,
+        contentLength: 14,
+        contentType: 'string',
+        finishReason: 'stop',
+        kind: 'chat_completions',
+        messageKeys: ['content', 'role'],
+        reasoningLength: 0,
+        reasoningType: 'undefined',
+        responseStatus: undefined,
+        topLevelKeys: ['base_resp', 'choices', 'object'],
+      },
+    });
+    expect(JSON.stringify(inspection)).not.toContain('private answer');
+  });
+
+  it('does not accept a MiniMax error envelope as a completed response', () => {
+    expect(
+      inspectJsonChatCompletion({
+        base_resp: { status_code: 1004, status_msg: 'authorization failed' },
+        choices: [],
+      }),
+    ).toMatchObject({
+      completed: false,
+      summary: {
+        baseStatus: 1004,
+        choiceCount: 0,
+        kind: 'unknown',
+      },
+    });
+  });
+
+  it('recognizes a completed Responses envelope', () => {
+    expect(
+      inspectJsonChatCompletion({ object: 'response', output: [], status: 'completed' }),
+    ).toMatchObject({
+      completed: true,
+      summary: { kind: 'responses', responseStatus: 'completed' },
     });
   });
 });

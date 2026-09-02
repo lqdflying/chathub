@@ -10,11 +10,17 @@ import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
 import { ModelBrandIcon } from '@/components/ProviderBrandIcon';
+import { CURRENT_VERSION } from '@/const/version';
 import { useProviderName } from '@/hooks/useProviderName';
 import { chatService } from '@/services/chat';
+import type { JsonChatCompletionInspection } from '@/services/chat/extractJsonChatCompletion';
 import { aiModelSelectors, aiProviderSelectors, useAiInfraStore } from '@/store/aiInfra';
 
-import { buildConnectionCheckParams, hasConnectionCheckResult } from './connectionCheckParams';
+import {
+  buildConnectionCheckParams,
+  hasConnectionCheckResult,
+  hasSuccessfulConnectionCheck,
+} from './connectionCheckParams';
 
 export { hasConnectionCheckOutput, hasConnectionCheckResult } from './connectionCheckParams';
 
@@ -89,10 +95,21 @@ const Checker = memo<ConnectionCheckerProps>(
       });
     }, [model]);
 
-    const connectionCheckFailedError = (body?: unknown): ChatMessageError => ({
-      body,
+    const connectionCheckFailedError = (body?: Record<string, unknown>): ChatMessageError => ({
+      body: {
+        clientVersion: CURRENT_VERSION,
+        ...body,
+      },
       message: t('response.ConnectionCheckFailed', { ns: 'error' }),
       type: 'ConnectionCheckFailed',
+    });
+
+    const withClientVersion = (nextError: ChatMessageError): ChatMessageError => ({
+      ...nextError,
+      body:
+        nextError.body && typeof nextError.body === 'object' && !Array.isArray(nextError.body)
+          ? { ...nextError.body, clientVersion: CURRENT_VERSION }
+          : { clientVersion: CURRENT_VERSION, providerBody: nextError.body },
     });
 
     const checkConnection = async () => {
@@ -107,6 +124,7 @@ const Checker = memo<ConnectionCheckerProps>(
       // JSON Check is the primary path. SSE abort handlers remain for runtimes
       // that ignore responseMode json and still wrap as text/event-stream.
       let reasoningContent = '';
+      let jsonInspection: JsonChatCompletionInspection | undefined;
 
       const settlePass = () => {
         settled = 'pass';
@@ -121,10 +139,25 @@ const Checker = memo<ConnectionCheckerProps>(
       };
 
       const applyConnectionResult = (value: unknown, reasoning?: { content?: string }) => {
-        if (!isError && hasConnectionCheckResult(value, reasoning)) {
+        if (
+          !isError &&
+          hasSuccessfulConnectionCheck(provider, value, reasoning, jsonInspection?.completed)
+        ) {
           settlePass();
         } else {
-          settleFail(connectionCheckFailedError(value));
+          settleFail(
+            connectionCheckFailedError({
+              reason: jsonInspection
+                ? 'json_completion_empty_or_incomplete'
+                : 'connection_check_empty',
+              response: jsonInspection?.summary,
+              result: {
+                reasoningLength: reasoning?.content?.length ?? 0,
+                textLength: typeof value === 'string' ? value.length : 0,
+                textType: value === null ? 'null' : typeof value,
+              },
+            }),
+          );
         }
       };
 
@@ -143,13 +176,16 @@ const Checker = memo<ConnectionCheckerProps>(
           // Do not wipe a prior pass/fail (e.g. clone().text() throw after abort).
           if (settled) return;
           isError = true;
-          settleFail(rawError ?? connectionCheckFailedError());
+          settleFail(rawError ? withClientVersion(rawError) : connectionCheckFailedError());
         },
         onFinish: async (value, context) => {
           // Prefer a prior onAbort *pass* (content already seen). Empty abort
           // leaves settled null so recovery text can still pass here.
           if (settled) return;
           applyConnectionResult(value, context?.reasoning);
+        },
+        onJsonResponse: (inspection) => {
+          jsonInspection = inspection;
         },
         onLoadingChange: (nextLoading) => {
           setLoading(nextLoading);

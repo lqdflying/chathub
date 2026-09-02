@@ -158,6 +158,7 @@ interface FetchAITaskResultParams extends FetchSSEOptions {
    * 加载状态变化处理函数
    * @param loading - 是否处于加载状态
    */
+  onJsonResponse?: FetchOptions['onJsonResponse'];
   onLoadingChange?: (loading: boolean) => void;
   /**
    * 请求对象
@@ -555,6 +556,14 @@ class ChatService {
     if (payload.responseMode === 'json') {
       return fetchJsonChatCompletion({
         ...sseOptions,
+        onJsonResponse: (inspection) =>
+          options?.onJsonResponse?.({
+            ...inspection,
+            summary: {
+              ...inspection.summary,
+              transport: enableFetchOnClient ? 'browser' : 'server',
+            },
+          }),
         payload,
         sseFallback: (response) =>
           fetchSSE(API_ENDPOINTS.chat(provider), {
@@ -609,6 +618,7 @@ class ChatService {
     onError,
     onLoadingChange,
     onAbort,
+    onJsonResponse,
     abortController,
     responseAnimation,
     trace,
@@ -660,6 +670,7 @@ class ChatService {
             errorHandle(new Error(error.message), error);
           },
           onFinish,
+          onJsonResponse,
           onMessageHandle,
           // Preset probes are short; keep raw bytes so Safari Load failed can
           // still recover text (clone() shares the errored body tee).

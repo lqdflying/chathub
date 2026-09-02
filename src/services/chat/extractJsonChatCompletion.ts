@@ -53,6 +53,96 @@ const extractResponsesOutput = (data: Record<string, unknown>) => {
   return { reasoning, text: outputText || messageText };
 };
 
+type JsonValueKind = 'array' | 'boolean' | 'null' | 'number' | 'object' | 'string' | 'undefined';
+
+const jsonValueKind = (value: unknown): JsonValueKind => {
+  if (value === null) return 'null';
+  if (Array.isArray(value)) return 'array';
+  return typeof value as JsonValueKind;
+};
+
+const diagnosticScalar = (value: unknown): boolean | number | string | undefined =>
+  typeof value === 'boolean' || typeof value === 'number' || typeof value === 'string'
+    ? value
+    : undefined;
+
+export interface JsonChatCompletionInspection {
+  completed: boolean;
+  summary: {
+    baseStatus?: boolean | number | string;
+    choiceCount: number;
+    contentLength: number;
+    contentType: JsonValueKind;
+    finishReason?: boolean | number | string;
+    kind: 'chat_completions' | 'responses' | 'unknown';
+    mediaType?: string;
+    messageKeys: string[];
+    reasoningLength: number;
+    reasoningType: JsonValueKind;
+    responseStatus?: boolean | number | string;
+    topLevelKeys: string[];
+    transport?: 'browser' | 'server';
+  };
+}
+
+/**
+ * Build a content-free diagnostic summary of a JSON completion. Connectivity
+ * Check can use the terminal envelope as proof that MiniMax completed even if
+ * a mobile browser exposes no assistant text. Never include provider output.
+ */
+export const inspectJsonChatCompletion = (data: unknown): JsonChatCompletionInspection => {
+  const record = asRecord(data);
+  if (!record) {
+    return {
+      completed: false,
+      summary: {
+        choiceCount: 0,
+        contentLength: 0,
+        contentType: jsonValueKind(undefined),
+        kind: 'unknown',
+        messageKeys: [],
+        reasoningLength: 0,
+        reasoningType: jsonValueKind(undefined),
+        topLevelKeys: [],
+      },
+    };
+  }
+
+  const choices = Array.isArray(record.choices) ? record.choices : [];
+  const firstChoice = asRecord(choices[0]);
+  const message = asRecord(firstChoice?.message) ?? asRecord(firstChoice?.delta);
+  const baseStatus = diagnosticScalar(asRecord(record.base_resp)?.status_code);
+  const finishReason = diagnosticScalar(firstChoice?.finish_reason);
+  const responseStatus = diagnosticScalar(record.status);
+  const providerSucceeded = baseStatus === undefined || baseStatus === 0 || baseStatus === '0';
+  const chatCompleted =
+    choices.length > 0 && typeof finishReason === 'string' && finishReason.trim().length > 0;
+  const responsesCompleted = responseStatus === 'completed';
+  const kind =
+    choices.length > 0
+      ? 'chat_completions'
+      : record.object === 'response' || Array.isArray(record.output)
+        ? 'responses'
+        : 'unknown';
+
+  return {
+    completed: providerSucceeded && (chatCompleted || responsesCompleted),
+    summary: {
+      baseStatus,
+      choiceCount: choices.length,
+      contentLength: extractMessageText(message).length,
+      contentType: jsonValueKind(message?.content),
+      finishReason,
+      kind,
+      messageKeys: message ? Object.keys(message).sort().slice(0, 24) : [],
+      reasoningLength: extractMessageReasoning(message).length,
+      reasoningType: jsonValueKind(message?.reasoning_content ?? message?.reasoning),
+      responseStatus,
+      topLevelKeys: Object.keys(record).sort().slice(0, 24),
+    },
+  };
+};
+
 /**
  * Pull assistant text (and optional reasoning) from a non-stream Chat Completions
  * or Responses JSON body. Used by Connectivity Check so Safari can `response.json()`

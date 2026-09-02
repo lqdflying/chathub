@@ -8,6 +8,13 @@ export const hasConnectionCheckResult = (
   reasoning?: { content?: string },
 ) => hasConnectionCheckOutput(text) || hasConnectionCheckOutput(reasoning?.content);
 
+export const hasSuccessfulConnectionCheck = (
+  provider: string,
+  text: unknown,
+  reasoning?: { content?: string },
+  jsonCompleted = false,
+) => hasConnectionCheckResult(text, reasoning) || (provider === 'minimax' && jsonCompleted);
+
 export const buildConnectionCheckParams = (provider: string, model: string) => {
   // Non-streaming upstream + ChatHub `responseMode: 'json'`: the browser reads
   // `application/json` with Response.json() instead of a short synthetic SSE.

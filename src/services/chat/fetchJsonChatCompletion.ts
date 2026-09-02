@@ -9,7 +9,11 @@ import { ChatMessageError } from '@lobechat/types';
 
 import { getTraceId } from '@/utils/trace';
 
-import { extractJsonChatCompletionResult } from './extractJsonChatCompletion';
+import {
+  extractJsonChatCompletionResult,
+  inspectJsonChatCompletion,
+} from './extractJsonChatCompletion';
+import type { JsonChatCompletionInspection } from './extractJsonChatCompletion';
 
 const isEventStreamResponse = (response: Response) =>
   (response.headers.get('content-type') ?? '').includes('text/event-stream');
@@ -25,6 +29,7 @@ const toChatMessageError = (error: unknown, reason: string): ChatMessageError =>
 
 export interface FetchJsonChatCompletionParams extends FetchSSEOptions {
   headers: Record<string, string>;
+  onJsonResponse?: (inspection: JsonChatCompletionInspection) => void;
   payload: unknown;
   signal?: AbortSignal;
   /**
@@ -48,6 +53,7 @@ export const fetchJsonChatCompletion = async ({
   onAbort,
   onErrorHandle,
   onFinish,
+  onJsonResponse,
   onMessageHandle,
   payload,
   signal,
@@ -83,6 +89,15 @@ export const fetchJsonChatCompletion = async ({
       onErrorHandle?.(toChatMessageError(error, 'json_chat_parse_failed'));
       return response;
     }
+
+    const inspection = inspectJsonChatCompletion(data);
+    onJsonResponse?.({
+      ...inspection,
+      summary: {
+        ...inspection.summary,
+        mediaType: response.headers.get('content-type') ?? undefined,
+      },
+    });
 
     const extracted = extractJsonChatCompletionResult(data);
     if (extracted.reasoning) {

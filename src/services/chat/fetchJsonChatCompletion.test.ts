@@ -8,6 +8,7 @@ describe('fetchJsonChatCompletion', () => {
   const onErrorHandle = vi.fn();
   const onAbort = vi.fn();
   const onMessageHandle = vi.fn();
+  const onJsonResponse = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -28,6 +29,7 @@ describe('fetchJsonChatCompletion', () => {
       headers: { Authorization: 'Bearer x' },
       onErrorHandle,
       onFinish,
+      onJsonResponse,
       onMessageHandle,
       payload: { responseMode: 'json', stream: false },
       sseFallback,
@@ -50,6 +52,15 @@ describe('fetchJsonChatCompletion', () => {
       'Hello from MiniMax',
       expect.objectContaining({ type: 'done' }),
     );
+    expect(onJsonResponse).toHaveBeenCalledWith({
+      completed: false,
+      summary: expect.objectContaining({
+        choiceCount: 1,
+        contentLength: 18,
+        kind: 'chat_completions',
+        mediaType: 'application/json',
+      }),
+    });
     expect(onErrorHandle).not.toHaveBeenCalled();
   });
 

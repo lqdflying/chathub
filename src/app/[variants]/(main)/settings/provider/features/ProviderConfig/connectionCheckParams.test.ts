@@ -4,6 +4,7 @@ import {
   CONNECTION_CHECK_MAX_TOKENS,
   buildConnectionCheckParams,
   hasConnectionCheckResult,
+  hasSuccessfulConnectionCheck,
 } from './connectionCheckParams';
 
 describe('connectionCheckParams', () => {
@@ -68,5 +69,14 @@ describe('connectionCheckParams', () => {
   it('rejects empty text and reasoning', () => {
     expect(hasConnectionCheckResult('', { content: '' })).toBe(false);
     expect(hasConnectionCheckResult('   ', { content: '  ' })).toBe(false);
+  });
+
+  it('accepts a completed MiniMax JSON envelope even when exposed text is empty', () => {
+    expect(hasSuccessfulConnectionCheck('minimax', '', { content: '' }, true)).toBe(true);
+    expect(hasSuccessfulConnectionCheck('minimax', '', { content: '' }, false)).toBe(false);
+  });
+
+  it('does not relax empty-result checks for other providers', () => {
+    expect(hasSuccessfulConnectionCheck('openai', '', { content: '' }, true)).toBe(false);
   });
 });
