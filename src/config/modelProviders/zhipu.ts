@@ -4,7 +4,7 @@ const Zhipu: ModelProviderCard = {
   chatModels: [],
   checkModel: 'glm-5.2',
   description:
-    'Zhipu AI (智谱) provides the GLM flagship model family with Deep Thinking, a 1M-token context on GLM-5.2, built-in web search, and function calling.',
+    'Zhipu AI (智谱) provides the GLM flagship model family, including GLM-5.3 and multimodal GLM-5.3-Flash, with Deep Thinking, a 1M-token context, built-in web search, and function calling.',
   disableBrowserRequest: true,
   id: 'zhipu',
   modelList: { showModelFetcher: true },

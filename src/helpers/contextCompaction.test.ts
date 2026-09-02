@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import { buildDeepSeekPayload } from '../../packages/model-runtime/src/providers/deepseek';
 import { buildMimoPayload } from '../../packages/model-runtime/src/providers/mimo';
+import { buildZhipuPayload } from '../../packages/model-runtime/src/providers/zhipu';
 import {
   COMPACTION_FINGERPRINT_HEX_PATTERN,
   CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS,
@@ -324,6 +325,79 @@ describe('buildSimpleCompletionSampling', () => {
       expect(upstream).not.toHaveProperty('reasoning_effort');
     },
   );
+
+  it.each(['glm-5.3', 'glm-5.3-flash'] as const)(
+    'sends low reasoning effort instead of disabled thinking for forced GLM %s',
+    (model) => {
+      expect(
+        buildSimpleCompletionSampling({
+          model,
+          provider: 'zhipu',
+        }),
+      ).toEqual({ reasoning_effort: 'low' });
+
+      const sampling = buildSimpleCompletionSampling({
+        model,
+        provider: 'zhipu',
+        summaryMaxTokens: summaryCap,
+      });
+
+      expect(sampling).toEqual({
+        max_tokens: reasoningBudget,
+        reasoning_effort: 'low',
+      });
+      expect(sampling).not.toHaveProperty('thinking');
+
+      const upstream = buildZhipuPayload({
+        max_tokens: sampling.max_tokens,
+        messages: [{ content: 'Hello', role: 'user' }],
+        model,
+        reasoning_effort: sampling.reasoning_effort,
+        thinking: sampling.thinking,
+      } as any);
+
+      expect(upstream.max_tokens).toBe(reasoningBudget);
+      expect(upstream.reasoning_effort).toBe('low');
+      expect(upstream).not.toHaveProperty('thinking');
+    },
+  );
+
+  it('still disables thinking on GLM-5.2 simple completions', () => {
+    const sampling = buildSimpleCompletionSampling({
+      model: 'glm-5.2',
+      provider: 'zhipu',
+      summaryMaxTokens: summaryCap,
+    });
+
+    expect(sampling).toEqual({
+      max_tokens: reasoningBudget,
+      thinking: { budget_tokens: 0, type: 'disabled' },
+    });
+
+    const upstream = buildZhipuPayload({
+      max_tokens: sampling.max_tokens,
+      messages: [{ content: 'Hello', role: 'user' }],
+      model: 'glm-5.2',
+      thinking: sampling.thinking,
+    } as any);
+
+    expect(upstream.thinking).toEqual({ type: 'disabled' });
+    expect(upstream).not.toHaveProperty('reasoning_effort');
+  });
+
+  it('does not invent reasoning_effort for forced-thinking GLM-4.7', () => {
+    const sampling = buildSimpleCompletionSampling({
+      model: 'glm-4.7',
+      provider: 'zhipu',
+      summaryMaxTokens: summaryCap,
+    });
+
+    expect(sampling).toEqual({
+      max_tokens: reasoningBudget,
+      thinking: { budget_tokens: 0, type: 'disabled' },
+    });
+    expect(sampling).not.toHaveProperty('reasoning_effort');
+  });
 
   it.each(['mimo-v2.5-pro', 'mimo-v2.5'] as const)(
     'disables default-on Xiaomi MiMo thinking for %s',

@@ -795,8 +795,12 @@ Fix: `buildSimpleCompletionSampling` (`src/helpers/contextCompaction.ts`)
 raises the API budget for listed reasoning cards and unknown/custom model IDs,
 and sends documented thinking-off / lowest-effort fields only for known
 providers (Anthropic, DeepSeek V4, Moonshot/Zhipu thinking-type APIs; GPT-5
-effort). Compaction passes an explicit 400-token summary cap; translation and
-title omit `max_tokens`. Native OpenAI Responses remaps that budget to
+effort). GLM-5.3 / GLM-5.3-Flash cannot disable thinking
+([Zhipu thinking](https://docs.z.ai/guides/capabilities/thinking)); for those
+listed cards the sampler omits `thinking.disabled` and sends
+`reasoning_effort: "low"` instead of the vendor default `max`. Compaction
+passes an explicit 400-token summary cap; translation and title omit
+`max_tokens`. Native OpenAI Responses remaps that budget to
 `max_output_tokens`. Empty visible text throws `EmptyCompactionSummaryError`,
 which `executeConversationGeneration` finalizes as `failed` (or `interrupted`
 if the lane was already superseded) without `markForRetry`. Do not copy

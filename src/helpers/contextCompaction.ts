@@ -292,6 +292,17 @@ const usesDocumentedThinkingTypeOff = ({
 };
 
 /**
+ * GLM-5.3 / Flash force thinking and expose `reasoning_effort`.
+ * `thinking.type: "disabled"` is an API error; omitting effort defaults to `max`,
+ * which can exhaust the bounded History Compress completion before any summary text.
+ * https://docs.z.ai/guides/capabilities/thinking
+ */
+const cardForcesZhipuThinkingWithEffort = (extendParams: string[], provider?: string) =>
+  provider === ModelProvider.Zhipu &&
+  extendParams.includes('zhipuReasoningEffort') &&
+  !extendParams.includes('enableReasoning');
+
+/**
  * Sampling for title / translation / history-summary completions.
  * Pass `summaryMaxTokens` only when the caller wants an output cap
  * (compaction). Translation must omit it so long messages are not truncated.
@@ -315,10 +326,13 @@ export const buildSimpleCompletionSampling = ({
     extendParams.includes('enableReasoning');
   const sendGpt5Effort =
     extendParams.includes('gpt5ReasoningEffort') || (!card && isGpt5ReasoningModelId(model));
-  const sendThinkingDisabled = usesDocumentedThinkingTypeOff({ cardUsesThinkingType, provider });
+  const sendZhipuLowEffort = cardForcesZhipuThinkingWithEffort(extendParams, provider);
+  const sendThinkingDisabled =
+    usesDocumentedThinkingTypeOff({ cardUsesThinkingType, provider }) && !sendZhipuLowEffort;
   const needsReasoningBudget =
     cardUsesThinkingType ||
     sendGpt5Effort ||
+    sendZhipuLowEffort ||
     sendThinkingDisabled ||
     extendParams.includes('reasoningEffort') ||
     !card;
@@ -333,6 +347,10 @@ export const buildSimpleCompletionSampling = ({
 
   if (sendGpt5Effort) {
     sampling.reasoning_effort = resolveGPT5ReasoningEffort(model, 'minimal').effort;
+  }
+
+  if (sendZhipuLowEffort) {
+    sampling.reasoning_effort = 'low';
   }
 
   if (sendThinkingDisabled) {

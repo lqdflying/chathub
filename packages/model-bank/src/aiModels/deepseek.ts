@@ -70,14 +70,9 @@ const deepseekChatModels: AIChatModelCard[] = [
     enabled: true,
     id: 'deepseek-v4-flash-vision-exp',
     maxOutput: 393_216,
-    pricing: {
-      currency: 'USD',
-      units: [
-        { name: 'textInput_cacheRead', rate: 0.0028, strategy: 'fixed', unit: 'millionTokens' },
-        { name: 'textInput', rate: 0.14, strategy: 'fixed', unit: 'millionTokens' },
-        { name: 'textOutput', rate: 0.28, strategy: 'fixed', unit: 'millionTokens' },
-      ],
-    },
+    // Official rates are time-varying (peak vs off-peak). ChatHub has no schedule
+    // dimension, so this card omits `pricing` rather than shipping a known-false
+    // Flash copy. https://api-docs.deepseek.com/quick_start/pricing
     releasedAt: '2026-08-21',
     settings: {
       extendParams: ['enableReasoning', 'reasoningEffort'],
