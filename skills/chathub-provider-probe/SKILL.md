@@ -14,6 +14,7 @@ Use this skill to run live, low-cost API simulations against a ChatHub OpenAI-co
    - `PROBE_OPENAICOMPATIBLE_PROXY_URL`, expected to include `/v1`
    - Optional: `PROBE_OPENAICOMPATIBLE_MODEL`, default `gpt-5.5`
    Do not use the app's normal ChatHub provider env vars for this skill; these `PROBE_*` vars are intentionally dedicated to live provider diagnostics.
+   Native MiniMax is an exception: probe with **`MINIMAX_API_KEY`** and **`MINIMAX_PROXY_URL`** from `~/.bashrc` (see `.cursor/rules/minimax-live-probe.mdc`). Do not remap MiniMax onto `PROBE_OPENAICOMPATIBLE_*` or run this skill's `/v1/responses` cache matrix as the MiniMax verdict.
 2. Run the baseline probe:
    ```bash
    node skills/chathub-provider-probe/scripts/probe-openai-compatible.mjs --phase baseline

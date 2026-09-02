@@ -184,7 +184,7 @@ The default model list ships 8 GLM cards (`glm-5.2`, `glm-5.1`, `glm-5`, `glm-5-
 
 ### MiniMax
 
-`minimax` is a first-class OpenAI-compatible Chat Completions provider (`packages/model-runtime/src/providers/minimax/index.ts`). Default base URL is `https://api.minimax.io/v1`. Auth is Bearer `MINIMAX_API_KEY`. `buildMinimaxOpenAIChatPayload` is the request shaper:
+`minimax` is a first-class OpenAI-compatible Chat Completions provider (`packages/model-runtime/src/providers/minimax/index.ts`). Default base URL is `https://api.minimax.io/v1`. Auth is Bearer `MINIMAX_API_KEY`. On this maintainer host, live probes use **`MINIMAX_API_KEY`** and **`MINIMAX_PROXY_URL`** from `~/.bashrc` (same names as ChatHub env; see `.cursor/rules/minimax-live-probe.mdc`). `buildMinimaxOpenAIChatPayload` is the request shaper:
 
 - **reasoning_split** — output-format flag; defaults to `true` unless the payload sets `false` (connection probe).
 - **Vision `detail`** — MiniMax documents `image_url.detail` / `video_url.detail` as `low` | `default` | `high` (default `default`). ChatHub's message processor stamps OpenAI `detail: auto` on every attached image. MiniMax rejects that with HTTP 400 `invalid params, invalid image detail: auto (2013)`. The adapter keeps `low` / `default` / `high` and **omits** `auto` and any other value so MiniMax applies `default`. Live-probed 2026-09-02: hello, stream, tools, and images without `auto` succeed; the same image with `detail: auto` fails in ~300ms. Official schema: [Chat Completions](https://platform.minimax.io/docs/api-reference/text-chat-openai). Error `2013`: [error codes](https://platform.minimaxi.com/docs/api-reference/errorcode.md).

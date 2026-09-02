@@ -84,6 +84,7 @@ When **MiniMax** rejects requests with context overflow (**`bad_request_error` /
 - Add or extend **runtime unit tests** on `build*Payload` / `handlePayload` when behavior is non-trivial (thinking toggles, tool + thinking interaction, optional fields like `thinking.keep`).
 - For OpenAI-compatible cache changes, test both `/v1/chat/completions` and `/v1/responses` body/header shapes, including `Session_id`-only Responses mode and legacy `responseStateMode` normalization.
 - After changes, run **`bash scripts/type-check-tsc.sh`** and targeted Vitest commands from `.cursor/rules/commands.mdc` (for example, **`bunx vitest run --silent='passed-only' '<file>'`**) for touched packages.
+- For **MiniMax** (`minimax` provider): live-probe with **`MINIMAX_API_KEY`** and **`MINIMAX_PROXY_URL`** from `~/.bashrc` before shipping payload/vision/tool changes. See **`.cursor/rules/minimax-live-probe.mdc`**. Do not use `PROBE_OPENAICOMPATIBLE_*`.
 - For model option-panel changes, do not start a local dev server or browser-level visual check unless the user explicitly requests it. Complete unit and type-check verification locally, then verify the rendered panel after the canary build completes and the image is available.
 
 ## Shipping

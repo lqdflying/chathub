@@ -1,0 +1,41 @@
+---
+description: Live-probe native MiniMax with MINIMAX_API_KEY and MINIMAX_PROXY_URL from ~/.bashrc
+alwaysApply: true
+---
+
+# MiniMax live probe — test key in bashrc
+
+Native MiniMax work (payload, vision, tools, `reasoning_split`, model cards,
+gear panel, trim, canary diagnosis) must live-probe the vendor **before**
+claiming ChatHub is wrong or shipping a MiniMax adapter change.
+
+## Credentials — these names are fixed
+
+On this host they are already set in **`~/.bashrc`**:
+
+- `MINIMAX_API_KEY`
+- `MINIMAX_PROXY_URL`
+
+Use **those two names**. Do not invent `PROBE_MINIMAX_*`, and do not map MiniMax
+onto `PROBE_OPENAICOMPATIBLE_*`. That skill is for generic OpenAI-compatible
+gateways (`/v1/responses` + cache matrix), not native MiniMax Chat Completions.
+
+Non-interactive shells often skip `~/.bashrc`. Parse/export those two names from
+the file. **Never print `MINIMAX_API_KEY`.** Reporting `key_len` and the proxy
+host/path is enough.
+
+## Probe shape
+
+Call `$MINIMAX_PROXY_URL` (Chat Completions `/chat/completions`, `GET /models`)
+with `Authorization: Bearer $MINIMAX_API_KEY`. Default model `MiniMax-M3`.
+Send the **ChatHub-shaped** body (`buildMinimaxOpenAIChatPayload` + factory
+`stream` / `stream_options` / `user`), not only a vendor hello.
+
+Official contract: [Chat Completions](https://platform.minimax.io/docs/api-reference/text-chat-openai),
+[M3 tools](https://platform.minimax.io/docs/guides/text-m3-function-call),
+[error codes](https://platform.minimaxi.com/docs/api-reference/errorcode.md)
+(`2013` = parameter error). Vision `detail` is `low` | `default` | `high`
+(not OpenAI `auto`).
+
+Report HTTP status, MiniMax `error.type` / `error.message` / `base_resp`,
+latency, usage counts. No prompts, no response text, no secrets.
