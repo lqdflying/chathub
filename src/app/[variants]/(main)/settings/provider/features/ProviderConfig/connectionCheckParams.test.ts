@@ -18,6 +18,12 @@ describe('connectionCheckParams', () => {
     expect(buildConnectionCheckParams('minimax', 'MiniMax-M3').stream).toBe(false);
   });
 
+  it('requests JSON so Safari does not parse a short synthetic SSE', () => {
+    expect(buildConnectionCheckParams('openai', 'gpt-4o').responseMode).toBe('json');
+    expect(buildConnectionCheckParams('minimax', 'MiniMax-M3').responseMode).toBe('json');
+    expect(buildConnectionCheckParams('openaicompatible', 'gpt-5.5').responseMode).toBe('json');
+  });
+
   it('omits token limit fields for OpenAI-compatible connectivity probes', () => {
     const params = buildConnectionCheckParams('openaicompatible', 'gpt-5.5');
 

@@ -9,14 +9,18 @@ export const hasConnectionCheckResult = (
 ) => hasConnectionCheckOutput(text) || hasConnectionCheckOutput(reasoning?.content);
 
 export const buildConnectionCheckParams = (provider: string, model: string) => {
-  // Non-streaming upstream: ChatHub still wraps the reply as a short SSE for the
-  // browser, but MiniMax/WebKit no longer depend on a multi-chunk chat stream.
-  // Mobile Safari Connectivity Check was clearing the spinner with no pass/fail
-  // even when the server finished successfully (Axiom: finishReason stop + text).
+  // Non-streaming upstream + ChatHub `responseMode: 'json'`: the browser reads
+  // `application/json` with Response.json() instead of a short synthetic SSE.
+  // Safari iOS often throws TypeError "Load failed" on that SSE wrap without
+  // delivering body bytes (Axiom: MiniMax Check still returns finish_reason
+  // stop + hello). Chat stays on SSE. Runtimes that ignore json mode still
+  // return text/event-stream; the client falls back to fetchSSE.
+  // https://developer.mozilla.org/en-US/docs/Web/API/Response/json
   const base = {
     messages: [{ content: 'hello', role: 'user' as const }],
     model,
     provider,
+    responseMode: 'json' as const,
     stream: false as const,
   };
   const cappedBase = {

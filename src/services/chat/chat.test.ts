@@ -1254,6 +1254,31 @@ describe('ChatService', () => {
       );
     });
 
+    it('uses JSON fetch for Connectivity Check instead of SSE', async () => {
+      const onFinish = vi.fn();
+      const fetchMock = vi.mocked(fetch);
+      fetchMock.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            choices: [
+              { message: { content: 'Hello! How can I help you today?', role: 'assistant' } },
+            ],
+          }),
+          { headers: { 'Content-Type': 'application/json' }, status: 200 },
+        ),
+      );
+
+      await chatService.getChatCompletion(buildConnectionCheckParams('minimax', 'MiniMax-M3'), {
+        onFinish,
+      });
+
+      expect(mockFetchSSE).not.toHaveBeenCalled();
+      expect(onFinish).toHaveBeenCalledWith(
+        'Hello! How can I help you today?',
+        expect.objectContaining({ type: 'done' }),
+      );
+    });
+
     it('should strip legacy provider params from serialized payload', async () => {
       const params: Partial<ChatStreamPayload> = {
         frequency_penalty: 0.5,
@@ -1886,9 +1911,12 @@ describe('ChatService', () => {
         trace: {},
       });
 
-      const body = JSON.parse(mockFetchSSE.mock.calls[0][1].body);
+      expect(mockFetchSSE).not.toHaveBeenCalled();
+      const fetchMock = vi.mocked(fetch);
+      const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
       expect(body).toMatchObject({
         model: 'gpt-5.5',
+        responseMode: 'json',
         stream: false,
       });
       expect(body).not.toHaveProperty('apiMode');

@@ -57,6 +57,7 @@ import { initializeWithClientStore } from './clientModelRuntime';
 import { composeSystemRole } from './composeSystemRole';
 import { contextEngineering } from './contextEngineering';
 import { contextExportRedactions, sanitizeContextExportValue } from './contextExport';
+import { fetchJsonChatCompletion } from './fetchJsonChatCompletion';
 import { findDeploymentName, isEnableFetchOnClient, resolveRuntimeProvider } from './helper';
 import { buildModelExtendParams } from './requestShaping';
 import { trimMinimaxChatContext } from './trimMinimaxContext';
@@ -531,11 +532,11 @@ class ChatService {
       responseAnimation,
     ].reduce((acc, cur) => merge(acc, standardizeAnimationStyle(cur)), {});
 
-    return fetchSSE(API_ENDPOINTS.chat(provider), {
+    const sseOptions = {
       body: JSON.stringify(payload),
-      fetcher: fetcher,
+      fetcher,
       headers,
-      method: 'POST',
+      method: 'POST' as const,
       onAbort: options?.onAbort,
       onContextSnapshot: options?.onContextSnapshot,
       onErrorHandle: options?.onErrorHandle,
@@ -544,7 +545,27 @@ class ChatService {
       rawByteCaptureMax: options?.rawByteCaptureMax,
       responseAnimation: mergedResponseAnimation,
       signal,
-    });
+    };
+
+    // Connectivity Check (and other responseMode:json callers) must not wrap a
+    // completed MiniMax JSON body as a few SSE frames. Safari/WebKit often
+    // throws TypeError "Load failed" on that short stream without delivering
+    // bytes — Axiom still shows finish_reason stop + hello. Use Response.json.
+    // https://developer.mozilla.org/en-US/docs/Web/API/Response/json
+    if (payload.responseMode === 'json') {
+      return fetchJsonChatCompletion({
+        ...sseOptions,
+        payload,
+        sseFallback: (response) =>
+          fetchSSE(API_ENDPOINTS.chat(provider), {
+            ...sseOptions,
+            fetcher: async () => response,
+          }),
+        url: API_ENDPOINTS.chat(provider),
+      });
+    }
+
+    return fetchSSE(API_ENDPOINTS.chat(provider), sseOptions);
   };
 
   /**

@@ -104,8 +104,8 @@ const Checker = memo<ConnectionCheckerProps>(
 
       let isError = false;
       let settled: 'pass' | 'fail' | null = null;
-      // fetchSSE also puts accumulated thinking on interrupt.reasoning so a
-      // WebKit abort does not race the 300ms onMessageHandle buffer.
+      // JSON Check is the primary path. SSE abort handlers remain for runtimes
+      // that ignore responseMode json and still wrap as text/event-stream.
       let reasoningContent = '';
 
       const settlePass = () => {
