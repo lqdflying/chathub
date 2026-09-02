@@ -172,11 +172,18 @@ const Checker = memo<ConnectionCheckerProps>(
             settlePass();
           }
         },
-        onError: (_, rawError) => {
+        onError: (requestError, rawError) => {
           // Do not wipe a prior pass/fail (e.g. clone().text() throw after abort).
           if (settled) return;
           isError = true;
-          settleFail(rawError ? withClientVersion(rawError) : connectionCheckFailedError());
+          settleFail(
+            rawError
+              ? withClientVersion(rawError)
+              : connectionCheckFailedError({
+                  errorClass: requestError?.name || 'UnknownError',
+                  reason: 'preset_task_failed_without_provider_error',
+                }),
+          );
         },
         onFinish: async (value, context) => {
           // Prefer a prior onAbort *pass* (content already seen). Empty abort

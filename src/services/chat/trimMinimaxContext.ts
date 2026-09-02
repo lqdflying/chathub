@@ -20,8 +20,24 @@ const SAFETY_MARGIN = 4096;
 const estimateRequestTokens = async (
   messages: OpenAIChatMessage[],
   tools: unknown[] | undefined,
+  budget: number,
 ): Promise<number> => {
-  return encodeAsync(JSON.stringify({ messages, tools: tools ?? [] }));
+  const serialized = JSON.stringify({ messages, tools: tools ?? [] });
+  const utf8ByteUpperBound = new TextEncoder().encode(serialized).byteLength;
+
+  // Byte-level BPE cannot produce more tokens than the UTF-8 bytes it starts
+  // from. This fast path proves short requests fit without starting the
+  // tokenizer worker, which can be unavailable in mobile Safari/PWA contexts.
+  if (utf8ByteUpperBound <= budget) return utf8ByteUpperBound;
+
+  try {
+    return await encodeAsync(serialized);
+  } catch {
+    // Preserve the context guard when exact tokenization is unavailable. The
+    // UTF-8 byte count is conservative, so it may trim early but never expands
+    // a request beyond the configured budget.
+    return utf8ByteUpperBound;
+  }
 };
 
 export async function trimMinimaxChatContext(
@@ -44,7 +60,7 @@ export async function trimMinimaxChatContext(
     budget = Math.max(8192, Math.floor(contextWindow * 0.35));
   }
 
-  if ((await estimateRequestTokens(messages, tools)) <= budget) return messages;
+  if ((await estimateRequestTokens(messages, tools, budget)) <= budget) return messages;
 
   let sysEnd = 0;
   while (sysEnd < messages.length && messages[sysEnd].role === 'system') {
@@ -56,7 +72,7 @@ export async function trimMinimaxChatContext(
   while (lo < hi) {
     const mid = Math.floor((lo + hi) / 2);
     const candidate = [...messages.slice(0, sysEnd), ...messages.slice(mid)];
-    const t = await estimateRequestTokens(candidate, tools);
+    const t = await estimateRequestTokens(candidate, tools, budget);
     if (t <= budget) {
       hi = mid;
     } else {
@@ -66,7 +82,7 @@ export async function trimMinimaxChatContext(
 
   let trimmed = [...messages.slice(0, sysEnd), ...messages.slice(lo)];
   while (
-    (await estimateRequestTokens(trimmed, tools)) > budget &&
+    (await estimateRequestTokens(trimmed, tools, budget)) > budget &&
     trimmed.length > sysEnd + 2
   ) {
     lo++;
