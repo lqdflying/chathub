@@ -191,6 +191,10 @@ The default model list ships 8 GLM cards (`glm-5.2`, `glm-5.1`, `glm-5`, `glm-5-
 - **Vision `detail`** — MiniMax documents `image_url.detail` / `video_url.detail` as `low` | `default` | `high` (default `default`). ChatHub's message processor stamps OpenAI `detail: auto` on every attached image. MiniMax rejects that with HTTP 400 `invalid params, invalid image detail: auto (2013)`. The adapter keeps `low` / `default` / `high` and **omits** `auto` and any other value so MiniMax applies `default`. Live-probed 2026-09-02: hello, stream, tools, and images without `auto` succeed; the same image with `detail: auto` fails in ~300ms. Official schema: [Chat Completions](https://platform.minimax.io/docs/api-reference/text-chat-openai). Error `2013`: [error codes](https://platform.minimaxi.com/docs/api-reference/errorcode.md).
 - **max_tokens** — falls back to the model-bank `maxOutput` (32_768 on MiniMax-M3) when omitted.
 
+The full mobile Connectivity Check investigation, diagnostic decision tree,
+and physical-device acceptance record are in
+[MiniMax mobile Connectivity Check — end-to-end lesson](minimax-mobile-connectivity.md).
+
 ### Provider brand icons (all providers)
 
 Standing policy: **always vendor brand marks into the repo** for first-class providers. Do not ship a letter fallback waiting on a CDN or an `@lobehub/icons` major bump. Preferred layout: `public/icons/providers/<id>.*` plus optional inline mono SVG for `currentColor` / dark mode; wire through `ProviderBrandIcon` / `ModelBrandIcon`. Agent rule: **`.cursor/rules/provider-icons.mdc`**.
