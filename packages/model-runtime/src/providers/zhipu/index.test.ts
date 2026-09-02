@@ -249,6 +249,60 @@ describe('buildZhipuPayload', () => {
     } as any) as any;
     expect(out.messages.some((m: any) => m.reasoning_content !== undefined)).toBe(true);
   });
+
+  it('never sends thinking.type disabled for glm-5.3 even when payload asks disabled', () => {
+    const out = buildZhipuPayload({
+      messages: baseMessage,
+      model: 'glm-5.3',
+      reasoning_effort: 'max',
+      thinking: { budget_tokens: 0, type: 'disabled' },
+    } as any) as any;
+    expect(out.thinking).toBeUndefined();
+    expect(out.reasoning_effort).toBe('max');
+  });
+
+  it('never sends thinking.type disabled for glm-5.3-flash', () => {
+    const out = buildZhipuPayload({
+      messages: baseMessage,
+      model: 'glm-5.3-flash',
+      thinking: { type: 'disabled' },
+    } as any) as any;
+    expect(out.thinking).toBeUndefined();
+  });
+
+  it('clamps glm-5.3 reasoning_effort none/skip/minimal to low', () => {
+    for (const effort of ['none', 'skip', 'minimal'] as const) {
+      const out = buildZhipuPayload({
+        messages: baseMessage,
+        model: 'glm-5.3',
+        reasoning_effort: effort,
+        thinking: { type: 'enabled' },
+      } as any) as any;
+      expect(out.reasoning_effort).toBe('low');
+    }
+  });
+
+  it('forwards glm-5.3 reasoning_effort low/high/max verbatim', () => {
+    for (const effort of ['low', 'high', 'max'] as const) {
+      const out = buildZhipuPayload({
+        messages: baseMessage,
+        model: 'glm-5.3',
+        reasoning_effort: effort,
+        thinking: { type: 'enabled' },
+      } as any) as any;
+      expect(out.reasoning_effort).toBe(effort);
+    }
+  });
+
+  it('sends Preserved Thinking as type-less { clear_thinking: false } on glm-5.3', () => {
+    const out = buildZhipuPayload({
+      messages: baseMessage,
+      model: 'glm-5.3',
+      thinking: { budget_tokens: 1024, clear_thinking: false, type: 'enabled' },
+    } as any) as any;
+    expect(out.thinking).toEqual({ clear_thinking: false });
+    expect(out.thinking.type).toBeUndefined();
+  });
 });
 
 describe('LobeZhipuAI debug', () => {

@@ -43,16 +43,25 @@ export const buildConnectionCheckParams = (provider: string, model: string) => {
         ...cappedBase,
         thinking: { type: 'disabled' as const },
       };
-    case 'zhipu':
+    case 'zhipu': {
       // GLM-5.2/4.x reasoning models enable Deep Thinking by default; with the
       // 256-token probe budget the thinking phase exhausts tokens and surfaces
       // no final content → ConnectionCheckFailed. Disable thinking for the
-      // connectivity probe (mirrors moonshot). buildZhipuPayload drops the
-      // field for non-thinking ids, so this is safe for all Zhipu models.
+      // connectivity probe (mirrors moonshot).
+      // GLM-5.3 / Flash reject thinking.type=disabled. Omit thinking (forced
+      // on) and send reasoning_effort=low; Checker accepts reasoning-only
+      // output. https://docs.z.ai/guides/overview/migrate-to-glm-new
+      if (model.toLowerCase().startsWith('glm-5.3')) {
+        return {
+          ...cappedBase,
+          reasoning_effort: 'low' as const,
+        };
+      }
       return {
         ...cappedBase,
         thinking: { type: 'disabled' as const },
       };
+    }
     case 'minimax':
       // MiniMax-M3 thinking is on by default when `thinking` is omitted.
       // `reasoning_split` only changes output format (content <think> tags vs

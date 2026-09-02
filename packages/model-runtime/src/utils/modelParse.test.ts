@@ -299,6 +299,46 @@ describe('modelParse', () => {
         });
       });
 
+      it('deepseek: V4 Flash Vision Exp infers vision', async () => {
+        const out = await processModelList(
+          [{ id: 'deepseek-v4-flash-vision-exp' }],
+          MODEL_LIST_CONFIGS.deepseek,
+          'deepseek',
+        );
+
+        expect(out[0]).toMatchObject({
+          functionCall: true,
+          reasoning: true,
+          vision: true,
+        });
+      });
+
+      it('zhipu: GLM-5.3-Flash infers vision and video; GLM-5.3 text does not', async () => {
+        const [flash] = await processModelList(
+          [{ id: 'glm-5.3-flash' }],
+          MODEL_LIST_CONFIGS.zhipu,
+          'zhipu',
+        );
+        const [text] = await processModelList(
+          [{ id: 'glm-5.3' }],
+          MODEL_LIST_CONFIGS.zhipu,
+          'zhipu',
+        );
+
+        expect(flash).toMatchObject({
+          functionCall: true,
+          reasoning: true,
+          video: true,
+          vision: true,
+        });
+        expect(text).toMatchObject({
+          functionCall: true,
+          reasoning: true,
+          video: false,
+          vision: false,
+        });
+      });
+
       it('minimax: MiniMax-M3 fetched models infer multimodal reasoning capabilities', async () => {
         const out = await processModelList(
           [{ id: 'MiniMax-M3' }],

@@ -268,4 +268,26 @@ describe('buildModelExtendParams', () => {
       },
     });
   });
+
+  it('sends glm-5.3 reasoning_effort without enableReasoning', () => {
+    expect(
+      buildModelExtendParams({
+        chatConfig: { zhipuReasoningEffort: 'low' },
+        model: 'glm-5.3',
+        modelExtendParams: ['zhipuReasoningEffort', 'zhipuPreservedThinking'],
+        provider: ModelProvider.Zhipu,
+      }),
+    ).toEqual({ reasoning_effort: 'low' });
+  });
+
+  it('maps leftover glm-5.3 skip to API low, not none', () => {
+    expect(
+      buildModelExtendParams({
+        chatConfig: { zhipuReasoningEffort: 'skip' },
+        model: 'glm-5.3-flash',
+        modelExtendParams: ['zhipuReasoningEffort', 'zhipuPreservedThinking'],
+        provider: ModelProvider.Zhipu,
+      }),
+    ).toEqual({ reasoning_effort: 'low' });
+  });
 });

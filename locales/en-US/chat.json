@@ -147,8 +147,10 @@
       "title": "Enable Deep Thinking (GLM)"
     },
     "zhipuReasoningEffort": {
-      "desc": "GLM-5.2+ only. max = deep reasoning (default), high = enhanced reasoning, skip = bypass thinking (maps to API none). Only effective when thinking is enabled.",
+      "desc": "GLM-5.2: max = deep (default), high = enhanced, skip = bypass thinking (API none). Only effective when thinking is enabled.",
+      "desc53": "GLM-5.3 / GLM-5.3-Flash cannot disable thinking. low = light, high = enhanced, max = deep (default). Other values are rejected.",
       "high": "High",
+      "low": "Low",
       "max": "Max",
       "skip": "Skip",
       "title": "Reasoning Effort (reasoning_effort)"

@@ -82,10 +82,11 @@ export interface LobeAgentChatConfig {
    */
   minimaxReasoningSplit?: boolean;
   /**
-   * Zhipu GLM-5.2 only: reasoning effort enum. 'skip' maps to the API's `minimal`
-   * (model skips thinking). Only effective when thinking is enabled.
+   * Zhipu GLM reasoning effort. GLM-5.2: 'max' | 'high' | 'skip' ('skip' → API `none`).
+   * GLM-5.3 / GLM-5.3-Flash: 'low' | 'high' | 'max' (thinking cannot be disabled;
+   * leftover 'skip' maps to API `low`). Only sent when thinking is on.
    */
-  zhipuReasoningEffort?: 'high' | 'max' | 'skip';
+  zhipuReasoningEffort?: 'high' | 'low' | 'max' | 'skip';
   /**
    * Zhipu GLM: when true, enables Preserved Thinking (`thinking.clear_thinking: false`),
    * replaying historical `reasoning_content` unmodified for multi-turn reasoning
@@ -225,5 +226,5 @@ export const AgentChatConfigSchema = z.object({
   searchMode: z.enum(['off', 'on', 'auto']).optional(),
   textVerbosity: z.enum(['low', 'medium', 'high']).optional(),
   zhipuPreservedThinking: z.boolean().optional(),
-  zhipuReasoningEffort: z.enum(['max', 'high', 'skip']).optional(),
+  zhipuReasoningEffort: z.enum(['max', 'high', 'low', 'skip']).optional(),
 });

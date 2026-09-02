@@ -134,6 +134,12 @@ const inferProviderExtendParams = (
       // capability orthogonal to forced thinking (it controls cross-turn replay,
       // not current-turn thinking), so `zhipuPreservedThinking` stays.
       if (modelId.startsWith('glm-4.7')) return ['zhipuPreservedThinking'];
+      // GLM-5.3 / Flash force thinking; `enableReasoning` would send
+      // thinking.type=disabled and 400. Effort is low|high|max, not skip.
+      // https://docs.z.ai/guides/capabilities/thinking
+      if (modelId.startsWith('glm-5.3')) {
+        return ['zhipuReasoningEffort', 'zhipuPreservedThinking'];
+      }
       const match = modelId.match(/^glm-(\d+)(?:\.(\d+))?/);
       const is52Plus = match
         ? Number(match[1]) > 5 || (Number(match[1]) === 5 && Number(match[2] ?? 0) >= 2)

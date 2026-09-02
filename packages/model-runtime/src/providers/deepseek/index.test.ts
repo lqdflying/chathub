@@ -136,6 +136,29 @@ describe('buildDeepSeekPayload', () => {
     expect(payload.reasoning_effort).toBeUndefined();
   });
 
+  it('keeps user image_url parts on deepseek-v4-flash-vision-exp', () => {
+    const messages = [
+      {
+        content: [
+          { text: 'What is in this image?', type: 'text' },
+          {
+            image_url: { url: 'https://example.com/chart.png' },
+            type: 'image_url',
+          },
+        ],
+        role: 'user',
+      },
+    ];
+    const payload = buildDeepSeekPayload({
+      messages,
+      model: 'deepseek-v4-flash-vision-exp',
+      thinking: { type: 'enabled' as const },
+    } as any);
+
+    expect(payload.model).toBe('deepseek-v4-flash-vision-exp');
+    expect(payload.messages).toEqual(messages);
+  });
+
   it('should handle no thinking param (defaults to standard mode)', () => {
     const payload = buildDeepSeekPayload({
       ...basePayload,
@@ -317,7 +340,16 @@ describe('LobeDeepSeekAI debug', () => {
       } as any);
       await response.text();
 
-      expect(logSpy).toHaveBeenCalledWith(JSON.stringify(chatChunk));
+      // The chunk-tap assembles the final stream record into {id, finishReason, text, ...}.
+      const assembledChunkCall = logSpy.mock.calls.find(
+        (args) =>
+          typeof args[0] === 'string' &&
+          (args[0] as string).includes('"chatcmpl-deepseek-debug"') &&
+          (args[0] as string).includes('"finishReason"'),
+      );
+      expect(assembledChunkCall).toBeDefined();
+      expect(assembledChunkCall?.[0]).toContain('"text":"Hello"');
+
       const providerDebugCall = logSpy.mock.calls.find(
         ([label]) => label === '[provider-debug:request]',
       );

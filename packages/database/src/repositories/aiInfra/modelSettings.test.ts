@@ -99,4 +99,31 @@ describe('injectModelSettings', () => {
       expect(model.settings?.extendParams).toBeUndefined();
     },
   );
+
+  it.each(['glm-5.3', 'glm-5.3-flash'])(
+    'injects GLM-5.3 forced-thinking controls without enableReasoning for %s',
+    (modelId) => {
+      const model = injectModelSettings('zhipu', {
+        abilities: { functionCall: true, reasoning: true },
+        id: modelId,
+        type: 'chat',
+      });
+
+      expect(model.settings).toEqual({
+        extendParams: ['zhipuReasoningEffort', 'zhipuPreservedThinking'],
+      });
+    },
+  );
+
+  it('still injects enableReasoning plus effort for fetched glm-5.2', () => {
+    const model = injectModelSettings('zhipu', {
+      abilities: { functionCall: true, reasoning: true },
+      id: 'glm-5.2',
+      type: 'chat',
+    });
+
+    expect(model.settings).toEqual({
+      extendParams: ['enableReasoning', 'zhipuReasoningEffort', 'zhipuPreservedThinking'],
+    });
+  });
 });

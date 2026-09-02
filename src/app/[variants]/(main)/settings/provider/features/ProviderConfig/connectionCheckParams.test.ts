@@ -47,6 +47,17 @@ describe('connectionCheckParams', () => {
     expect(params.max_tokens).toBe(CONNECTION_CHECK_MAX_TOKENS);
   });
 
+  it.each(['glm-5.3', 'glm-5.3-flash'])(
+    'uses low reasoning_effort and omits thinking.disabled for %s probes',
+    (model) => {
+      const params = buildConnectionCheckParams('zhipu', model);
+
+      expect(params.thinking).toBeUndefined();
+      expect(params.reasoning_effort).toBe('low');
+      expect(params.max_tokens).toBe(CONNECTION_CHECK_MAX_TOKENS);
+    },
+  );
+
   it('disables MiniMax thinking for connectivity probes and leaves reasoning_split unset', () => {
     const params = buildConnectionCheckParams('minimax', 'MiniMax-M3');
 

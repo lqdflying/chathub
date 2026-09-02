@@ -33,7 +33,7 @@ export const MODEL_LIST_CONFIGS = {
   deepseek: {
     functionCallKeywords: ['v3', 'v4', 'r1', 'deepseek-chat'],
     reasoningKeywords: ['r1', 'deepseek-reasoner', 'v3.1', 'v3.2', 'v4'],
-    visionKeywords: ['ocr'],
+    visionKeywords: ['ocr', 'vision'],
   },
   google: {
     excludeKeywords: ['tts'],
@@ -128,7 +128,8 @@ export const MODEL_LIST_CONFIGS = {
       'glm-5',
       'glm-5v',
     ],
-    visionKeywords: ['glm-4v', 'glm-4.1v', 'glm-4.5v', 'glm-4.6v', 'glm-5v'],
+    videoKeywords: ['glm-5.3-flash'],
+    visionKeywords: ['glm-4v', 'glm-4.1v', 'glm-4.5v', 'glm-4.6v', 'glm-5v', 'glm-5.3-flash'],
   },
 } as const;
 

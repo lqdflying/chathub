@@ -20,26 +20,32 @@ vi.mock('react-i18next', () => ({
 
 const updateAgentChatConfig = vi.fn();
 
+const mocks = vi.hoisted(() => ({
+  config: { enableReasoning: true } as Record<string, unknown>,
+  extendParams: [
+    'enableReasoning',
+    'zhipuPreservedThinking',
+    'zhipuReasoningEffort',
+  ] as string[],
+  model: 'glm-5.2',
+}));
+
 vi.mock('@/store/agent', () => ({
   useAgentStore: (selector: (state: unknown) => unknown) =>
     selector({ updateAgentChatConfig }),
 }));
 
 vi.mock('@/store/agent/selectors', () => ({
-  agentChatConfigSelectors: { currentChatConfig: () => ({ enableReasoning: true }) },
+  agentChatConfigSelectors: { currentChatConfig: () => mocks.config },
   agentSelectors: {
-    currentAgentModel: () => 'glm-5.2',
+    currentAgentModel: () => mocks.model,
     currentAgentModelProvider: () => 'zhipu',
   },
 }));
 
 vi.mock('@/store/aiInfra', () => ({
   aiModelSelectors: {
-    modelExtendParams: () => () => [
-      'enableReasoning',
-      'zhipuPreservedThinking',
-      'zhipuReasoningEffort',
-    ],
+    modelExtendParams: () => () => mocks.extendParams,
   },
   useAiInfraStore: (selector: (state: unknown) => unknown) => selector({}),
 }));
@@ -47,6 +53,16 @@ vi.mock('@/store/aiInfra', () => ({
 import ZhipuOptions from './ZhipuOptions';
 
 describe('ZhipuOptions switch-row tooltips', () => {
+  beforeEach(() => {
+    mocks.model = 'glm-5.2';
+    mocks.extendParams = [
+      'enableReasoning',
+      'zhipuPreservedThinking',
+      'zhipuReasoningEffort',
+    ];
+    mocks.config = { enableReasoning: true };
+    updateAgentChatConfig.mockClear();
+  });
   it('switch rows use the native Form tooltip; hover/click open it without toggling the switch', async () => {
     const user = userEvent.setup();
 
@@ -84,5 +100,24 @@ describe('ZhipuOptions switch-row tooltips', () => {
     // clicking the help icon must never activate the associated switch
     expect(reasoningSwitch.getAttribute('aria-checked')).toBe('true');
     expect(updateAgentChatConfig).not.toHaveBeenCalled();
+  });
+
+  it('forced-thinking GLM-5.3 shows Low/High/Max without a reasoning switch', () => {
+    mocks.model = 'glm-5.3';
+    mocks.extendParams = ['zhipuReasoningEffort', 'zhipuPreservedThinking'];
+    mocks.config = {};
+
+    const { container } = render(
+      <ConfigProvider>
+        <ZhipuOptions />
+      </ConfigProvider>,
+    );
+
+    expect(screen.queryByText('extendParams.zhipuReasoning.title')).toBeNull();
+    expect(screen.getByText('extendParams.zhipuReasoningEffort.low')).toBeTruthy();
+    expect(screen.getByText('extendParams.zhipuReasoningEffort.high')).toBeTruthy();
+    expect(screen.getByText('extendParams.zhipuReasoningEffort.max')).toBeTruthy();
+    expect(screen.queryByText('extendParams.zhipuReasoningEffort.skip')).toBeNull();
+    expect(container.querySelectorAll('.ant-switch')).toHaveLength(1);
   });
 });

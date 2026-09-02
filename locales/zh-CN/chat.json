@@ -147,8 +147,10 @@
       "title": "开启深度思考（GLM）"
     },
     "zhipuReasoningEffort": {
-      "desc": "仅 GLM-5.2+ 支持。max=深度思考（默认），high=增强思考，skip=跳过思考（映射到 API 的 none）。仅在思考开启时生效。",
+      "desc": "仅 GLM-5.2 支持 Skip。max=深度思考（默认），high=增强思考，skip=跳过思考（映射到 API 的 none）。仅在思考开启时生效。",
+      "desc53": "GLM-5.3 / GLM-5.3-Flash 无法关闭思考。low=轻度，high=增强，max=深度（默认）。其他值会被接口拒绝。",
       "high": "High",
+      "low": "Low",
       "max": "Max",
       "skip": "Skip",
       "title": "推理强度（reasoning_effort）"

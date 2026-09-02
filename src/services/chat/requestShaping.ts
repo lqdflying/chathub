@@ -11,6 +11,20 @@ import { isModelNativeSearchDisabledProvider } from '@/helpers/modelNativeSearch
 
 const VALID_REASONING_EFFORTS = new Set(['low', 'medium', 'high']);
 
+const isZhipuGlm53 = (model: string) => model.toLowerCase().startsWith('glm-5.3');
+
+/** GLM-5.2 skip → API none; GLM-5.3 leftover skip/none/minimal → low. */
+const mapZhipuReasoningEffortForApi = (model: string, effort: string) => {
+  if (isZhipuGlm53(model)) {
+    if (effort === 'skip' || effort === 'none' || effort === 'minimal') return 'low';
+    if (effort === 'medium') return 'high';
+    if (effort === 'xhigh') return 'max';
+    if (effort === 'low' || effort === 'high' || effort === 'max') return effort;
+    return 'max';
+  }
+  return effort === 'skip' ? 'none' : effort;
+};
+
 const isAnthropicRuntimeProvider = (provider?: string) =>
   provider === ModelProvider.Anthropic || provider === ModelProvider.AnthropicCompatible;
 
@@ -181,13 +195,16 @@ export const buildModelExtendParams = ({
     extendParams.reasoning_split = chatConfig.minimaxReasoningSplit !== false;
   }
 
-  if (
-    modelExtendParams.includes('zhipuReasoningEffort') &&
-    chatConfig.enableReasoning &&
-    chatConfig.zhipuReasoningEffort
-  ) {
-    extendParams.reasoning_effort =
-      chatConfig.zhipuReasoningEffort === 'skip' ? 'none' : chatConfig.zhipuReasoningEffort;
+  if (modelExtendParams.includes('zhipuReasoningEffort') && chatConfig.zhipuReasoningEffort) {
+    const zhipuThinkingOn = modelExtendParams.includes('enableReasoning')
+      ? Boolean(chatConfig.enableReasoning)
+      : true;
+    if (zhipuThinkingOn) {
+      extendParams.reasoning_effort = mapZhipuReasoningEffortForApi(
+        model,
+        chatConfig.zhipuReasoningEffort,
+      );
+    }
   }
 
   return extendParams;

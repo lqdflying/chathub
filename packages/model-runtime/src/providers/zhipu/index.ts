@@ -11,6 +11,12 @@ import { MODEL_LIST_CONFIGS, processModelList } from '../../utils/modelParse';
 const supportsThinking = (model: string) =>
   ['glm-5', 'glm-4.7', 'glm-4.6', 'glm-4.5'].some((prefix) => model.startsWith(prefix));
 
+// GLM-5.3 / GLM-5.3-Flash reject `thinking.type: "disabled"` (HTTP error).
+// GLM-4.7 also forces thinking; never send disabled for that family either.
+// https://docs.z.ai/guides/capabilities/thinking
+const forcesThinking = (model: string) =>
+  model.startsWith('glm-5.3') || model.startsWith('glm-4.7');
+
 // `reasoning_effort` is documented for GLM-5.2 and above only.
 const supportsReasoningEffort = (model: string) => {
   const match = model.match(/^glm-(\d+)(?:\.(\d+))?/);
@@ -18,6 +24,19 @@ const supportsReasoningEffort = (model: string) => {
   const major = Number(match[1]);
   const minor = Number(match[2] ?? 0);
   return major > 5 || (major === 5 && minor >= 2);
+};
+
+const GLM53_REASONING_EFFORTS = new Set(['low', 'high', 'max']);
+
+/** GLM-5.3 / Flash accept only low|high|max; any other value 400s. */
+const normalizeZhipuReasoningEffort = (model: string, effort?: string) => {
+  if (!effort) return undefined;
+  if (!model.startsWith('glm-5.3')) return effort;
+  if (effort === 'none' || effort === 'minimal' || effort === 'skip') return 'low';
+  if (effort === 'medium') return 'high';
+  if (effort === 'xhigh') return 'max';
+  if (GLM53_REASONING_EFFORTS.has(effort)) return effort;
+  return 'max';
 };
 
 const ZHIPU_WEB_SEARCH_TOOL = {
@@ -78,7 +97,8 @@ export const buildZhipuPayload = (
   } = payload;
 
   const thinkingRequested = thinking?.type !== 'disabled';
-  const thinkingEnabled = supportsThinking(model) && thinkingRequested;
+  const thinkingEnabled =
+    supportsThinking(model) && (thinkingRequested || forcesThinking(model));
   const preserveReasoning = thinkingEnabled && thinking?.clear_thinking === false;
 
   const normalizedMessages = normalizeMessagesForZhipu(messages, preserveReasoning);
@@ -94,9 +114,12 @@ export const buildZhipuPayload = (
       : { type: 'disabled' as const };
 
   // `reasoning_effort` is GLM-5.2+ only and only meaningful when thinking is enabled.
-  // The chat service maps UI 'skip' → 'none' before this point; forward verbatim.
+  // GLM-5.2: service maps UI skip → none; runtime forwards verbatim.
+  // GLM-5.3 / Flash: clamp to low|high|max (other values 400).
   const reasoningEffort =
-    thinkingEnabled && supportsReasoningEffort(model) ? payload.reasoning_effort : undefined;
+    thinkingEnabled && supportsReasoningEffort(model)
+      ? normalizeZhipuReasoningEffort(model, payload.reasoning_effort as string | undefined)
+      : undefined;
 
   // `do_sample: false` selects greedy decoding; sampling params then do not apply.
   const greedy = temperature === 0;

@@ -1,10 +1,12 @@
 import type { AIChatModelCard } from '../types/aiModel';
 
+// https://docs.z.ai/guides/llm/glm-5.3
+// https://docs.z.ai/guides/vlm/glm-5.3-flash
 // https://docs.z.ai/guides/llm/glm-5.2
 // https://docs.z.ai/guides/overview/concept-param
 // https://docs.z.ai/guides/capabilities/thinking
 // Max output per https://docs.z.ai/api-reference/llm/chat-completion:
-//   GLM-5.2/5.1/5/5-turbo/4.7/4.6 text: 128K (131072); GLM-4.5: 96K (98304);
+//   GLM-5.3/5.3-Flash/5.2/5.1/5/5-turbo/4.7/4.6 text: 128K (131072); GLM-4.5: 96K (98304);
 //   GLM-5V-Turbo: 128K (131072).
 const zhipuChatModels: AIChatModelCard[] = [
   {
@@ -15,7 +17,48 @@ const zhipuChatModels: AIChatModelCard[] = [
     },
     contextWindowTokens: 1_048_576,
     description:
-      'GLM-5.2 is Zhipu\'s flagship text-only coding/agent model with a 1M-token context window, Deep Thinking, and GLM-5.2-only reasoning_effort control. Web search and JSON mode require thinking disabled.',
+      'GLM-5.3 is Zhipu\'s flagship text-only coding/agent model with a 1M-token context window. Deep Thinking is forced (disabling it errors); reasoning_effort is low, high, or max (default max).',
+    displayName: 'GLM-5.3',
+    enabled: true,
+    id: 'glm-5.3',
+    maxOutput: 131_072,
+    releasedAt: '2026-08-26',
+    settings: {
+      extendParams: ['zhipuReasoningEffort', 'zhipuPreservedThinking'],
+      searchImpl: 'params',
+    },
+    type: 'chat',
+  },
+  {
+    abilities: {
+      functionCall: true,
+      reasoning: true,
+      structuredOutput: true,
+      video: true,
+      vision: true,
+    },
+    contextWindowTokens: 1_048_576,
+    description:
+      'GLM-5.3-Flash is the native multimodal GLM-5.3 variant (image, video, and file input) with a 1M-token context window. Deep Thinking is forced; reasoning_effort is low, high, or max (default max). Vision request schema does not expose web_search.',
+    displayName: 'GLM-5.3-Flash',
+    enabled: true,
+    id: 'glm-5.3-flash',
+    maxOutput: 131_072,
+    releasedAt: '2026-08-26',
+    settings: {
+      extendParams: ['zhipuReasoningEffort', 'zhipuPreservedThinking'],
+    },
+    type: 'chat',
+  },
+  {
+    abilities: {
+      functionCall: true,
+      reasoning: true,
+      structuredOutput: true,
+    },
+    contextWindowTokens: 1_048_576,
+    description:
+      'GLM-5.2 is Zhipu\'s previous flagship text-only coding/agent model with a 1M-token context window, Deep Thinking, and GLM-5.2-only reasoning_effort control.',
     displayName: 'GLM-5.2',
     enabled: true,
     id: 'glm-5.2',
