@@ -130,27 +130,24 @@ const Checker = memo<ConnectionCheckerProps>(
 
       await chatService.fetchPresetTaskResult({
         onAbort: async (value, interrupt) => {
-          // Safari/WebKit often ends a completed SSE with TypeError "Load failed".
-          // Prefer interrupt.reasoning (sync from fetchSSE) over the message
-          // buffer, which can still race if a coalesce timer has not flushed.
+          // Safari/WebKit often ends a completed SSE with TypeError "Load failed"
+          // after MiniMax already returned hello (Axiom). Prefer interrupt.reasoning
+          // over the 300ms message buffer. If both are empty, do NOT settleFail —
+          // fetchSSE may still recover via response.clone().text() and onFinish.
           const reasoningAtAbort = interrupt?.reasoning || reasoningContent;
           if (hasConnectionCheckResult(value, { content: reasoningAtAbort })) {
             settlePass();
-            return;
           }
-          settleFail(
-            connectionCheckFailedError({
-              interrupt,
-              reason: 'stream_interrupted_empty',
-            }),
-          );
         },
         onError: (_, rawError) => {
+          // Do not wipe a prior pass/fail (e.g. clone().text() throw after abort).
+          if (settled) return;
           isError = true;
           settleFail(rawError ?? connectionCheckFailedError());
         },
         onFinish: async (value, context) => {
-          // Prefer a prior onAbort settle (Safari) when it already decided.
+          // Prefer a prior onAbort *pass* (content already seen). Empty abort
+          // leaves settled null so recovery text can still pass here.
           if (settled) return;
           applyConnectionResult(value, context?.reasoning);
         },

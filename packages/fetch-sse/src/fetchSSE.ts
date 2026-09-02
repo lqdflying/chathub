@@ -254,13 +254,36 @@ export const standardizeAnimationStyle = (
   return typeof animationStyle === 'object' ? animationStyle : { text: animationStyle };
 };
 
+/** Pull concatenated `event: text` JSON string payloads from an SSE body. */
+export const extractAssistantTextFromSse = (raw: string): string => {
+  if (!raw.includes('event:') && !raw.includes('data:')) return '';
+
+  let text = '';
+  for (const block of raw.split(/\r?\n\r?\n/)) {
+    if (!block.trim()) continue;
+    let eventName = '';
+    const dataLines: string[] = [];
+    for (const line of block.split(/\r?\n/)) {
+      if (line.startsWith('event:')) eventName = line.slice(6).trim();
+      else if (line.startsWith('data:')) dataLines.push(line.slice(5).trimStart());
+    }
+    if (eventName !== 'text' || dataLines.length === 0) continue;
+    try {
+      const parsed = JSON.parse(dataLines.join('\n'));
+      if (typeof parsed === 'string' && parsed) text += parsed;
+    } catch {
+      // ignore non-JSON text frames
+    }
+  }
+  return text;
+};
+
 /**
  * Fetch data using stream method
  */
 // eslint-disable-next-line no-undef
 export const fetchSSE = async (url: string, options: RequestInit & FetchSSEOptions = {}) => {
   let toolCalls: undefined | MessageToolCall[];
-  let triggerOnMessageHandler = false;
 
   let finishedType: SSEFinishType = 'done';
   let response!: Response;
@@ -376,7 +399,6 @@ export const fetchSSE = async (url: string, options: RequestInit & FetchSSEOptio
       // SSE comment heartbeats contain neither an event nor data payload.
       if (!ev.event && !ev.data) return;
 
-      triggerOnMessageHandler = true;
       let data;
       try {
         data = JSON.parse(ev.data);
@@ -538,8 +560,11 @@ export const fetchSSE = async (url: string, options: RequestInit & FetchSSEOptio
     signal: options.signal,
   });
 
-  // only call onFinish when response is available
-  // so like abort, we don't need to call onFinish
+  // Prefer onFinish whenever we have a Response, including after WebKit abort.
+  // Safari often throws TypeError "Load failed" after the server already wrote a
+  // complete short SSE (Axiom: MiniMax Connectivity Check). onAbort may see
+  // empty output; recovering via response.clone().text() must not throw out of
+  // fetchSSE (that used to hit caller onError and wipe a settle).
   if (response) {
     textController.stopAnimation();
 
@@ -555,37 +580,52 @@ export const fetchSSE = async (url: string, options: RequestInit & FetchSSEOptio
     }
 
     if (response.ok) {
-      // if there is no onMessageHandler, we should call onHandleMessage first
-      if (!triggerOnMessageHandler) {
-        output = await response.clone().text();
-        options.onMessageHandle?.({ text: output, type: 'text' });
+      // Recover when no assistant text/reasoning was parsed yet. Usage-only
+      // chunks must not block this path (Safari Connectivity Check).
+      if (!output && !thinking) {
+        try {
+          const recovered = await response.clone().text();
+          if (recovered) {
+            const extracted = extractAssistantTextFromSse(recovered);
+            output = extracted || recovered;
+            options.onMessageHandle?.({ text: output, type: 'text' });
+          }
+        } catch {
+          // Body re-read after Load failed is unreliable on WebKit; keep output.
+        }
       }
 
       const traceId = response.headers.get(LOBE_CHAT_TRACE_ID);
       const observationId = response.headers.get(LOBE_CHAT_OBSERVATION_ID);
 
-      if (textController.isTokenRemain()) {
-        await textController.startAnimation(smoothingSpeed);
-      }
+      try {
+        if (textController.isTokenRemain()) {
+          await textController.startAnimation(smoothingSpeed);
+        }
 
-      await options?.onFinish?.(output, {
-        grounding,
-        images: images.length > 0 ? images : undefined,
-        observationId,
-        reasoning:
-          !!thinking || thinkingSignatures.length > 0 || redactedSignatures.length > 0
-            ? {
-                content: thinking || undefined,
-                redactedSignatures: redactedSignatures.length > 0 ? redactedSignatures : undefined,
-                signature: thinkingSignatures[0],
-              }
-            : undefined,
-        speed,
-        toolCalls,
-        traceId,
-        type: finishedType,
-        usage,
-      });
+        await options?.onFinish?.(output, {
+          grounding,
+          images: images.length > 0 ? images : undefined,
+          observationId,
+          reasoning:
+            !!thinking || thinkingSignatures.length > 0 || redactedSignatures.length > 0
+              ? {
+                  content: thinking || undefined,
+                  redactedSignatures: redactedSignatures.length > 0 ? redactedSignatures : undefined,
+                  signature: thinkingSignatures[0],
+                }
+              : undefined,
+          speed,
+          toolCalls,
+          traceId,
+          type: finishedType,
+          usage,
+        });
+      } catch (error) {
+        // Never surface post-stream settlement failures after an interrupt was
+        // already delivered through onAbort (Connectivity Check / chat Stop).
+        if (finishedType !== 'abort') throw error;
+      }
     }
   }
 

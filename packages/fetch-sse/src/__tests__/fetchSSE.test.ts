@@ -5,7 +5,7 @@ import { fetchEventSource } from '@lobechat/utils/client/fetchEventSource/index'
 import { sleep } from '@lobechat/utils/sleep';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { fetchSSE } from '../fetchSSE';
+import { extractAssistantTextFromSse, fetchSSE } from '../fetchSSE';
 
 // 模拟 i18next
 vi.mock('i18next', () => ({
@@ -19,6 +19,22 @@ vi.mock('@lobechat/utils/client/fetchEventSource/index', () => ({
 // 在每次测试后清理所有模拟
 afterEach(() => {
   vi.restoreAllMocks();
+});
+
+describe('extractAssistantTextFromSse', () => {
+  it('concatenates event:text JSON string frames', () => {
+    const raw = [
+      `event: text\ndata: ${JSON.stringify('Hello')}\n\n`,
+      `event: usage\ndata: ${JSON.stringify({ totalTokens: 1 })}\n\n`,
+      `event: text\ndata: ${JSON.stringify('!')}\n\n`,
+    ].join('');
+
+    expect(extractAssistantTextFromSse(raw)).toBe('Hello!');
+  });
+
+  it('returns empty for non-SSE bodies', () => {
+    expect(extractAssistantTextFromSse('plain hello')).toBe('');
+  });
 });
 
 describe('fetchSSE', () => {
@@ -671,6 +687,83 @@ describe('fetchSSE', () => {
       expect(mockOnAbort).toHaveBeenCalledWith(
         '',
         expect.objectContaining({ errorKind: 'webkit_load_failed' }),
+      );
+      expect(mockOnErrorHandle).not.toHaveBeenCalled();
+    });
+
+    it('recovers assistant text via response.clone after empty WebKit Load failed', async () => {
+      const mockOnAbort = vi.fn();
+      const mockOnFinish = vi.fn();
+      const mockOnErrorHandle = vi.fn();
+      const hello = 'Hello! How can I help you today?';
+      const sseBody = `event: text\ndata: ${JSON.stringify(hello)}\n\n`;
+
+      const makeResponse = (): any => ({
+        clone: () => makeResponse(),
+        headers: new Headers(),
+        ok: true,
+        text: async () => sseBody,
+      });
+
+      (fetchEventSource as any).mockImplementationOnce(
+        async (_url: string, options: FetchEventSourceInit) => {
+          await options.onopen!(makeResponse());
+          options.onerror!(new TypeError('Load failed'));
+        },
+      );
+
+      await fetchSSE('/', {
+        onAbort: mockOnAbort,
+        onErrorHandle: mockOnErrorHandle,
+        onFinish: mockOnFinish,
+        responseAnimation: 'none',
+      });
+
+      expect(mockOnAbort).toHaveBeenCalledWith(
+        '',
+        expect.objectContaining({ errorKind: 'webkit_load_failed' }),
+      );
+      expect(mockOnFinish).toHaveBeenCalledWith(
+        hello,
+        expect.objectContaining({ type: 'abort' }),
+      );
+      expect(mockOnErrorHandle).not.toHaveBeenCalled();
+    });
+
+    it('does not throw to caller when clone().text fails after WebKit abort', async () => {
+      const mockOnAbort = vi.fn();
+      const mockOnFinish = vi.fn();
+      const mockOnErrorHandle = vi.fn();
+
+      const makeResponse = (): any => ({
+        clone: () => makeResponse(),
+        headers: new Headers(),
+        ok: true,
+        text: async () => {
+          throw new TypeError('Load failed');
+        },
+      });
+
+      (fetchEventSource as any).mockImplementationOnce(
+        async (_url: string, options: FetchEventSourceInit) => {
+          await options.onopen!(makeResponse());
+          options.onerror!(new TypeError('Load failed'));
+        },
+      );
+
+      await expect(
+        fetchSSE('/', {
+          onAbort: mockOnAbort,
+          onErrorHandle: mockOnErrorHandle,
+          onFinish: mockOnFinish,
+          responseAnimation: 'none',
+        }),
+      ).resolves.toBeTruthy();
+
+      expect(mockOnAbort).toHaveBeenCalled();
+      expect(mockOnFinish).toHaveBeenCalledWith(
+        '',
+        expect.objectContaining({ type: 'abort' }),
       );
       expect(mockOnErrorHandle).not.toHaveBeenCalled();
     });
