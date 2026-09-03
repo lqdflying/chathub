@@ -128,12 +128,6 @@ const inferProviderExtendParams = (
 
   if (providerId === ModelProvider.Zhipu) {
     if (item.abilities?.reasoning) {
-      // GLM-4.7 forces thinking (Zhipu docs: "GLM-4.7 will think compulsorily"),
-      // so it ships no `enableReasoning` toggle — mirrors the Moonshot K3 precedent
-      // for forced-thinking models. But `clear_thinking` is a documented GLM-4.5+
-      // capability orthogonal to forced thinking (it controls cross-turn replay,
-      // not current-turn thinking), so `zhipuPreservedThinking` stays.
-      if (modelId.startsWith('glm-4.7')) return ['zhipuPreservedThinking'];
       // GLM-5.3 / Flash force thinking; `enableReasoning` would send
       // thinking.type=disabled and 400. Effort is low|high|max, not skip.
       // https://docs.z.ai/guides/capabilities/thinking

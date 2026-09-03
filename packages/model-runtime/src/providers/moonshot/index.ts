@@ -10,7 +10,8 @@ const MOONSHOT_SEARCH_TOOL = { function: { name: '$web_search' }, type: 'builtin
 /** kimi-k2.5 / kimi-k2.6: Moonshot accepts `thinking: { type, keep? }` per API schemas. */
 const isKimiK25StyleThinkingModel = (model: string) =>
   model === 'kimi-k2.5' || model === 'kimi-k2.6';
-const isKimiK27CodeModel = (model: string) => model === 'kimi-k2.7-code';
+const isKimiK27CodeModel = (model: string) =>
+  model === 'kimi-k2.7-code' || model === 'kimi-k2.7-code-highspeed';
 const isKimiK3Model = (model: string) => model === 'kimi-k3';
 const isKimiNativeThinkingModel = (model: string) =>
   model.startsWith('kimi-k2-thinking') || isKimiK27CodeModel(model) || isKimiK3Model(model);

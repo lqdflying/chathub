@@ -6,8 +6,7 @@ import type { AIChatModelCard } from '../types/aiModel';
 // https://docs.z.ai/guides/overview/concept-param
 // https://docs.z.ai/guides/capabilities/thinking
 // Max output per https://docs.z.ai/api-reference/llm/chat-completion:
-//   GLM-5.3/5.3-Flash/5.2/5.1/5/5-turbo/4.7/4.6 text: 128K (131072); GLM-4.5: 96K (98304);
-//   GLM-5V-Turbo: 128K (131072).
+//   GLM-5.3/5.3-Flash/5.2/5.1/5/5-turbo: 128K (131072).
 const zhipuChatModels: AIChatModelCard[] = [
   {
     abilities: {
@@ -122,63 +121,6 @@ const zhipuChatModels: AIChatModelCard[] = [
     id: 'glm-5-turbo',
     maxOutput: 131_072,
     releasedAt: '2026-02-01',
-    settings: {
-      extendParams: ['enableReasoning', 'zhipuPreservedThinking'],
-      searchImpl: 'params',
-    },
-    type: 'chat',
-  },
-  {
-    abilities: {
-      functionCall: true,
-      reasoning: true,
-      structuredOutput: true,
-    },
-    contextWindowTokens: 204_800,
-    description:
-      'GLM-4.7 is a text model with forced Deep Thinking (thinking is forced per Zhipu docs) and a 200K context window. Ships no reasoning toggle, but Preserved Thinking (clear_thinking) is a documented GLM-4.5+ capability.',
-    displayName: 'GLM-4.7',
-    id: 'glm-4.7',
-    maxOutput: 131_072,
-    releasedAt: '2025-12-01',
-    settings: {
-      extendParams: ['zhipuPreservedThinking'],
-      searchImpl: 'params',
-    },
-    type: 'chat',
-  },
-  {
-    abilities: {
-      functionCall: true,
-      reasoning: true,
-      structuredOutput: true,
-    },
-    contextWindowTokens: 204_800,
-    description:
-      'GLM-4.6 is a text model with Deep Thinking support and a 200K context window.',
-    displayName: 'GLM-4.6',
-    id: 'glm-4.6',
-    maxOutput: 131_072,
-    releasedAt: '2025-10-01',
-    settings: {
-      extendParams: ['enableReasoning', 'zhipuPreservedThinking'],
-      searchImpl: 'params',
-    },
-    type: 'chat',
-  },
-  {
-    abilities: {
-      functionCall: true,
-      reasoning: true,
-      structuredOutput: true,
-    },
-    contextWindowTokens: 131_072,
-    description:
-      'GLM-4.5 is a text model with Deep Thinking support and a 128K context window.',
-    displayName: 'GLM-4.5',
-    id: 'glm-4.5',
-    maxOutput: 98_304,
-    releasedAt: '2025-07-01',
     settings: {
       extendParams: ['enableReasoning', 'zhipuPreservedThinking'],
       searchImpl: 'params',

@@ -34,7 +34,7 @@ describe('connectionCheckParams', () => {
   });
 
   it('disables Kimi thinking for moonshot connectivity probes', () => {
-    const params = buildConnectionCheckParams('moonshot', 'kimi-k2.5');
+    const params = buildConnectionCheckParams('moonshot', 'kimi-k2.6');
 
     expect(params.thinking).toEqual({ type: 'disabled' });
     expect(params.max_tokens).toBe(CONNECTION_CHECK_MAX_TOKENS);

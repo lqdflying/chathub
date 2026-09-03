@@ -9,7 +9,7 @@ import { useAgentStore } from '@/store/agent';
 import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selectors';
 import { aiModelSelectors, useAiInfraStore } from '@/store/aiInfra';
 
-/** Kimi / Moonshot-only extended options (kimi-k2.5 / kimi-k2.6 thinking + K2.6 Preserved Thinking). */
+/** Kimi / Moonshot-only extended options (kimi-k2.6 thinking + Preserved Thinking). */
 const MoonshotOptions = memo(() => {
   const { t } = useTranslation('chat');
   const [model, provider, updateAgentChatConfig] = useAgentStore((s) => [

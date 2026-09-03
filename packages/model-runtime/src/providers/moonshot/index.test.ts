@@ -212,7 +212,9 @@ describe('buildMoonshotPayload — tool-call safety', () => {
     expect(result).not.toHaveProperty('top_p');
   });
 
-  it('kimi-k2.7-code uses native thinking and preserves reasoning_content on assistant tool calls', () => {
+  it.each(['kimi-k2.7-code', 'kimi-k2.7-code-highspeed'])(
+    '%s uses native thinking and preserves reasoning_content on assistant tool calls',
+    (model) => {
     const result = buildMoonshotPayload({
       messages: [
         { content: 'hi', role: 'user' },
@@ -229,7 +231,7 @@ describe('buildMoonshotPayload — tool-call safety', () => {
         },
         { content: '{"time":"now"}', role: 'tool', tool_call_id: 'call_time' },
       ],
-      model: 'kimi-k2.7-code',
+      model,
       stream: true,
       thinking: { budget_tokens: 1024, type: 'enabled' },
       tools: sampleTools,
@@ -240,7 +242,8 @@ describe('buildMoonshotPayload — tool-call safety', () => {
     expect(result).not.toHaveProperty('temperature');
     const assistant = (result.messages as any[]).find((m) => m.role === 'assistant');
     expect(assistant?.reasoning_content).toBe('');
-  });
+    },
+  );
 
   it('kimi-k3 uses max reasoning without K2 thinking or mutable sampling fields', () => {
     const result = buildMoonshotPayload({

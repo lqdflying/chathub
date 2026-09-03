@@ -87,7 +87,7 @@ describe('injectModelSettings', () => {
     });
   });
 
-  it.each(['kimi-k2.7-code', 'kimi-k3'])(
+  it.each(['kimi-k2.7-code', 'kimi-k2.7-code-highspeed', 'kimi-k3'])(
     'does not expose a Moonshot forced-thinking toggle for %s',
     (modelId) => {
       const model = injectModelSettings('moonshot', {
