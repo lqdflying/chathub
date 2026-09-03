@@ -275,7 +275,7 @@ describe('transformToChatModelCards', () => {
     });
   });
 
-  it('should have file with builtin models like gpt-4-0125-preview', () => {
+  it('should keep leftover OpenAI ids as custom cards when the provider builtin list is empty', () => {
     const result = transformToChatModelCards({
       modelString:
         '-all,+gpt-4-0125-preview=ChatGPT-4<128000:fc:file>,+gpt-4-turbo-2024-04-09=ChatGPT-4 Vision<128000:fc:vision:file>',

@@ -553,10 +553,9 @@ describe('transformToChatModelCards', () => {
     });
   });
 
-  it('should have file with builtin models like gpt-4-0125-preview', async () => {
+  it('should merge builtin OpenAI models when re-added by model string', async () => {
     const result = await transformToAiModelList({
-      modelString:
-        '-all,+gpt-4-0125-preview=ChatGPT-4<128000:fc:file>,+gpt-4-turbo-2024-04-09=ChatGPT-4 Vision<128000:fc:vision:file>',
+      modelString: '-all,+gpt-5.6-sol=Sol Custom<1050000:fc:vision:file>,+gpt-5.5=GPT-5.5 Custom<1050000:fc:vision>',
       defaultModels: openaiChatModels,
       providerId: 'openai',
     });

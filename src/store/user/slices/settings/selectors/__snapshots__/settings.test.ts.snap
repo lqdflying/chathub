@@ -51,34 +51,34 @@ exports[`settingsSelectors > currentSettings > should merge DEFAULT_SETTINGS and
 exports[`settingsSelectors > currentSystemAgent > should merge DEFAULT_SYSTEM_AGENT_CONFIG and s.settings.systemAgent correctly 1`] = `
 {
   "agentMeta": {
-    "model": "gpt-5-mini",
+    "model": "gpt-5.6-sol",
     "provider": "openai",
   },
   "enableAutoReply": true,
   "generationTopic": {
-    "model": "gpt-5-mini",
+    "model": "gpt-5.6-sol",
     "provider": "openai",
   },
   "historyCompress": {
-    "model": "gpt-5-mini",
+    "model": "gpt-5.6-sol",
     "provider": "openai",
   },
   "queryRewrite": {
     "enabled": true,
-    "model": "gpt-5-mini",
+    "model": "gpt-5.6-sol",
     "provider": "openai",
   },
   "replyMessage": "Custom auto reply",
   "thread": {
-    "model": "gpt-5-mini",
+    "model": "gpt-5.6-sol",
     "provider": "openai",
   },
   "topic": {
-    "model": "gpt-5-mini",
+    "model": "gpt-5.6-sol",
     "provider": "openai",
   },
   "translation": {
-    "model": "gpt-5-mini",
+    "model": "gpt-5.6-sol",
     "provider": "openai",
   },
 }
@@ -106,29 +106,34 @@ exports[`settingsSelectors > defaultAgent > should merge DEFAULT_AGENT and s.set
 {
   "config": {
     "chatConfig": {
+      "assistanceLevel": "balanced",
       "autoCreateTopicThreshold": 2,
+      "contextCompactThreshold": 0.8,
       "displayMode": "chat",
+      "enableAssistantMemory": true,
       "enableAutoCreateTopic": true,
       "enableCompressHistory": true,
+      "enableDailyMemorySummary": false,
       "enableHistoryCount": true,
+      "enablePeriodicAssistantMemoryRollup": false,
       "enableReasoning": false,
       "enableStreaming": true,
+      "enableTokenThresholdAutoCompact": false,
+      "enableUserMemoryArchive": false,
       "historyCount": 20,
+      "memoryDreamScheduleFrequency": "off",
+      "memoryDreamScheduleTime": "02:00",
+      "memoryDreamScheduleWeekday": 0,
       "reasoningBudgetToken": 1024,
       "searchFCModel": {
-        "model": "gpt-5-mini",
+        "model": "gpt-5.6-sol",
         "provider": "openai",
       },
       "searchMode": "off",
     },
     "model": "gpt-3.5-turbo",
     "openingQuestions": [],
-    "params": {
-      "frequency_penalty": 0,
-      "presence_penalty": 0,
-      "temperature": 1,
-      "top_p": 1,
-    },
+    "params": {},
     "plugins": [],
     "provider": "openai",
     "systemRole": "user",
@@ -151,17 +156,27 @@ exports[`settingsSelectors > defaultAgent > should merge DEFAULT_AGENT and s.set
 exports[`settingsSelectors > defaultAgentConfig > should merge DEFAULT_AGENT_CONFIG and defaultAgent(s).config correctly 1`] = `
 {
   "chatConfig": {
+    "assistanceLevel": "balanced",
     "autoCreateTopicThreshold": 2,
+    "contextCompactThreshold": 0.8,
     "displayMode": "chat",
+    "enableAssistantMemory": true,
     "enableAutoCreateTopic": true,
     "enableCompressHistory": true,
+    "enableDailyMemorySummary": false,
     "enableHistoryCount": true,
+    "enablePeriodicAssistantMemoryRollup": false,
     "enableReasoning": false,
     "enableStreaming": true,
+    "enableTokenThresholdAutoCompact": false,
+    "enableUserMemoryArchive": false,
     "historyCount": 20,
+    "memoryDreamScheduleFrequency": "off",
+    "memoryDreamScheduleTime": "02:00",
+    "memoryDreamScheduleWeekday": 0,
     "reasoningBudgetToken": 1024,
     "searchFCModel": {
-      "model": "gpt-5-mini",
+      "model": "gpt-5.6-sol",
       "provider": "openai",
     },
     "searchMode": "off",
@@ -169,10 +184,7 @@ exports[`settingsSelectors > defaultAgentConfig > should merge DEFAULT_AGENT_CON
   "model": "gpt-4",
   "openingQuestions": [],
   "params": {
-    "frequency_penalty": 0,
-    "presence_penalty": 0,
     "temperature": 0.7,
-    "top_p": 1,
   },
   "plugins": [],
   "provider": "openai",

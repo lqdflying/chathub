@@ -11,6 +11,14 @@ export interface GPT5ReasoningEffortResolution {
 }
 
 const GPT56_SOL_REASONING_EFFORTS: readonly GPT5ReasoningEffort[] = ['high', 'xhigh', 'max'];
+const GPT56_FAMILY_REASONING_EFFORTS: readonly GPT5ReasoningEffort[] = [
+  'none',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+];
 const GPT55_REASONING_EFFORTS: readonly GPT5ReasoningEffort[] = ['high', 'xhigh'];
 const LEGACY_GPT5_REASONING_EFFORTS: readonly GPT5ReasoningEffort[] = [
   'minimal',
@@ -29,6 +37,15 @@ export const resolveGPT5ReasoningEffort = (
         ? (requestedEffort as GPT5ReasoningEffort)
         : 'high',
       effortValues: GPT56_SOL_REASONING_EFFORTS,
+    };
+  }
+
+  if (model.startsWith('gpt-5.6')) {
+    return {
+      effort: GPT56_FAMILY_REASONING_EFFORTS.includes(requestedEffort as GPT5ReasoningEffort)
+        ? (requestedEffort as GPT5ReasoningEffort)
+        : 'medium',
+      effortValues: GPT56_FAMILY_REASONING_EFFORTS,
     };
   }
 

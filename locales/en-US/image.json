@@ -135,7 +135,7 @@
         "title": "LLM-Assisted Image Generation"
       },
       "multiProviders": {
-        "desc": "Supports multiple image generation providers, including OpenAI gpt-image-1, Google Imagen, FAL.ai, and more, offering a wide selection of models.",
+        "desc": "Supports multiple image generation providers, including OpenAI gpt-image-2, Google Imagen, FAL.ai, and more, offering a wide selection of models.",
         "title": "Multi-Provider Support"
       }
     },

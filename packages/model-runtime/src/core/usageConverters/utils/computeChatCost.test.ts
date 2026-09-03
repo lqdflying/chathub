@@ -10,9 +10,9 @@ import { computeChatCost } from './computeChatCost';
 
 describe('computeChatPricing', () => {
   describe('OpenAI', () => {
-    it('handles simple request without cache for gpt-4.1', () => {
+    it('handles simple request without cache for gpt-5.6-sol', () => {
       const pricing = openaiChatModels.find(
-        (model: { id: string }) => model.id === 'gpt-4.1',
+        (model: { id: string }) => model.id === 'gpt-5.6-sol',
       )?.pricing;
       expect(pricing).toBeDefined();
 
@@ -35,21 +35,21 @@ describe('computeChatPricing', () => {
       // Verify input tokens
       const input = breakdown.find((item) => item.unit.name === 'textInput');
       expect(input?.quantity).toBe(8);
-      expect(input?.credits).toBe(16); // 8 * 2 = 16
+      expect(input?.credits).toBe(32); // 8 * 4 = 32
 
       // Verify output tokens
       const output = breakdown.find((item) => item.unit.name === 'textOutput');
       expect(output?.quantity).toBe(11);
-      expect(output?.credits).toBe(88); // 11 * 8 = 88
+      expect(output?.credits).toBe(220); // 11 * 20 = 220
 
       // Verify totals match the actual billing log
-      expect(totalCredits).toBe(104); // 16 + 88 = 104
-      expect(totalCost).toBeCloseTo(0.000104, 6); // 104 credits = $0.000104
+      expect(totalCredits).toBe(252); // 32 + 220 = 252
+      expect(totalCost).toBeCloseTo(0.000252, 6); // 252 credits = $0.000252
     });
 
-    it('handles request with cache read for gpt-4.1', () => {
+    it('handles request with cache read for gpt-5.6-sol', () => {
       const pricing = openaiChatModels.find(
-        (model: { id: string }) => model.id === 'gpt-4.1',
+        (model: { id: string }) => model.id === 'gpt-5.6-sol',
       )?.pricing;
       expect(pricing).toBeDefined();
 
@@ -73,26 +73,26 @@ describe('computeChatPricing', () => {
       // Verify cache miss tokens (regular input)
       const input = breakdown.find((item) => item.unit.name === 'textInput');
       expect(input?.quantity).toBe(145);
-      expect(input?.credits).toBe(290); // 145 * 2 = 290
+      expect(input?.credits).toBe(580); // 145 * 4 = 580
 
       // Verify output tokens
       const output = breakdown.find((item) => item.unit.name === 'textOutput');
       expect(output?.quantity).toBe(59);
-      expect(output?.credits).toBe(472); // 59 * 8 = 472
+      expect(output?.credits).toBe(1180); // 59 * 20 = 1180
 
       // Verify cached tokens (discounted rate)
       const cached = breakdown.find((item) => item.unit.name === 'textInput_cacheRead');
       expect(cached?.quantity).toBe(1024);
-      expect(cached?.credits).toBe(512); // 1024 * 0.5 = 512
+      expect(cached?.credits).toBe(410); // ceil(1024 * 0.4) = 410
 
       // Verify totals match the actual billing log
-      expect(totalCredits).toBe(1274); // 290 + 472 + 512 = 1274
-      expect(totalCost).toBeCloseTo(0.001274, 6); // 1274 credits = $0.001274
+      expect(totalCredits).toBe(2170); // 580 + 1180 + 410 = 2170
+      expect(totalCost).toBeCloseTo(0.00217, 6); // 2170 credits = $0.002170
     });
 
     it('handles reasoning tokens in output pricing for o3 model', () => {
       const pricing = openaiChatModels.find(
-        (model: { id: string }) => model.id === 'gpt-4.1',
+        (model: { id: string }) => model.id === 'gpt-5.6-sol',
       )?.pricing;
       expect(pricing).toBeDefined();
 
@@ -116,16 +116,16 @@ describe('computeChatPricing', () => {
       // Verify input tokens
       const input = breakdown.find((item) => item.unit.name === 'textInput');
       expect(input?.quantity).toBe(58);
-      expect(input?.credits).toBe(116); // 58 * 2 = 116
+      expect(input?.credits).toBe(232); // 58 * 4 = 232
 
       // Verify output tokens include reasoning tokens
       const output = breakdown.find((item) => item.unit.name === 'textOutput');
       expect(output?.quantity).toBe(1627); // 1243 + 384 (reasoning tokens included)
-      expect(output?.credits).toBe(13_016); // 1627 * 8 = 13016
+      expect(output?.credits).toBe(32_540); // 1627 * 20 = 32540
 
       // Verify totals match the actual billing log
-      expect(totalCredits).toBe(13_132); // 116 + 13016 = 13132
-      expect(totalCost).toBeCloseTo(0.013132, 6); // 13132 credits = $0.013132
+      expect(totalCredits).toBe(32_772); // 232 + 32540 = 32772
+      expect(totalCost).toBeCloseTo(0.032772, 6); // 32772 credits = $0.032772
     });
   });
 
@@ -632,7 +632,7 @@ describe('computeChatPricing', () => {
 
     it('throws error when inputCacheMissTokens is missing but cache tokens are present', () => {
       const pricing = openaiChatModels.find(
-        (model: { id: string }) => model.id === 'gpt-4.1',
+        (model: { id: string }) => model.id === 'gpt-5.6-sol',
       )?.pricing;
       expect(pricing).toBeDefined();
 
@@ -649,7 +649,7 @@ describe('computeChatPricing', () => {
 
     it('handles output with only reasoning tokens', () => {
       const pricing = openaiChatModels.find(
-        (model: { id: string }) => model.id === 'gpt-4.1',
+        (model: { id: string }) => model.id === 'gpt-5.6-sol',
       )?.pricing;
       expect(pricing).toBeDefined();
 
@@ -663,12 +663,12 @@ describe('computeChatPricing', () => {
 
       const output = result?.breakdown.find((item) => item.unit.name === 'textOutput');
       expect(output?.quantity).toBe(500); // Only reasoning tokens
-      expect(output?.credits).toBe(4_000); // 500 * 8
+      expect(output?.credits).toBe(10_000); // 500 * 20
     });
 
     it('handles empty usage with no tokens', () => {
       const pricing = openaiChatModels.find(
-        (model: { id: string }) => model.id === 'gpt-4.1',
+        (model: { id: string }) => model.id === 'gpt-5.6-sol',
       )?.pricing;
       expect(pricing).toBeDefined();
 

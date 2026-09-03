@@ -26,9 +26,9 @@ describe('compatible provider fixed model lists', () => {
       maxOutput: 128_000,
       pricing: {
         units: [
-          { name: 'textInput', rate: 5, strategy: 'fixed', unit: 'millionTokens' },
-          { name: 'textOutput', rate: 30, strategy: 'fixed', unit: 'millionTokens' },
-          { name: 'textInput_cacheRead', rate: 0.5, strategy: 'fixed', unit: 'millionTokens' },
+          { name: 'textInput', rate: 4, strategy: 'fixed', unit: 'millionTokens' },
+          { name: 'textOutput', rate: 20, strategy: 'fixed', unit: 'millionTokens' },
+          { name: 'textInput_cacheRead', rate: 0.4, strategy: 'fixed', unit: 'millionTokens' },
         ],
       },
       releasedAt: '2026-07-09',

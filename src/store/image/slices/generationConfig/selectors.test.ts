@@ -57,7 +57,7 @@ describe('imageGenerationConfigSelectors', () => {
 
     it('should return the default model from initial state', () => {
       const result = imageGenerationConfigSelectors.model(initialStore);
-      expect(result).toBe('gpt-image-1'); // Default model from initialState
+      expect(result).toBe('gpt-image-2'); // Default model from initialState
     });
   });
 
@@ -118,7 +118,7 @@ describe('imageGenerationConfigSelectors', () => {
 
   describe('parametersSchema', () => {
     it('should return the current parametersSchema', () => {
-      const state = merge(initialStore, { parametersSchema: testModelSchema });
+      const state = { ...initialStore, parametersSchema: testModelSchema };
       const result = imageGenerationConfigSelectors.parametersSchema(state);
       expect(result).toEqual(testModelSchema);
     });

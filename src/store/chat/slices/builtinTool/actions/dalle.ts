@@ -56,7 +56,7 @@ const resolveImageModel = ():
   const s = getImageStoreState();
   // Only trust the store once the owner-aware image config has hydrated (mounted
   // globally in StoreInitialization). Before that it still holds the hard-coded
-  // initial default (openai/gpt-image-1), which must NOT be used to bill a
+  // initial default (openai/gpt-image-2), which must NOT be used to bill a
   // request as if it were the user's saved choice.
   if (!s.isInit) return undefined;
 

@@ -136,7 +136,7 @@ export default {
         title: 'LLM 辅助生图',
       },
       multiProviders: {
-        desc: '支持多种图像生成服务商，包括 OpenAI gpt-image-1、Google Imagen、FAL.ai 等，提供丰富的模型选择',
+        desc: '支持多种图像生成服务商，包括 OpenAI gpt-image-2、Google Imagen、FAL.ai 等，提供丰富的模型选择',
         title: '多 Providers 支持',
       },
     },

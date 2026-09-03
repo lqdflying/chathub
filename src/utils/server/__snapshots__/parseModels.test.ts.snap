@@ -99,55 +99,76 @@ exports[`parseModelString > only add the model 1`] = `
 }
 `;
 
-exports[`transformToChatModelCards > should have file with builtin models like gpt-4-0125-preview 1`] = `
+exports[`transformToChatModelCards > should merge builtin OpenAI models when re-added by model string 1`] = `
 [
   {
     "abilities": {
       "files": true,
       "functionCall": true,
+      "reasoning": true,
+      "search": true,
+      "structuredOutput": true,
+      "vision": true,
     },
-    "contextWindowTokens": 128000,
-    "description": "最新的 GPT-4 Turbo 模型具备视觉功能。现在，视觉请求可以使用 JSON 模式和函数调用。 GPT-4 Turbo 是一个增强版本，为多模态任务提供成本效益高的支持。它在准确性和效率之间找到平衡，适合需要进行实时交互的应用程序场景。",
-    "displayName": "ChatGPT-4",
+    "contextWindowTokens": 1050000,
+    "description": "GPT-5.6 Sol is OpenAI's frontier model for complex professional work, coding, and agentic workflows with an expanded reasoning range.",
+    "displayName": "Sol Custom",
     "enabled": true,
-    "id": "gpt-4-0125-preview",
+    "id": "gpt-5.6-sol",
+    "maxOutput": 128000,
     "pricing": {
       "units": [
         {
           "name": "textInput",
-          "rate": 10,
+          "rate": 4,
           "strategy": "fixed",
           "unit": "millionTokens",
         },
         {
           "name": "textOutput",
-          "rate": 30,
+          "rate": 20,
+          "strategy": "fixed",
+          "unit": "millionTokens",
+        },
+        {
+          "name": "textInput_cacheRead",
+          "rate": 0.4,
           "strategy": "fixed",
           "unit": "millionTokens",
         },
       ],
     },
     "providerId": "openai",
-    "releasedAt": "2024-01-25",
+    "releasedAt": "2026-07-09",
+    "settings": {
+      "extendParams": [
+        "gpt5ReasoningEffort",
+        "textVerbosity",
+      ],
+      "searchImpl": "params",
+    },
     "source": "builtin",
     "type": "chat",
   },
   {
     "abilities": {
-      "files": true,
       "functionCall": true,
+      "reasoning": true,
+      "search": true,
+      "structuredOutput": true,
       "vision": true,
     },
-    "contextWindowTokens": 128000,
-    "description": "最新的 GPT-4 Turbo 模型具备视觉功能。现在，视觉请求可以使用 JSON 模式和函数调用。 GPT-4 Turbo 是一个增强版本，为多模态任务提供成本效益高的支持。它在准确性和效率之间找到平衡，适合需要进行实时交互的应用程序场景。",
-    "displayName": "ChatGPT-4 Vision",
+    "contextWindowTokens": 1050000,
+    "description": "GPT-5.5 is OpenAI's frontier model for complex professional work, coding, and agentic workflows with an expanded context window.",
+    "displayName": "GPT-5.5 Custom",
     "enabled": true,
-    "id": "gpt-4-turbo-2024-04-09",
+    "id": "gpt-5.5",
+    "maxOutput": 128000,
     "pricing": {
       "units": [
         {
           "name": "textInput",
-          "rate": 10,
+          "rate": 5,
           "strategy": "fixed",
           "unit": "millionTokens",
         },
@@ -157,10 +178,23 @@ exports[`transformToChatModelCards > should have file with builtin models like g
           "strategy": "fixed",
           "unit": "millionTokens",
         },
+        {
+          "name": "textInput_cacheRead",
+          "rate": 0.5,
+          "strategy": "fixed",
+          "unit": "millionTokens",
+        },
       ],
     },
     "providerId": "openai",
-    "releasedAt": "2024-04-09",
+    "releasedAt": "2026-04-23",
+    "settings": {
+      "extendParams": [
+        "gpt5ReasoningEffort",
+        "textVerbosity",
+      ],
+      "searchImpl": "params",
+    },
     "source": "builtin",
     "type": "chat",
   },

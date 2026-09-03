@@ -4,13 +4,13 @@ import {
   ModelProvider,
   RuntimeImageGenParams,
   extractDefaultValues,
-  gptImage1ParamsSchema,
+  gptImage2CompatibleParamsSchema,
 } from 'model-bank';
 
 import { DEFAULT_IMAGE_CONFIG } from '@/const/settings';
 
 export const DEFAULT_AI_IMAGE_PROVIDER = ModelProvider.OpenAI;
-export const DEFAULT_AI_IMAGE_MODEL = 'gpt-image-1';
+export const DEFAULT_AI_IMAGE_MODEL = 'gpt-image-2';
 
 export interface GenerationConfigState {
   parameters: RuntimeImageGenParams;
@@ -42,14 +42,14 @@ export interface GenerationConfigState {
 }
 
 export const DEFAULT_IMAGE_GENERATION_PARAMETERS: RuntimeImageGenParams =
-  extractDefaultValues(gptImage1ParamsSchema);
+  extractDefaultValues(gptImage2CompatibleParamsSchema);
 
 export const initialGenerationConfigState: GenerationConfigState = {
   model: DEFAULT_AI_IMAGE_MODEL,
   provider: DEFAULT_AI_IMAGE_PROVIDER,
   imageNum: DEFAULT_IMAGE_CONFIG.defaultImageNum,
   parameters: DEFAULT_IMAGE_GENERATION_PARAMETERS,
-  parametersSchema: gptImage1ParamsSchema,
+  parametersSchema: gptImage2CompatibleParamsSchema,
   isAspectRatioLocked: false,
   activeAspectRatio: null,
   hasRememberedImageConfig: false,

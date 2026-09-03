@@ -50,6 +50,26 @@ describe('GPT-5 reasoning effort contract', () => {
     });
   });
 
+  it.each([
+    ['none', 'none'],
+    ['low', 'low'],
+    ['medium', 'medium'],
+    ['high', 'high'],
+    ['xhigh', 'xhigh'],
+    ['max', 'max'],
+    ['minimal', 'medium'],
+    [undefined, 'medium'],
+  ] as const)('normalizes GPT-5.6 Terra/Luna %s to %s', (requestedEffort, expectedEffort) => {
+    expect(resolveGPT5ReasoningEffort('gpt-5.6-terra', requestedEffort)).toEqual({
+      effort: expectedEffort,
+      effortValues: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+    });
+    expect(resolveGPT5ReasoningEffort('gpt-5.6-luna', requestedEffort)).toEqual({
+      effort: expectedEffort,
+      effortValues: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+    });
+  });
+
   it('applies the GPT-5.5 floor to dated model IDs', () => {
     expect(resolveGPT5ReasoningEffort('gpt-5.5-2026-04-23', 'low')).toEqual({
       effort: 'high',
