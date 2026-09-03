@@ -74,15 +74,15 @@ export const MODEL_LIST_CONFIGS = {
   },
   moonshot: {
     functionCallKeywords: ['moonshot', 'kimi'],
-    reasoningKeywords: ['thinking', 'k2.7', 'kimi-k3'],
+    reasoningKeywords: ['thinking', 'k2.5', 'k2.6', 'k2.7', 'kimi-k3'],
     videoKeywords: ['k2.7', 'kimi-k3'],
     visionKeywords: ['vision', 'kimi-latest', 'kimi-thinking-preview', 'k2.7', 'kimi-k3'],
   },
   openai: {
     excludeKeywords: ['audio'],
-    functionCallKeywords: ['4o', '4.1', 'o3', 'o4', 'oss'],
-    reasoningKeywords: ['o1', 'o3', 'o4', 'oss'],
-    visionKeywords: ['4o', '4.1', 'o4'],
+    functionCallKeywords: ['4o', '4.1', 'o3', 'o4', 'oss', 'gpt-5'],
+    reasoningKeywords: ['o1', 'o3', 'o4', 'oss', 'gpt-5'],
+    visionKeywords: ['4o', '4.1', 'o4', 'gpt-5'],
   },
   qwen: {
     functionCallKeywords: [

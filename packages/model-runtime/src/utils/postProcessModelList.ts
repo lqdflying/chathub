@@ -5,7 +5,9 @@ import { AiModelType, CHAT_MODEL_IMAGE_GENERATION_PARAMS } from 'model-bank';
 export const IMAGE_GENERATION_MODEL_WHITELIST = [
   'gemini-2.5-flash-image-preview',
   'gemini-2.5-flash-image-preview:free',
-  // More models can be added in the future
+  'gemini-3.1-flash-image',
+  'gemini-3-pro-image',
+  'gemini-3.1-flash-lite-image',
 ] as const;
 
 /**

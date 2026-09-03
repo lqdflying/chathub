@@ -16,6 +16,9 @@ describe('IMAGE_GENERATION_MODEL_WHITELIST', () => {
   it('should contain expected whitelisted models', () => {
     expect(IMAGE_GENERATION_MODEL_WHITELIST).toContain('gemini-2.5-flash-image-preview');
     expect(IMAGE_GENERATION_MODEL_WHITELIST).toContain('gemini-2.5-flash-image-preview:free');
+    expect(IMAGE_GENERATION_MODEL_WHITELIST).toContain('gemini-3.1-flash-image');
+    expect(IMAGE_GENERATION_MODEL_WHITELIST).toContain('gemini-3-pro-image');
+    expect(IMAGE_GENERATION_MODEL_WHITELIST).toContain('gemini-3.1-flash-lite-image');
   });
 });
 
@@ -74,6 +77,21 @@ describe('postProcessModelList', () => {
 
     expect(getModelTypeProperty).toHaveBeenCalledWith('custom-model');
     expect(result[0].type).toBe('embedding');
+  });
+
+  it('should generate image models for 2026 Gemini image ids', async () => {
+    const result = await postProcessModelList([
+      {
+        displayName: 'Gemini 3.1 Flash Image',
+        enabled: true,
+        id: 'gemini-3.1-flash-image',
+      },
+    ]);
+    const imageModel = result.find((m) => m.id === 'gemini-3.1-flash-image:image');
+    expect(imageModel).toMatchObject({
+      displayName: 'Gemini 3.1 Flash Image',
+      type: 'image',
+    });
   });
 
   it('should generate image models for whitelisted models', async () => {

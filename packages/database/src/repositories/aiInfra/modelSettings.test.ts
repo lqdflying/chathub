@@ -4,6 +4,21 @@ import { describe, expect, it } from 'vitest';
 import { injectModelSettings } from './index';
 
 describe('injectModelSettings', () => {
+  it.each(['gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.6-sol', 'gpt-5.5'])(
+    'injects GPT-5.x gear settings for fetched %s',
+    (modelId) => {
+      const model = injectModelSettings(ModelProvider.OpenAI, {
+        abilities: { functionCall: true, reasoning: true, vision: true },
+        id: modelId,
+        type: 'chat',
+      });
+
+      expect(model.settings).toEqual({
+        extendParams: ['gpt5ReasoningEffort', 'textVerbosity'],
+      });
+    },
+  );
+
   it.each(['gpt-5.6-sol', 'gpt-5.5'])(
     'locks the OpenAI-compatible context window for %s',
     (modelId) => {

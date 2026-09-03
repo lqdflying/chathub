@@ -97,6 +97,15 @@ const inferProviderExtendParams = (
 ): ExtendParamsType[] | undefined => {
   const modelId = item.id.toLowerCase();
 
+  if (
+    (providerId === ModelProvider.OpenAI ||
+      providerId === ModelProvider.Azure ||
+      providerId === ModelProvider.AzureAI) &&
+    modelId.startsWith('gpt-5.')
+  ) {
+    return ['gpt5ReasoningEffort', 'textVerbosity'];
+  }
+
   if (providerId === ModelProvider.DeepSeek) {
     if (
       modelId.includes('deepseek-v4') ||

@@ -186,6 +186,14 @@ describe('modelParse', () => {
       expect(result[1].vision).toBe(false); // 'gpt-3.5-turbo' not in openai vision keywords
     });
 
+    it.each(['kimi-k2.5', 'kimi-k2.6'])(
+      'tags fetched leftover/current Moonshot %s as reasoning',
+      async (modelId) => {
+        const result = await processModelList([{ id: modelId }], MODEL_LIST_CONFIGS.moonshot);
+        expect(result[0].reasoning).toBe(true);
+      },
+    );
+
     it('should use information from known models when available', async () => {
       const modelList = [
         { id: 'gpt-4' }, // This is in our mock default list
