@@ -46,7 +46,7 @@ GPT-5.6 Terra/Luna reasoning effort is `none|low|medium|high|xhigh|max` (default
 
 GPT-5.5 Pro is Responses-only and does not support streaming ([model page](https://developers.openai.com/api/docs/models/gpt-5.5-pro)). ChatHub routes `gpt-5.5-pro` (and its dated snapshot) to `/v1/responses` with streaming disabled. GPT-5.4 Pro and GPT-5.2 Pro are also Responses-only but do stream.
 
-Azure OpenAI / Azure AI stay on Chat Completions. Microsoft requires `reasoning_effort: none` when GPT-5.6 Chat Completions includes function tools; otherwise the request is rejected. ChatHub forces `none` on those tool chats and leaves tool-free effort unchanged. This is a documented quality tradeoff until Azure Responses is wired.
+Azure OpenAI / Azure AI stay on Chat Completions. Microsoft requires `reasoning_effort: none` when GPT-5.6 Chat Completions includes function tools; otherwise the request is rejected. ChatHub forces `none` on those tool chats using the server-validated catalog id (`trustedCatalogModel`), not the outgoing deployment alias, and leaves tool-free effort unchanged. This is a documented quality tradeoff until Azure Responses is wired.
 
 Claude Opus 5, Sonnet 5, Opus 4.8, and Opus 4.7 are adaptive-only: leftover fixed budgets are sent as `thinking: { type: "adaptive" }` plus `output_config.effort`. Fable 5.1 is always-on adaptive thinking (no disable control). Opus 5 / Sonnet 5 off sends `thinking: { type: "disabled" }`. Saved pre-2026 Anthropic ids keep hidden runtime `maxOutput` values and stay out of the picker.
 

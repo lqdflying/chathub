@@ -197,4 +197,92 @@ describe('resolveTrustedCatalogModel', () => {
     expect(getServerDB).not.toHaveBeenCalled();
     expect(getServerGlobalConfig).not.toHaveBeenCalled();
   });
+
+  it('returns the catalog model for an authenticated Azure AI deployment mapping', async () => {
+    const getModelListByProviderId = vi.fn().mockResolvedValue([
+      {
+        config: { deploymentName: 'production-sol' },
+        id: 'gpt-5.6-sol',
+      },
+    ]);
+    vi.mocked(getServerGlobalConfig).mockResolvedValue({
+      aiProvider: {
+        azureai: {
+          serverModelLists: [],
+        },
+      },
+    } as never);
+    vi.mocked(AiModelModel).mockImplementation(() => ({ getModelListByProviderId }) as never);
+
+    await expect(
+      resolveTrustedCatalogModel({
+        catalogModel: 'gpt-5.6-sol',
+        deploymentName: 'production-sol',
+        runtimeProvider: 'azureai',
+        userId: 'test-user',
+      }),
+    ).resolves.toBe('gpt-5.6-sol');
+
+    expect(getModelListByProviderId).toHaveBeenCalledWith('azureai');
+  });
+
+  it('does not use Azure OpenAI mappings for Azure AI', async () => {
+    vi.mocked(getServerGlobalConfig).mockResolvedValue({
+      aiProvider: {
+        azure: {
+          serverModelLists: [
+            {
+              config: { deploymentName: 'production-sol' },
+              id: 'gpt-5.6-sol',
+            },
+          ],
+        },
+      },
+    } as never);
+    vi.mocked(AiModelModel).mockImplementation(
+      () =>
+        ({
+          getModelListByProviderId: vi.fn().mockResolvedValue([]),
+        }) as never,
+    );
+
+    await expect(
+      resolveTrustedCatalogModel({
+        catalogModel: 'gpt-5.6-sol',
+        deploymentName: 'production-sol',
+        runtimeProvider: 'azureai',
+        userId: 'test-user',
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it('rejects an Azure AI deployment that does not match the effective mapping', async () => {
+    vi.mocked(getServerGlobalConfig).mockResolvedValue({
+      aiProvider: {
+        azureai: {
+          serverModelLists: [
+            {
+              config: { deploymentName: 'production-sol' },
+              id: 'gpt-5.6-sol',
+            },
+          ],
+        },
+      },
+    } as never);
+    vi.mocked(AiModelModel).mockImplementation(
+      () =>
+        ({
+          getModelListByProviderId: vi.fn().mockResolvedValue([]),
+        }) as never,
+    );
+
+    await expect(
+      resolveTrustedCatalogModel({
+        catalogModel: 'gpt-5.6-sol',
+        deploymentName: 'attacker-selected-deployment',
+        runtimeProvider: 'azureai',
+        userId: 'test-user',
+      }),
+    ).resolves.toBeUndefined();
+  });
 });

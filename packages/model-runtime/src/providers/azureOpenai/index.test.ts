@@ -133,6 +133,56 @@ describe('LobeAzureOpenAI', () => {
       },
     );
 
+    it('forces reasoning_effort none for a trusted GPT-5.6 catalog behind a custom deployment', async () => {
+      await instance.chat(
+        {
+          messages: [{ content: 'Hello', role: 'user' }],
+          model: 'custom-production-deployment',
+          reasoning_effort: 'high',
+          tools: [
+            {
+              function: {
+                description: 'lookup',
+                name: 'lookup',
+                parameters: { properties: {}, type: 'object' },
+              },
+              type: 'function',
+            },
+          ],
+        } as any,
+        { trustedCatalogModel: 'gpt-5.6-sol' },
+      );
+
+      const requestPayload = (instance['client'].chat.completions.create as Mock).mock.calls[0][0];
+      expect(requestPayload.model).toBe('custom-production-deployment');
+      expect(requestPayload.reasoning_effort).toBe('none');
+      expect(requestPayload).not.toHaveProperty('catalogModel');
+    });
+
+    it('does not force none from an untrusted catalog claim on a custom deployment', async () => {
+      await instance.chat({
+        catalogModel: 'gpt-5.6-sol',
+        messages: [{ content: 'Hello', role: 'user' }],
+        model: 'custom-production-deployment',
+        reasoning_effort: 'high',
+        tools: [
+          {
+            function: {
+              description: 'lookup',
+              name: 'lookup',
+              parameters: { properties: {}, type: 'object' },
+            },
+            type: 'function',
+          },
+        ],
+      } as any);
+
+      const requestPayload = (instance['client'].chat.completions.create as Mock).mock.calls[0][0];
+      expect(requestPayload.model).toBe('custom-production-deployment');
+      expect(requestPayload.reasoning_effort).toBe('high');
+      expect(requestPayload).not.toHaveProperty('catalogModel');
+    });
+
     it('keeps selected GPT-5.6 reasoning effort when Chat Completions has no tools', async () => {
       await instance.chat({
         messages: [{ content: 'Hello', role: 'user' }],

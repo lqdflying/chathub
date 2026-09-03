@@ -270,6 +270,42 @@ describe('POST handler', () => {
       });
     });
 
+    it('passes only a server-validated Azure AI catalog model to the runtime', async () => {
+      vi.mocked(getXorPayload).mockReturnValueOnce({
+        apiKey: 'test-api-key',
+        runtimeProvider: 'azureai',
+        userId: 'test-user',
+      });
+      vi.mocked(resolveTrustedCatalogModel).mockResolvedValueOnce('gpt-5.6-sol');
+      const chatSpy = vi.spyOn(ModelRuntime.prototype, 'chat').mockResolvedValue({
+        success: true,
+      } as any);
+      request = new Request(new URL('https://test.com'), {
+        body: JSON.stringify({
+          catalogModel: 'gpt-5.6-sol',
+          messages: [{ content: 'private prompt', role: 'user' }],
+          model: 'custom-production-deployment',
+        }),
+        headers: { [LOBE_CHAT_AUTH_HEADER]: 'Bearer some-valid-token' },
+        method: 'POST',
+      });
+
+      await POST(request, { params: Promise.resolve({ provider: 'azureai' }) });
+
+      expect(resolveTrustedCatalogModel).toHaveBeenCalledWith({
+        catalogModel: 'gpt-5.6-sol',
+        deploymentName: 'custom-production-deployment',
+        runtimeProvider: 'azureai',
+        userId: 'test-user',
+      });
+      const [runtimePayload, runtimeOptions] = chatSpy.mock.calls[0];
+      expect(runtimePayload).not.toHaveProperty('catalogModel');
+      expect(runtimeOptions).toMatchObject({
+        runtimeProvider: 'azureai',
+        trustedCatalogModel: 'gpt-5.6-sol',
+      });
+    });
+
     it('does not forward an unvalidated Azure catalog model', async () => {
       vi.mocked(getXorPayload).mockReturnValueOnce({
         apiKey: 'test-api-key',
@@ -291,6 +327,33 @@ describe('POST handler', () => {
       });
 
       await POST(request, { params: Promise.resolve({ provider: 'azure' }) });
+
+      const [runtimePayload, runtimeOptions] = chatSpy.mock.calls[0];
+      expect(runtimePayload).not.toHaveProperty('catalogModel');
+      expect(runtimeOptions).not.toHaveProperty('trustedCatalogModel');
+    });
+
+    it('does not forward an unvalidated Azure AI catalog model', async () => {
+      vi.mocked(getXorPayload).mockReturnValueOnce({
+        apiKey: 'test-api-key',
+        runtimeProvider: 'azureai',
+        userId: 'test-user',
+      });
+      vi.mocked(resolveTrustedCatalogModel).mockResolvedValueOnce(undefined);
+      const chatSpy = vi.spyOn(ModelRuntime.prototype, 'chat').mockResolvedValue({
+        success: true,
+      } as any);
+      request = new Request(new URL('https://test.com'), {
+        body: JSON.stringify({
+          catalogModel: 'gpt-5.6-sol',
+          messages: [{ content: 'private prompt', role: 'user' }],
+          model: 'attacker-selected-deployment',
+        }),
+        headers: { [LOBE_CHAT_AUTH_HEADER]: 'Bearer some-valid-token' },
+        method: 'POST',
+      });
+
+      await POST(request, { params: Promise.resolve({ provider: 'azureai' }) });
 
       const [runtimePayload, runtimeOptions] = chatSpy.mock.calls[0];
       expect(runtimePayload).not.toHaveProperty('catalogModel');

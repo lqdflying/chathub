@@ -110,6 +110,7 @@ export class LobeAzureAI implements LobeRuntimeAI {
         model,
         params.tools,
         params.reasoning_effort,
+        options?.trustedCatalogModel,
       );
       const requestPayload = {
         messages: updatedMessages as OpenAI.ChatCompletionMessageParam[],

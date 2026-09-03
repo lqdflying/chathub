@@ -95,6 +95,7 @@ export class LobeAzureOpenAI implements LobeRuntimeAI {
         model,
         params.tools,
         reasoning_effort,
+        options?.trustedCatalogModel,
       );
       // Convert 'minimal' to 'low' for OpenAI SDK compatibility
       const compatibleReasoningEffort =

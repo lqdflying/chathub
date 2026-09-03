@@ -9,12 +9,26 @@ export const isAzureGpt56Model = (model: string): boolean => model.startsWith('g
 export const hasChatCompletionTools = (tools: unknown): boolean =>
   Array.isArray(tools) && tools.length > 0;
 
+/**
+ * Capability checks must use a server-validated catalog id when the wire
+ * `model` is a custom Azure deployment name. Never use client `catalogModel`.
+ */
+export const resolveAzureChatCompletionsCapabilityModel = (
+  model: string,
+  trustedCatalogModel?: string,
+): string => trustedCatalogModel || model;
+
 export const resolveAzureChatCompletionsReasoningEffort = (
   model: string,
   tools: unknown,
   reasoningEffort: string | undefined,
+  trustedCatalogModel?: string,
 ): string | undefined => {
-  if (isAzureGpt56Model(model) && hasChatCompletionTools(tools)) {
+  const capabilityModel = resolveAzureChatCompletionsCapabilityModel(
+    model,
+    trustedCatalogModel,
+  );
+  if (isAzureGpt56Model(capabilityModel) && hasChatCompletionTools(tools)) {
     return 'none';
   }
   return reasoningEffort;
