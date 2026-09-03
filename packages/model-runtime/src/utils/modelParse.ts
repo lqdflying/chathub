@@ -39,9 +39,9 @@ export const MODEL_LIST_CONFIGS = {
     excludeKeywords: ['tts'],
     functionCallKeywords: ['gemini', '!-image-'],
     imageOutputKeywords: ['-image-'],
-    reasoningKeywords: ['thinking', '-2.5-', '!-image-'],
+    reasoningKeywords: ['thinking', '-2.5-', '-3.1-', '-3.5-', '-3.6-', '-3.7-', '-3.8-', '!-image-'],
     searchKeywords: ['-search', '!-image-'],
-    videoKeywords: ['-2.5-', '!-image-'],
+    videoKeywords: ['-2.5-', '-3.1-', '-3.5-', '-3.6-', '-3.7-', '-3.8-', '!-image-'],
     visionKeywords: ['gemini', 'learnlm'],
   },
   inclusionai: {

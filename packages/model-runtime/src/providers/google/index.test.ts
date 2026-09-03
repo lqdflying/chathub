@@ -643,6 +643,14 @@ describe('resolveModelThinkingBudget', () => {
     expect(resolveModelThinkingBudget('robotics-er-1.5-preview', 256)).toBe(512);
   });
 
+  it('applies 2026 Gemini 3.x flash and flash-lite families', () => {
+    expect(resolveModelThinkingBudget('gemini-3.8-flash')).toBe(-1);
+    expect(resolveModelThinkingBudget('gemini-3.8-flash', 0)).toBe(0);
+    expect(resolveModelThinkingBudget('gemini-3.5-flash-lite')).toBe(0);
+    expect(resolveModelThinkingBudget('gemini-3.5-flash-lite', 600)).toBe(600);
+    expect(resolveModelThinkingBudget('gemini-3.1-pro-preview')).toBe(-1);
+  });
+
   it('falls back to generic behaviour for other models', () => {
     expect(resolveModelThinkingBudget('unknown-model')).toBeUndefined();
     expect(resolveModelThinkingBudget('unknown-model', 999)).toBe(999);

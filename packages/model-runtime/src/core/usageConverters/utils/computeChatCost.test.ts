@@ -1,12 +1,54 @@
 import { ModelTokensUsage } from '@lobechat/types';
 import { Pricing } from 'model-bank';
 import anthropicChatModels from 'model-bank/anthropic';
-import googleChatModels from 'model-bank/google';
 import lobehubChatModels from 'model-bank/lobehub';
 import openaiChatModels from 'model-bank/openai';
 import { describe, expect, it } from 'vitest';
 
 import { computeChatCost } from './computeChatCost';
+
+/** Dropped 2025 Gemini 2.5 Pro rates — keep as a fixture so cost math stays tested. */
+const GEMINI_25_PRO_PRICING: Pricing = {
+  units: [
+    {
+      name: 'textInput_cacheRead',
+      strategy: 'tiered',
+      tiers: [
+        { rate: 0.31, upTo: 200_000 },
+        { rate: 0.625, upTo: 'infinity' },
+      ],
+      unit: 'millionTokens',
+    },
+    {
+      name: 'textInput',
+      strategy: 'tiered',
+      tiers: [
+        { rate: 1.25, upTo: 200_000 },
+        { rate: 2.5, upTo: 'infinity' },
+      ],
+      unit: 'millionTokens',
+    },
+    {
+      name: 'textOutput',
+      strategy: 'tiered',
+      tiers: [
+        { rate: 10, upTo: 200_000 },
+        { rate: 15, upTo: 'infinity' },
+      ],
+      unit: 'millionTokens',
+    },
+  ],
+};
+
+/** Dropped 2025 Nano Banana preview rates — keep as a fixture for multimodal units. */
+const GEMINI_25_FLASH_IMAGE_PREVIEW_PRICING: Pricing = {
+  units: [
+    { name: 'textInput', rate: 0.3, strategy: 'fixed', unit: 'millionTokens' },
+    { name: 'imageInput', rate: 0.3, strategy: 'fixed', unit: 'millionTokens' },
+    { name: 'textOutput', rate: 2.5, strategy: 'fixed', unit: 'millionTokens' },
+    { name: 'imageOutput', rate: 30, strategy: 'fixed', unit: 'millionTokens' },
+  ],
+};
 
 describe('computeChatPricing', () => {
   describe('OpenAI', () => {
@@ -131,10 +173,7 @@ describe('computeChatPricing', () => {
 
   describe('Google', () => {
     it('computes tiered pricing with reasoning tokens for large context conversation', () => {
-      const pricing = googleChatModels.find(
-        (model: { id: string }) => model.id === 'gemini-2.5-pro',
-      )?.pricing;
-      expect(pricing).toBeDefined();
+      const pricing = GEMINI_25_PRO_PRICING;
 
       const usage: ModelTokensUsage = {
         inputCachedTokens: 253_891,
@@ -178,10 +217,7 @@ describe('computeChatPricing', () => {
     });
 
     it('supports multi-modal fixed units for Gemini 2.5 Flash Image Preview', () => {
-      const pricing = googleChatModels.find(
-        (model: { id: string }) => model.id === 'gemini-2.5-flash-image-preview',
-      )?.pricing;
-      expect(pricing).toBeDefined();
+      const pricing = GEMINI_25_FLASH_IMAGE_PREVIEW_PRICING;
 
       const usage: ModelTokensUsage = {
         inputCacheMissTokens: 10_000,
@@ -206,10 +242,7 @@ describe('computeChatPricing', () => {
     });
 
     it('handles multi-modal image generation for Nano Banana', () => {
-      const pricing = googleChatModels.find(
-        (model: { id: string }) => model.id === 'gemini-2.5-flash-image-preview',
-      )?.pricing;
-      expect(pricing).toBeDefined();
+      const pricing = GEMINI_25_FLASH_IMAGE_PREVIEW_PRICING;
 
       const usage: ModelTokensUsage = {
         inputImageTokens: 5160,
@@ -248,10 +281,7 @@ describe('computeChatPricing', () => {
     });
 
     it('handles large context conversation with cache cross-tier pricing for Gemini 2.5 Pro', () => {
-      const pricing = googleChatModels.find(
-        (model: { id: string }) => model.id === 'gemini-2.5-pro',
-      )?.pricing;
-      expect(pricing).toBeDefined();
+      const pricing = GEMINI_25_PRO_PRICING;
 
       const usage: ModelTokensUsage = {
         inputCachedTokens: 257_955,
@@ -531,10 +561,7 @@ describe('computeChatPricing', () => {
 
   describe('Edge Cases', () => {
     it('handles tiered pricing with quantity exceeding all tier limits (fallback to last tier)', () => {
-      const pricing = googleChatModels.find(
-        (model: { id: string }) => model.id === 'gemini-2.5-pro',
-      )?.pricing;
-      expect(pricing).toBeDefined();
+      const pricing = GEMINI_25_PRO_PRICING;
 
       const usage: ModelTokensUsage = {
         inputCacheMissTokens: 500_000, // Exceeds 200k threshold
@@ -593,10 +620,7 @@ describe('computeChatPricing', () => {
     });
 
     it('handles zero quantity for tiered pricing', () => {
-      const pricing = googleChatModels.find(
-        (model: { id: string }) => model.id === 'gemini-2.5-pro',
-      )?.pricing;
-      expect(pricing).toBeDefined();
+      const pricing = GEMINI_25_PRO_PRICING;
 
       const usage: ModelTokensUsage = {
         inputTextTokens: 0,

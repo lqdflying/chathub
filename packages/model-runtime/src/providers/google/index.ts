@@ -44,6 +44,9 @@ const modelsWithModalities = new Set([
   'gemini-2.0-flash-preview-image-generation',
   'gemini-2.5-flash-image-preview',
   'gemini-2.5-flash-image',
+  'gemini-3.1-flash-image',
+  'gemini-3-pro-image',
+  'gemini-3.1-flash-lite-image',
 ]);
 
 const modelsDisableInstuction = new Set([
@@ -52,6 +55,9 @@ const modelsDisableInstuction = new Set([
   'gemini-2.0-flash-preview-image-generation',
   'gemini-2.5-flash-image-preview',
   'gemini-2.5-flash-image',
+  'gemini-3.1-flash-image',
+  'gemini-3-pro-image',
+  'gemini-3.1-flash-lite-image',
   'gemma-3-1b-it',
   'gemma-3-4b-it',
   'gemma-3-12b-it',
@@ -75,10 +81,10 @@ const getThinkingModelCategory = (model?: string): ThinkingModelCategory => {
   const normalized = model.toLowerCase();
 
   if (normalized.includes('robotics-er-1.5-preview')) return 'robotics';
-  if (normalized.includes('-2.5-flash-lite') || normalized.includes('flash-lite-latest'))
+  if (normalized.includes('flash-lite') || normalized.includes('flash-lite-latest'))
     return 'flashLite';
-  if (normalized.includes('-2.5-flash') || normalized.includes('flash-latest')) return 'flash';
-  if (normalized.includes('-2.5-pro') || normalized.includes('pro-latest')) return 'pro';
+  if (normalized.includes('flash') || normalized.includes('flash-latest')) return 'flash';
+  if (normalized.includes('pro') || normalized.includes('pro-latest')) return 'pro';
 
   return 'other';
 };
