@@ -1,3 +1,4 @@
+import { LobeAzureAI, LobeAzureOpenAI } from '@lobechat/model-runtime';
 import { LobeTool } from '@lobechat/types';
 import { UIChatMessage } from '@lobechat/types';
 import { ChatErrorType } from '@lobechat/types';
@@ -1880,6 +1881,108 @@ describe('ChatService', () => {
         {},
       );
     });
+
+    it.each(['azure', 'azureai'] as const)(
+      'forces GPT-5.6 tool-chat none for browser-direct %s custom deployments',
+      async (provider) => {
+        const tools = [
+          {
+            function: {
+              description: 'lookup',
+              name: 'lookup',
+              parameters: { properties: {}, type: 'object' },
+            },
+            type: 'function' as const,
+          },
+        ];
+
+        vi.spyOn(helpers, 'isEnableFetchOnClient').mockReturnValue(true);
+        useAiInfraStore.setState({
+          enabledAiModels: [
+            {
+              abilities: {},
+              config: { deploymentName: 'production-sol' },
+              id: 'gpt-5.6-sol',
+              providerId: provider,
+              type: 'chat',
+            },
+          ],
+        });
+
+        mockFetchSSE.mockImplementation(async (_url: string, options: any) => {
+          return await options.fetcher('https://unused.test');
+        });
+
+        if (provider === 'azure') {
+          const instance = new LobeAzureOpenAI({
+            apiKey: 'test_key',
+            apiVersion: '2024-08-01-preview',
+            baseURL: 'https://test.openai.azure.com/',
+          });
+          vi.spyOn(instance['client'].chat.completions, 'create').mockResolvedValue(
+            new ReadableStream() as any,
+          );
+          vi.spyOn(clientModelRuntime, 'initializeWithClientStore').mockResolvedValue({
+            chat: (payload: any, options: any) => instance.chat(payload, options),
+          } as any);
+
+          try {
+            await chatService.getChatCompletion({
+              messages: [{ content: 'Hello', role: 'user' }],
+              model: 'gpt-5.6-sol',
+              provider,
+              reasoning_effort: 'high',
+              stream: false,
+              tools,
+            });
+
+            const requestPayload = (instance['client'].chat.completions.create as Mock).mock
+              .calls[0][0];
+            expect(requestPayload.model).toBe('production-sol');
+            expect(requestPayload.reasoning_effort).toBe('none');
+            expect(requestPayload).not.toHaveProperty('catalogModel');
+          } finally {
+            useAiInfraStore.setState({ enabledAiModels: undefined });
+          }
+          return;
+        }
+
+        const instance = new LobeAzureAI({
+          apiKey: 'test_key',
+          baseURL: 'https://test.cognitiveservices.azure.com',
+        });
+        const mockPost = vi.fn().mockResolvedValue({
+          body: {
+            choices: [],
+            created: 1,
+            id: 'id',
+            model: 'production-sol',
+            object: 'chat.completion',
+          },
+        });
+        vi.spyOn(instance.client, 'path').mockReturnValue({ post: mockPost } as any);
+        vi.spyOn(clientModelRuntime, 'initializeWithClientStore').mockResolvedValue({
+          chat: (payload: any, options: any) => instance.chat(payload, options),
+        } as any);
+
+        try {
+          await chatService.getChatCompletion({
+            messages: [{ content: 'Hello', role: 'user' }],
+            model: 'gpt-5.6-sol',
+            provider,
+            reasoning_effort: 'high',
+            stream: false,
+            tools,
+          });
+
+          expect(mockPost.mock.calls[0][0].body.model).toBe('production-sol');
+          expect(mockPost.mock.calls[0][0].body.reasoning_effort).toBe('none');
+          expect(mockPost.mock.calls[0][0].body).not.toHaveProperty('catalogModel');
+        } finally {
+          useAiInfraStore.setState({ enabledAiModels: undefined });
+        }
+      },
+    );
 
     it('should return InvalidAccessCode error when enableFetchOnClient is true and auth is enabled but user is not signed in', async () => {
       // Mock fetchSSE to call onErrorHandle with the error

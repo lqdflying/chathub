@@ -58,7 +58,12 @@ import { composeSystemRole } from './composeSystemRole';
 import { contextEngineering } from './contextEngineering';
 import { contextExportRedactions, sanitizeContextExportValue } from './contextExport';
 import { fetchJsonChatCompletion } from './fetchJsonChatCompletion';
-import { findDeploymentName, isEnableFetchOnClient, resolveRuntimeProvider } from './helper';
+import {
+  findDeploymentName,
+  isEnableFetchOnClient,
+  resolveClientTrustedCatalogModel,
+  resolveRuntimeProvider,
+} from './helper';
 import { buildModelExtendParams } from './requestShaping';
 import { trimMinimaxChatContext } from './trimMinimaxContext';
 import { FetchOptions } from './types';
@@ -728,6 +733,11 @@ class ChatService {
       runtimeProvider: params.runtimeProvider,
     });
     const data = params.payload as ChatStreamPayload;
+    const trustedCatalogModel = resolveClientTrustedCatalogModel({
+      catalogModel: data.catalogModel,
+      deploymentName: data.model,
+      provider: params.provider,
+    });
 
     const contextExportBridge = params.contextExportRequest
       ? createContextExportCaptureBridge(sanitizeContextExportValue)
@@ -739,6 +749,7 @@ class ChatService {
         ...(contextExportBridge
           ? { onRequestPrepared: contextExportBridge.onRequestPrepared }
           : {}),
+        ...(trustedCatalogModel ? { trustedCatalogModel } : {}),
         signal: params.signal,
       });
     } catch (error) {
