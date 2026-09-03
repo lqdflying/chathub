@@ -136,6 +136,10 @@ const inferProviderExtendParams = (
   }
 
   if (providerId === ModelProvider.Zhipu) {
+    if (modelId.startsWith('glm-4.7')) {
+      // Forced thinking; enableReasoning would send type=disabled and be ignored/rejected.
+      return ['zhipuPreservedThinking'];
+    }
     if (item.abilities?.reasoning) {
       // GLM-5.3 / Flash force thinking; `enableReasoning` would send
       // thinking.type=disabled and 400. Effort is low|high|max, not skip.

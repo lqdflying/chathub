@@ -108,6 +108,52 @@ describe('LobeAzureOpenAI', () => {
       expect(requestPayload).not.toHaveProperty('responseStateMode');
     });
 
+    it.each(['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna'])(
+      'forces reasoning_effort none for %s Chat Completions tool chats',
+      async (model) => {
+        await instance.chat({
+          messages: [{ content: 'Hello', role: 'user' }],
+          model,
+          reasoning_effort: 'high',
+          tools: [
+            {
+              function: {
+                description: 'lookup',
+                name: 'lookup',
+                parameters: { properties: {}, type: 'object' },
+              },
+              type: 'function',
+            },
+          ],
+        } as any);
+
+        const requestPayload = (instance['client'].chat.completions.create as Mock).mock.calls[0][0];
+        expect(requestPayload.reasoning_effort).toBe('none');
+        expect(requestPayload.tools).toHaveLength(1);
+      },
+    );
+
+    it('keeps selected GPT-5.6 reasoning effort when Chat Completions has no tools', async () => {
+      await instance.chat({
+        messages: [{ content: 'Hello', role: 'user' }],
+        model: 'gpt-5.6-sol',
+        reasoning_effort: 'high',
+      } as any);
+
+      const requestPayload = (instance['client'].chat.completions.create as Mock).mock.calls[0][0];
+      expect(requestPayload.reasoning_effort).toBe('high');
+    });
+
+    it('omits reasoning_effort for tool-free Terra when unset', async () => {
+      await instance.chat({
+        messages: [{ content: 'Hello', role: 'user' }],
+        model: 'gpt-5.6-terra',
+      } as any);
+
+      const requestPayload = (instance['client'].chat.completions.create as Mock).mock.calls[0][0];
+      expect(requestPayload.reasoning_effort).toBeUndefined();
+    });
+
     it('should send only the trusted prompt cache key for a validated deployment alias', async () => {
       const currentApiInstance = new LobeAzureOpenAI({
         apiKey: 'test_key',

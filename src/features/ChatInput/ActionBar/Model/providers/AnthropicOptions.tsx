@@ -97,7 +97,7 @@ const AnthropicOptions = memo(() => {
   }
 
   // Reasoning intensity + token budget are only meaningful when deep thinking is ON
-  if (enableReasoning) {
+  if (enableReasoning || !extendParams.includes('enableReasoning')) {
     if (extendParams.includes('reasoningEffort')) {
       baseItems.push({
         children: <ReasoningEffortSlider />,

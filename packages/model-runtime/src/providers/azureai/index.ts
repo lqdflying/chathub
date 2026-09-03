@@ -21,6 +21,7 @@ import { AgentRuntimeError } from '../../utils/createError';
 import { createDebugStreamTransformer } from '../../utils/debugStream';
 import { StreamingResponse, createErrorAwareStream } from '../../utils/response';
 import { sanitizeError } from '../../utils/sanitizeError';
+import { resolveAzureChatCompletionsReasoningEffort } from '../azureOpenai/gpt56ChatCompletionsTools';
 
 interface AzureAIParams {
   apiKey?: string;
@@ -105,10 +106,16 @@ export class LobeAzureAI implements LobeRuntimeAI {
             { callback: cacheDiagnosticCallbacks },
           ]).callback
         : options?.callback;
+      const resolvedReasoningEffort = resolveAzureChatCompletionsReasoningEffort(
+        model,
+        params.tools,
+        params.reasoning_effort,
+      );
       const requestPayload = {
         messages: updatedMessages as OpenAI.ChatCompletionMessageParam[],
         model,
         ...params,
+        ...(resolvedReasoningEffort ? { reasoning_effort: resolvedReasoningEffort } : {}),
         stream: enableStreaming,
         temperature: model.includes('o3') || model.includes('o4') ? undefined : temperature,
         tool_choice: params.tools ? 'auto' : undefined,

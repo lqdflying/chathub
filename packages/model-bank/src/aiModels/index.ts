@@ -46,12 +46,12 @@ export const LOBE_DEFAULT_MODEL_LIST = buildDefaultModelList({
   zhipu,
 });
 
-export { default as anthropic } from './anthropic';
+export { default as anthropic, anthropicChatModels } from './anthropic';
 export { default as anthropiccompatible } from './anthropiccompatible';
 export { default as azure } from './azure';
 export { default as azureai } from './azureai';
 export { default as deepseek } from './deepseek';
-export { default as google } from './google';
+export { default as google, googleChatModels } from './google';
 export { default as mimo } from './mimo';
 export { default as minimax } from './minimax';
 export { default as moonshot } from './moonshot';

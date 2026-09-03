@@ -25,7 +25,7 @@ const gemini3FlashSettings = {
   searchProvider: 'google' as const,
 };
 
-const googleChatModels: AIChatModelCard[] = [
+export const googleChatModels: AIChatModelCard[] = [
   {
     abilities: { ...gemini3FlashAbilities },
     contextWindowTokens: 1_048_576 + 65_536,

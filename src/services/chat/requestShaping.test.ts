@@ -189,6 +189,57 @@ describe('buildModelExtendParams', () => {
     });
   });
 
+  it.each(['claude-opus-5', 'claude-sonnet-5', 'claude-opus-4-8'])(
+    'maps a leftover fixed budget on %s to adaptive thinking',
+    (model) => {
+      expect(
+        buildModelExtendParams({
+          chatConfig: {
+            enableReasoning: true,
+            reasoningBudgetToken: 1024,
+            reasoningEffort: 'high',
+          },
+          model,
+          modelExtendParams: ['enableReasoning', 'reasoningBudgetToken', 'reasoningEffort'],
+          provider: ModelProvider.Anthropic,
+        }),
+      ).toEqual({
+        reasoning_effort: 'high',
+        thinking: { effort: 'high', type: 'adaptive' },
+      });
+    },
+  );
+
+  it.each(['claude-opus-5', 'claude-sonnet-5'])(
+    'forwards thinking disabled when %s reasoning is off',
+    (model) => {
+      expect(
+        buildModelExtendParams({
+          chatConfig: { enableReasoning: false },
+          model,
+          modelExtendParams: ['enableReasoning'],
+          provider: ModelProvider.Anthropic,
+        }),
+      ).toEqual({
+        thinking: { budget_tokens: 0, type: 'disabled' },
+      });
+    },
+  );
+
+  it('always sends adaptive thinking for Fable 5.1 and never disabled', () => {
+    expect(
+      buildModelExtendParams({
+        chatConfig: { enableReasoning: false, reasoningEffort: 'medium' },
+        model: 'claude-fable-5-1',
+        modelExtendParams: ['disableContextCaching', 'reasoningEffort'],
+        provider: ModelProvider.Anthropic,
+      }),
+    ).toEqual({
+      reasoning_effort: 'medium',
+      thinking: { effort: 'medium', type: 'adaptive' },
+    });
+  });
+
   it('applies provider-specific reasoning mappings', () => {
     expect(
       buildModelExtendParams({

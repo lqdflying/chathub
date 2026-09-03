@@ -10,7 +10,9 @@ export { LobeAnthropicAI, normalizeAnthropicBaseURL } from './providers/anthropi
 export {
   anthropicAdaptiveCapableModels,
   anthropicAdaptiveOnlyThinkingModels,
+  getAnthropicRuntimeMaxOutput,
   isAnthropicAdaptiveThinkingOnlyModel,
+  isAnthropicAlwaysOnThinkingModel,
   REASONING_BUDGET_TOKEN_ADAPTIVE,
   supportsAnthropicAdaptiveThinking,
 } from './providers/anthropic/thinkingCapabilities';

@@ -1,6 +1,6 @@
 import { ModelProvider } from 'model-bank';
 
-import { responsesAPIModels } from '../../const/models';
+import { isDisableStreamModel, isResponsesAPIOnlyModel } from '../../const/models';
 import { pruneReasoningPayload } from '../../core/contextBuilders/openai';
 import {
   OpenAICompatibleFactoryOptions,
@@ -50,8 +50,14 @@ export const params = {
         ...rest
       } = payload;
 
-      if (responsesAPIModels.has(model) || enabledSearch) {
-        return { ...rest, apiMode: 'responses', enabledSearch, model } as ChatStreamPayload;
+      if (isResponsesAPIOnlyModel(model) || enabledSearch) {
+        return {
+          ...rest,
+          apiMode: 'responses',
+          enabledSearch,
+          model,
+          ...(isDisableStreamModel(model) ? { stream: false } : {}),
+        } as ChatStreamPayload;
       }
 
       if (prunePrefixes.some((prefix) => model.startsWith(prefix))) {

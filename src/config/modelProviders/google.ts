@@ -1,7 +1,11 @@
+import { googleChatModels } from 'model-bank';
+
 import { ModelProviderCard } from '@/types/llm';
 
+import { toLegacyChatModelCards } from './toLegacyChatModelCards';
+
 const Google: ModelProviderCard = {
-  chatModels: [],
+  chatModels: toLegacyChatModelCards(googleChatModels),
   checkModel: 'gemini-3.5-flash-lite',
   description:
     'Google 的 Gemini 系列是其最先进、通用的 AI模型，由 Google DeepMind 打造，专为多模态设计，支持文本、代码、图像、音频和视频的无缝理解与处理。适用于从数据中心到移动设备的多种环境，极大提升了AI模型的效率与应用广泛性。',

@@ -127,6 +127,51 @@ describe('LobeAzureAI', () => {
       expect(requestBody).not.toHaveProperty('responseStateMode');
     });
 
+    it.each(['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna'])(
+      'forces reasoning_effort none for %s Chat Completions tool chats',
+      async (model) => {
+        const mockPost = vi.fn().mockResolvedValue({
+          body: { choices: [], created: 1, id: 'id', model, object: 'chat.completion' },
+        });
+        vi.spyOn(instance.client, 'path').mockReturnValue({ post: mockPost } as any);
+
+        await instance.chat({
+          messages: [{ content: 'Hello', role: 'user' }],
+          model,
+          reasoning_effort: 'high',
+          stream: false,
+          tools: [
+            {
+              function: {
+                description: 'lookup',
+                name: 'lookup',
+                parameters: { properties: {}, type: 'object' },
+              },
+              type: 'function',
+            },
+          ],
+        } as any);
+
+        expect(mockPost.mock.calls[0][0].body.reasoning_effort).toBe('none');
+      },
+    );
+
+    it('keeps selected GPT-5.6 reasoning effort when Azure AI has no tools', async () => {
+      const mockPost = vi.fn().mockResolvedValue({
+        body: { choices: [], created: 1, id: 'id', model: 'gpt-5.6-sol', object: 'chat.completion' },
+      });
+      vi.spyOn(instance.client, 'path').mockReturnValue({ post: mockPost } as any);
+
+      await instance.chat({
+        messages: [{ content: 'Hello', role: 'user' }],
+        model: 'gpt-5.6-sol',
+        reasoning_effort: 'high',
+        stream: false,
+      } as any);
+
+      expect(mockPost.mock.calls[0][0].body.reasoning_effort).toBe('high');
+    });
+
     it('should report cache telemetry as unobservable without leaking internal metadata', async () => {
       const events: ModelCacheDiagnosticEvent[] = [];
       const cacheDiagnostics: ModelCacheDiagnosticContext = {

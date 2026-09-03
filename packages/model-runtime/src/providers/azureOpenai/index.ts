@@ -30,6 +30,7 @@ import { AgentRuntimeError } from '../../utils/createError';
 import { createChunkDebugTap } from '../../utils/debugStream';
 import { StreamingResponse } from '../../utils/response';
 import { sanitizeError } from '../../utils/sanitizeError';
+import { resolveAzureChatCompletionsReasoningEffort } from './gpt56ChatCompletionsTools';
 
 const azureImageLogger = debug('lobe-image:azure');
 
@@ -90,8 +91,14 @@ export class LobeAzureOpenAI implements LobeRuntimeAI {
       // Create parameters with proper typing for OpenAI SDK, handling reasoning_effort compatibility
       const { reasoning_effort, ...otherParams } = params;
 
+      const resolvedReasoningEffort = resolveAzureChatCompletionsReasoningEffort(
+        model,
+        params.tools,
+        reasoning_effort,
+      );
       // Convert 'minimal' to 'low' for OpenAI SDK compatibility
-      const compatibleReasoningEffort = reasoning_effort === 'minimal' ? 'low' : reasoning_effort;
+      const compatibleReasoningEffort =
+        resolvedReasoningEffort === 'minimal' ? 'low' : resolvedReasoningEffort;
       const trustedPromptCacheKey =
         options?.trustedCatalogModel &&
         supportsTrustedPromptCacheKey(options.trustedCatalogModel) &&
@@ -143,7 +150,12 @@ export class LobeAzureOpenAI implements LobeRuntimeAI {
       const openaiParams = compatibleReasoningEffort
         ? {
             ...baseParams,
-            reasoning_effort: compatibleReasoningEffort as 'low' | 'medium' | 'high',
+            reasoning_effort: compatibleReasoningEffort as
+              | 'none'
+              | 'low'
+              | 'medium'
+              | 'high'
+              | 'xhigh',
           }
         : baseParams;
 

@@ -8,7 +8,7 @@ import type { AiModelType } from 'model-bank';
 import OpenAI, { ClientOptions } from 'openai';
 import { Stream } from 'openai/streaming';
 
-import { responsesAPIModels } from '../../const/models';
+import { isResponsesAPIOnlyModel } from '../../const/models';
 import { mergeMultipleChatMethodOptions } from '../../helpers';
 import {
   ChatCompletionErrorPayload,
@@ -867,7 +867,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
         }
 
         // Default: use built-in responsesAPIModels
-        if (model && responsesAPIModels.has(model)) {
+        if (model && isResponsesAPIOnlyModel(model)) {
           log('using Responses API: model %s in built-in responsesAPIModels', model);
           return true;
         }
@@ -1523,7 +1523,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
         }
 
         // Default: use built-in responsesAPIModels
-        if (model && responsesAPIModels.has(model)) {
+        if (model && isResponsesAPIOnlyModel(model)) {
           log('using Responses API: model %s in built-in responsesAPIModels', model);
           return true;
         }

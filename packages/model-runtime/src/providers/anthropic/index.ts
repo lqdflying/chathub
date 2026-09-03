@@ -28,7 +28,12 @@ import { debugProviderRequest } from '../../utils/providerDebug';
 import { StreamingResponse } from '../../utils/response';
 import { createAnthropicGenerateObject } from './generateObject';
 import { handleAnthropicError } from './handleAnthropicError';
-import { anthropicAdaptiveCapableModels } from './thinkingCapabilities';
+import {
+  anthropicAdaptiveCapableModels,
+  getAnthropicRuntimeMaxOutput,
+  isAnthropicAdaptiveThinkingOnlyModel,
+  isAnthropicAlwaysOnThinkingModel,
+} from './thinkingCapabilities';
 
 export interface AnthropicModelCard {
   created_at: string;
@@ -311,7 +316,7 @@ export class LobeAnthropicAI implements LobeRuntimeAI {
 
     const { anthropic: anthropicModels } = await import('model-bank');
     const modelConfig = anthropicModels.find((m) => m.id === model);
-    const defaultMaxOutput = modelConfig?.maxOutput;
+    const defaultMaxOutput = modelConfig?.maxOutput ?? getAnthropicRuntimeMaxOutput(model);
 
     // 配置优先级：用户设置 > 模型配置 > 硬编码默认值
     const getMaxTokens = () => {
@@ -358,6 +363,41 @@ export class LobeAnthropicAI implements LobeRuntimeAI {
 
     const maxThinkingTokens = () => getMaxTokens() || 32_000; // Claude Opus 4 has minimum maxOutput
 
+    if (
+      isAnthropicAlwaysOnThinkingModel(model) &&
+      (!thinking || thinking.type === 'disabled' || thinking.type === 'enabled')
+    ) {
+      const maxTokens = maxThinkingTokens();
+      const effort = thinking?.effort ?? 'high';
+      return {
+        max_tokens: maxTokens,
+        messages: postMessages,
+        model,
+        output_config: { effort },
+        system: systemPrompts,
+        thinking: { type: 'adaptive' },
+        tools: postTools,
+      } as Anthropic.MessageCreateParams;
+    }
+
+    if (
+      !!thinking &&
+      thinking.type === 'enabled' &&
+      isAnthropicAdaptiveThinkingOnlyModel(model)
+    ) {
+      const maxTokens = maxThinkingTokens();
+      const effort = thinking.effort ?? 'high';
+      return {
+        max_tokens: maxTokens,
+        messages: postMessages,
+        model,
+        output_config: { effort },
+        system: systemPrompts,
+        thinking: { type: 'adaptive' },
+        tools: postTools,
+      } as Anthropic.MessageCreateParams;
+    }
+
     if (!!thinking && thinking.type === 'adaptive' && anthropicAdaptiveCapableModels.has(model)) {
       const maxTokens = maxThinkingTokens();
       const effort = thinking.effort ?? 'high';
@@ -391,6 +431,25 @@ export class LobeAnthropicAI implements LobeRuntimeAI {
         },
         tools: postTools,
       } satisfies Anthropic.MessageCreateParams;
+    }
+
+    if (!!thinking && thinking.type === 'disabled') {
+      const hasConflict = MODEL_PARAMETER_CONFLICTS.ANTHROPIC_CLAUDE_4_PLUS.has(model);
+      const resolvedParams = resolveParameters(
+        { temperature, top_p },
+        { hasConflict, normalizeTemperature: true, preferTemperature: true },
+      );
+
+      return {
+        max_tokens: getMaxTokens() || (modelsWithSmallContextWindow.has(model) ? 4096 : 8192),
+        messages: postMessages,
+        model,
+        system: systemPrompts,
+        temperature: resolvedParams.temperature,
+        thinking: { type: 'disabled' },
+        tools: postTools,
+        top_p: resolvedParams.top_p,
+      } as Anthropic.MessageCreateParams;
     }
 
     // Resolve temperature and top_p parameters based on model constraints

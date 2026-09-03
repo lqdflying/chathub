@@ -1,7 +1,11 @@
+import { anthropicChatModels } from 'model-bank';
+
 import { ModelProviderCard } from '@/types/llm';
 
+import { toLegacyChatModelCards } from './toLegacyChatModelCards';
+
 const Anthropic: ModelProviderCard = {
-  chatModels: [],
+  chatModels: toLegacyChatModelCards(anthropicChatModels),
   checkModel: 'claude-sonnet-5',
   description:
     'Anthropic 是一家专注于人工智能研究和开发的公司，提供 Claude Fable、Opus 与 Sonnet 等语言模型，覆盖长程智能体、编程与高速日常工作。',

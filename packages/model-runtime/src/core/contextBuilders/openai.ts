@@ -1,7 +1,7 @@
 import { imageUrlToBase64 } from '@lobechat/utils';
 import OpenAI, { toFile } from 'openai';
 
-import { disableStreamModels, systemToUserModels } from '../../const/models';
+import { isDisableStreamModel, systemToUserModels } from '../../const/models';
 import { ChatStreamPayload, OpenAIChatMessage } from '../../types';
 import { parseDataUri } from '../../utils/uriParser';
 
@@ -342,7 +342,7 @@ export const convertOpenAIResponseInputs = async (
 };
 
 export const pruneReasoningPayload = (payload: ChatStreamPayload) => {
-  const shouldStream = !disableStreamModels.has(payload.model);
+  const shouldStream = !isDisableStreamModel(payload.model);
   const cleanedPayload = { ...payload } as any;
   const { stream_options } = cleanedPayload;
   delete cleanedPayload.frequency_penalty;

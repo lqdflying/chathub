@@ -130,6 +130,21 @@ describe('injectModelSettings', () => {
     },
   );
 
+  it.each(['glm-4.7', 'glm-4.7-20251101'])(
+    'injects only Preserved Thinking for fetched %s',
+    (modelId) => {
+      const model = injectModelSettings('zhipu', {
+        abilities: { functionCall: true, reasoning: true },
+        id: modelId,
+        type: 'chat',
+      });
+
+      expect(model.settings).toEqual({
+        extendParams: ['zhipuPreservedThinking'],
+      });
+    },
+  );
+
   it('still injects enableReasoning plus effort for fetched glm-5.2', () => {
     const model = injectModelSettings('zhipu', {
       abilities: { functionCall: true, reasoning: true },

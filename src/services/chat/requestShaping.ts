@@ -1,5 +1,7 @@
 import {
   REASONING_BUDGET_TOKEN_ADAPTIVE,
+  isAnthropicAdaptiveThinkingOnlyModel,
+  isAnthropicAlwaysOnThinkingModel,
   supportsAnthropicAdaptiveThinking,
 } from '@lobechat/model-runtime';
 import type { LobeAgentChatConfig } from '@lobechat/types';
@@ -87,19 +89,25 @@ export const buildModelExtendParams = ({
   const extendParams: Record<string, unknown> = {};
   if (!chatConfig || !modelExtendParams?.length) return extendParams;
 
-  if (modelExtendParams.includes('enableReasoning')) {
+  const anthropicAdaptiveThinking = {
+    effort: VALID_REASONING_EFFORTS.has(chatConfig.reasoningEffort || '')
+      ? chatConfig.reasoningEffort
+      : 'high',
+    type: 'adaptive' as const,
+  };
+
+  const useAnthropicAdaptiveThinking =
+    isAnthropicRuntimeProvider(provider) &&
+    supportsAnthropicAdaptiveThinking(model) &&
+    (chatConfig.reasoningBudgetToken === REASONING_BUDGET_TOKEN_ADAPTIVE ||
+      isAnthropicAdaptiveThinkingOnlyModel(model));
+
+  if (isAnthropicRuntimeProvider(provider) && isAnthropicAlwaysOnThinkingModel(model)) {
+    extendParams.thinking = anthropicAdaptiveThinking;
+  } else if (modelExtendParams.includes('enableReasoning')) {
     if (chatConfig.enableReasoning) {
-      if (
-        isAnthropicRuntimeProvider(provider) &&
-        chatConfig.reasoningBudgetToken === REASONING_BUDGET_TOKEN_ADAPTIVE &&
-        supportsAnthropicAdaptiveThinking(model)
-      ) {
-        extendParams.thinking = {
-          effort: VALID_REASONING_EFFORTS.has(chatConfig.reasoningEffort || '')
-            ? chatConfig.reasoningEffort
-            : 'high',
-          type: 'adaptive',
-        };
+      if (useAnthropicAdaptiveThinking) {
+        extendParams.thinking = anthropicAdaptiveThinking;
       } else {
         extendParams.thinking = {
           budget_tokens: chatConfig.reasoningBudgetToken || 1024,
@@ -129,17 +137,8 @@ export const buildModelExtendParams = ({
       type: 'enabled',
     };
   } else if (modelExtendParams.includes('reasoningBudgetToken')) {
-    if (
-      isAnthropicRuntimeProvider(provider) &&
-      chatConfig.reasoningBudgetToken === REASONING_BUDGET_TOKEN_ADAPTIVE &&
-      supportsAnthropicAdaptiveThinking(model)
-    ) {
-      extendParams.thinking = {
-        effort: VALID_REASONING_EFFORTS.has(chatConfig.reasoningEffort || '')
-          ? chatConfig.reasoningEffort
-          : 'high',
-        type: 'adaptive',
-      };
+    if (useAnthropicAdaptiveThinking) {
+      extendParams.thinking = anthropicAdaptiveThinking;
     } else {
       extendParams.thinking = {
         budget_tokens: chatConfig.reasoningBudgetToken || 1024,

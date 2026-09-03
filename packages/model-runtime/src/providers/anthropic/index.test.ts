@@ -1149,7 +1149,7 @@ describe('LobeAnthropicAI', () => {
         expect((result as any).thinking).toEqual({ type: 'adaptive' });
       });
 
-      it('should pass through enabled thinking with budget_tokens for claude-opus-4-7 (API contract)', async () => {
+      it('coerces enabled thinking to adaptive for Claude 4.7+ adaptive-only models', async () => {
         const payload: ChatStreamPayload = {
           messages: [{ content: 'Quick question', role: 'user' }],
           model: 'claude-opus-4-7',
@@ -1158,7 +1158,57 @@ describe('LobeAnthropicAI', () => {
 
         const result = await instance['buildAnthropicPayload'](payload);
 
-        expect((result as any).thinking).toEqual({ budget_tokens: 1024, type: 'enabled' });
+        expect((result as any).thinking).toEqual({ type: 'adaptive' });
+        expect((result as any).output_config).toEqual({ effort: 'high' });
+        expect(result).not.toHaveProperty('budget_tokens');
+      });
+
+      it.each(['claude-opus-5', 'claude-sonnet-5', 'claude-opus-4-8'])(
+        'sends adaptive thinking for %s even when the payload still has type enabled',
+        async (model) => {
+          const result = await instance['buildAnthropicPayload']({
+            messages: [{ content: 'Plan a migration', role: 'user' }],
+            model,
+            thinking: { budget_tokens: 1024, type: 'enabled' },
+          });
+
+          expect(result.thinking).toEqual({ type: 'adaptive' });
+          expect((result as any).output_config).toEqual({ effort: 'high' });
+        },
+      );
+
+      it.each(['claude-opus-5', 'claude-sonnet-5'])(
+        'forwards thinking.type disabled for %s',
+        async (model) => {
+          const result = await instance['buildAnthropicPayload']({
+            messages: [{ content: 'Hello', role: 'user' }],
+            model,
+            thinking: { type: 'disabled' },
+          });
+
+          expect(result.thinking).toEqual({ type: 'disabled' });
+        },
+      );
+
+      it('keeps Fable 5.1 on adaptive thinking even when a disabled payload is supplied', async () => {
+        const result = await instance['buildAnthropicPayload']({
+          messages: [{ content: 'Hello', role: 'user' }],
+          model: 'claude-fable-5-1',
+          thinking: { type: 'disabled' },
+        });
+
+        expect(result.thinking).toEqual({ type: 'adaptive' });
+        expect((result as any).output_config).toEqual({ effort: 'high' });
+      });
+
+      it('uses hidden runtime max output for a saved Claude 3.7 id', async () => {
+        const result = await instance['buildAnthropicPayload']({
+          messages: [{ content: 'Hello', role: 'user' }],
+          model: 'claude-3-7-sonnet-20250219',
+          temperature: 0,
+        });
+
+        expect(result.max_tokens).toBe(64_000);
       });
 
       it('should build adaptive payload when thinking.type is adaptive on adaptive-capable models', async () => {
@@ -1197,7 +1247,6 @@ describe('LobeAnthropicAI', () => {
 
         const result = await instance['buildAnthropicPayload'](payload);
 
-        // When thinking is disabled, it should be treated as if thinking wasn't provided
         expect(result).toEqual({
           max_tokens: 4096,
           messages: [
@@ -1207,7 +1256,11 @@ describe('LobeAnthropicAI', () => {
             },
           ],
           model: 'claude-3-haiku-20240307',
+          system: undefined,
           temperature: 0.35,
+          thinking: { type: 'disabled' },
+          tools: undefined,
+          top_p: undefined,
         });
       });
     });

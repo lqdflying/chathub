@@ -18,8 +18,13 @@ const claude5Settings = {
   searchImpl: 'params' as const,
 };
 
+const claudeFableSettings = {
+  extendParams: ['disableContextCaching', 'reasoningEffort'],
+  searchImpl: 'params' as const,
+};
+
 // Specs: https://platform.claude.com/docs/en/models/overview
-const anthropicChatModels: AIChatModelCard[] = [
+export const anthropicChatModels: AIChatModelCard[] = [
   {
     abilities: { ...claude5Abilities },
     contextWindowTokens: 1_000_000,
@@ -43,7 +48,7 @@ const anthropicChatModels: AIChatModelCard[] = [
       ],
     },
     releasedAt: '2026-09-01',
-    settings: { ...claude5Settings },
+    settings: { ...claudeFableSettings },
     type: 'chat',
   },
   {

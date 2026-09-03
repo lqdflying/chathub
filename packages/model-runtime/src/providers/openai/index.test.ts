@@ -356,6 +356,49 @@ describe('LobeOpenAI', () => {
       expect(createCall.model).toBe('o1-pro');
     });
 
+    it.each(['gpt-5.5-pro', 'gpt-5.5-pro-2026-04-23'])(
+      'routes %s through non-streaming Responses',
+      async (model) => {
+        const createSpy = vi.spyOn(instance['client'].responses, 'create').mockResolvedValue({
+          created_at: 1,
+          error: null,
+          id: 'resp-pro',
+          object: 'response',
+          output: [],
+          status: 'completed',
+          usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+        } as any);
+
+        const response = await instance.chat({
+          messages: [{ content: 'Hello', role: 'user' as const }],
+          model,
+          stream: true,
+        });
+        await response.text();
+
+        expect(createSpy).toHaveBeenCalled();
+        expect(instance['client'].chat.completions.create).not.toHaveBeenCalled();
+        const createCall = createSpy.mock.calls[0][0];
+        expect(createCall.model).toBe(model);
+        expect(createCall.stream).not.toBe(true);
+      },
+    );
+
+    it.each(['gpt-5.4-pro', 'gpt-5.2-pro'])(
+      'routes Responses-only %s without forcing stream off',
+      (model) => {
+        const result = params.chatCompletion.handlePayload({
+          messages: [{ content: 'Hello', role: 'user' }],
+          model,
+          stream: true,
+        } as any);
+
+        expect(result.apiMode).toBe('responses');
+        expect(result.model).toBe(model);
+        expect(result.stream).not.toBe(false);
+      },
+    );
+
     it('should use responses API for gpt-5.5 without enabledSearch', async () => {
       const payload = {
         messages: [{ content: 'Hello', role: 'user' as const }],
