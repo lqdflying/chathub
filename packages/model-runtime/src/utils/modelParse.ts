@@ -20,8 +20,8 @@ const DEFAULT_SEARCH_KEYWORDS = ['-search'] as const;
 export const MODEL_LIST_CONFIGS = {
   anthropic: {
     functionCallKeywords: ['claude'],
-    reasoningKeywords: ['-3-7', '3.7', '-4'],
-    searchKeywords: ['claude-3-7', '-4'],
+    reasoningKeywords: ['-3-7', '3.7', '-4', '-5', 'fable'],
+    searchKeywords: ['claude-3-7', '-4', '-5', 'fable'],
     visionKeywords: ['claude'],
   },
   comfyui: {

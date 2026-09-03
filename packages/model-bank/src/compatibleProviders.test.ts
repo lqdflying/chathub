@@ -91,14 +91,14 @@ describe('compatible provider fixed model lists', () => {
     expect(gptImage2CompatibleParamsSchema.size).not.toEqual(gptImage1ParamsSchema.size);
   });
 
-  it('locks Anthropic Compatible to Claude 4.6 models', () => {
+  it('locks Anthropic Compatible to Claude Sonnet 5 and Claude Opus 5', () => {
     const sourceModelIds = new Set(anthropicChatModels.map((model) => model.id));
-    expect(['claude-sonnet-4-6', 'claude-opus-4-6'].every((id) => sourceModelIds.has(id))).toBe(
+    expect(['claude-sonnet-5', 'claude-opus-5'].every((id) => sourceModelIds.has(id))).toBe(
       true,
     );
     expect(anthropiccompatible.map((model) => model.id)).toEqual([
-      'claude-sonnet-4-6',
-      'claude-opus-4-6',
+      'claude-sonnet-5',
+      'claude-opus-5',
     ]);
     expect(anthropiccompatible.every((model) => model.enabled)).toBe(true);
     expect(anthropiccompatible.every((model) => model.abilities?.search === false)).toBe(true);

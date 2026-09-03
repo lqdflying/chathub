@@ -248,6 +248,13 @@ export const MODEL_PARAMETER_CONFLICTS = {
    * Claude models after Opus 4.1 that don't allow both temperature and top_p
    */
   ANTHROPIC_CLAUDE_4_PLUS: new Set([
+    'claude-fable-5-1',
+    'claude-opus-5',
+    'claude-sonnet-5',
+    'claude-opus-4-8',
+    'claude-opus-4-7',
+    'claude-opus-4-6',
+    'claude-sonnet-4-6',
     'claude-opus-4-1',
     'claude-opus-4-1-20250805',
     'claude-sonnet-4-5-20250929',
