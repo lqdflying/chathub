@@ -42,7 +42,7 @@ const useProviderCard = (): ProviderItem => {
       return chatModelCards[0].deploymentName;
     }
 
-    return 'gpt-35-turbo';
+    return 'gpt-5.6-luna';
   });
 
   const isLoading = useAiInfraStore(aiProviderSelectors.isAiProviderConfigLoading(providerKey));
