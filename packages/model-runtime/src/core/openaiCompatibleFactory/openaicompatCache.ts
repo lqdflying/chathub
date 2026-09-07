@@ -1,4 +1,4 @@
-const CACHE_KEY_MODELS = ['gpt-5', 'codex'];
+const CACHE_KEY_MODELS = ['gpt-5', 'gpt-6', 'codex'];
 
 const trimLower = (value?: string) => String(value || '').trim().toLowerCase();
 

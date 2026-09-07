@@ -627,6 +627,13 @@ describe('ChatService', () => {
       });
 
       it.each([
+        ['gpt-6-astra', 'none', 'high'],
+        ['gpt-6-astra', 'minimal', 'high'],
+        ['gpt-6-astra', 'low', 'low'],
+        ['gpt-6-astra', 'medium', 'medium'],
+        ['gpt-6-astra', 'xhigh', 'xhigh'],
+        ['gpt-6-astra', 'max', 'max'],
+        ['gpt-6-astra', undefined, 'high'],
         ['gpt-5.6-sol', 'none', 'high'],
         ['gpt-5.6-sol', 'low', 'high'],
         ['gpt-5.6-sol', 'medium', 'high'],

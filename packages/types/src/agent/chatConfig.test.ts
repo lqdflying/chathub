@@ -21,6 +21,31 @@ describe('GPT-5 reasoning effort contract', () => {
   it.each([
     ['none', 'high'],
     ['minimal', 'high'],
+    ['low', 'low'],
+    ['medium', 'medium'],
+    ['high', 'high'],
+    ['xhigh', 'xhigh'],
+    ['max', 'max'],
+    [undefined, 'high'],
+  ] as const)('normalizes GPT-6 Astra %s to %s', (requestedEffort, expectedEffort) => {
+    expect(resolveGPT5ReasoningEffort('gpt-6-astra', requestedEffort)).toEqual({
+      effort: expectedEffort,
+      effortValues: ['low', 'medium', 'high', 'xhigh', 'max'],
+      sendWhenUnset: true,
+    });
+  });
+
+  it('applies the GPT-6 Astra contract to dated model IDs', () => {
+    expect(resolveGPT5ReasoningEffort('gpt-6-astra-2026-09-03', 'none')).toEqual({
+      effort: 'high',
+      effortValues: ['low', 'medium', 'high', 'xhigh', 'max'],
+      sendWhenUnset: true,
+    });
+  });
+
+  it.each([
+    ['none', 'high'],
+    ['minimal', 'high'],
     ['low', 'high'],
     ['medium', 'high'],
     ['high', 'high'],
@@ -31,6 +56,7 @@ describe('GPT-5 reasoning effort contract', () => {
     expect(resolveGPT5ReasoningEffort('gpt-5.6-sol', requestedEffort)).toEqual({
       effort: expectedEffort,
       effortValues: ['high', 'xhigh', 'max'],
+      sendWhenUnset: true,
     });
   });
 
@@ -47,6 +73,7 @@ describe('GPT-5 reasoning effort contract', () => {
     expect(resolveGPT5ReasoningEffort('gpt-5.5', requestedEffort)).toEqual({
       effort: expectedEffort,
       effortValues: ['high', 'xhigh'],
+      sendWhenUnset: true,
     });
   });
 
@@ -74,6 +101,7 @@ describe('GPT-5 reasoning effort contract', () => {
     expect(resolveGPT5ReasoningEffort('gpt-5.5-2026-04-23', 'low')).toEqual({
       effort: 'high',
       effortValues: ['high', 'xhigh'],
+      sendWhenUnset: true,
     });
   });
 

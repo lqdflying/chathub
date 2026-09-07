@@ -34,6 +34,18 @@ describe('openaicompatCache', () => {
     expect(secondKey).toBe(firstKey);
   });
 
+  it('derives prompt_cache_key for GPT-6 Astra on the implicit allowlist', async () => {
+    const key = await deriveCompatPromptCacheKey(
+      {
+        input: [{ content: 'Explain cache hits', role: 'user' }],
+        model: 'gpt-6-astra',
+      },
+      'gpt-6-astra',
+    );
+
+    expect(key).toMatch(/^compat_cc_[a-f0-9]{32}$/);
+  });
+
   it('changes the key when any effective Responses reasoning option changes', async () => {
     const payload = {
       input: [{ content: 'Explain cache hits', role: 'user' }],

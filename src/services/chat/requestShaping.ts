@@ -165,11 +165,11 @@ export const buildModelExtendParams = ({
   }
 
   if (modelExtendParams.includes('gpt5ReasoningEffort')) {
-    const { effort, effortValues } = resolveGPT5ReasoningEffort(
+    const { effort, sendWhenUnset } = resolveGPT5ReasoningEffort(
       model,
       chatConfig.gpt5ReasoningEffort,
     );
-    if (chatConfig.gpt5ReasoningEffort || effortValues[0] === 'high') {
+    if (chatConfig.gpt5ReasoningEffort || sendWhenUnset) {
       extendParams.reasoning_effort = effort;
     }
   }

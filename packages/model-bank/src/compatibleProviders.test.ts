@@ -10,9 +10,34 @@ import openaicompatible, {
 } from './aiModels/openaicompatible';
 
 describe('compatible provider fixed model lists', () => {
-  it('locks OpenAI Compatible to GPT-5.6 Sol, GPT-5.5, and GPT Image 2', () => {
+  it('locks OpenAI Compatible to GPT-6 Astra, GPT-5.6 Sol, GPT-5.5, and GPT Image 2', () => {
+    const sourceGpt6Astra = openaiChatModels.find((model) => model.id === 'gpt-6-astra');
     const sourceGpt56Sol = openaiChatModels.find((model) => model.id === 'gpt-5.6-sol');
     const sourceGpt55 = openaiChatModels.find((model) => model.id === 'gpt-5.5');
+    expect(sourceGpt6Astra).toMatchObject({
+      abilities: {
+        functionCall: true,
+        reasoning: true,
+        search: true,
+        structuredOutput: true,
+        vision: true,
+      },
+      contextWindowTokens: 1_050_000,
+      displayName: 'GPT-6 Astra',
+      maxOutput: 128_000,
+      pricing: {
+        units: [
+          { name: 'textInput', rate: 10, strategy: 'fixed', unit: 'millionTokens' },
+          { name: 'textOutput', rate: 50, strategy: 'fixed', unit: 'millionTokens' },
+          { name: 'textInput_cacheRead', rate: 1, strategy: 'fixed', unit: 'millionTokens' },
+        ],
+      },
+      releasedAt: '2026-09-03',
+      settings: {
+        extendParams: ['gpt5ReasoningEffort', 'textVerbosity'],
+        searchImpl: 'params',
+      },
+    });
     expect(sourceGpt56Sol).toMatchObject({
       abilities: {
         functionCall: true,
@@ -42,12 +67,13 @@ describe('compatible provider fixed model lists', () => {
       maxOutput: 128_000,
     });
     expect(openaicompatible.map((model) => model.id)).toEqual([
+      'gpt-6-astra',
       'gpt-5.6-sol',
       'gpt-5.5',
       'gpt-image-2',
     ]);
 
-    for (const modelId of ['gpt-5.6-sol', 'gpt-5.5']) {
+    for (const modelId of ['gpt-6-astra', 'gpt-5.6-sol', 'gpt-5.5']) {
       const compatibleModel = openaicompatible.find((model) => model.id === modelId);
       expect(compatibleModel).toMatchObject({
         abilities: {

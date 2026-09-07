@@ -303,6 +303,28 @@ describe('buildModelExtendParams', () => {
     ).toEqual({ reasoning_effort: 'high' });
   });
 
+  it('sends GPT-6 Astra default high effort when no saved value exists', () => {
+    expect(
+      buildModelExtendParams({
+        chatConfig: {},
+        model: 'gpt-6-astra',
+        modelExtendParams: ['gpt5ReasoningEffort'],
+        provider: ModelProvider.OpenAICompatible,
+      }),
+    ).toEqual({ reasoning_effort: 'high' });
+  });
+
+  it('preserves a documented GPT-6 Astra low effort', () => {
+    expect(
+      buildModelExtendParams({
+        chatConfig: { gpt5ReasoningEffort: 'low' },
+        model: 'gpt-6-astra',
+        modelExtendParams: ['gpt5ReasoningEffort'],
+        provider: ModelProvider.OpenAICompatible,
+      }),
+    ).toEqual({ reasoning_effort: 'low' });
+  });
+
   it('supports preserved thinking for forced-thinking Zhipu models', () => {
     expect(
       buildModelExtendParams({

@@ -13,7 +13,7 @@ export interface OpenAIModelCard {
   id: string;
 }
 
-const prunePrefixes = ['o1', 'o3', 'o4', 'codex', 'computer-use', 'gpt-5'];
+const prunePrefixes = ['o1', 'o3', 'o4', 'codex', 'computer-use', 'gpt-5', 'gpt-6'];
 const oaiSearchContextSize = process.env.OPENAI_SEARCH_CONTEXT_SIZE; // low, medium, high
 const enableServiceTierFlex = process.env.OPENAI_SERVICE_TIER_FLEX === '1';
 const flexSupportedModels = ['gpt-5', 'o3', 'o4-mini']; // Flex 处理仅适用于这些模型

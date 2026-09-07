@@ -7,6 +7,20 @@ const OpenAICompatible: ModelProviderCard = {
     {
       contextWindowTokens: OPENAI_COMPATIBLE_CONTEXT_WINDOW_TOKENS,
       description:
+        'GPT-6 Astra through an OpenAI-compatible Chat Completions or Responses gateway.',
+      displayName: 'GPT-6 Astra',
+      enabled: true,
+      functionCall: true,
+      id: 'gpt-6-astra',
+      maxOutput: 128_000,
+      reasoning: true,
+      releasedAt: '2026-09-03',
+      search: false,
+      vision: true,
+    },
+    {
+      contextWindowTokens: OPENAI_COMPATIBLE_CONTEXT_WINDOW_TOKENS,
+      description:
         'GPT-5.6 Sol through an OpenAI-compatible Chat Completions or Responses gateway.',
       displayName: 'GPT-5.6 Sol',
       enabled: true,

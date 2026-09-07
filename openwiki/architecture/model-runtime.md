@@ -34,15 +34,15 @@ Built-in model-bank cards with `releasedAt` before 2026-01-01 were removed from 
 
 Shipped counts (chat/image/embedding/TTS/STT/realtime as applicable):
 
-- OpenAI: GPT-5.6 Sol/Terra/Luna, GPT-5.5 (+ Pro), GPT-5.4 family, GPT-5.2 / Pro, `gpt-5.3-codex`, `gpt-audio-1.5`, `gpt-image-2` + `gpt-image-1.5`, `gpt-transcribe`, `gpt-realtime-1.5`/`2.1`. Default chat `gpt-5.6-sol`; check model `gpt-5.6-luna`. **Utility exceptions:** `text-embedding-3-small`/`large`, `tts-1`/`tts-1-hd`/`gpt-4o-mini-tts`.
-- OpenAI-compatible: still clones only `gpt-5.6-sol` + `gpt-5.5` (no Terra/Luna auto-add); `gpt-image-2`.
+- OpenAI: GPT-6 Astra, GPT-5.6 Sol/Terra/Luna, GPT-5.5 (+ Pro), GPT-5.4 family, GPT-5.2 / Pro, `gpt-5.3-codex`, `gpt-audio-1.5`, `gpt-image-2` + `gpt-image-1.5`, `gpt-transcribe`, `gpt-realtime-1.5`/`2.1`. Default chat `gpt-5.6-sol`; check model `gpt-5.6-luna`. **Utility exceptions:** `text-embedding-3-small`/`large`, `tts-1`/`tts-1-hd`/`gpt-4o-mini-tts`.
+- OpenAI-compatible: clones `gpt-6-astra` + `gpt-5.6-sol` + `gpt-5.5` (no Terra/Luna auto-add); `gpt-image-2`. Compatible chat cards use the 258K window.
 - Anthropic: Claude Fable 5.1, Opus 5, Sonnet 5, Opus 4.8/4.7/4.6, Sonnet 4.6. Check model `claude-sonnet-5`. Anthropic-compatible clones Sonnet 5 + Opus 5.
 - Google: Gemini 3.8–3.5 Flash/Lite, 3.1 Flash Lite/Pro preview, native 3.x image ids. Check model `gemini-3.5-flash-lite`. Flash/Lite time-varying tariffs omitted.
 - Azure OpenAI / Azure AI: Foundry GPT-5.6 Sol/Terra/Luna, 5.5, 5.4 family, `gpt-image-2`. No `gpt-5.2` (Foundry version 2025-12-11). Azure pricing omitted.
 - Moonshot: `kimi-k3`, `kimi-k2.6`, `kimi-k2.7-code`, `kimi-k2.7-code-highspeed`. Check model `kimi-k2.6`. K2.5 sunset 2026-08-31.
 - Zhipu: seven GLM-5.x cards (no 4.7/4.6/4.5). MiniMax: M3, M2.7, M2.5, M2-Her (no M2.1/M2-Stable). DeepSeek/MiMo already 2026-only.
 
-GPT-5.6 Terra/Luna reasoning effort is `none|low|medium|high|xhigh|max` (default `medium`). Sol stays `high|xhigh|max`. Fetched OpenAI/Azure `gpt-5.*` ids infer `gpt5ReasoningEffort` + `textVerbosity` at read time.
+GPT-6 Astra reasoning effort is `low|medium|high|xhigh|max` (unset / `none` / `minimal` send `high`; official `none` is HTTP 400). GPT-5.6 Terra/Luna reasoning effort is `none|low|medium|high|xhigh|max` (default `medium`). Sol stays `high|xhigh|max`. Fetched OpenAI/Azure `gpt-5.*` and `gpt-6-astra*` ids infer `gpt5ReasoningEffort` + `textVerbosity` at read time.
 
 GPT-5.5 Pro is Responses-only and does not support streaming ([model page](https://developers.openai.com/api/docs/models/gpt-5.5-pro)). ChatHub routes `gpt-5.5-pro` (and its dated snapshot) to `/v1/responses` with streaming disabled. GPT-5.4 Pro and GPT-5.2 Pro are also Responses-only but do stream.
 
@@ -131,9 +131,9 @@ Responses request well-formed:
 
 ### Fixed OpenAI-compatible catalog
 
-The `openaicompatible` provider intentionally uses a fixed, non-editable model list instead of exposing arbitrary model fetching. Its chat catalog clones `gpt-5.6-sol` and `gpt-5.5` from the native OpenAI model bank, preserves their option settings, and disables the native-search ability so search remains an explicit compatible-provider option. Both compatible chat cards override the native `1_050_000`-token context window with the shared `258_000`-token compatibility limit while retaining the `128_000` maximum output. The override is provider-scoped and therefore controls token estimates and automatic context-compaction watermarks only when the active provider is `openaicompatible`. Repository reads reapply the fixed context limit after merging saved model rows, so stale database values from older releases cannot restore the native window. `gpt-image-2` remains the fixed image model.
+The `openaicompatible` provider intentionally uses a fixed, non-editable model list instead of exposing arbitrary model fetching. Its chat catalog clones `gpt-6-astra`, `gpt-5.6-sol`, and `gpt-5.5` from the native OpenAI model bank, preserves their option settings, and disables the native-search ability so search remains an explicit compatible-provider option. All compatible chat cards override the native `1_050_000`-token context window with the shared `258_000`-token compatibility limit while retaining the `128_000` maximum output. The override is provider-scoped and therefore controls token estimates and automatic context-compaction watermarks only when the active provider is `openaicompatible`. Repository reads reapply the fixed context limit after merging saved model rows, so stale database values from older releases cannot restore the native window. `gpt-image-2` remains the fixed image model.
 
-`gpt-5.5` remains the provider connection-check model because compatible gateways may expose GPT-5.5 before they add GPT-5.6 Sol.
+`gpt-5.5` remains the provider connection-check model because compatible gateways may expose GPT-5.5 before they add GPT-5.6 Sol or GPT-6 Astra.
 
 The OpenAI-compatible Images API path uses `/images/generations` for
 text-to-image requests and `/images/edits` when reference images are present.
@@ -150,13 +150,14 @@ controls require separate parameter meta-schema and UI work.
 
 GPT-5 reasoning effort is normalized by model before the request reaches the runtime:
 
+- `gpt-6-astra`: ChatHub exposes `low`, `medium`, `high`, `xhigh`, `max` (unset / `none` / `minimal` send `high`)
 - `gpt-5.6-sol`: ChatHub exposes `high`, `xhigh`, `max`
 - GPT-5.6 Terra/Luna: ChatHub exposes `none`, `low`, `medium`, `high`, `xhigh`, `max` (default `medium`)
 - GPT-5.5 family: ChatHub exposes `high`, `xhigh`
 - Earlier leftover GPT-5 models: `minimal`, `low`, `medium`, `high`
-- Lower, unset, or otherwise unsupported saved values for GPT-5.5 and GPT-5.6 Sol resolve to `high`; Terra/Luna and earlier GPT-5 models continue to fall back to `medium`
+- Lower, unset, or otherwise unsupported saved values for GPT-6 Astra, GPT-5.5, and GPT-5.6 Sol resolve to `high`; Terra/Luna and earlier GPT-5 models continue to fall back to `medium`
 
-OpenAI's API accepts lower reasoning efforts for GPT-5.5 and GPT-5.6, but ChatHub deliberately applies a `high` quality floor to these model families. Persisted lower values remain valid for backward compatibility and are normalized at display and request time. ChatHub sends the resolved `high` value explicitly when no effort was previously saved so the provider's `medium` default cannot bypass the floor.
+OpenAI's API accepts lower reasoning efforts for GPT-5.5 and GPT-5.6, but ChatHub deliberately applies a `high` quality floor to these model families. GPT-6 Astra does not support `none` (HTTP 400). Persisted lower values remain valid for backward compatibility and are normalized at display and request time. ChatHub sends the resolved `high` value explicitly when no effort was previously saved so the provider's `medium` default cannot bypass the floor.
 
 The internal request uses `reasoning_effort` for both compatible API modes. Chat Completions forwards it as the top-level `reasoning_effort` field. Responses removes that top-level field and merges it into `reasoning: { effort }`, preserving other documented reasoning options such as `summary`. This is fixed endpoint mapping, not a provider setting: the OpenAI-compatible provider has no separate “Responses reasoning effort” shape selector. Legacy saved selector values are discarded. This mapping permits GPT-5.6 Sol's `max` value without introducing a second upstream field.
 

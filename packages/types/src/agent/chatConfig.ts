@@ -8,8 +8,16 @@ export type GPT5ReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high'
 export interface GPT5ReasoningEffortResolution {
   effort: GPT5ReasoningEffort;
   effortValues: readonly GPT5ReasoningEffort[];
+  sendWhenUnset?: boolean;
 }
 
+const GPT6_ASTRA_REASONING_EFFORTS: readonly GPT5ReasoningEffort[] = [
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+];
 const GPT56_SOL_REASONING_EFFORTS: readonly GPT5ReasoningEffort[] = ['high', 'xhigh', 'max'];
 const GPT56_FAMILY_REASONING_EFFORTS: readonly GPT5ReasoningEffort[] = [
   'none',
@@ -31,12 +39,23 @@ export const resolveGPT5ReasoningEffort = (
   model: string,
   requestedEffort: GPT5ReasoningEffort | undefined,
 ): GPT5ReasoningEffortResolution => {
+  if (model.startsWith('gpt-6-astra')) {
+    return {
+      effort: GPT6_ASTRA_REASONING_EFFORTS.includes(requestedEffort as GPT5ReasoningEffort)
+        ? (requestedEffort as GPT5ReasoningEffort)
+        : 'high',
+      effortValues: GPT6_ASTRA_REASONING_EFFORTS,
+      sendWhenUnset: true,
+    };
+  }
+
   if (model === 'gpt-5.6-sol') {
     return {
       effort: GPT56_SOL_REASONING_EFFORTS.includes(requestedEffort as GPT5ReasoningEffort)
         ? (requestedEffort as GPT5ReasoningEffort)
         : 'high',
       effortValues: GPT56_SOL_REASONING_EFFORTS,
+      sendWhenUnset: true,
     };
   }
 
@@ -55,6 +74,7 @@ export const resolveGPT5ReasoningEffort = (
         ? (requestedEffort as GPT5ReasoningEffort)
         : 'high',
       effortValues: GPT55_REASONING_EFFORTS,
+      sendWhenUnset: true,
     };
   }
 

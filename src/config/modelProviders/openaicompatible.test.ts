@@ -6,17 +6,23 @@ import OpenAICompatible from './openaicompatible';
 describe('OpenAICompatible provider card', () => {
   it('exposes fixed models and the Responses API switch', () => {
     expect(OpenAICompatible.chatModels.map((model) => model.id)).toEqual([
+      'gpt-6-astra',
       'gpt-5.6-sol',
       'gpt-5.5',
     ]);
     expect(OpenAICompatible.chatModels[0]).toMatchObject({
       contextWindowTokens: OPENAI_COMPATIBLE_CONTEXT_WINDOW_TOKENS,
-      displayName: 'GPT-5.6 Sol',
+      displayName: 'GPT-6 Astra',
       maxOutput: 128_000,
       reasoning: true,
-      releasedAt: '2026-07-09',
+      releasedAt: '2026-09-03',
       search: false,
       vision: true,
+    });
+    expect(OpenAICompatible.chatModels.find((model) => model.id === 'gpt-5.6-sol')).toMatchObject({
+      contextWindowTokens: OPENAI_COMPATIBLE_CONTEXT_WINDOW_TOKENS,
+      displayName: 'GPT-5.6 Sol',
+      maxOutput: 128_000,
     });
     expect(OpenAICompatible.chatModels.find((model) => model.id === 'gpt-5.5')).toMatchObject({
       contextWindowTokens: OPENAI_COMPATIBLE_CONTEXT_WINDOW_TOKENS,

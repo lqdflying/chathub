@@ -69,6 +69,26 @@ export const openaiChatModels: AIChatModelCard[] = [
     abilities: { ...gpt56Abilities },
     contextWindowTokens: 1_050_000,
     description:
+      "GPT-6 Astra is OpenAI's most capable model for complex reasoning, coding, computer use, research, and document creation.",
+    displayName: 'GPT-6 Astra',
+    enabled: true,
+    id: 'gpt-6-astra',
+    maxOutput: 128_000,
+    pricing: {
+      units: [
+        { name: 'textInput', rate: 10, strategy: 'fixed', unit: 'millionTokens' },
+        { name: 'textOutput', rate: 50, strategy: 'fixed', unit: 'millionTokens' },
+        { name: 'textInput_cacheRead', rate: 1, strategy: 'fixed', unit: 'millionTokens' },
+      ],
+    },
+    releasedAt: '2026-09-03',
+    settings: { ...gpt56Settings },
+    type: 'chat',
+  },
+  {
+    abilities: { ...gpt56Abilities },
+    contextWindowTokens: 1_050_000,
+    description:
       "GPT-5.6 Sol is OpenAI's frontier model for complex professional work, coding, and agentic workflows with an expanded reasoning range.",
     displayName: 'GPT-5.6 Sol',
     enabled: true,

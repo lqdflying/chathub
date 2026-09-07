@@ -487,6 +487,29 @@ describe('LobeOpenAI', () => {
       expect(createCall.presence_penalty).toBeUndefined();
       expect(createCall.stream).toBe(true);
     });
+
+    it('should prune sampling fields for gpt-6-astra', () => {
+      const payload = params.chatCompletion.handlePayload!(
+        {
+          frequency_penalty: 0.2,
+          messages: [{ content: 'Hello', role: 'user' }],
+          model: 'gpt-6-astra',
+          presence_penalty: 0.1,
+          provider: 'openai',
+          temperature: 0.7,
+          top_p: 0.9,
+        } as any,
+      );
+
+      expect(payload).toMatchObject({
+        model: 'gpt-6-astra',
+      });
+      expect(payload).not.toHaveProperty('frequency_penalty');
+      expect(payload).not.toHaveProperty('presence_penalty');
+      expect(payload).not.toHaveProperty('provider');
+      expect(payload).not.toHaveProperty('temperature');
+      expect(payload).not.toHaveProperty('top_p');
+    });
   });
 
   describe('responses.handlePayload', () => {

@@ -80,9 +80,9 @@ export const MODEL_LIST_CONFIGS = {
   },
   openai: {
     excludeKeywords: ['audio'],
-    functionCallKeywords: ['4o', '4.1', 'o3', 'o4', 'oss', 'gpt-5'],
-    reasoningKeywords: ['o1', 'o3', 'o4', 'oss', 'gpt-5'],
-    visionKeywords: ['4o', '4.1', 'o4', 'gpt-5'],
+    functionCallKeywords: ['4o', '4.1', 'o3', 'o4', 'oss', 'gpt-5', 'gpt-6'],
+    reasoningKeywords: ['o1', 'o3', 'o4', 'oss', 'gpt-5', 'gpt-6'],
+    visionKeywords: ['4o', '4.1', 'o4', 'gpt-5', 'gpt-6'],
   },
   qwen: {
     functionCallKeywords: [
