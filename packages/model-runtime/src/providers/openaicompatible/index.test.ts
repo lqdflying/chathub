@@ -146,6 +146,50 @@ describe('LobeOpenAICompatibleAI', () => {
     expect(responsesCreate.mock.calls[0][0]).not.toHaveProperty('apiMode');
   });
 
+  it('keeps gpt-6-astra generateObject supervisor tools on Chat Completions by default', async () => {
+    const completionsCreate = vi
+      .spyOn(instance['client'].chat.completions, 'create')
+      .mockResolvedValue({
+        choices: [
+          {
+            message: {
+              tool_calls: [
+                {
+                  function: { arguments: '{}', name: 'wait_for_user_input' },
+                  id: 'pause',
+                  type: 'function',
+                },
+              ],
+            },
+          },
+        ],
+      } as any);
+    const responsesCreate = vi.spyOn(instance['client'].responses, 'create');
+
+    const result = await instance.generateObject({
+      messages: [{ content: 'Choose the next speaker.', role: 'user' }],
+      model: 'gpt-6-astra',
+      tools: [
+        {
+          function: { name: 'trigger_agent', parameters: { type: 'object', properties: {} } },
+          type: 'function',
+        },
+        {
+          function: { name: 'wait_for_user_input', parameters: { type: 'object', properties: {} } },
+          type: 'function',
+        },
+      ],
+    });
+
+    expect(completionsCreate).toHaveBeenCalledTimes(1);
+    expect(responsesCreate).not.toHaveBeenCalled();
+    expect(result).toEqual([{ arguments: {}, name: 'wait_for_user_input' }]);
+    expect(completionsCreate.mock.calls[0][0]).toMatchObject({
+      model: 'gpt-6-astra',
+      tool_choice: 'required',
+    });
+  });
+
   it('strips explicit Chat Completions mode from provider payload', async () => {
     await instance.chat({
       apiMode: 'chatCompletion',

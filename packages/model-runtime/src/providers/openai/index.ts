@@ -19,8 +19,9 @@ const enableServiceTierFlex = process.env.OPENAI_SERVICE_TIER_FLEX === '1';
 const flexSupportedModels = ['gpt-5', 'o3', 'o4-mini']; // Flex 处理仅适用于这些模型
 
 /** Official GPT-6 Astra plus dated snapshots (`gpt-6-astra-…`). */
-export const isGpt6AstraModel = (model: string): boolean =>
-  model === 'gpt-6-astra' || model.startsWith('gpt-6-astra-');
+export const GPT6_ASTRA_MODEL_PATTERN = /^gpt-6-astra(?:-|$)/;
+
+export const isGpt6AstraModel = (model: string): boolean => GPT6_ASTRA_MODEL_PATTERN.test(model);
 
 /**
  * Fresh function/MCP tools or a replay that already contains tool calls/results.
@@ -112,6 +113,11 @@ export const params = {
   debug: {
     chatCompletion: () => process.env.DEBUG_OPENAI_CHAT_COMPLETION === '1',
     responses: () => process.env.DEBUG_OPENAI_RESPONSES === '1',
+  },
+  // Structured tool selection (group supervisor, tRPC generateObject) bypasses
+  // chatCompletion.handlePayload. Official Astra tool calling requires Responses.
+  generateObject: {
+    useResponseModels: [GPT6_ASTRA_MODEL_PATTERN],
   },
   models: async ({ client }) => {
     const modelsPage = (await client.models.list()) as any;

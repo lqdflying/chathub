@@ -3,7 +3,7 @@ import OpenAI from 'openai';
 import { Mock, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import officalOpenAIModels from './fixtures/openai-models.json';
-import { LobeOpenAI, hasOpenAIToolCallingTurn, isGpt6AstraModel, params } from './index';
+import { GPT6_ASTRA_MODEL_PATTERN, LobeOpenAI, hasOpenAIToolCallingTurn, isGpt6AstraModel, params } from './index';
 
 // Mock the console.error to avoid polluting test output
 vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -734,6 +734,133 @@ describe('LobeOpenAI', () => {
       expect(createCall.model).toBe('gpt-6-astra');
       expect(createCall.reasoning_effort).toBe('high');
       expect(createCall).not.toHaveProperty('temperature');
+    });
+  });
+
+  describe('gpt-6-astra generateObject routing', () => {
+    // Casual-scene supervisor tools from packages/prompts supervisor tools
+    // (`trigger_agent` + `wait_for_user_input`). Copied here so this package
+    // does not take a prompts dependency.
+    const supervisorTools = [
+      {
+        function: {
+          description: 'Trigger an agent to speak (group message).',
+          name: 'trigger_agent',
+          parameters: {
+            properties: {
+              id: { description: 'The agent id to trigger.', type: 'string' },
+              instruction: {
+                description:
+                  'The instruction or message for the agent. No longer than 10 words. Always use English.',
+                type: 'string',
+              },
+            },
+            required: ['id', 'instruction'],
+            type: 'object',
+          },
+        },
+        type: 'function' as const,
+      },
+      {
+        function: {
+          description:
+            'Wait for user input. Use this when the conversation history looks likes fine for now, or agents are waiting for user input.',
+          name: 'wait_for_user_input',
+          parameters: {
+            properties: {
+              reason: {
+                description: 'Optional reason for pausing the conversation.',
+                type: 'string',
+              },
+            },
+            required: [],
+            type: 'object',
+          },
+        },
+        type: 'function' as const,
+      },
+    ];
+
+    it('matches GPT6_ASTRA_MODEL_PATTERN for alias and dated snapshots', () => {
+      expect(GPT6_ASTRA_MODEL_PATTERN.test('gpt-6-astra')).toBe(true);
+      expect(GPT6_ASTRA_MODEL_PATTERN.test('gpt-6-astra-2026-09-03')).toBe(true);
+      expect(GPT6_ASTRA_MODEL_PATTERN.test('gpt-5.6-sol')).toBe(false);
+      expect(params.generateObject?.useResponseModels).toEqual([GPT6_ASTRA_MODEL_PATTERN]);
+    });
+
+    it.each(['gpt-6-astra', 'gpt-6-astra-2026-09-03'])(
+      'sends %s supervisor tools through Responses without responseApi',
+      async (model) => {
+        const responsesCreate = vi.spyOn(instance['client'].responses, 'create').mockResolvedValue({
+          output: [
+            {
+              arguments: '{}',
+              call_id: 'pause',
+              name: 'wait_for_user_input',
+              type: 'function_call',
+            },
+          ],
+        } as any);
+        const completionsCreate = vi.spyOn(instance['client'].chat.completions, 'create');
+
+        const result = await instance.generateObject({
+          messages: [{ content: 'Choose the next speaker.', role: 'user' }],
+          model,
+          tools: supervisorTools,
+        });
+
+        expect(responsesCreate).toHaveBeenCalledTimes(1);
+        expect(completionsCreate).not.toHaveBeenCalled();
+        expect(result).toEqual([{ arguments: {}, name: 'wait_for_user_input' }]);
+
+        const createCall = responsesCreate.mock.calls[0][0];
+        expect(createCall.model).toBe(model);
+        expect(createCall.tool_choice).toBe('required');
+        expect(createCall.tools).toEqual(
+          supervisorTools.map((tool) => ({ type: tool.type, ...tool.function })),
+        );
+        expect(createCall.input).toEqual([
+          expect.objectContaining({
+            content: 'Choose the next speaker.',
+            role: 'user',
+          }),
+        ]);
+      },
+    );
+
+    it('keeps gpt-5.6-sol generateObject tools on Chat Completions', async () => {
+      const completionsCreate = vi
+        .spyOn(instance['client'].chat.completions, 'create')
+        .mockResolvedValue({
+          choices: [
+            {
+              message: {
+                tool_calls: [
+                  {
+                    function: { arguments: '{}', name: 'wait_for_user_input' },
+                    id: 'pause',
+                    type: 'function',
+                  },
+                ],
+              },
+            },
+          ],
+        } as any);
+      const responsesCreate = vi.spyOn(instance['client'].responses, 'create');
+
+      const result = await instance.generateObject({
+        messages: [{ content: 'Choose the next speaker.', role: 'user' }],
+        model: 'gpt-5.6-sol',
+        tools: supervisorTools,
+      });
+
+      expect(completionsCreate).toHaveBeenCalledTimes(1);
+      expect(responsesCreate).not.toHaveBeenCalled();
+      expect(result).toEqual([{ arguments: {}, name: 'wait_for_user_input' }]);
+      expect(completionsCreate.mock.calls[0][0]).toMatchObject({
+        model: 'gpt-5.6-sol',
+        tool_choice: 'required',
+      });
     });
   });
 
