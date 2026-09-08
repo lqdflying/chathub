@@ -18,6 +18,25 @@ const oaiSearchContextSize = process.env.OPENAI_SEARCH_CONTEXT_SIZE; // low, med
 const enableServiceTierFlex = process.env.OPENAI_SERVICE_TIER_FLEX === '1';
 const flexSupportedModels = ['gpt-5', 'o3', 'o4-mini']; // Flex 处理仅适用于这些模型
 
+/** Official GPT-6 Astra plus dated snapshots (`gpt-6-astra-…`). */
+export const isGpt6AstraModel = (model: string): boolean =>
+  model === 'gpt-6-astra' || model.startsWith('gpt-6-astra-');
+
+/**
+ * Fresh function/MCP tools or a replay that already contains tool calls/results.
+ * Official OpenAI: Astra supports Chat Completions, but tool calling requires Responses.
+ * https://developers.openai.com/api/docs/guides/latest-model
+ */
+export const hasOpenAIToolCallingTurn = (payload: ChatStreamPayload): boolean => {
+  if (Array.isArray(payload.tools) && payload.tools.length > 0) return true;
+
+  return (payload.messages ?? []).some((message) => {
+    if (message.role === 'tool' || message.role === 'function') return true;
+    if (message.function_call) return true;
+    return Array.isArray(message.tool_calls) && message.tool_calls.length > 0;
+  });
+};
+
 const supportsFlexTier = (model: string) => {
   // 排除 o3-mini，其不支持 Flex 处理
   if (model.startsWith('o3-mini')) {
@@ -50,7 +69,11 @@ export const params = {
         ...rest
       } = payload;
 
-      if (isResponsesAPIOnlyModel(model) || enabledSearch) {
+      if (
+        isResponsesAPIOnlyModel(model) ||
+        enabledSearch ||
+        (isGpt6AstraModel(model) && hasOpenAIToolCallingTurn(payload))
+      ) {
         return {
           ...rest,
           apiMode: 'responses',

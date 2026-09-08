@@ -3,7 +3,7 @@ import OpenAI from 'openai';
 import { Mock, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import officalOpenAIModels from './fixtures/openai-models.json';
-import { LobeOpenAI, params } from './index';
+import { LobeOpenAI, hasOpenAIToolCallingTurn, isGpt6AstraModel, params } from './index';
 
 // Mock the console.error to avoid polluting test output
 vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -509,6 +509,231 @@ describe('LobeOpenAI', () => {
       expect(payload).not.toHaveProperty('provider');
       expect(payload).not.toHaveProperty('temperature');
       expect(payload).not.toHaveProperty('top_p');
+      expect(payload).not.toHaveProperty('apiMode');
+    });
+
+    it('routes gpt-6-astra function tools onto Responses without treating Astra as globally Responses-only', () => {
+      const weatherTool = {
+        function: {
+          description: 'Get weather',
+          name: 'get_weather',
+          parameters: { type: 'object', properties: {} },
+        },
+        type: 'function' as const,
+      };
+
+      const withTools = params.chatCompletion.handlePayload!({
+        messages: [{ content: 'Check weather', role: 'user' }],
+        model: 'gpt-6-astra',
+        reasoning_effort: 'high',
+        temperature: 0.7,
+        tools: [weatherTool],
+      } as any);
+
+      expect(withTools.apiMode).toBe('responses');
+      expect(withTools.model).toBe('gpt-6-astra');
+      expect(withTools.tools).toEqual([weatherTool]);
+      expect(withTools.reasoning_effort).toBe('high');
+
+      const snapshot = params.chatCompletion.handlePayload!({
+        messages: [{ content: 'Check weather', role: 'user' }],
+        model: 'gpt-6-astra-2026-09-03',
+        tools: [weatherTool],
+      } as any);
+      expect(snapshot.apiMode).toBe('responses');
+
+      const replayOnly = params.chatCompletion.handlePayload!({
+        messages: [
+          { content: 'Check weather', role: 'user' },
+          {
+            content: '',
+            role: 'assistant',
+            tool_calls: [
+              {
+                function: { arguments: '{}', name: 'get_weather' },
+                id: 'call_weather',
+                type: 'function',
+              },
+            ],
+          },
+          { content: '{"ok":true}', role: 'tool', tool_call_id: 'call_weather' },
+        ],
+        model: 'gpt-6-astra',
+      } as any);
+      expect(replayOnly.apiMode).toBe('responses');
+
+      const solWithTools = params.chatCompletion.handlePayload!({
+        messages: [{ content: 'Check weather', role: 'user' }],
+        model: 'gpt-5.6-sol',
+        tools: [weatherTool],
+      } as any);
+      expect(solWithTools.apiMode).not.toBe('responses');
+    });
+  });
+
+  describe('gpt-6-astra native Responses routing', () => {
+    const weatherTool = {
+      function: {
+        description: 'Get weather',
+        name: 'get_weather',
+        parameters: { type: 'object', properties: {} },
+      },
+      type: 'function' as const,
+    };
+
+    const completedResponsesStream = () =>
+      (async function* () {
+        yield {
+          response: { id: 'astra', output: [], status: 'in_progress' },
+          type: 'response.created',
+        };
+        yield { delta: 'ok', type: 'response.output_text.delta' };
+        yield {
+          response: { id: 'astra', output: [], status: 'completed' },
+          type: 'response.completed',
+        };
+      })();
+
+    const completedChatStream = (model: string) =>
+      (async function* () {
+        yield {
+          choices: [{ delta: { content: 'ok' }, finish_reason: null, index: 0 }],
+          created: 1,
+          id: 'astra',
+          model,
+          object: 'chat.completion.chunk',
+        };
+        yield {
+          choices: [{ delta: {}, finish_reason: 'stop', index: 0 }],
+          created: 1,
+          id: 'astra',
+          model,
+          object: 'chat.completion.chunk',
+        };
+      })();
+
+    it('matches Astra ids and tool-calling turns', () => {
+      expect(isGpt6AstraModel('gpt-6-astra')).toBe(true);
+      expect(isGpt6AstraModel('gpt-6-astra-2026-09-03')).toBe(true);
+      expect(isGpt6AstraModel('gpt-5.6-sol')).toBe(false);
+      expect(
+        hasOpenAIToolCallingTurn({
+          messages: [{ content: 'hi', role: 'user' }],
+          model: 'gpt-6-astra',
+          tools: [weatherTool],
+        } as any),
+      ).toBe(true);
+      expect(
+        hasOpenAIToolCallingTurn({
+          messages: [{ content: 'hi', role: 'user' }],
+          model: 'gpt-6-astra',
+        } as any),
+      ).toBe(false);
+    });
+
+    it('sends function tools to Responses and does not call Chat Completions', async () => {
+      const responsesCreate = vi
+        .spyOn(instance['client'].responses, 'create')
+        .mockImplementation(async () => completedResponsesStream() as any);
+      const completionsCreate = vi.spyOn(instance['client'].chat.completions, 'create');
+
+      const response = await instance.chat({
+        messages: [{ content: 'Check the weather with get_weather.', role: 'user' }],
+        model: 'gpt-6-astra',
+        reasoning_effort: 'high',
+        tools: [weatherTool],
+      });
+      await response.text();
+
+      expect(responsesCreate).toHaveBeenCalledTimes(1);
+      expect(completionsCreate).not.toHaveBeenCalled();
+
+      const createCall = responsesCreate.mock.calls[0][0];
+      expect(createCall.model).toBe('gpt-6-astra');
+      expect(createCall.reasoning).toEqual(expect.objectContaining({ effort: 'high' }));
+      expect(createCall.tools).toEqual([
+        expect.objectContaining({ name: 'get_weather', type: 'function' }),
+      ]);
+      expect(createCall.input).toEqual([
+        expect.objectContaining({
+          content: 'Check the weather with get_weather.',
+          role: 'user',
+        }),
+      ]);
+      expect(createCall).not.toHaveProperty('reasoning_effort');
+      expect(createCall).not.toHaveProperty('temperature');
+    });
+
+    it('sends tool-call replay to Responses with matching function_call items', async () => {
+      const responsesCreate = vi
+        .spyOn(instance['client'].responses, 'create')
+        .mockImplementation(async () => completedResponsesStream() as any);
+      const completionsCreate = vi.spyOn(instance['client'].chat.completions, 'create');
+
+      const response = await instance.chat({
+        messages: [
+          { content: 'Check the weather with get_weather.', role: 'user' },
+          {
+            content: '',
+            role: 'assistant',
+            tool_calls: [
+              {
+                function: { arguments: '{}', name: 'get_weather' },
+                id: 'call_weather',
+                type: 'function',
+              },
+            ],
+          },
+          { content: '{"ok":true}', role: 'tool', tool_call_id: 'call_weather' },
+        ],
+        model: 'gpt-6-astra',
+        reasoning_effort: 'high',
+        tools: [weatherTool],
+      } as any);
+      await response.text();
+
+      expect(responsesCreate).toHaveBeenCalledTimes(1);
+      expect(completionsCreate).not.toHaveBeenCalled();
+
+      const input = responsesCreate.mock.calls[0][0].input as any[];
+      expect(input).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            arguments: '{}',
+            call_id: 'call_weather',
+            name: 'get_weather',
+            type: 'function_call',
+          }),
+          expect.objectContaining({
+            call_id: 'call_weather',
+            output: '{"ok":true}',
+            type: 'function_call_output',
+          }),
+        ]),
+      );
+    });
+
+    it('keeps tool-free Astra on Chat Completions', async () => {
+      const completionsCreate = vi
+        .spyOn(instance['client'].chat.completions, 'create')
+        .mockImplementation(async () => completedChatStream('gpt-6-astra') as any);
+      const responsesCreate = vi.spyOn(instance['client'].responses, 'create');
+
+      const response = await instance.chat({
+        messages: [{ content: 'Hello', role: 'user' }],
+        model: 'gpt-6-astra',
+        reasoning_effort: 'high',
+        temperature: 0.7,
+      });
+      await response.text();
+
+      expect(completionsCreate).toHaveBeenCalledTimes(1);
+      expect(responsesCreate).not.toHaveBeenCalled();
+
+      const createCall = completionsCreate.mock.calls[0][0];
+      expect(createCall.model).toBe('gpt-6-astra');
+      expect(createCall.reasoning_effort).toBe('high');
+      expect(createCall).not.toHaveProperty('temperature');
     });
   });
 

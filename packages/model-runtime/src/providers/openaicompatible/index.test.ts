@@ -52,6 +52,100 @@ describe('LobeOpenAICompatibleAI', () => {
     expect(createCall).not.toHaveProperty('apiMode');
   });
 
+  it('keeps gpt-6-astra function tools on Chat Completions by default', async () => {
+    const completionsCreate = vi
+      .spyOn(instance['client'].chat.completions, 'create')
+      .mockImplementation(async () =>
+        (async function* () {
+          yield {
+            choices: [{ delta: { content: 'ok' }, finish_reason: null, index: 0 }],
+            created: 1,
+            id: 'compat',
+            model: 'gpt-6-astra',
+            object: 'chat.completion.chunk',
+          };
+          yield {
+            choices: [{ delta: {}, finish_reason: 'stop', index: 0 }],
+            created: 1,
+            id: 'compat',
+            model: 'gpt-6-astra',
+            object: 'chat.completion.chunk',
+          };
+        })() as any,
+      );
+    const responsesCreate = vi.spyOn(instance['client'].responses, 'create');
+
+    const response = await instance.chat({
+      messages: [{ content: 'Check the weather with get_weather.', role: 'user' }],
+      model: 'gpt-6-astra',
+      reasoning_effort: 'high',
+      tools: [
+        {
+          function: {
+            description: 'Get weather',
+            name: 'get_weather',
+            parameters: { type: 'object', properties: {} },
+          },
+          type: 'function',
+        },
+      ],
+    });
+    await response.text();
+
+    expect(completionsCreate).toHaveBeenCalledTimes(1);
+    expect(responsesCreate).not.toHaveBeenCalled();
+    expect(completionsCreate.mock.calls[0][0]).toMatchObject({
+      model: 'gpt-6-astra',
+      reasoning_effort: 'high',
+    });
+    expect(completionsCreate.mock.calls[0][0]).not.toHaveProperty('apiMode');
+  });
+
+  it('sends gpt-6-astra function tools to Responses only when apiMode is responses', async () => {
+    const responsesCreate = vi
+      .spyOn(instance['client'].responses, 'create')
+      .mockImplementation(async () =>
+        (async function* () {
+          yield {
+            response: { id: 'compat', output: [], status: 'in_progress' },
+            type: 'response.created',
+          };
+          yield { delta: 'ok', type: 'response.output_text.delta' };
+          yield {
+            response: { id: 'compat', output: [], status: 'completed' },
+            type: 'response.completed',
+          };
+        })() as any,
+      );
+    const completionsCreate = vi.spyOn(instance['client'].chat.completions, 'create');
+
+    const response = await instance.chat({
+      apiMode: 'responses',
+      messages: [{ content: 'Check the weather with get_weather.', role: 'user' }],
+      model: 'gpt-6-astra',
+      reasoning_effort: 'high',
+      tools: [
+        {
+          function: {
+            description: 'Get weather',
+            name: 'get_weather',
+            parameters: { type: 'object', properties: {} },
+          },
+          type: 'function',
+        },
+      ],
+    });
+    await response.text();
+
+    expect(responsesCreate).toHaveBeenCalledTimes(1);
+    expect(completionsCreate).not.toHaveBeenCalled();
+    expect(responsesCreate.mock.calls[0][0]).toMatchObject({
+      model: 'gpt-6-astra',
+      reasoning: expect.objectContaining({ effort: 'high' }),
+    });
+    expect(responsesCreate.mock.calls[0][0]).not.toHaveProperty('apiMode');
+  });
+
   it('strips explicit Chat Completions mode from provider payload', async () => {
     await instance.chat({
       apiMode: 'chatCompletion',
