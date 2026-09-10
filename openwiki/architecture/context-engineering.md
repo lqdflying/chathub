@@ -223,7 +223,10 @@ with Assist preset (minimal 400 / balanced 600 / rich 800 tokens) via
 `getContextCompactionMaxSummaryTokens` and are embedded in `chainSummaryHistory` as well as the
 API completion budget. Large deltas are split between complete turns into bounded
 batches, then **again by estimated summarizer prompt size** against the History Compress model's
-`contextWindowTokens` (DeepSeek V4.1 Flash / `deepseek-flash` is 1,048,576). Message-count batches of 40 can still
+`contextWindowTokens` (DeepSeek V4.1 Flash / `deepseek-flash` is 1,048,576). Saved
+History Compress ids `deepseek-v4-flash` and `deepseek-v4-flash-vision-exp` reuse
+that native Flash card for window sizing and thinking-off sampling; they stay off
+the picker. Message-count batches of 40 can still
 overflow that window when early turns hold huge tool/code payloads; the worker sizes each
 `chainSummaryHistory` prompt at 1 char ≈ 1 token and keeps about 45% of the summarizer window for
 input. Token-aware splits stay on **complete-turn** boundaries (never a user row without its

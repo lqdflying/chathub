@@ -13,6 +13,7 @@ import {
   buildSimpleCompletionSampling,
   createCompactionFingerprint,
   estimateCompactionPromptTokens,
+  getCompactionSummarizerContextWindow,
   getCompactionSummarizerInputBudget,
   getContextCompactionWatermarks,
   getMessagesAfterHistorySummaryCursor,
@@ -250,15 +251,21 @@ describe('buildSimpleCompletionSampling', () => {
     ).toEqual({ max_tokens: reasoningBudget });
   });
 
-  it('does not inherit a foreign provider card for the same model id', () => {
-    expect(
-      buildSimpleCompletionSampling({
-        model: 'deepseek-v4-pro',
-        provider: 'ollama',
-        summaryMaxTokens: summaryCap,
-      }),
-    ).toEqual({ max_tokens: reasoningBudget });
-  });
+  it.each(['deepseek-v4-pro', 'deepseek-v4-flash', 'deepseek-v4-flash-vision-exp'] as const)(
+    'does not inherit a foreign provider card for %s',
+    (model) => {
+      expect(
+        buildSimpleCompletionSampling({
+          model,
+          provider: 'ollama',
+          summaryMaxTokens: summaryCap,
+        }),
+      ).toEqual({ max_tokens: reasoningBudget });
+      expect(getCompactionSummarizerContextWindow(model, 'ollama')).toBe(
+        LARGE_CONTEXT_WINDOW_TOKENS,
+      );
+    },
+  );
 
   it('sends minimal GPT-5 effort and extra output budget for gpt-5-mini', () => {
     expect(
@@ -299,30 +306,48 @@ describe('buildSimpleCompletionSampling', () => {
     });
   });
 
-  it.each(['deepseek-v4-pro', 'deepseek-flash'] as const)(
-    'disables default-on DeepSeek thinking for %s',
+  it.each([
+    'deepseek-v4-pro',
+    'deepseek-flash',
+    'deepseek-v4-flash',
+    'deepseek-v4-flash-vision-exp',
+  ] as const)('disables default-on DeepSeek thinking for %s', (model) => {
+    const sampling = buildSimpleCompletionSampling({
+      model,
+      provider: 'deepseek',
+      summaryMaxTokens: summaryCap,
+    });
+
+    expect(sampling).toEqual({
+      max_tokens: reasoningBudget,
+      thinking: { budget_tokens: 0, type: 'disabled' },
+    });
+
+    const uncapped = buildSimpleCompletionSampling({
+      model,
+      provider: 'deepseek',
+    });
+    expect(uncapped).toEqual({
+      thinking: { budget_tokens: 0, type: 'disabled' },
+    });
+
+    const upstream = buildDeepSeekPayload({
+      max_tokens: sampling.max_tokens,
+      messages: [{ content: 'Hello', role: 'user' }],
+      model,
+      thinking: sampling.thinking,
+    } as any);
+
+    expect(upstream.model).toBe(model);
+    expect(upstream.max_tokens).toBe(reasoningBudget);
+    expect(upstream.thinking).toEqual({ type: 'disabled' });
+    expect(upstream).not.toHaveProperty('reasoning_effort');
+  });
+
+  it.each(['deepseek-flash', 'deepseek-v4-flash', 'deepseek-v4-flash-vision-exp'] as const)(
+    'keeps the 1M DeepSeek Flash summarizer window for %s',
     (model) => {
-      const sampling = buildSimpleCompletionSampling({
-        model,
-        provider: 'deepseek',
-        summaryMaxTokens: summaryCap,
-      });
-
-      expect(sampling).toEqual({
-        max_tokens: reasoningBudget,
-        thinking: { budget_tokens: 0, type: 'disabled' },
-      });
-
-      const upstream = buildDeepSeekPayload({
-        max_tokens: sampling.max_tokens,
-        messages: [{ content: 'Hello', role: 'user' }],
-        model,
-        thinking: sampling.thinking,
-      } as any);
-
-      expect(upstream.max_tokens).toBe(reasoningBudget);
-      expect(upstream.thinking).toEqual({ type: 'disabled' });
-      expect(upstream).not.toHaveProperty('reasoning_effort');
+      expect(getCompactionSummarizerContextWindow(model, 'deepseek')).toBe(1_048_576);
     },
   );
 

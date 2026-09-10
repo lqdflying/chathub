@@ -426,8 +426,9 @@ lowest-effort fields. Title, language-detect, and translation share
 inherit that summary output cap — `chainTranslate` has no `max_tokens`.
 Native OpenAI Responses (for example `gpt-5.5`) maps the generic budget to
 `max_output_tokens`. Thinking-off is sent only where the vendor documents it
-(Anthropic `thinking: { type: 'disabled' }`; DeepSeek V4
-`thinking: { type: 'disabled' }`; Moonshot/Zhipu thinking-type APIs). Unlisted
+(Anthropic `thinking: { type: 'disabled' }`; DeepSeek V4 / `deepseek-flash`
+`thinking: { type: 'disabled' }`, including saved Flash aliases
+`deepseek-v4-flash` and `deepseek-v4-flash-vision-exp`; Moonshot/Zhipu thinking-type APIs). Unlisted
 custom History Compress models get the extra budget without inheriting a
 foreign card's thinking fields. GPT-5 uses `resolveGPT5ReasoningEffort(model,
 'minimal')` (`gpt-5-mini` → `minimal`; `gpt-5.5` / `gpt-5.6-sol` stay at the
@@ -794,7 +795,8 @@ loop with the identical payload.
 Fix: `buildSimpleCompletionSampling` (`src/helpers/contextCompaction.ts`)
 raises the API budget for listed reasoning cards and unknown/custom model IDs,
 and sends documented thinking-off / lowest-effort fields only for known
-providers (Anthropic, DeepSeek V4, Moonshot/Zhipu thinking-type APIs; GPT-5
+providers (Anthropic, DeepSeek V4 / `deepseek-flash` including retired Flash
+aliases, Moonshot/Zhipu thinking-type APIs; GPT-5
 effort). GLM-5.3 / GLM-5.3-Flash cannot disable thinking
 ([Zhipu thinking](https://docs.z.ai/guides/capabilities/thinking)); for those
 listed cards the sampler omits `thinking.disabled` and sends

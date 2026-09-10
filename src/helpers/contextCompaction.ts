@@ -174,14 +174,39 @@ export interface SimpleCompletionSampling {
 }
 
 /**
+ * Retired DeepSeek Flash picker ids that still route upstream to V4.1-Flash.
+ * Keep them out of the built-in picker, but reuse `deepseek-flash` metadata
+ * for simple-completion sampling and summarizer window sizing.
+ * @see https://api-docs.deepseek.com/quick_start/pricing
+ */
+const DEEPSEEK_FLASH_SIMPLE_COMPLETION_ALIASES = new Set([
+  'deepseek-v4-flash',
+  'deepseek-v4-flash-vision-exp',
+]);
+
+/**
  * Only the exact provider+id card. A matching id on another provider is not
  * used — custom gateways must not inherit DeepSeek/OpenAI thinking fields.
+ * Native DeepSeek Flash aliases resolve to the current Flash card; the
+ * request still sends the saved model id.
  */
 const findSimpleCompletionModelCard = (model: string, provider?: string) => {
   if (provider) {
-    return LOBE_DEFAULT_MODEL_LIST.find(
+    const exact = LOBE_DEFAULT_MODEL_LIST.find(
       (item) => item.id === model && item.providerId === provider,
     );
+    if (exact) return exact;
+
+    if (
+      provider === ModelProvider.DeepSeek &&
+      DEEPSEEK_FLASH_SIMPLE_COMPLETION_ALIASES.has(model)
+    ) {
+      return LOBE_DEFAULT_MODEL_LIST.find(
+        (item) => item.id === 'deepseek-flash' && item.providerId === ModelProvider.DeepSeek,
+      );
+    }
+
+    return undefined;
   }
 
   return LOBE_DEFAULT_MODEL_LIST.find((item) => item.id === model);
