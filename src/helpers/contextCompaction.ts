@@ -174,7 +174,7 @@ export interface SimpleCompletionSampling {
 }
 
 /**
- * Retired DeepSeek Flash picker ids that still route upstream to V4.1-Flash.
+ * Retired DeepSeek Flash picker ids that still route upstream to `deepseek-flash`.
  * Keep them out of the built-in picker, but reuse `deepseek-flash` metadata
  * for simple-completion sampling and summarizer window sizing.
  * @see https://api-docs.deepseek.com/quick_start/pricing

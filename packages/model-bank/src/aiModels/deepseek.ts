@@ -11,8 +11,8 @@ const deepseekChatModels: AIChatModelCard[] = [
     },
     contextWindowTokens: 1_048_576,
     description:
-      'DeepSeek-V4.1-Flash is a multimodal reasoning model with native image input (JPEG, PNG, GIF, WebP), 1M context window, and up to 384K output tokens. Supports thinking mode, function calling, and JSON output.',
-    displayName: 'DeepSeek V4.1 Flash',
+      'Multimodal reasoning model with native image input (JPEG, PNG, GIF, WebP), 1M context window, and up to 384K output tokens. Supports thinking mode, function calling, and JSON output.',
+    displayName: 'deepseek-flash',
     enabled: true,
     id: 'deepseek-flash',
     maxOutput: 393_216,
