@@ -109,6 +109,7 @@ const inferProviderExtendParams = (
   if (providerId === ModelProvider.DeepSeek) {
     if (
       modelId.includes('deepseek-v4') ||
+      modelId.includes('deepseek-flash') ||
       modelId.includes('deepseek-reasoner') ||
       item.abilities?.reasoning
     ) {

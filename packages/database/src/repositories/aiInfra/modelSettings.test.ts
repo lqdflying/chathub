@@ -48,10 +48,24 @@ describe('injectModelSettings', () => {
     ).toBeUndefined();
   });
 
-  it('injects DeepSeek V4 reasoning controls for fetched models', () => {
+  it.each(['deepseek-v4-pro', 'deepseek-flash'])(
+    'injects DeepSeek reasoning controls for fetched %s',
+    (modelId) => {
+      const model = injectModelSettings('deepseek', {
+        abilities: { functionCall: true, reasoning: true },
+        id: modelId,
+        type: 'chat',
+      });
+
+      expect(model.settings).toEqual({
+        extendParams: ['enableReasoning', 'reasoningEffort'],
+      });
+    },
+  );
+
+  it('injects DeepSeek Flash gear even when fetched abilities omit reasoning', () => {
     const model = injectModelSettings('deepseek', {
-      abilities: { functionCall: true, reasoning: true },
-      id: 'deepseek-v4-pro',
+      id: 'deepseek-flash',
       type: 'chat',
     });
 

@@ -31,9 +31,9 @@ export const MODEL_LIST_CONFIGS = {
     visionKeywords: [],
   },
   deepseek: {
-    functionCallKeywords: ['v3', 'v4', 'r1', 'deepseek-chat'],
-    reasoningKeywords: ['r1', 'deepseek-reasoner', 'v3.1', 'v3.2', 'v4'],
-    visionKeywords: ['ocr', 'vision'],
+    functionCallKeywords: ['v3', 'v4', 'r1', 'deepseek-chat', 'flash'],
+    reasoningKeywords: ['r1', 'deepseek-reasoner', 'v3.1', 'v3.2', 'v4', 'flash'],
+    visionKeywords: ['ocr', 'vision', 'flash'],
   },
   google: {
     excludeKeywords: ['tts'],

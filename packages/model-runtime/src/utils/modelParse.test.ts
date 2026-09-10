@@ -304,17 +304,42 @@ describe('modelParse', () => {
         expect(out[0]).toMatchObject({
           functionCall: true,
           reasoning: true,
+          vision: false,
         });
       });
 
-      it('deepseek: V4 Flash Vision Exp infers vision', async () => {
+      it('deepseek: deepseek-flash infers reasoning, function calling, and vision', async () => {
         const out = await processModelList(
-          [{ id: 'deepseek-v4-flash-vision-exp' }],
+          [{ id: 'deepseek-flash' }],
           MODEL_LIST_CONFIGS.deepseek,
           'deepseek',
         );
 
         expect(out[0]).toMatchObject({
+          functionCall: true,
+          reasoning: true,
+          vision: true,
+        });
+      });
+
+      it('deepseek: leftover V4 Flash ids still infer vision after V4.1 routing', async () => {
+        const [flash] = await processModelList(
+          [{ id: 'deepseek-v4-flash' }],
+          MODEL_LIST_CONFIGS.deepseek,
+          'deepseek',
+        );
+        const [visionExp] = await processModelList(
+          [{ id: 'deepseek-v4-flash-vision-exp' }],
+          MODEL_LIST_CONFIGS.deepseek,
+          'deepseek',
+        );
+
+        expect(flash).toMatchObject({
+          functionCall: true,
+          reasoning: true,
+          vision: true,
+        });
+        expect(visionExp).toMatchObject({
           functionCall: true,
           reasoning: true,
           vision: true,

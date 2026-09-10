@@ -299,7 +299,7 @@ describe('buildSimpleCompletionSampling', () => {
     });
   });
 
-  it.each(['deepseek-v4-pro', 'deepseek-v4-flash'] as const)(
+  it.each(['deepseek-v4-pro', 'deepseek-flash'] as const)(
     'disables default-on DeepSeek thinking for %s',
     (model) => {
       const sampling = buildSimpleCompletionSampling({

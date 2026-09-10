@@ -136,7 +136,7 @@ describe('buildDeepSeekPayload', () => {
     expect(payload.reasoning_effort).toBeUndefined();
   });
 
-  it('keeps user image_url parts on deepseek-v4-flash-vision-exp', () => {
+  it('keeps user image_url parts on deepseek-flash', () => {
     const messages = [
       {
         content: [
@@ -151,11 +151,11 @@ describe('buildDeepSeekPayload', () => {
     ];
     const payload = buildDeepSeekPayload({
       messages,
-      model: 'deepseek-v4-flash-vision-exp',
+      model: 'deepseek-flash',
       thinking: { type: 'enabled' as const },
     } as any);
 
-    expect(payload.model).toBe('deepseek-v4-flash-vision-exp');
+    expect(payload.model).toBe('deepseek-flash');
     expect(payload.messages).toEqual(messages);
   });
 
