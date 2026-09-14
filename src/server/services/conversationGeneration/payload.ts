@@ -39,6 +39,7 @@ import {
 import { estimateFixedContextOverheadTokens } from '@/helpers/contextUsageEstimate';
 import { FileService } from '@/server/services/file';
 import { composeSystemRole } from '@/services/chat/composeSystemRole';
+import { resolveOpenAICompatibleChatRoute } from '@/services/chat/openAICompatibleRoute';
 import { buildModelExtendParams, resolveModelSearchConfig } from '@/services/chat/requestShaping';
 import { trimMinimaxChatContext } from '@/services/chat/trimMinimaxContext';
 import { builtinTools } from '@/tools';
@@ -310,6 +311,10 @@ export const buildConversationChatPayload = async ({
       provider,
     }),
   };
+  const openAICompatibleRoute = resolveOpenAICompatibleChatRoute({
+    provider,
+    providerConfig: providerRuntime?.config,
+  });
 
   return {
     enabledToolIds,
@@ -317,6 +322,7 @@ export const buildConversationChatPayload = async ({
     model,
     payload: {
       ...extendParams,
+      ...openAICompatibleRoute,
       enabledSearch: searchConfig.enabledSearch && searchConfig.useModelSearch ? true : undefined,
       messages: oaiMessages,
       model,

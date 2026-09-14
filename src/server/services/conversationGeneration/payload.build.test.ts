@@ -219,4 +219,66 @@ describe('buildConversationChatPayload', () => {
     expect(result.payload.enabledSearch).toBeUndefined();
     expect(result.enabledToolIds).toContain('lobe-web-browsing');
   });
+
+  it('sets Responses apiMode on OpenAI-compatible payloads when the radio is on', async () => {
+    const result = await buildConversationChatPayload({
+      config: {
+        ...baseConfig,
+        model: 'gpt-6-astra',
+        provider: 'openaicompatible',
+      } as any,
+      db: {} as any,
+      generalInstruction: '',
+      messages: [{ content: 'Hello', id: 'u1', role: 'user' } as any],
+      runtimeState: {
+        enabledAiModels: [
+          {
+            abilities: { functionCall: true },
+            id: 'gpt-6-astra',
+            providerId: 'openaicompatible',
+          },
+        ],
+        runtimeConfig: {
+          openaicompatible: {
+            config: { enableResponseApi: true },
+          },
+        },
+      } as any,
+      sessionId: 'sess-1',
+      userId: 'user-1',
+    });
+
+    expect(result.payload.apiMode).toBe('responses');
+  });
+
+  it('omits apiMode when the OpenAI-compatible Responses radio is off', async () => {
+    const result = await buildConversationChatPayload({
+      config: {
+        ...baseConfig,
+        model: 'gpt-6-astra',
+        provider: 'openaicompatible',
+      } as any,
+      db: {} as any,
+      generalInstruction: '',
+      messages: [{ content: 'Hello', id: 'u1', role: 'user' } as any],
+      runtimeState: {
+        enabledAiModels: [
+          {
+            abilities: { functionCall: true },
+            id: 'gpt-6-astra',
+            providerId: 'openaicompatible',
+          },
+        ],
+        runtimeConfig: {
+          openaicompatible: {
+            config: { enableResponseApi: false },
+          },
+        },
+      } as any,
+      sessionId: 'sess-1',
+      userId: 'user-1',
+    });
+
+    expect(result.payload).not.toHaveProperty('apiMode');
+  });
 });

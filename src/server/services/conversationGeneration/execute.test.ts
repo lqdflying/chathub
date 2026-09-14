@@ -23,6 +23,7 @@ import {
   shouldGenerateConversationTitle,
   UpstreamCompletionError,
 } from './execute';
+import { loadConversationRuntimeState } from './credentials';
 import { buildConversationChatPayload } from './payload';
 import { consumeProtocolResponse } from './stream';
 import * as toolDiagnostics from './toolDiagnostics';
@@ -1412,6 +1413,7 @@ describe('executeConversationGeneration supervisor children', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(loadConversationRuntimeState).mockResolvedValue({} as any);
     children.length = 0;
     row.attempt = 0;
     row.status = 'pending';
@@ -1537,6 +1539,37 @@ describe('executeConversationGeneration supervisor children', () => {
       undefined,
       expect.anything(),
     );
+  });
+
+  it('passes responseApi to generateObject when the compatible Responses radio is on', async () => {
+    vi.mocked(loadConversationRuntimeState).mockResolvedValue({
+      runtimeConfig: {
+        openaicompatible: { config: { enableResponseApi: true } },
+      },
+    } as any);
+    runtimeMocks.generateObject.mockResolvedValue([{ arguments: {}, name: 'wait_for_user_input' }]);
+    row.config = { model: 'gpt-6-astra', provider: 'openaicompatible' };
+
+    await runOperation(row);
+
+    expect(runtimeMocks.generateObject).toHaveBeenCalledWith(
+      expect.objectContaining({ model: 'gpt-6-astra', responseApi: true }),
+      expect.anything(),
+    );
+  });
+
+  it('does not pass responseApi when the compatible Responses radio is off', async () => {
+    vi.mocked(loadConversationRuntimeState).mockResolvedValue({
+      runtimeConfig: {
+        openaicompatible: { config: { enableResponseApi: false } },
+      },
+    } as any);
+    runtimeMocks.generateObject.mockResolvedValue([{ arguments: {}, name: 'wait_for_user_input' }]);
+    row.config = { model: 'gpt-6-astra', provider: 'openaicompatible' };
+
+    await runOperation(row);
+
+    expect(runtimeMocks.generateObject.mock.calls[0]?.[0]).not.toHaveProperty('responseApi');
   });
 
   it('clears a sequential child placeholder when Stop arrives before the first token', async () => {

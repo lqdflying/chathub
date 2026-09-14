@@ -3,6 +3,9 @@ import { ModelProvider } from 'model-bank';
 import { createOpenAICompatibleRuntime } from '../../core/openaiCompatibleFactory';
 import { processMultiProviderModelList } from '../../utils/modelParse';
 
+/** Official GPT-6 Astra plus dated snapshots (`gpt-6-astra-…`). */
+const GPT6_ASTRA_MODEL_PATTERN = /^gpt-6-astra(?:-|$)/;
+
 const defaultBaseURL =
   process.env.OPENAICOMPATIBLE_PROXY_URL?.trim() || 'https://api.openai.com/v1';
 
@@ -47,6 +50,7 @@ export const LobeOpenAICompatibleAI = createOpenAICompatibleRuntime({
       } = payload as any;
 
       const isResponses = apiMode === 'responses';
+      const pruneSampling = isResponses || GPT6_ASTRA_MODEL_PATTERN.test(model);
 
       const result: Record<string, any> = {
         model,
@@ -59,11 +63,13 @@ export const LobeOpenAICompatibleAI = createOpenAICompatibleRuntime({
       if (debugToolCache !== undefined) result.debugToolCache = debugToolCache;
 
       if (messages !== undefined) result.messages = messages;
-      if (temperature !== undefined) result.temperature = temperature;
-      if (top_p !== undefined) result.top_p = top_p;
+      if (!pruneSampling) {
+        if (temperature !== undefined) result.temperature = temperature;
+        if (top_p !== undefined) result.top_p = top_p;
+        if (frequency_penalty !== undefined) result.frequency_penalty = frequency_penalty;
+        if (presence_penalty !== undefined) result.presence_penalty = presence_penalty;
+      }
       if (max_tokens !== undefined) result.max_tokens = max_tokens;
-      if (frequency_penalty !== undefined) result.frequency_penalty = frequency_penalty;
-      if (presence_penalty !== undefined) result.presence_penalty = presence_penalty;
       if (n !== undefined) result.n = n;
       if (stop !== undefined) result.stop = stop;
       if (response_format !== undefined) result.response_format = response_format;

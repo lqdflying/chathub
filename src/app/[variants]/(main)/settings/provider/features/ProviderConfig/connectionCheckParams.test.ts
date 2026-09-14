@@ -87,7 +87,19 @@ describe('connectionCheckParams', () => {
     expect(hasSuccessfulConnectionCheck('minimax', '', { content: '' }, false)).toBe(false);
   });
 
+  it('accepts a completed OpenAI or OpenAI-compatible Responses JSON envelope when exposed text is empty', () => {
+    expect(hasSuccessfulConnectionCheck('openai', '', { content: '' }, true)).toBe(true);
+    expect(hasSuccessfulConnectionCheck('openaicompatible', '', { content: '' }, true)).toBe(
+      true,
+    );
+    expect(hasSuccessfulConnectionCheck('openai', '', { content: '' }, false)).toBe(false);
+    expect(hasSuccessfulConnectionCheck('openaicompatible', '', { content: '' }, false)).toBe(
+      false,
+    );
+  });
+
   it('does not relax empty-result checks for other providers', () => {
-    expect(hasSuccessfulConnectionCheck('openai', '', { content: '' }, true)).toBe(false);
+    expect(hasSuccessfulConnectionCheck('moonshot', '', { content: '' }, true)).toBe(false);
+    expect(hasSuccessfulConnectionCheck('zhipu', '', { content: '' }, true)).toBe(false);
   });
 });

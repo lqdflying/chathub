@@ -64,7 +64,10 @@ coverage, but were not the last blocker:
    a successful terminal JSON envelope (`base_resp.status_code === 0` plus a
    choice finish reason), while malformed or provider-error envelopes still
    fail. Content-free inspection records types, lengths, bounded keys, finish
-   reason, and provider status—not model output.
+   reason, and provider status—not model output. The same completed-envelope
+   pass now also covers native OpenAI and OpenAI-compatible Connectivity Check
+   when the probe returns Responses JSON with `status: completed`, including
+   empty `output_text`.
 4. **The device still failed before those boundaries.** The canary.6 screenshot
    omitted every transport/JSON field. Tracing the MiniMax-only pre-transport
    path exposed `trimMinimaxChatContext` and its tokenizer worker as the

@@ -64,15 +64,10 @@ import {
   resolveClientTrustedCatalogModel,
   resolveRuntimeProvider,
 } from './helper';
+import { resolveOpenAICompatibleChatRoute } from './openAICompatibleRoute';
 import { buildModelExtendParams } from './requestShaping';
 import { trimMinimaxChatContext } from './trimMinimaxContext';
 import { FetchOptions } from './types';
-
-const openAICompatStoreValue = (store?: 'default' | 'false' | 'true') => {
-  if (store === 'true') return true;
-  if (store === 'false') return false;
-  return undefined;
-};
 
 interface GetChatCompletionPayload extends Partial<Omit<ChatStreamPayload, 'messages'>> {
   messages: UIChatMessage[];
@@ -399,29 +394,18 @@ class ChatService {
     }
 
     const aiInfraStoreState = getAiInfraStoreState();
-    const supportsOpenAICompatResponses = provider === ModelProvider.OpenAICompatible;
-    const configuredApiMode =
-      supportsOpenAICompatResponses &&
-      aiProviderSelectors.isProviderEnableResponseApi(provider)(aiInfraStoreState)
-        ? 'responses'
-        : undefined;
-    const apiMode = supportsOpenAICompatResponses ? res.apiMode || configuredApiMode : undefined;
-    const openAICompatCache =
-      provider === ModelProvider.OpenAICompatible
-        ? aiProviderSelectors.providerOpenAICompatCacheConfig(provider)(aiInfraStoreState)
-        : undefined;
-    const openAICompatResponsesParams =
-      provider === ModelProvider.OpenAICompatible
-        ? aiProviderSelectors.providerOpenAICompatResponsesParamsConfig(provider)(aiInfraStoreState)
-        : undefined;
-    const responseCache = openAICompatCache?.responses;
-    const responseCacheEnabled = responseCache?.promptCacheKey === 'derived';
-    const responseStateMode =
-      apiMode === 'responses' && provider === ModelProvider.OpenAICompatible && responseCacheEnabled
-        ? 'provider'
-        : undefined;
-    const store =
-      apiMode === 'responses' ? openAICompatStoreValue(responseCache?.store) : undefined;
+    const {
+      apiMode,
+      openAICompatCache,
+      openAICompatResponsesParams,
+      responseStateMode,
+      store,
+    } = resolveOpenAICompatibleChatRoute({
+      explicitApiMode: res.apiMode,
+      provider,
+      providerConfig: aiProviderSelectors.providerConfigById(provider)(aiInfraStoreState)
+        ?.config,
+    });
 
     // Get the chat config to check streaming preference
     const chatConfig = agentChatConfigSelectors.currentChatConfig(getAgentStoreState());

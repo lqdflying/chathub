@@ -29,6 +29,8 @@ Preset selection writes the full matrix. Built-in presets keep the matrix hidden
 ## Runtime Notes
 
 - The matrix is stored under provider config as `openAICompatCache`.
+- Durable Graphile conversation jobs apply the same API-route radio (`enableResponseApi`) as browser `getChatCompletion`. Settings Connectivity Check is not the only consumer. Compatible Astra tools stay on Chat Completions unless that radio is Responses.
+- Connectivity Check accepts a completed Responses JSON envelope (`status: completed`) for `openaicompatible` and native OpenAI even when `output_text` is empty. Incomplete or error envelopes still fail. MiniMax still uses its Chat Completions completed-envelope rule.
 - Responses parameter compatibility is stored under provider config as `openAICompatResponsesParams`.
 - `responseStateMode: "provider"` remains a legacy input and normalizes to the `Prompt key + store` preset when no matrix exists.
 - Legacy saved `pptoken.org` and `apikl.ai` preset values are accepted and normalized to `Prompt key + store`.

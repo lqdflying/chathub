@@ -114,6 +114,24 @@ describe('extractJsonChatCompletionResult', () => {
     ).toEqual({ reasoning: 'trace', text: 'ok' });
   });
 
+  it('reads Responses message string content', () => {
+    expect(
+      extractJsonChatCompletionResult({
+        object: 'response',
+        output: [{ content: 'plain', role: 'assistant', type: 'message' }],
+      }).text,
+    ).toBe('plain');
+  });
+
+  it('reads Responses output_text items', () => {
+    expect(
+      extractJsonChatCompletionResult({
+        object: 'response',
+        output: [{ text: 'from-item', type: 'output_text' }],
+      }).text,
+    ).toBe('from-item');
+  });
+
   it('returns empty for unrelated JSON', () => {
     expect(extractJsonChatCompletionResult({ some: 'data' })).toEqual({
       reasoning: '',
@@ -177,5 +195,43 @@ describe('inspectJsonChatCompletion', () => {
       completed: true,
       summary: { kind: 'responses', responseStatus: 'completed' },
     });
+  });
+
+  it('does not accept an incomplete Responses envelope', () => {
+    expect(
+      inspectJsonChatCompletion({ object: 'response', output: [], status: 'incomplete' }),
+    ).toMatchObject({
+      completed: false,
+      summary: { kind: 'responses', responseStatus: 'incomplete' },
+    });
+  });
+
+  it('reports Responses extract lengths without copying output text', () => {
+    const inspection = inspectJsonChatCompletion({
+      object: 'response',
+      output: [
+        { summary: [{ text: 'secret-reason' }], type: 'reasoning' },
+        {
+          content: [{ text: 'secret-answer', type: 'output_text' }],
+          role: 'assistant',
+          type: 'message',
+        },
+      ],
+      output_text: 'secret-answer',
+      status: 'completed',
+    });
+
+    expect(inspection).toMatchObject({
+      completed: true,
+      summary: {
+        choiceCount: 0,
+        contentLength: 13,
+        kind: 'responses',
+        reasoningLength: 13,
+        responseStatus: 'completed',
+      },
+    });
+    expect(JSON.stringify(inspection)).not.toContain('secret-answer');
+    expect(JSON.stringify(inspection)).not.toContain('secret-reason');
   });
 });

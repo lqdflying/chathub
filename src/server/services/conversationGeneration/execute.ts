@@ -78,6 +78,7 @@ import {
 import { persistMemoryCompactionIfCurrent } from '@/server/services/memoryCompactionPersist';
 import { RagEmbeddingService, resolveRagEmbeddingConfig } from '@/server/services/rag/embedding';
 import { composeSystemRole } from '@/services/chat/composeSystemRole';
+import { resolveOpenAICompatibleChatRoute } from '@/services/chat/openAICompatibleRoute';
 
 import {
   annotateAssistantError,
@@ -2049,6 +2050,12 @@ const executeSupervisor = async (
     userId: operation.userId,
   });
   const runtime = initModelRuntimeWithUserPayload(operation.config.provider, runtimePayload);
+  const runtimeState = await loadConversationRuntimeState(db, operation.userId);
+  const supervisorResponses =
+    resolveOpenAICompatibleChatRoute({
+      provider: operation.config.provider,
+      providerConfig: runtimeState.runtimeConfig?.[operation.config.provider]?.config,
+    }).apiMode === 'responses';
 
   const persistTodos = async (todos: ReturnType<typeof parseSupervisorTodosFromMessages>) => {
     await messageModel.create({
@@ -2373,6 +2380,7 @@ const executeSupervisor = async (
       {
         ...payload,
         model: operation.config.model,
+        ...(supervisorResponses ? { responseApi: true } : {}),
       } as any,
       {
         ...(options?.runSignal ? { signal: options.runSignal } : {}),

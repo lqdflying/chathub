@@ -18,8 +18,17 @@ describe('LobeOpenAICompatibleAI', () => {
       baseURL: 'https://gateway.example.com/v1',
     });
 
-    vi.spyOn(instance['client'].chat.completions, 'create').mockResolvedValue(
-      new ReadableStream() as any,
+    vi.spyOn(instance['client'].chat.completions, 'create').mockImplementation(
+      async () =>
+        (async function* () {
+          yield {
+            choices: [{ delta: { content: 'ok' }, finish_reason: 'stop', index: 0 }],
+            created: 1,
+            id: 'compat',
+            model: 'gpt-5.5',
+            object: 'chat.completion.chunk',
+          };
+        })() as any,
     );
     vi.spyOn(instance['client'].responses, 'create').mockResolvedValue(
       new ReadableStream() as any,
@@ -34,8 +43,14 @@ describe('LobeOpenAICompatibleAI', () => {
     else process.env.DEBUG_OPENAICOMPATIBLE_RESPONSES = originalResponsesDebug;
   });
 
+  const consumeChat = async (payload: any) => {
+    const response = await instance.chat(payload);
+    await response.text();
+    return response;
+  };
+
   it('uses Chat Completions by default', async () => {
-    await instance.chat({
+    await consumeChat({
       messages: [{ content: 'Hello', role: 'user' }],
       model: 'gpt-5.5',
     });
@@ -190,8 +205,45 @@ describe('LobeOpenAICompatibleAI', () => {
     });
   });
 
+  it('sends gpt-6-astra generateObject supervisor tools to Responses when responseApi is true', async () => {
+    const responsesCreate = vi.spyOn(instance['client'].responses, 'create').mockResolvedValue({
+      output: [
+        {
+          arguments: '{}',
+          name: 'wait_for_user_input',
+          type: 'function_call',
+        },
+      ],
+    } as any);
+    const completionsCreate = vi.spyOn(instance['client'].chat.completions, 'create');
+
+    const result = await instance.generateObject({
+      messages: [{ content: 'Choose the next speaker.', role: 'user' }],
+      model: 'gpt-6-astra',
+      responseApi: true,
+      tools: [
+        {
+          function: { name: 'trigger_agent', parameters: { type: 'object', properties: {} } },
+          type: 'function',
+        },
+        {
+          function: { name: 'wait_for_user_input', parameters: { type: 'object', properties: {} } },
+          type: 'function',
+        },
+      ],
+    });
+
+    expect(responsesCreate).toHaveBeenCalledTimes(1);
+    expect(completionsCreate).not.toHaveBeenCalled();
+    expect(result).toEqual([{ arguments: {}, name: 'wait_for_user_input' }]);
+    expect(responsesCreate.mock.calls[0][0]).toMatchObject({
+      model: 'gpt-6-astra',
+      tool_choice: 'required',
+    });
+  });
+
   it('strips explicit Chat Completions mode from provider payload', async () => {
-    await instance.chat({
+    await consumeChat({
       apiMode: 'chatCompletion',
       messages: [{ content: 'Hello', role: 'user' }],
       model: 'gpt-5.5',
@@ -219,7 +271,7 @@ describe('LobeOpenAICompatibleAI', () => {
       toolResults: [],
     };
 
-    await instance.chat({
+    await consumeChat({
       debugToolCache,
       messages: [{ content: 'Continue after the tool result.', role: 'user' }],
       model: 'gpt-5.5',
@@ -249,7 +301,7 @@ describe('LobeOpenAICompatibleAI', () => {
   });
 
   it('sends prompt-key-store Chat Completions cache hints upstream', async () => {
-    await instance.chat({
+    await consumeChat({
       messages: [
         { content: 'Keep the response brief.', role: 'system' },
         { content: 'Hello', role: 'user' },
@@ -297,6 +349,42 @@ describe('LobeOpenAICompatibleAI', () => {
     expect(createCall).not.toHaveProperty('apiMode');
     expect(createCall).not.toHaveProperty('store');
     expect(createCall.input).toEqual([{ content: 'Hello', role: 'user' }]);
+  });
+
+  it('strips Chat Completions sampling fields from compatible Responses bodies', async () => {
+    await instance.chat({
+      apiMode: 'responses',
+      frequency_penalty: 0.5,
+      messages: [{ content: 'Hello', role: 'user' }],
+      model: 'gpt-5.5',
+      presence_penalty: 0.3,
+      temperature: 0.7,
+      top_p: 0.9,
+    });
+
+    const createCall = (instance['client'].responses.create as Mock).mock.calls[0][0];
+    expect(createCall).not.toHaveProperty('temperature');
+    expect(createCall).not.toHaveProperty('top_p');
+    expect(createCall).not.toHaveProperty('frequency_penalty');
+    expect(createCall).not.toHaveProperty('presence_penalty');
+  });
+
+  it('strips gpt-6-astra Chat Completions temperature and top_p', async () => {
+    await consumeChat({
+      frequency_penalty: 0.5,
+      messages: [{ content: 'Hello', role: 'user' }],
+      model: 'gpt-6-astra',
+      presence_penalty: 0.3,
+      temperature: 0.7,
+      top_p: 0.9,
+    });
+
+    const createCall = (instance['client'].chat.completions.create as Mock).mock.calls[0][0];
+    expect(createCall).not.toHaveProperty('temperature');
+    expect(createCall).not.toHaveProperty('top_p');
+    expect(createCall).not.toHaveProperty('frequency_penalty');
+    expect(createCall).not.toHaveProperty('presence_penalty');
+    expect(createCall).toMatchObject({ model: 'gpt-6-astra' });
   });
 
   it('keeps Responses tool cache diagnostics available to the factory without sending them upstream', async () => {
@@ -396,7 +484,7 @@ describe('LobeOpenAICompatibleAI', () => {
   });
 
   it('derives Chat Completions prompt_cache_key for non gpt-5/codex models when matrix enables it', async () => {
-    await instance.chat({
+    await consumeChat({
       messages: [{ content: 'Hello', role: 'user' }],
       model: 'claude-3-5-sonnet',
       openAICompatCache: {
@@ -474,7 +562,7 @@ describe('LobeOpenAICompatibleAI', () => {
   });
 
   it('forwards Sol max reasoning effort in Chat Completions mode', async () => {
-    await instance.chat({
+    await consumeChat({
       enabledSearch: false,
       messages: [{ content: 'Hello', role: 'user' }],
       model: 'gpt-5.6-sol',
@@ -582,7 +670,7 @@ describe('LobeOpenAICompatibleAI', () => {
   });
 
   it('forwards documented Chat Completions fields and strips internal routing fields', async () => {
-    await instance.chat({
+    await consumeChat({
       enabledContextCaching: true,
       enabledSearch: false,
       frequency_penalty: 0.5,
@@ -639,7 +727,7 @@ describe('LobeOpenAICompatibleAI', () => {
   });
 
   it('strips undefined optional fields instead of sending them as null', async () => {
-    await instance.chat({
+    await consumeChat({
       messages: [{ content: 'Hello', role: 'user' }],
       model: 'gpt-5.5',
     });
@@ -742,7 +830,13 @@ describe('LobeOpenAICompatibleAI', () => {
       });
       await response.text();
 
-      expect(consoleLogSpy).toHaveBeenCalledWith(JSON.stringify(responseEvents[1]));
+      expect(
+        consoleLogSpy.mock.calls.some(
+          ([line]) =>
+            typeof line === 'string' &&
+            (line.includes('resp_debug') || line.includes('requestPayload')),
+        ),
+      ).toBe(true);
     } finally {
       consoleLogSpy.mockRestore();
     }

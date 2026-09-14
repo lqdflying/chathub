@@ -8,12 +8,16 @@ export const hasConnectionCheckResult = (
   reasoning?: { content?: string },
 ) => hasConnectionCheckOutput(text) || hasConnectionCheckOutput(reasoning?.content);
 
+const COMPLETED_JSON_ENVELOPE_PROVIDERS = new Set(['minimax', 'openai', 'openaicompatible']);
+
 export const hasSuccessfulConnectionCheck = (
   provider: string,
   text: unknown,
   reasoning?: { content?: string },
   jsonCompleted = false,
-) => hasConnectionCheckResult(text, reasoning) || (provider === 'minimax' && jsonCompleted);
+) =>
+  hasConnectionCheckResult(text, reasoning) ||
+  (jsonCompleted && COMPLETED_JSON_ENVELOPE_PROVIDERS.has(provider));
 
 export const buildConnectionCheckParams = (provider: string, model: string) => {
   // Non-streaming upstream + ChatHub `responseMode: 'json'`: the browser reads

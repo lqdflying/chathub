@@ -40,8 +40,11 @@ const extractResponsesOutput = (data: Record<string, unknown>) => {
   for (const item of output) {
     const record = asRecord(item);
     if (!record) continue;
-    if (record.type === 'message') {
-      messageText += joinTextParts(record.content);
+    if (record.type === 'message' || record.role === 'assistant') {
+      messageText +=
+        typeof record.content === 'string' ? record.content : joinTextParts(record.content);
+    } else if (record.type === 'output_text' || record.type === 'text') {
+      messageText += typeof record.text === 'string' ? record.text : joinTextParts(record.content);
     }
     if (record.type === 'reasoning') {
       reasoning += joinTextParts(record.summary ?? record.content ?? record.text);
@@ -124,19 +127,32 @@ export const inspectJsonChatCompletion = (data: unknown): JsonChatCompletionInsp
       : record.object === 'response' || Array.isArray(record.output)
         ? 'responses'
         : 'unknown';
+  const responsesOutput = kind === 'responses' ? extractResponsesOutput(record) : undefined;
 
   return {
     completed: providerSucceeded && (chatCompleted || responsesCompleted),
     summary: {
       baseStatus,
       choiceCount: choices.length,
-      contentLength: extractMessageText(message).length,
-      contentType: jsonValueKind(message?.content),
+      contentLength: responsesOutput
+        ? responsesOutput.text.length
+        : extractMessageText(message).length,
+      contentType: responsesOutput
+        ? jsonValueKind(record.output_text ?? record.output)
+        : jsonValueKind(message?.content),
       finishReason,
       kind,
       messageKeys: message ? Object.keys(message).sort().slice(0, 24) : [],
-      reasoningLength: extractMessageReasoning(message).length,
-      reasoningType: jsonValueKind(message?.reasoning_content ?? message?.reasoning),
+      reasoningLength: responsesOutput
+        ? responsesOutput.reasoning.length
+        : extractMessageReasoning(message).length,
+      reasoningType: responsesOutput
+        ? jsonValueKind(
+            Array.isArray(record.output)
+              ? record.output.find((item) => asRecord(item)?.type === 'reasoning')
+              : record.reasoning,
+          )
+        : jsonValueKind(message?.reasoning_content ?? message?.reasoning),
       responseStatus,
       topLevelKeys: Object.keys(record).sort().slice(0, 24),
     },
