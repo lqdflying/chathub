@@ -2,7 +2,7 @@
 
 import { Drawer } from '@lobehub/ui';
 import isEqual from 'fast-deep-equal';
-import { memo, useState } from 'react';
+import { memo, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
@@ -98,7 +98,7 @@ const AgentSettings = memo<AgentSettingsProps>(({ agentId, onClose, open }) => {
 
   // Refetch the displayed agent's config so failed optimistic writes converge
   // back to database truth (a rejection can also mean a post-commit abort).
-  const refreshAgentConfig = async () => {
+  const refreshAgentConfig = useCallback(async () => {
     if (agentId) {
       const sessions = useSessionStore.getState().sessions || [];
       const agentSession = sessions.find(
@@ -114,7 +114,7 @@ const AgentSettings = memo<AgentSettingsProps>(({ agentId, onClose, open }) => {
     if (id) {
       await useAgentStore.getState().internal_refreshAgentConfig(id);
     }
-  };
+  }, [agentId, id]);
 
   const updateAgentMeta = async (meta: any) => {
     if (agentId) {
@@ -135,6 +135,14 @@ const AgentSettings = memo<AgentSettingsProps>(({ agentId, onClose, open }) => {
 
   // Determine visibility - use prop if provided, otherwise use global state
   const isOpen = open !== undefined ? open : showAgentSetting;
+
+  // The drawer stays mounted; opening it must refetch so durable saveMemory
+  // entries appear in Fixed memory without waiting for the 5-minute SWR focus
+  // throttle.
+  useEffect(() => {
+    if (!isOpen) return;
+    void refreshAgentConfig();
+  }, [isOpen, refreshAgentConfig]);
 
   // Handle close - use prop if provided, otherwise use global state setter
   const handleClose = onClose || (() => useAgentStore.setState({ showAgentSetting: false }));

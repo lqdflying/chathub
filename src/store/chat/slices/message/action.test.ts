@@ -9,6 +9,7 @@ import { ToolsRPCResponseError } from '@/libs/trpc/client/toolsResponse';
 import { conversationGenerationService } from '@/services/conversationGeneration';
 import { messageService } from '@/services/message';
 import { topicService } from '@/services/topic';
+import * as agentStore from '@/store/agent';
 import { deferredBrowserGenerationLaneKey } from '@/store/chat/utils/deferredBrowserGeneration';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { useToolStore } from '@/store/tool';
@@ -1744,6 +1745,55 @@ describe('chatMessage actions', () => {
       await waitFor(() => {
         expect(result.current.data).toEqual(messages);
       });
+    });
+
+    it('revalidates agent config when a new lobe-memory save result arrives', async () => {
+      const refreshIncludingSiblings = vi.fn(async () => undefined);
+      vi.spyOn(agentStore, 'getAgentStoreState').mockReturnValue({
+        ...agentStore.useAgentStore.getState(),
+        internal_refreshAgentConfigIncludingSiblings: refreshIncludingSiblings,
+      } as ReturnType<typeof agentStore.getAgentStoreState>);
+
+      const memoryToolMessage = {
+        content: JSON.stringify({ content: 'Notion callout syntax', index: 4, saved: true }),
+        id: 'tool-memory-1',
+        plugin: {
+          apiName: 'saveMemory',
+          arguments: '{}',
+          identifier: 'lobe-memory',
+          type: 'builtin' as const,
+        },
+        role: 'tool' as const,
+      };
+      (messageService.getMessages as Mock).mockResolvedValue([memoryToolMessage]);
+
+      renderHook(() => useChatStore().useFetchMessages(true, 'session-id', 'topic-id'));
+
+      await waitFor(() => {
+        expect(refreshIncludingSiblings).toHaveBeenCalledWith('session-id');
+      });
+    });
+
+    it('does not revalidate agent config for ordinary message fetches', async () => {
+      const refreshIncludingSiblings = vi.fn(async () => undefined);
+      vi.spyOn(agentStore, 'getAgentStoreState').mockReturnValue({
+        ...agentStore.useAgentStore.getState(),
+        internal_refreshAgentConfigIncludingSiblings: refreshIncludingSiblings,
+      } as ReturnType<typeof agentStore.getAgentStoreState>);
+
+      (messageService.getMessages as Mock).mockResolvedValue([
+        { content: 'Hello', id: 'user-1', role: 'user' },
+      ]);
+
+      renderHook(() => useChatStore().useFetchMessages(true, 'session-id', 'topic-id'));
+
+      await waitFor(() => {
+        expect(messageService.getMessages).toHaveBeenCalled();
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(refreshIncludingSiblings).not.toHaveBeenCalled();
     });
   });
 

@@ -1,4 +1,6 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { DEFAULT_AGENT_CONFIG } from '@/const/settings';
 
 import { createStore } from './index';
 
@@ -100,5 +102,53 @@ describe('AgentSetting store — summary output sanitisation', () => {
 
       expect(store.getState().meta.tags).toEqual(['azure', 'documentation', 'security']);
     });
+  });
+});
+
+describe('AgentSetting store — dispatchConfig persist patch', () => {
+  it('sends only the update patch, not the stale full snapshot', async () => {
+    const store = createStore();
+    const onConfigChange = vi.fn(async () => undefined);
+    store.setState({
+      config: { ...DEFAULT_AGENT_CONFIG, fixedMemory: '#1: stale' },
+      onConfigChange,
+    });
+
+    await store.getState().setAgentConfig({ chatConfig: { enableAssistantMemory: true } });
+
+    expect(onConfigChange).toHaveBeenCalledWith({
+      chatConfig: { enableAssistantMemory: true },
+    });
+    expect(onConfigChange.mock.calls[0][0]).not.toHaveProperty('fixedMemory');
+  });
+
+  it('sends only the plugins list when toggling a plugin', async () => {
+    const store = createStore();
+    const onConfigChange = vi.fn(async () => undefined);
+    store.setState({
+      config: { ...DEFAULT_AGENT_CONFIG, fixedMemory: '#1: stale', plugins: [] },
+      onConfigChange,
+    });
+
+    store.getState().toggleAgentPlugin('plugin-1');
+    await vi.waitFor(() => {
+      expect(onConfigChange).toHaveBeenCalled();
+    });
+
+    expect(onConfigChange).toHaveBeenCalledWith({ plugins: ['plugin-1'] });
+    expect(onConfigChange.mock.calls[0][0]).not.toHaveProperty('fixedMemory');
+  });
+
+  it('sends the full default config on reset', async () => {
+    const store = createStore();
+    const onConfigChange = vi.fn(async () => undefined);
+    store.setState({
+      config: { ...DEFAULT_AGENT_CONFIG, fixedMemory: '#1: stale' },
+      onConfigChange,
+    });
+
+    await store.getState().resetAgentConfig();
+
+    expect(onConfigChange).toHaveBeenCalledWith(DEFAULT_AGENT_CONFIG);
   });
 });

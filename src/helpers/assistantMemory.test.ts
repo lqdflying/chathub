@@ -19,7 +19,9 @@ import {
   hashText,
   hasDreamMemoryEntryForDate,
   hasDreamOverflowControlMarker,
+  hasNewSuccessfulMemoryToolResult,
   hasOpaqueOverflowEnvelope,
+  isSuccessfulMemoryToolResult,
   normalizeAssistantMemoryText,
   normalizeDreamMemoryDocument,
   overflowSummaryTextBudget,
@@ -116,6 +118,64 @@ describe('appendFixedMemoryEntry', () => {
   it('trims content and doc edges', () => {
     const { doc } = appendFixedMemoryEntry('  #1: a  ', '  spaced  ');
     expect(doc).toBe('#1: a\n#2: spaced');
+  });
+});
+
+describe('isSuccessfulMemoryToolResult / hasNewSuccessfulMemoryToolResult', () => {
+  const saved = {
+    content: JSON.stringify({ content: 'likes tea', index: 4, saved: true }),
+    id: 'tool-1',
+    plugin: { identifier: 'lobe-memory' },
+    role: 'tool' as const,
+  };
+
+  it('accepts save, update, and delete results', () => {
+    expect(isSuccessfulMemoryToolResult(saved)).toBe(true);
+    expect(
+      isSuccessfulMemoryToolResult({
+        ...saved,
+        content: JSON.stringify({ content: 'x', index: 1, updated: true }),
+      }),
+    ).toBe(true);
+    expect(
+      isSuccessfulMemoryToolResult({
+        ...saved,
+        content: JSON.stringify({ deleted: true, index: 1, renumbered: true }),
+      }),
+    ).toBe(true);
+  });
+
+  it('rejects verification errors, other tools, and non-tool rows', () => {
+    expect(
+      isSuccessfulMemoryToolResult({
+        ...saved,
+        content: JSON.stringify({ currentEntries: '#1: a', error: 'mismatch' }),
+      }),
+    ).toBe(false);
+    expect(
+      isSuccessfulMemoryToolResult({
+        ...saved,
+        plugin: { identifier: 'lobe-web-browsing' },
+      }),
+    ).toBe(false);
+    expect(isSuccessfulMemoryToolResult({ ...saved, role: 'assistant' })).toBe(false);
+  });
+
+  it('detects a newly arrived or rewritten memory tool result', () => {
+    expect(hasNewSuccessfulMemoryToolResult([], [saved])).toBe(true);
+    expect(hasNewSuccessfulMemoryToolResult([saved], [saved])).toBe(false);
+    expect(
+      hasNewSuccessfulMemoryToolResult(
+        [saved],
+        [{ ...saved, content: JSON.stringify({ content: 'updated', index: 4, saved: true }) }],
+      ),
+    ).toBe(true);
+    expect(
+      hasNewSuccessfulMemoryToolResult(
+        [],
+        [{ content: 'hello', id: 'user-1', role: 'user' }],
+      ),
+    ).toBe(false);
   });
 });
 

@@ -134,6 +134,54 @@ export const formatFixedMemoryEntries = (
     )
     .join('\n');
 
+const MEMORY_TOOL_IDENTIFIER = 'lobe-memory';
+
+type MemoryToolMessageLike = {
+  content?: string | null;
+  id?: string;
+  plugin?: { identifier?: string } | null;
+  role?: string;
+};
+
+const parseMemoryToolResult = (
+  content: string | null | undefined,
+): Record<string, unknown> | undefined => {
+  if (typeof content !== 'string' || !content.trim()) return;
+  try {
+    const parsed = JSON.parse(content) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return;
+    return parsed as Record<string, unknown>;
+  } catch {
+    return;
+  }
+};
+
+/** True when a tool message is a successful lobe-memory save/update/delete. */
+export const isSuccessfulMemoryToolResult = (message: MemoryToolMessageLike): boolean => {
+  if (message.role !== 'tool') return false;
+  if (message.plugin?.identifier !== MEMORY_TOOL_IDENTIFIER) return false;
+  const result = parseMemoryToolResult(message.content);
+  if (!result) return false;
+  return Boolean(result.saved || result.updated || result.deleted);
+};
+
+/**
+ * Durable Graphile writes `agents.fixed_memory` without touching the client
+ * agent-config SWR cache. Detect newly arrived (or rewritten) successful
+ * memory-tool results so the settings panel can refetch.
+ */
+export const hasNewSuccessfulMemoryToolResult = (
+  previous: MemoryToolMessageLike[],
+  next: MemoryToolMessageLike[],
+): boolean => {
+  const previousById = new Map(previous.map((message) => [message.id, message]));
+  return next.some((message) => {
+    if (!isSuccessfulMemoryToolResult(message)) return false;
+    const prior = previousById.get(message.id);
+    return !prior || prior.content !== message.content;
+  });
+};
+
 const findEntryLine = (
   lines: string[],
   index: number,

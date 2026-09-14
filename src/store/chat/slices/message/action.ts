@@ -23,6 +23,7 @@ import isEqual from 'fast-deep-equal';
 import { SWRResponse, mutate } from 'swr';
 import { StateCreator } from 'zustand/vanilla';
 
+import { hasNewSuccessfulMemoryToolResult } from '@/helpers/assistantMemory';
 import { preserveChatImageToolContentOnFetch } from '@/helpers/chatImageTaskId';
 import { logDeferredGenerationLane } from '@/libs/logger/generationDebugClient';
 import { mutateAccountSWR, useClientDataSWR } from '@/libs/swr';
@@ -32,6 +33,7 @@ import { rpcDiagnosticsService } from '@/services/rpcDiagnostics';
 import { topicService } from '@/services/topic';
 import { traceService } from '@/services/trace';
 import { captureAccountMutationSnapshot, isAccountMutationCurrent } from '@/store/accountMutation';
+import { getAgentStoreState } from '@/store/agent';
 import { ChatStore } from '@/store/chat/store';
 import type { ConversationContext } from '@/store/chat/types';
 import {
@@ -753,11 +755,12 @@ export const chatMessage: StateCreator<
           if (authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope) return;
 
           const mapKey = messageMapKey(messageContextId || '', activeTopicId);
+          const previousMessages = get().messagesMap[mapKey] || [];
           const nextMap = {
             ...get().messagesMap,
             [mapKey]: preserveChatImageToolContentOnFetch(
               messages,
-              get().messagesMap[mapKey] || [],
+              previousMessages,
             ),
           };
 
@@ -771,6 +774,18 @@ export const chatMessage: StateCreator<
 
           if (type !== 'group') {
             void get().internal_ensureReportedInputTokenFloorWatermark().catch(console.error);
+          }
+
+          // Durable Graphile memory writes never call internal_updateAgentConfig.
+          // Refetch agent config when a successful lobe-memory result is new.
+          if (
+            type !== 'group' &&
+            messageContextId &&
+            hasNewSuccessfulMemoryToolResult(previousMessages, messages)
+          ) {
+            void getAgentStoreState()
+              .internal_refreshAgentConfigIncludingSiblings(messageContextId)
+              .catch(console.error);
           }
         },
       },

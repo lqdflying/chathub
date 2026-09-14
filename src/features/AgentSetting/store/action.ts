@@ -285,6 +285,18 @@ export const store: StateCreator<Store, [['zustand/devtools', never]]> = (set, g
 
     set({ config: nextConfig }, false, payload);
 
+    // Persist a patch, never the full local snapshot. Durable memory writes
+    // (and the dream) can land on the server while this editor still holds
+    // stale `fixedMemory` / `assistantMemory`; sending the whole config would
+    // overwrite them.
+    if (payload.type === 'update') {
+      await get().onConfigChange?.(payload.config);
+      return;
+    }
+    if (payload.type === 'togglePlugin') {
+      await get().onConfigChange?.({ plugins: nextConfig.plugins });
+      return;
+    }
     await get().onConfigChange?.(nextConfig);
   },
   dispatchMeta: async (payload) => {

@@ -67,6 +67,17 @@ export interface AgentChatAction {
     checkpoint?: AgentMutationCheckpoint,
     isOriginatingMutationCurrent?: AgentMutationCurrentness,
   ) => Promise<void>;
+  /**
+   * Revalidate this session's agent config and every other FETCH_AGENT_CONFIG
+   * key in the account. Durable `lobe-memory` writes `agents.fixed_memory`
+   * without going through `internal_updateAgentConfig`; sibling sessions share
+   * that row and keep their own SWR keys.
+   */
+  internal_refreshAgentConfigIncludingSiblings: (
+    id: string,
+    checkpoint?: AgentMutationCheckpoint,
+    isOriginatingMutationCurrent?: AgentMutationCurrentness,
+  ) => Promise<void>;
   internal_refreshAgentKnowledge: (
     agentId?: string,
     checkpoint?: AgentMutationCheckpoint,
@@ -768,6 +779,24 @@ export const createChatSlice: StateCreator<
 
       await mutateAccountSWR([FETCH_AGENT_CONFIG_KEY, checkpoint.accountSnapshot.scope, id]);
       if (!isNestedRefreshCurrent(checkpoint, isOriginatingMutationCurrent)) return;
+    },
+
+    internal_refreshAgentConfigIncludingSiblings: async (
+      id,
+      originatingCheckpoint,
+      isOriginatingMutationCurrent,
+    ) => {
+      const checkpoint = originatingCheckpoint ?? captureStoreMutationContext();
+      if (!checkpoint || !isNestedRefreshCurrent(checkpoint, isOriginatingMutationCurrent)) return;
+
+      await get().internal_refreshAgentConfig(id, checkpoint, isOriginatingMutationCurrent);
+      if (!isNestedRefreshCurrent(checkpoint, isOriginatingMutationCurrent)) return;
+
+      await mutateAccountSWRByPredicate(checkpoint.accountSnapshot.scope, (key) =>
+        Array.isArray(key) &&
+        key[0] === FETCH_AGENT_CONFIG_KEY &&
+        key[1] === checkpoint.accountSnapshot.scope,
+      );
     },
 
     internal_refreshAgentKnowledge: async (

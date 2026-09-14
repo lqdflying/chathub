@@ -3,7 +3,7 @@
 import { Tabs } from '@lobehub/ui';
 import { useTheme } from 'antd-style';
 import isEqual from 'fast-deep-equal';
-import { memo, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import PageTitle from '@/components/PageTitle';
@@ -33,6 +33,11 @@ const EditPage = memo(() => {
   const meta = useSessionStore(sessionMetaSelectors.currentAgentMeta, isEqual);
 
   const { isLoading } = useInitAgentConfig();
+
+  useEffect(() => {
+    if (!id) return;
+    void useAgentStore.getState().internal_refreshAgentConfig(id);
+  }, [id, tab]);
 
   return (
     <>

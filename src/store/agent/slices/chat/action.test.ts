@@ -1364,6 +1364,33 @@ describe('AgentSlice', () => {
     });
   });
 
+  describe('internal_refreshAgentConfigIncludingSiblings', () => {
+    it('revalidates the session key and every FETCH_AGENT_CONFIG key in the account', async () => {
+      const { result } = renderHook(() => useAgentStore());
+
+      await act(async () => {
+        await result.current.internal_refreshAgentConfigIncludingSiblings('session-a');
+      });
+
+      expect(mutate).toHaveBeenCalledWith([
+        'FETCH_AGENT_CONFIG',
+        'user:user-id',
+        'session-a',
+        ['account-cache-epoch', 0],
+      ]);
+      expect(mutateAccountSWRByPredicate).toHaveBeenCalledWith(
+        'user:user-id',
+        expect.any(Function),
+      );
+      const predicate = vi.mocked(mutateAccountSWRByPredicate).mock.calls.at(-1)![1] as (
+        key: unknown,
+      ) => boolean;
+      expect(predicate(['FETCH_AGENT_CONFIG', 'user:user-id', 'sibling-session'])).toBe(true);
+      expect(predicate(['FETCH_AGENT_CONFIG', 'user:other', 'sibling-session'])).toBe(false);
+      expect(predicate(['FETCH_AGENT_KNOWLEDGE', 'user:user-id', 'agent-1'])).toBe(false);
+    });
+  });
+
   describe('edge cases', () => {
     it('should not update config if activeId is null', async () => {
       const { result } = renderHook(() => useAgentStore());

@@ -308,15 +308,25 @@ group/member requests, whose ambient write target would be the wrong agent) — 
 estimators pass the same flag so schema-token estimates stay in lockstep; the option keeps
 ambient store reads out of `toolEngineering`, avoiding an import cycle.
 
+There are two write paths. Browser-fallback builtin execution still uses the id-targeted
+`internal_updateAgentConfig` (not the abortable shared-slot path). Durable Graphile
+generation runs the same helpers inside `invokeMemoryTool` and writes `agents.fixed_memory`
+directly. That path never goes through the client updater, so after a successful tool result
+lands in `useFetchMessages` the client revalidates `FETCH_AGENT_CONFIG` for the session and
+every sibling key in the account (the same sibling-key idea as the dream). Opening Assistant
+settings also refetches so the Fixed memory list does not wait on the 5-minute SWR focus
+throttle. Settings persist patches only — a stale full snapshot must not overwrite a newer
+server document.
+
 Entries are numbered `#N: …` lines and the numbering is kept dense: the fixed-memory editor
 renumbers on every user save and `deleteMemory` renumbers the remainder, so deleting `#2`
 makes `#3` become `#2`. Because numbers are injected at turn start and can shift underneath a
 running turn, update/delete are content-verified: each call carries the index plus a `match`
 snippet; on `not_found`/`mismatch` the tool refuses the write and returns the current numbered
-entry list as the tool result so the model self-corrects within the same turn. All three
-writes serialize through one promise chain (tool calls in a turn run concurrently) and use the
-id-targeted `internal_updateAgentConfig` rather than the abortable shared-slot path. Only
-`#N:` lines are ever renumbered — free-form markdown in the doc is preserved verbatim.
+entry list as the tool result so the model self-corrects within the same turn. Browser-fallback
+writes serialize through one client promise chain (tool calls in a turn run concurrently).
+Durable worker writes serialize with `SELECT … FOR UPDATE` on the agent row. Only `#N:`
+lines are ever renumbered — free-form markdown in the doc is preserved verbatim.
 
 The rollup is a selective extractor, not a consolidator. The prompt admits an item only if it
 would change behavior in a future unrelated conversation, requires category-organized output

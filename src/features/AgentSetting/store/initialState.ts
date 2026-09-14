@@ -1,3 +1,5 @@
+import type { PartialDeep } from 'type-fest';
+
 import { DEFAULT_AGENT_META } from '@/const/meta';
 import { DEFAULT_AGENT_CONFIG } from '@/const/settings';
 import { LobeAgentConfig } from '@/types/agent';
@@ -12,7 +14,7 @@ export interface State {
   loadingState?: LoadingState;
   meta: MetaData;
   /** May return a promise; `dispatchConfig` awaits it so write failures propagate to callers. */
-  onConfigChange?: (config: LobeAgentConfig) => Promise<void> | void;
+  onConfigChange?: (config: PartialDeep<LobeAgentConfig>) => Promise<void> | void;
   onMetaChange?: (meta: MetaData) => void;
   /**
    * Refetch the displayed agent's config from the server. Surfaces wire this so
