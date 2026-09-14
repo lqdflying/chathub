@@ -82,6 +82,7 @@ beforeEach(() => {
     inboxAgentRequestScope: undefined,
     inboxAgentScope: undefined,
     isInboxAgentConfigInit: false,
+    pendingAgentPlugins: {},
     scopeGeneration: 0,
     updateAgentConfigSignal: undefined,
     updateAgentConfigSignals: [],
@@ -783,6 +784,132 @@ describe('AgentSlice', () => {
 
       expect(persisted.plugins).toEqual([]);
       expect(useAgentStore.getState().agentMap['session-a']?.plugins).toEqual([]);
+    });
+
+    it('retains a later queued plugin when an older plugin write starts', async () => {
+      useAgentStore.setState({
+        activeAgentId: 'agent-a',
+        activeId: 'session-a',
+        agentMap: { 'session-a': { ...DEFAULT_AGENT_CONFIG, plugins: [] } },
+      });
+      const releaseModel = createDeferred<void>();
+      const releasePluginA = createDeferred<void>();
+      const pluginAStarted = createDeferred<void>();
+      let calls = 0;
+      let persisted: { plugins?: string[] } = { ...DEFAULT_AGENT_CONFIG, plugins: [] };
+      vi.spyOn(sessionService, 'updateSessionConfig').mockImplementation(async (_id, patch, signal) => {
+        calls += 1;
+        if (calls === 1) await releaseModel.promise;
+        if (calls === 2) {
+          pluginAStarted.resolve();
+          await releasePluginA.promise;
+        }
+        if (signal?.aborted) throw new Error('cancelled before dispatch');
+        persisted = merge(persisted, patch);
+      });
+
+      const model = useAgentStore.getState().updateAgentConfig({ model: 'model-x' });
+      const pluginA = useAgentStore.getState().togglePlugin('plugin-a', true);
+      const pluginB = useAgentStore.getState().togglePlugin('plugin-b', true);
+      const beforeQueueAdvances = useAgentStore.getState().agentMap['session-a']?.plugins;
+      releaseModel.resolve();
+      await pluginAStarted.promise;
+      const whileAPersists = useAgentStore.getState().agentMap['session-a']?.plugins;
+      const pluginC = useAgentStore.getState().togglePlugin('plugin-c', true);
+      releasePluginA.resolve();
+      await Promise.all([model, pluginA, pluginB, pluginC]);
+
+      expect(beforeQueueAdvances).toEqual(['plugin-a', 'plugin-b']);
+      expect(whileAPersists).toEqual(['plugin-a', 'plugin-b']);
+      expect(persisted.plugins).toEqual(['plugin-a', 'plugin-b', 'plugin-c']);
+      expect(useAgentStore.getState().agentMap['session-a']?.plugins).toEqual([
+        'plugin-a',
+        'plugin-b',
+        'plugin-c',
+      ]);
+    });
+
+    it('keeps pending plugins when a stale config revalidation arrives', async () => {
+      useAgentStore.setState({
+        activeAgentId: 'agent-a',
+        activeId: 'session-a',
+        agentMap: { 'session-a': { ...DEFAULT_AGENT_CONFIG, plugins: [] } },
+      });
+      const release = createDeferred<void>();
+      let calls = 0;
+      let persisted: { plugins?: string[] } = { ...DEFAULT_AGENT_CONFIG, plugins: [] };
+      vi.spyOn(sessionService, 'updateSessionConfig').mockImplementation(async (_id, patch, signal) => {
+        calls += 1;
+        if (calls === 1) await release.promise;
+        if (signal?.aborted) throw new Error('cancelled before dispatch');
+        persisted = merge(persisted, patch);
+      });
+
+      const first = useAgentStore.getState().updateAgentConfig({ model: 'model-x' });
+      const pluginA = useAgentStore.getState().togglePlugin('plugin-a', true);
+      const pluginB = useAgentStore.getState().togglePlugin('plugin-b', true);
+      await waitFor(() => expect(calls).toBe(1));
+      useAgentStore.getState().internal_dispatchAgentMap(
+        'session-a',
+        { ...DEFAULT_AGENT_CONFIG, plugins: ['plugin-a'] },
+        'fetch',
+      );
+      expect(useAgentStore.getState().agentMap['session-a']?.plugins).toEqual([
+        'plugin-a',
+        'plugin-b',
+      ]);
+
+      const pluginC = useAgentStore.getState().togglePlugin('plugin-c', true);
+      release.resolve();
+      await Promise.all([first, pluginA, pluginB, pluginC]);
+
+      expect(persisted.plugins).toEqual(['plugin-a', 'plugin-b', 'plugin-c']);
+      expect(useAgentStore.getState().agentMap['session-a']?.plugins).toEqual([
+        'plugin-a',
+        'plugin-b',
+        'plugin-c',
+      ]);
+    });
+
+    it('preserves enable then disable while an older plugin write is in flight', async () => {
+      useAgentStore.setState({
+        activeAgentId: 'agent-a',
+        activeId: 'session-a',
+        agentMap: { 'session-a': { ...DEFAULT_AGENT_CONFIG, plugins: [] } },
+      });
+      const releaseModel = createDeferred<void>();
+      const releasePluginA = createDeferred<void>();
+      const pluginAStarted = createDeferred<void>();
+      let calls = 0;
+      let persisted: { plugins?: string[] } = { ...DEFAULT_AGENT_CONFIG, plugins: [] };
+      vi.spyOn(sessionService, 'updateSessionConfig').mockImplementation(async (_id, patch, signal) => {
+        calls += 1;
+        if (calls === 1) await releaseModel.promise;
+        if (calls === 2) {
+          pluginAStarted.resolve();
+          await releasePluginA.promise;
+        }
+        if (signal?.aborted) throw new Error('cancelled before dispatch');
+        persisted = merge(persisted, patch);
+      });
+
+      const model = useAgentStore.getState().updateAgentConfig({ model: 'model-x' });
+      const pluginA = useAgentStore.getState().togglePlugin('plugin-a', true);
+      const pluginB = useAgentStore.getState().togglePlugin('plugin-b', true);
+      releaseModel.resolve();
+      await pluginAStarted.promise;
+      expect(useAgentStore.getState().agentMap['session-a']?.plugins).toEqual([
+        'plugin-a',
+        'plugin-b',
+      ]);
+
+      const pluginBOff = useAgentStore.getState().togglePlugin('plugin-b', false);
+      expect(useAgentStore.getState().agentMap['session-a']?.plugins).toEqual(['plugin-a']);
+      releasePluginA.resolve();
+      await Promise.all([model, pluginA, pluginB, pluginBOff]);
+
+      expect(persisted.plugins).toEqual(['plugin-a']);
+      expect(useAgentStore.getState().agentMap['session-a']?.plugins).toEqual(['plugin-a']);
     });
 
     it('should not update config if there is no current session', async () => {

@@ -317,13 +317,17 @@ every sibling key in the account (the same sibling-key idea as the dream). Openi
 settings also refetches so the Fixed memory list does not wait on the 5-minute SWR focus
 throttle. Settings persist patches only — a stale full snapshot must not overwrite a newer
 server document. Client `updateAgentConfig` and `internal_updateAgentConfig`
-serialize those writes per account scope and session. Each in-flight write owns
-its own `AbortController` (account reset aborts every owned controller). A later
-save in another session must not abort this one, and queued jobs re-check
-account/ownership generation before optimistic `agentMap` updates or RPC so a
-previous account's patch cannot land after switch. Global `togglePlugin`
-publishes `{ plugins }` to `agentMap` before enqueueing so a following toggle sees
-the pending list, then persists only that field. The queue is not a database
+serialize those writes per account scope and session. Public
+`updateAgentConfig` writes each own an `AbortController` (account reset aborts
+every owned public controller). Id-targeted `internal_updateAgentConfig` jobs
+are fenced by account/ownership generation instead of that controller list. A
+later save in another session must not abort a public write, and queued jobs
+re-check account/ownership generation before optimistic `agentMap` updates or
+RPC so a previous account's patch cannot land after switch. Global
+`togglePlugin` records the latest intended plugin list as pending intent,
+publishes it immediately, and persists only that field. `internal_dispatchAgentMap`
+reapplies the overlay so an older queued `{ plugins }` snapshot or a stale
+config revalidation cannot hide a later selection. The queue is not a database
 lock: `SessionModel.updateConfig` is still read-merge-write, and the durable
 worker remains the path that takes `SELECT … FOR UPDATE` on the agent row.
 
@@ -469,9 +473,11 @@ model tag + copy/export) opens from the token-badge popover for the active topic
 topic's dropdown menu for any topic with a summary.
 
 Memory UI actions do not gate their visible state on the write promise. Config
-writes serialize per account and session; each in-flight write has its own
-AbortController, so a later save in another session cannot cancel this one, and
-account reset aborts every owned controller. A failed or fenced promise is not
+writes serialize per account and session. Public `updateAgentConfig` writes each
+have their own AbortController, so a later save in another session cannot cancel
+this one, and account reset aborts every owned public controller. Pending plugin
+intent survives older queued snapshots and stale config revalidation. A failed
+or fenced promise is not
 proof that the server never committed. Actions apply local state
 optimistically, report success/failure via toast, and on failure refetch the agent config to
 converge on the database truth. The refetch goes through the scoped store's `onRefreshConfig`
