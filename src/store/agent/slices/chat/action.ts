@@ -113,6 +113,11 @@ export interface AgentChatAction {
     mutationContext?: AgentMutationContext,
   ) => Promise<void>;
   updateAgentChatConfig: (config: Partial<LobeAgentChatConfig>) => Promise<void>;
+  /**
+   * Persist a config patch for the captured session. Overlapping calls for the
+   * same account+session serialize so a later patch cannot abort an earlier
+   * unpersisted edit.
+   */
   updateAgentConfig: (
     config: PartialDeep<LobeAgentConfig>,
     mutationContext?: AgentMutationContext,
@@ -145,6 +150,33 @@ export interface AssistantMemoryRollupResult {
 
 /** Per scope+agent single-flight guard: concurrent calls join the in-flight rollup. */
 const rollupJobs = new Map<string, Promise<AssistantMemoryRollupResult>>();
+
+/**
+ * Per account-scope + session: overlapping agent-config patches must serialize.
+ * Aborting a predecessor (AbortController) cancels the HTTP call; it does not
+ * roll back a mutation, and a later patch does not include the lost fields.
+ * SWR `mutate()` revalidates cache after a write; it is not a write lock.
+ * @see https://swr.vercel.app/docs/mutation
+ */
+const agentConfigUpdateJobs = new Map<string, Promise<void>>();
+
+const enqueueAgentConfigUpdate = async (queueKey: string, run: () => Promise<void>) => {
+  const previous = agentConfigUpdateJobs.get(queueKey);
+  // Call `run()` immediately when idle so existing tests that assert the
+  // persist starts in the same turn still see `updateSessionConfig` invoked
+  // before the first microtask flush.
+  const job = previous ? previous.catch(() => undefined).then(run) : run();
+  agentConfigUpdateJobs.set(queueKey, job);
+  try {
+    await job;
+  } finally {
+    if (agentConfigUpdateJobs.get(queueKey) === job) {
+      agentConfigUpdateJobs.delete(queueKey);
+    }
+  }
+};
+
+const agentConfigUpdateQueueKey = (scope: string, sessionId: string) => `${scope}:${sessionId}`;
 
 interface AgentMutationCheckpoint {
   accountSnapshot: NonNullable<ReturnType<typeof captureAccountMutationSnapshot>>;
@@ -207,6 +239,37 @@ export const createChatSlice: StateCreator<
       isSessionListCacheKey(key, checkpoint.accountSnapshot.scope),
     );
     if (!isNestedRefreshCurrent(checkpoint, isOriginatingMutationCurrent)) return;
+  };
+  const writeAgentConfig = async (
+    targetId: string,
+    data: PartialDeep<LobeAgentConfig>,
+    signal: AbortSignal | undefined,
+    mutationContext: AgentMutationCheckpoint,
+    isOriginatingMutationCurrent?: AgentMutationCurrentness,
+  ) => {
+    if (signal?.aborted) return;
+    const operationController =
+      get().updateAgentConfigSignal?.signal === signal
+        ? get().updateAgentConfigSignal
+        : undefined;
+    const isCurrentRequest = () =>
+      isStoreMutationContextCurrent(mutationContext) &&
+      (isOriginatingMutationCurrent?.() ?? true) &&
+      !signal?.aborted &&
+      (!operationController || get().updateAgentConfigSignal === operationController);
+
+    const previousModel = agentSelectors.getAgentConfigById(targetId)(get()).model;
+    get().internal_dispatchAgentMap(targetId, data, 'optimistic_updateAgentConfig');
+
+    await sessionService.updateSessionConfig(targetId, data, signal);
+    if (!isCurrentRequest()) return;
+
+    await get().internal_refreshAgentConfig(targetId, mutationContext, isCurrentRequest);
+    if (!isCurrentRequest()) return;
+
+    if (previousModel !== data.model) {
+      await refreshAgentSessions(mutationContext, isCurrentRequest);
+    }
   };
 
   return {
@@ -611,24 +674,31 @@ export const createChatSlice: StateCreator<
 
       if (!activeId) return;
 
-      const controller = get().internal_createAbortController('updateAgentConfigSignal');
+      const queueKey = agentConfigUpdateQueueKey(mutationContext.accountSnapshot.scope, activeId);
 
-      try {
-        await get().internal_updateAgentConfig(
-          activeId,
-          config,
-          controller.signal,
-          mutationContext,
-          () => isMutationContextCurrent(mutationContext),
-        );
-      } finally {
-        // release the shared slot once this request settles, so a later unrelated
-        // config write can no longer abort an already-completed one (a post-commit
-        // abort made the UI reject a write the server had persisted)
-        if (get().updateAgentConfigSignal === controller) {
-          set({ updateAgentConfigSignal: undefined }, false, 'updateAgentConfig/releaseSignal');
+      await enqueueAgentConfigUpdate(queueKey, async () => {
+        // Account/ownership fences only: session navigation must not drop a
+        // patch already queued for the captured target.
+        if (!isStoreMutationContextCurrent(mutationContext)) return;
+
+        const controller = get().internal_createAbortController('updateAgentConfigSignal');
+        try {
+          await writeAgentConfig(
+            activeId,
+            config,
+            controller.signal,
+            mutationContext,
+            () => isStoreMutationContextCurrent(mutationContext),
+          );
+        } finally {
+          // release the shared slot once this request settles, so a later unrelated
+          // config write can no longer abort an already-completed one (a post-commit
+          // abort made the UI reject a write the server had persisted)
+          if (get().updateAgentConfigSignal === controller) {
+            set({ updateAgentConfigSignal: undefined }, false, 'updateAgentConfig/releaseSignal');
+          }
         }
-      }
+      });
     },
     useFetchAgentConfig: (isLogin, sessionId) => {
       const requestedScope = useUserStore(authSelectors.currentUserScope);
@@ -742,31 +812,11 @@ export const createChatSlice: StateCreator<
     ) => {
       const mutationContext = originatingCheckpoint ?? captureStoreMutationContext();
       if (!mutationContext || signal?.aborted) return;
-      const targetId = id;
-      const operationController =
-        get().updateAgentConfigSignal?.signal === signal
-          ? get().updateAgentConfigSignal
-          : undefined;
-      const isCurrentRequest = () =>
-        isStoreMutationContextCurrent(mutationContext) &&
-        (isOriginatingMutationCurrent?.() ?? true) &&
-        !signal?.aborted &&
-        (!operationController || get().updateAgentConfigSignal === operationController);
 
-      const previousModel = agentSelectors.getAgentConfigById(targetId)(get()).model;
-      // optimistic update at frontend
-      get().internal_dispatchAgentMap(targetId, data, 'optimistic_updateAgentConfig');
-
-      await sessionService.updateSessionConfig(targetId, data, signal);
-      if (!isCurrentRequest()) return;
-
-      await get().internal_refreshAgentConfig(targetId, mutationContext, isCurrentRequest);
-      if (!isCurrentRequest()) return;
-
-      // refresh sessions to update the agent config if the model has changed
-      if (previousModel !== data.model) {
-        await refreshAgentSessions(mutationContext, isCurrentRequest);
-      }
+      await enqueueAgentConfigUpdate(
+        agentConfigUpdateQueueKey(mutationContext.accountSnapshot.scope, id),
+        () => writeAgentConfig(id, data, signal, mutationContext, isOriginatingMutationCurrent),
+      );
     },
 
     internal_refreshAgentConfig: async (

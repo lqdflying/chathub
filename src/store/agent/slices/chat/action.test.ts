@@ -11,6 +11,8 @@ import { mutate } from 'swr';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { INBOX_SESSION_ID } from '@/const/session';
+import { DEFAULT_AGENT_CONFIG } from '@/const/settings';
+import { createStore as createAgentSettingStore } from '@/features/AgentSetting/store';
 import { hashText } from '@/helpers/assistantMemory';
 import { agentService } from '@/services/agent';
 import { chatService } from '@/services/chat';
@@ -22,6 +24,7 @@ import { agentSelectors } from '@/store/agent/selectors';
 import { useSessionStore } from '@/store/session';
 import { createSessionListBaseKey } from '@/store/session/sessionListKey';
 import { useUserStore } from '@/store/user';
+import { merge } from '@/utils/merge';
 
 const { mutateAccountSWRByPredicate } = vi.hoisted(() => ({
   mutateAccountSWRByPredicate: vi.fn(),
@@ -344,15 +347,31 @@ describe('AgentSlice', () => {
       updateSessionConfigMock.mockRestore();
     });
 
-    it('still aborts a previous IN-FLIGHT request when a new write starts', async () => {
+    it('serializes overlapping patches so an earlier edit is not aborted', async () => {
       const release = createDeferred<void>();
       const { result } = renderHook(() => useAgentStore());
       const signals: AbortSignal[] = [];
+      const writes: unknown[] = [];
+      let persisted: Record<string, unknown> = { model: 'original' };
       const updateSessionConfigMock = vi
         .spyOn(sessionService, 'updateSessionConfig')
-        .mockImplementation(async (_id, _data, signal) => {
+        .mockImplementation(async (_id, data, signal) => {
           signals.push(signal!);
-          if (signals.length === 1) await release.promise;
+          writes.push(data);
+          if (signals.length === 1) {
+            await Promise.race([
+              release.promise,
+              new Promise((_, reject) => {
+                signal?.addEventListener(
+                  'abort',
+                  () => reject(new Error('cancelled before dispatch')),
+                  { once: true },
+                );
+              }),
+            ]);
+          }
+          if (signal?.aborted) throw new Error('cancelled before dispatch');
+          persisted = merge(persisted, data);
         });
 
       let first!: Promise<void>;
@@ -361,17 +380,227 @@ describe('AgentSlice', () => {
       });
       await waitFor(() => expect(signals).toHaveLength(1));
 
-      await act(async () => {
-        await result.current.updateAgentConfig({ model: 'b' });
+      let second!: Promise<void>;
+      act(() => {
+        second = result.current.updateAgentConfig({ model: 'b' });
       });
+      expect(signals[0].aborted).toBe(false);
+      expect(signals).toHaveLength(1);
 
-      expect(signals[0].aborted).toBe(true);
       release.resolve();
       await act(async () => {
         await first;
+        await second;
       });
 
+      expect(writes).toHaveLength(2);
+      expect(persisted.model).toBe('b');
+      expect(useAgentStore.getState().updateAgentConfigSignal).toBeUndefined();
+
       updateSessionConfigMock.mockRestore();
+    });
+
+    it('preserves independent settings patches when the second starts before the first reaches the server', async () => {
+      useAgentStore.setState({ activeAgentId: 'agent-a', activeId: 'session-a' });
+      const editor = createAgentSettingStore();
+      const initialConfig = {
+        ...DEFAULT_AGENT_CONFIG,
+        chatConfig: { ...DEFAULT_AGENT_CONFIG.chatConfig, enableAssistantMemory: true },
+        fixedMemory: '#1: existing',
+      };
+      editor.setState({ config: initialConfig });
+      let persisted = structuredClone(initialConfig);
+      const signals: AbortSignal[] = [];
+      const release = createDeferred<void>();
+      vi.spyOn(sessionService, 'updateSessionConfig').mockImplementation(async (id, patch, signal) => {
+        expect(id).toBe('session-a');
+        signals.push(signal!);
+        if (signals.length === 1) {
+          await Promise.race([
+            release.promise,
+            new Promise((_, reject) => {
+              signal?.addEventListener(
+                'abort',
+                () => reject(new Error('cancelled before dispatch')),
+                { once: true },
+              );
+            }),
+          ]);
+        }
+        if (signal?.aborted) throw new Error('cancelled before dispatch');
+        persisted = merge(persisted, patch);
+      });
+      editor.setState({
+        onConfigChange: (patch) => useAgentStore.getState().updateAgentConfig(patch),
+      });
+
+      const first = editor.getState().setAgentConfig({
+        fixedMemory: '#1: existing\n#2: newly added',
+      });
+      await waitFor(() => expect(signals).toHaveLength(1));
+
+      const second = editor.getState().setChatConfig({ enableAssistantMemory: false });
+      expect(signals[0].aborted).toBe(false);
+      release.resolve();
+      await first;
+      await second;
+
+      expect(signals[0].aborted).toBe(false);
+      expect(persisted.chatConfig.enableAssistantMemory).toBe(false);
+      expect(persisted.fixedMemory).toBe('#1: existing\n#2: newly added');
+    });
+
+    it('preserves a plugin toggle queued behind a config patch', async () => {
+      useAgentStore.setState({ activeAgentId: 'agent-a', activeId: 'session-a' });
+      const editor = createAgentSettingStore();
+      editor.setState({
+        config: { ...DEFAULT_AGENT_CONFIG, fixedMemory: '#1: keep', plugins: [] },
+      });
+      let persisted = {
+        ...DEFAULT_AGENT_CONFIG,
+        fixedMemory: '#1: keep',
+        plugins: [] as string[],
+      };
+      const release = createDeferred<void>();
+      let persistCount = 0;
+      vi.spyOn(sessionService, 'updateSessionConfig').mockImplementation(async (_id, patch, signal) => {
+        persistCount += 1;
+        if (persistCount === 1) {
+          await Promise.race([
+            release.promise,
+            new Promise((_, reject) => {
+              signal?.addEventListener(
+                'abort',
+                () => reject(new Error('cancelled before dispatch')),
+                { once: true },
+              );
+            }),
+          ]);
+        }
+        if (signal?.aborted) throw new Error('cancelled before dispatch');
+        persisted = merge(persisted, patch);
+      });
+      editor.setState({
+        onConfigChange: (patch) => useAgentStore.getState().updateAgentConfig(patch),
+      });
+
+      const first = editor.getState().setAgentConfig({ model: 'gpt-4' });
+      await waitFor(() => expect(persistCount).toBe(1));
+      editor.getState().toggleAgentPlugin('plugin-1');
+      await Promise.resolve();
+      release.resolve();
+      await first;
+      await vi.waitFor(() => {
+        expect(persisted.plugins).toEqual(['plugin-1']);
+      });
+
+      expect(persisted.model).toBe('gpt-4');
+      expect(persisted.fixedMemory).toBe('#1: keep');
+    });
+
+    it('does not persist a queued patch after account ownership invalidation', async () => {
+      useAgentStore.setState({ activeAgentId: 'agent-a', activeId: 'session-a' });
+      const { result } = renderHook(() => useAgentStore());
+      const writes: unknown[] = [];
+      const release = createDeferred<void>();
+      vi.spyOn(sessionService, 'updateSessionConfig').mockImplementation(async (_id, data) => {
+        writes.push(data);
+        if (writes.length === 1) await release.promise;
+      });
+
+      let first!: Promise<void>;
+      act(() => {
+        first = result.current.updateAgentConfig({ model: 'first' });
+      });
+      await waitFor(() => expect(writes).toHaveLength(1));
+
+      let second!: Promise<void>;
+      act(() => {
+        second = result.current.updateAgentConfig({ model: 'second' });
+      });
+
+      act(() => {
+        useUserStore.setState({
+          ownershipInvalidationGeneration: 1,
+          userStateInitializationFailure: {
+            reason: 'owner-mismatch',
+            scope: 'user:user-id',
+          },
+        });
+      });
+      release.resolve();
+      await act(async () => {
+        await first;
+        await second;
+      });
+
+      expect(writes).toHaveLength(1);
+      expect(writes[0]).toEqual({ model: 'first' });
+    });
+
+    it('still persists queued patches to the captured session after a topic/session switch', async () => {
+      useAgentStore.setState({ activeAgentId: 'agent-a', activeId: 'session-a' });
+      const { result } = renderHook(() => useAgentStore());
+      const ids: string[] = [];
+      const writes: unknown[] = [];
+      const release = createDeferred<void>();
+      vi.spyOn(sessionService, 'updateSessionConfig').mockImplementation(async (id, data) => {
+        ids.push(id);
+        writes.push(data);
+        if (writes.length === 1) await release.promise;
+      });
+
+      let first!: Promise<void>;
+      act(() => {
+        first = result.current.updateAgentConfig({ fixedMemory: '#1: a\n#2: b' });
+      });
+      await waitFor(() => expect(writes).toHaveLength(1));
+
+      let second!: Promise<void>;
+      act(() => {
+        second = result.current.updateAgentConfig({
+          chatConfig: { enableAssistantMemory: false },
+        });
+      });
+      act(() => {
+        useAgentStore.setState({ activeAgentId: 'agent-b', activeId: 'session-b' });
+      });
+      release.resolve();
+      await act(async () => {
+        await first;
+        await second;
+      });
+
+      expect(ids).toEqual(['session-a', 'session-a']);
+      expect(writes).toHaveLength(2);
+    });
+
+    it('lets a later save run after an earlier persist fails', async () => {
+      const { result } = renderHook(() => useAgentStore());
+      const writes: unknown[] = [];
+      const release = createDeferred<void>();
+      vi.spyOn(sessionService, 'updateSessionConfig').mockImplementation(async (_id, data) => {
+        writes.push(data);
+        if (writes.length === 1) {
+          await release.promise;
+          throw new Error('persist failed');
+        }
+      });
+
+      let first!: Promise<void>;
+      act(() => {
+        first = result.current.updateAgentConfig({ model: 'first' });
+      });
+      await waitFor(() => expect(writes).toHaveLength(1));
+
+      const second = result.current.updateAgentConfig({ model: 'second' });
+      release.resolve();
+      await expect(first).rejects.toThrow('persist failed');
+      await act(async () => {
+        await second;
+      });
+
+      expect(writes).toEqual([{ model: 'first' }, { model: 'second' }]);
     });
 
     it('should not update config if there is no current session', async () => {

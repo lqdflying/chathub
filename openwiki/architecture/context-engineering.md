@@ -316,7 +316,11 @@ lands in `useFetchMessages` the client revalidates `FETCH_AGENT_CONFIG` for the 
 every sibling key in the account (the same sibling-key idea as the dream). Opening Assistant
 settings also refetches so the Fixed memory list does not wait on the 5-minute SWR focus
 throttle. Settings persist patches only — a stale full snapshot must not overwrite a newer
-server document.
+server document. Client `updateAgentConfig` and `internal_updateAgentConfig` serialize those
+writes per account scope and session so a later settings save cannot abort an earlier
+unpersisted patch. That queue is not a database lock: `SessionModel.updateConfig` is still
+read-merge-write, and the durable worker remains the path that takes `SELECT … FOR UPDATE`
+on the agent row.
 
 Entries are numbered `#N: …` lines and the numbering is kept dense: the fixed-memory editor
 renumbers on every user save and `deleteMemory` renumbers the remainder, so deleting `#2`
