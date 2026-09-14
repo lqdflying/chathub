@@ -912,6 +912,212 @@ describe('AgentSlice', () => {
       expect(useAgentStore.getState().agentMap['session-a']?.plugins).toEqual(['plugin-a']);
     });
 
+    it('accepts fetched server plugins after the last plugin write fails', async () => {
+      useAgentStore.setState({
+        activeAgentId: 'agent-a',
+        activeId: 'session-a',
+        agentMap: { 'session-a': { ...DEFAULT_AGENT_CONFIG, plugins: [] } },
+      });
+      vi.spyOn(sessionService, 'updateSessionConfig').mockRejectedValue(
+        new Error('request failed before commit'),
+      );
+
+      await expect(useAgentStore.getState().togglePlugin('plugin-a', true)).rejects.toThrow(
+        'request failed before commit',
+      );
+
+      useAgentStore.getState().internal_dispatchAgentMap(
+        'session-a',
+        { ...DEFAULT_AGENT_CONFIG, plugins: [] },
+        'fetch',
+      );
+      expect(useAgentStore.getState().agentMap['session-a']?.plugins).toEqual([]);
+    });
+
+    it('accepts a fetch of the committed list after a persist transport failure', async () => {
+      useAgentStore.setState({
+        activeAgentId: 'agent-a',
+        activeId: 'session-a',
+        agentMap: { 'session-a': { ...DEFAULT_AGENT_CONFIG, plugins: [] } },
+      });
+      vi.spyOn(sessionService, 'updateSessionConfig').mockImplementation(async (_id, patch) => {
+        void patch;
+        throw new Error('transport failed after commit');
+      });
+
+      await expect(useAgentStore.getState().togglePlugin('plugin-a', true)).rejects.toThrow(
+        'transport failed after commit',
+      );
+
+      useAgentStore.getState().internal_dispatchAgentMap(
+        'session-a',
+        { ...DEFAULT_AGENT_CONFIG, plugins: ['plugin-a'] },
+        'fetch',
+      );
+      expect(useAgentStore.getState().agentMap['session-a']?.plugins).toEqual(['plugin-a']);
+    });
+
+    it('does not drop a newer pending plugin list when an older plugin write fails', async () => {
+      useAgentStore.setState({
+        activeAgentId: 'agent-a',
+        activeId: 'session-a',
+        agentMap: { 'session-a': { ...DEFAULT_AGENT_CONFIG, plugins: [] } },
+      });
+      const releaseFirst = createDeferred<void>();
+      const releaseSecond = createDeferred<void>();
+      let calls = 0;
+      vi.spyOn(sessionService, 'updateSessionConfig').mockImplementation(async (_id, patch, signal) => {
+        calls += 1;
+        if (calls === 1) {
+          await releaseFirst.promise;
+          throw new Error('first plugin persist failed');
+        }
+        if (calls === 2) await releaseSecond.promise;
+        if (signal?.aborted) throw new Error('cancelled before dispatch');
+        void patch;
+      });
+
+      const pluginA = useAgentStore.getState().togglePlugin('plugin-a', true);
+      const pluginB = useAgentStore.getState().togglePlugin('plugin-b', true);
+      releaseFirst.resolve();
+      await expect(pluginA).rejects.toThrow('first plugin persist failed');
+      expect(useAgentStore.getState().agentMap['session-a']?.plugins).toEqual([
+        'plugin-a',
+        'plugin-b',
+      ]);
+
+      useAgentStore.getState().internal_dispatchAgentMap(
+        'session-a',
+        { ...DEFAULT_AGENT_CONFIG, plugins: [] },
+        'fetch',
+      );
+      expect(useAgentStore.getState().agentMap['session-a']?.plugins).toEqual([
+        'plugin-a',
+        'plugin-b',
+      ]);
+      releaseSecond.resolve();
+      await pluginB;
+    });
+
+    it('does not let an old-account inbox job clear the new account pending plugins', async () => {
+      useAgentStore.setState({ activeAgentId: 'old-agent', activeId: INBOX_SESSION_ID });
+      const releaseOld = createDeferred<void>();
+      const releaseNew = createDeferred<void>();
+      let persistedNew: { plugins?: string[] } = { ...DEFAULT_AGENT_CONFIG, plugins: [] };
+      let oldCalls = 0;
+      let newCalls = 0;
+      vi.spyOn(sessionService, 'updateSessionConfig').mockImplementation(async (_id, patch, signal) => {
+        const scope = useUserStore.getState().userStateScope;
+        if (scope === 'user:user-id') {
+          oldCalls += 1;
+          if (oldCalls === 1) await releaseOld.promise;
+          return;
+        }
+        newCalls += 1;
+        if (newCalls === 1) await releaseNew.promise;
+        if (signal?.aborted) throw new Error('aborted');
+        persistedNew = merge(persistedNew, patch);
+      });
+
+      const oldFirst = useAgentStore.getState().internal_updateAgentConfig(INBOX_SESSION_ID, {
+        model: 'old-model',
+      });
+      const oldQueued = useAgentStore.getState().internal_updateAgentConfig(INBOX_SESSION_ID, {
+        systemRole: 'old-role',
+      });
+      useUserStore.setState({
+        authUserId: 'user-b',
+        ownershipInvalidationGeneration: 1,
+        user: { id: 'user-b' },
+        userStateScope: 'user:user-b',
+      });
+      useAgentStore.setState({
+        activeAgentId: 'new-agent',
+        activeId: INBOX_SESSION_ID,
+        agentMap: { [INBOX_SESSION_ID]: { ...DEFAULT_AGENT_CONFIG, plugins: [] } },
+        pendingAgentPlugins: {},
+        scopeGeneration: 1,
+      });
+
+      const newModel = useAgentStore.getState().updateAgentConfig({ model: 'new-model' });
+      const pluginA = useAgentStore.getState().togglePlugin('plugin-a', true);
+      const pluginB = useAgentStore.getState().togglePlugin('plugin-b', true);
+      releaseOld.resolve();
+      await Promise.all([oldFirst, oldQueued]);
+      useAgentStore.getState().internal_dispatchAgentMap(
+        INBOX_SESSION_ID,
+        { ...DEFAULT_AGENT_CONFIG, plugins: [] },
+        'fetch',
+      );
+      const pluginC = useAgentStore.getState().togglePlugin('plugin-c', true);
+      releaseNew.resolve();
+      await Promise.all([newModel, pluginA, pluginB, pluginC]);
+
+      expect(persistedNew.plugins).toEqual(['plugin-a', 'plugin-b', 'plugin-c']);
+      expect(useAgentStore.getState().agentMap[INBOX_SESSION_ID]?.plugins).toEqual([
+        'plugin-a',
+        'plugin-b',
+        'plugin-c',
+      ]);
+    });
+
+    it('does not clear new pending plugins after ownership invalidation without a user id change', async () => {
+      useAgentStore.setState({ activeAgentId: 'old-agent', activeId: INBOX_SESSION_ID });
+      const releaseOld = createDeferred<void>();
+      const releaseNew = createDeferred<void>();
+      let persistedNew: { plugins?: string[] } = { ...DEFAULT_AGENT_CONFIG, plugins: [] };
+      let oldCalls = 0;
+      let newCalls = 0;
+      vi.spyOn(sessionService, 'updateSessionConfig').mockImplementation(async (_id, patch, signal) => {
+        if (oldCalls === 0 && useAgentStore.getState().scopeGeneration === 0) {
+          oldCalls += 1;
+          await releaseOld.promise;
+          return;
+        }
+        newCalls += 1;
+        if (newCalls === 1) await releaseNew.promise;
+        if (signal?.aborted) throw new Error('aborted');
+        persistedNew = merge(persistedNew, patch);
+      });
+
+      const oldFirst = useAgentStore.getState().internal_updateAgentConfig(INBOX_SESSION_ID, {
+        model: 'old-model',
+      });
+      useUserStore.setState({
+        ownershipInvalidationGeneration: 1,
+        userStateInitializationFailure: {
+          reason: 'owner-mismatch',
+          scope: 'user:user-id',
+        },
+      });
+      useAgentStore.setState({
+        activeAgentId: 'new-agent',
+        activeId: INBOX_SESSION_ID,
+        agentMap: { [INBOX_SESSION_ID]: { ...DEFAULT_AGENT_CONFIG, plugins: [] } },
+        pendingAgentPlugins: {},
+        scopeGeneration: 1,
+      });
+      useUserStore.setState({
+        userStateInitializationFailure: undefined,
+      });
+
+      const newModel = useAgentStore.getState().updateAgentConfig({ model: 'new-model' });
+      const pluginA = useAgentStore.getState().togglePlugin('plugin-a', true);
+      const pluginB = useAgentStore.getState().togglePlugin('plugin-b', true);
+      releaseOld.resolve();
+      await oldFirst;
+      useAgentStore.getState().internal_dispatchAgentMap(
+        INBOX_SESSION_ID,
+        { ...DEFAULT_AGENT_CONFIG, plugins: [] },
+        'fetch',
+      );
+      const pluginC = useAgentStore.getState().togglePlugin('plugin-c', true);
+      releaseNew.resolve();
+      await Promise.all([newModel, pluginA, pluginB, pluginC]);
+
+      expect(persistedNew.plugins).toEqual(['plugin-a', 'plugin-b', 'plugin-c']);
+    });
+
     it('should not update config if there is no current session', async () => {
       const { result } = renderHook(() => useAgentStore());
       const config = { model: 'gpt-3.5-turbo' };

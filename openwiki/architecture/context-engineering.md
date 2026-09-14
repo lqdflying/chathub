@@ -324,10 +324,15 @@ are fenced by account/ownership generation instead of that controller list. A
 later save in another session must not abort a public write, and queued jobs
 re-check account/ownership generation before optimistic `agentMap` updates or
 RPC so a previous account's patch cannot land after switch. Global
-`togglePlugin` records the latest intended plugin list as pending intent,
-publishes it immediately, and persists only that field. `internal_dispatchAgentMap`
-reapplies the overlay so an older queued `{ plugins }` snapshot or a stale
-config revalidation cannot hide a later selection. The queue is not a database
+`togglePlugin` records the latest intended plugin list as pending intent owned
+by a write token plus account/store generation, publishes it immediately, and
+persists only that field. `internal_dispatchAgentMap` reapplies that overlay so
+an older queued `{ plugins }` snapshot or a stale config revalidation cannot
+hide a later selection. A terminal persist failure of the latest owning write
+releases the overlay so an authoritative fetch can converge; transport failure
+does not roll back to a local snapshot. Jobs from an invalidated account must
+not clear another account's pending overlay (the shared inbox key is reused
+across switches; account reset already dropped the old account's state). The queue is not a database
 lock: `SessionModel.updateConfig` is still read-merge-write, and the durable
 worker remains the path that takes `SELECT … FOR UPDATE` on the agent row.
 
@@ -476,7 +481,10 @@ Memory UI actions do not gate their visible state on the write promise. Config
 writes serialize per account and session. Public `updateAgentConfig` writes each
 have their own AbortController, so a later save in another session cannot cancel
 this one, and account reset aborts every owned public controller. Pending plugin
-intent survives older queued snapshots and stale config revalidation. A failed
+intent survives older queued snapshots and stale config revalidation. A
+terminal persist failure of the latest owning write releases that overlay so a
+server fetch can converge; an old-account job must not clear the current
+account's overlay. A failed
 or fenced promise is not
 proof that the server never committed. Actions apply local state
 optimistically, report success/failure via toast, and on failure refetch the agent config to

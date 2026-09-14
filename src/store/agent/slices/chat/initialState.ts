@@ -17,10 +17,20 @@ export interface AgentState {
   inboxAgentScope?: string;
   isInboxAgentConfigInit: boolean;
   /**
-   * Latest intended plugin list per session. Older queued `{ plugins }` snapshots
-   * and stale config revalidations must not hide a newer selection.
+   * Latest intended plugin list per session. Overlay is owned by a write token
+   * plus account/store generation so a failed or stale job cannot mask a later
+   * fetch or another account's inbox selections.
    */
-  pendingAgentPlugins: Record<string, { plugins: string[]; revision: number }>;
+  pendingAgentPlugins: Record<
+    string,
+    {
+      accountScope: string;
+      ownershipInvalidationGeneration: number;
+      plugins: string[];
+      scopeGeneration: number;
+      token: number;
+    }
+  >;
   scopeGeneration: number;
   showAgentSetting: boolean;
   updateAgentChatConfigSignal?: AbortController;

@@ -163,6 +163,8 @@ const rollupJobs = new Map<string, Promise<AssistantMemoryRollupResult>>();
  * @see https://developer.mozilla.org/en-US/docs/Web/API/AbortController/abort
  */
 const agentConfigUpdateJobs = new Map<string, Promise<void>>();
+/** Process-lifetime tokens so a post-reset inbox write cannot reuse an old job's id. */
+let pendingPluginWriteToken = 0;
 
 const enqueueAgentConfigUpdate = async (queueKey: string, run: () => Promise<void>) => {
   const previous = agentConfigUpdateJobs.get(queueKey);
@@ -270,36 +272,57 @@ export const createChatSlice: StateCreator<
       'endAgentConfigWrite',
     );
   };
-  const adoptPendingPlugins = (sessionId: string, plugins: string[]) => {
+  const isPendingPluginsCurrent = (
+    pending: AgentState['pendingAgentPlugins'][string] | undefined,
+  ): pending is AgentState['pendingAgentPlugins'][string] =>
+    !!pending &&
+    pending.scopeGeneration === get().scopeGeneration &&
+    isAccountMutationCurrent(useUserStore.getState(), {
+      ownershipInvalidationGeneration: pending.ownershipInvalidationGeneration,
+      scope: pending.accountScope,
+    });
+  const adoptPendingPlugins = (
+    sessionId: string,
+    plugins: string[],
+    checkpoint: AgentMutationCheckpoint,
+  ) => {
     const current = get().pendingAgentPlugins?.[sessionId];
-    if (current && isEqual(current.plugins, plugins)) return current.revision;
+    if (current && isEqual(current.plugins, plugins) && isPendingPluginsCurrent(current)) {
+      return current.token;
+    }
 
-    const revision = (current?.revision ?? 0) + 1;
+    const token = ++pendingPluginWriteToken;
     set(
       {
         pendingAgentPlugins: {
           ...get().pendingAgentPlugins,
-          [sessionId]: { plugins, revision },
+          [sessionId]: {
+            accountScope: checkpoint.accountSnapshot.scope,
+            ownershipInvalidationGeneration:
+              checkpoint.accountSnapshot.ownershipInvalidationGeneration,
+            plugins,
+            scopeGeneration: checkpoint.scopeGeneration,
+            token,
+          },
         },
       },
       false,
       'adoptPendingPlugins',
     );
-    return revision;
+    return token;
   };
-  const dropPendingPlugins = (sessionId: string, revision?: number) => {
+  const dropPendingPlugins = (sessionId: string, token: number) => {
     const current = get().pendingAgentPlugins?.[sessionId];
-    if (!current) return;
-    if (revision !== undefined && current.revision !== revision) return;
+    if (!current || current.token !== token || !isPendingPluginsCurrent(current)) return;
 
     const next = { ...get().pendingAgentPlugins };
     delete next[sessionId];
     set({ pendingAgentPlugins: next }, false, 'dropPendingPlugins');
   };
-  const hasNewerPendingPlugins = (sessionId: string, pluginWriteRevision?: number) => {
-    if (pluginWriteRevision === undefined) return false;
+  const hasNewerPendingPlugins = (sessionId: string, pluginWriteToken?: number) => {
+    if (pluginWriteToken === undefined) return false;
     const pending = get().pendingAgentPlugins?.[sessionId];
-    return pending !== undefined && pending.revision > pluginWriteRevision;
+    return isPendingPluginsCurrent(pending) && pending.token > pluginWriteToken;
   };
   const writeAgentConfig = async (
     targetId: string,
@@ -307,16 +330,14 @@ export const createChatSlice: StateCreator<
     signal: AbortSignal | undefined,
     mutationContext: AgentMutationCheckpoint,
     isOriginatingMutationCurrent?: AgentMutationCurrentness,
-    pluginWriteRevision?: number,
+    pluginWriteToken?: number,
   ) => {
     if (signal?.aborted) return;
     // Fence before optimistic dispatch or RPC so a queued job from a previous
     // account cannot land in the newly reset agentMap or fire under the new
-    // account's identity. Session navigation is not an account fence.
-    if (!isStoreMutationContextCurrent(mutationContext)) {
-      dropPendingPlugins(targetId);
-      return;
-    }
+    // account's identity. Session navigation is not an account fence. Stale
+    // jobs must not touch the current account's pending plugin overlay.
+    if (!isStoreMutationContextCurrent(mutationContext)) return;
     if (isOriginatingMutationCurrent && !isOriginatingMutationCurrent()) return;
 
     const isCurrentRequest = () =>
@@ -324,29 +345,47 @@ export const createChatSlice: StateCreator<
       (isOriginatingMutationCurrent?.() ?? true) &&
       !signal?.aborted;
 
-    const previousModel = agentSelectors.getAgentConfigById(targetId)(get()).model;
-    get().internal_dispatchAgentMap(targetId, data, 'optimistic_updateAgentConfig');
+    try {
+      const previousModel = agentSelectors.getAgentConfigById(targetId)(get()).model;
+      get().internal_dispatchAgentMap(targetId, data, 'optimistic_updateAgentConfig');
 
-    await sessionService.updateSessionConfig(targetId, data, signal);
-    if (!isCurrentRequest()) {
-      if (!isStoreMutationContextCurrent(mutationContext)) dropPendingPlugins(targetId);
-      return;
-    }
-
-    // An older `{ plugins }` persist must not refresh a list that omits later
-    // queued toggles. Overlay in `internal_dispatchAgentMap` still covers any
-    // other fetch that lands while pending intent remains.
-    if (!hasNewerPendingPlugins(targetId, pluginWriteRevision)) {
-      await get().internal_refreshAgentConfig(targetId, mutationContext, isCurrentRequest);
+      await sessionService.updateSessionConfig(targetId, data, signal);
       if (!isCurrentRequest()) return;
-    }
 
-    if (previousModel !== data.model) {
-      await refreshAgentSessions(mutationContext, isCurrentRequest);
-    }
+      // An older `{ plugins }` persist must not refresh a list that omits later
+      // queued toggles. Overlay in `internal_dispatchAgentMap` still covers any
+      // other fetch that lands while pending intent remains.
+      if (!hasNewerPendingPlugins(targetId, pluginWriteToken)) {
+        await get().internal_refreshAgentConfig(targetId, mutationContext, isCurrentRequest);
+        if (!isCurrentRequest()) return;
+      }
 
-    if (pluginWriteRevision !== undefined) {
-      dropPendingPlugins(targetId, pluginWriteRevision);
+      if (previousModel !== data.model) {
+        await refreshAgentSessions(mutationContext, isCurrentRequest);
+      }
+    } catch (error) {
+      if (
+        pluginWriteToken !== undefined &&
+        isStoreMutationContextCurrent(mutationContext) &&
+        !hasNewerPendingPlugins(targetId, pluginWriteToken)
+      ) {
+        dropPendingPlugins(targetId, pluginWriteToken);
+        try {
+          await get().internal_refreshAgentConfig(targetId, mutationContext, () =>
+            isStoreMutationContextCurrent(mutationContext),
+          );
+        } catch {
+          // Keep the persist/transport error as the caller-visible failure.
+        }
+      }
+      throw error;
+    } finally {
+      if (
+        pluginWriteToken !== undefined &&
+        isStoreMutationContextCurrent(mutationContext)
+      ) {
+        dropPendingPlugins(targetId, pluginWriteToken);
+      }
     }
   };
 
@@ -702,8 +741,10 @@ export const createChatSlice: StateCreator<
       if (!mutationContext?.activeId) return;
 
       const originConfig = agentSelectors.currentAgentConfig(get());
-      const originPlugins =
-        get().pendingAgentPlugins?.[mutationContext.activeId]?.plugins ?? originConfig.plugins ?? [];
+      const pending = get().pendingAgentPlugins?.[mutationContext.activeId];
+      const originPlugins = isPendingPluginsCurrent(pending)
+        ? pending.plugins
+        : (originConfig.plugins ?? []);
       const nextPlugins = produce(originPlugins, (plugins) => {
         const index = plugins.indexOf(id);
         const shouldOpen = open !== undefined ? open : index === -1;
@@ -720,7 +761,7 @@ export const createChatSlice: StateCreator<
       // Record pending intent before enqueueing so a following toggle and any
       // older queued snapshot/revalidation keep the latest list. Persist only
       // `{ plugins }` so a queued replacement cannot overwrite unrelated fields.
-      adoptPendingPlugins(mutationContext.activeId, nextPlugins);
+      adoptPendingPlugins(mutationContext.activeId, nextPlugins, mutationContext);
       get().internal_dispatchAgentMap(
         mutationContext.activeId,
         { plugins: nextPlugins },
@@ -757,18 +798,16 @@ export const createChatSlice: StateCreator<
 
       if (!activeId) return;
 
-      const pluginWriteRevision = Array.isArray(config.plugins)
-        ? adoptPendingPlugins(activeId, config.plugins)
+      const pluginWriteToken = Array.isArray(config.plugins)
+        ? adoptPendingPlugins(activeId, config.plugins, mutationContext)
         : undefined;
       const queueKey = agentConfigUpdateQueueKey(mutationContext.accountSnapshot.scope, activeId);
 
       await enqueueAgentConfigUpdate(queueKey, async () => {
         // Account/ownership fences only: session navigation must not drop a
-        // patch already queued for the captured target.
-        if (!isStoreMutationContextCurrent(mutationContext)) {
-          dropPendingPlugins(activeId);
-          return;
-        }
+        // patch already queued for the captured target. Stale jobs must not
+        // clear another account's pending plugin overlay.
+        if (!isStoreMutationContextCurrent(mutationContext)) return;
 
         const controller = beginAgentConfigWrite();
         try {
@@ -778,7 +817,7 @@ export const createChatSlice: StateCreator<
             controller.signal,
             mutationContext,
             () => isStoreMutationContextCurrent(mutationContext),
-            pluginWriteRevision,
+            pluginWriteToken,
           );
         } finally {
           endAgentConfigWrite(controller);
@@ -882,7 +921,7 @@ export const createChatSlice: StateCreator<
         } else {
           draft[id] = merge(draft[id], config);
         }
-        if (pending) {
+        if (isPendingPluginsCurrent(pending)) {
           draft[id] = merge(draft[id], { plugins: pending.plugins });
         }
       });
@@ -902,8 +941,8 @@ export const createChatSlice: StateCreator<
       const mutationContext = originatingCheckpoint ?? captureStoreMutationContext();
       if (!mutationContext || signal?.aborted) return;
 
-      const pluginWriteRevision = Array.isArray(data.plugins)
-        ? adoptPendingPlugins(id, data.plugins)
+      const pluginWriteToken = Array.isArray(data.plugins)
+        ? adoptPendingPlugins(id, data.plugins, mutationContext)
         : undefined;
 
       await enqueueAgentConfigUpdate(
@@ -915,7 +954,7 @@ export const createChatSlice: StateCreator<
             signal,
             mutationContext,
             isOriginatingMutationCurrent,
-            pluginWriteRevision,
+            pluginWriteToken,
           ),
       );
     },
