@@ -326,7 +326,10 @@ re-check account/ownership generation before optimistic `agentMap` updates or
 RPC so a previous account's patch cannot land after switch. Global
 `togglePlugin` records the latest intended plugin list as pending intent owned
 by a write token plus account/store generation, publishes it immediately, and
-persists only that field. `internal_dispatchAgentMap` reapplies that overlay so
+persists only that field. Each queued persist mints its own token even when
+the plugin list is unchanged, so a failed older write cannot drop a later
+identical retry. `togglePlugin` passes that token into `updateAgentConfig`
+so one click does not adopt twice. `internal_dispatchAgentMap` reapplies that overlay so
 an older queued `{ plugins }` snapshot or a stale config revalidation cannot
 hide a later selection. A terminal persist failure of the latest owning write
 releases the overlay so an authoritative fetch can converge; transport failure

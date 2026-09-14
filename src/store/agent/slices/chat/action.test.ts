@@ -221,6 +221,7 @@ describe('AgentSlice', () => {
       expect(updateAgentConfigMock).toHaveBeenCalledWith(
         expect.objectContaining({ plugins: [pluginId] }),
         expect.any(Object),
+        expect.any(Number),
       );
       updateAgentConfigMock.mockRestore();
     });
@@ -243,6 +244,7 @@ describe('AgentSlice', () => {
       expect(updateAgentConfigMock).toHaveBeenCalledWith(
         expect.objectContaining({ plugins: [] }),
         expect.any(Object),
+        expect.any(Number),
       );
       updateAgentConfigMock.mockRestore();
     });
@@ -264,6 +266,7 @@ describe('AgentSlice', () => {
       expect(updateAgentConfigMock).toHaveBeenCalledWith(
         expect.objectContaining({ plugins: [] }),
         expect.any(Object),
+        expect.any(Number),
       );
       updateAgentConfigMock.mockRestore();
     });
@@ -997,6 +1000,90 @@ describe('AgentSlice', () => {
       ]);
       releaseSecond.resolve();
       await pluginB;
+    });
+
+    it('does not drop a queued identical plugin removal when an older equal write fails', async () => {
+      useAgentStore.setState({
+        activeAgentId: 'agent-a',
+        activeId: 'session-a',
+        agentMap: { 'session-a': { ...DEFAULT_AGENT_CONFIG, plugins: ['plugin-a'] } },
+      });
+      const releaseSecond = createDeferred<void>();
+      const firstStarted = createDeferred<void>();
+      const secondStarted = createDeferred<void>();
+      let calls = 0;
+      let persisted: { plugins?: string[] } = { plugins: ['plugin-a'] };
+      vi.spyOn(sessionService, 'updateSessionConfig').mockImplementation(async (_id, patch, signal) => {
+        calls += 1;
+        if (calls === 1) {
+          firstStarted.resolve();
+          throw new Error('first removal failed');
+        }
+        if (calls === 2) {
+          secondStarted.resolve();
+          await releaseSecond.promise;
+        }
+        if (signal?.aborted) throw new Error('cancelled before dispatch');
+        persisted = merge(persisted, patch);
+      });
+
+      const firstRemoval = useAgentStore.getState().togglePlugin('plugin-a', false);
+      const retryRemoval = useAgentStore.getState().togglePlugin('plugin-a', false);
+      await firstStarted.promise;
+      await expect(firstRemoval).rejects.toThrow('first removal failed');
+      await secondStarted.promise;
+
+      useAgentStore.getState().internal_dispatchAgentMap(
+        'session-a',
+        { ...DEFAULT_AGENT_CONFIG, plugins: ['plugin-a'] },
+        'fetch',
+      );
+      expect(useAgentStore.getState().agentMap['session-a']?.plugins).toEqual([]);
+
+      const pluginB = useAgentStore.getState().togglePlugin('plugin-b', true);
+      expect(useAgentStore.getState().agentMap['session-a']?.plugins).toEqual(['plugin-b']);
+      releaseSecond.resolve();
+      await Promise.all([retryRemoval, pluginB]);
+
+      expect(persisted.plugins).toEqual(['plugin-b']);
+      expect(useAgentStore.getState().agentMap['session-a']?.plugins).toEqual(['plugin-b']);
+    });
+
+    it('keeps an identical plugin removal that starts after the previous failure settles', async () => {
+      useAgentStore.setState({
+        activeAgentId: 'agent-a',
+        activeId: 'session-a',
+        agentMap: { 'session-a': { ...DEFAULT_AGENT_CONFIG, plugins: ['plugin-a'] } },
+      });
+      const releaseRetry = createDeferred<void>();
+      let calls = 0;
+      let persisted: { plugins?: string[] } = { plugins: ['plugin-a'] };
+      vi.spyOn(sessionService, 'updateSessionConfig').mockImplementation(async (_id, patch, signal) => {
+        calls += 1;
+        if (calls === 1) throw new Error('first removal failed');
+        if (calls === 2) await releaseRetry.promise;
+        if (signal?.aborted) throw new Error('cancelled before dispatch');
+        persisted = merge(persisted, patch);
+      });
+
+      await expect(useAgentStore.getState().togglePlugin('plugin-a', false)).rejects.toThrow(
+        'first removal failed',
+      );
+
+      const retryRemoval = useAgentStore.getState().togglePlugin('plugin-a', false);
+      useAgentStore.getState().internal_dispatchAgentMap(
+        'session-a',
+        { ...DEFAULT_AGENT_CONFIG, plugins: ['plugin-a'] },
+        'fetch',
+      );
+      expect(useAgentStore.getState().agentMap['session-a']?.plugins).toEqual([]);
+
+      const pluginB = useAgentStore.getState().togglePlugin('plugin-b', true);
+      releaseRetry.resolve();
+      await Promise.all([retryRemoval, pluginB]);
+
+      expect(persisted.plugins).toEqual(['plugin-b']);
+      expect(useAgentStore.getState().agentMap['session-a']?.plugins).toEqual(['plugin-b']);
     });
 
     it('does not let an old-account inbox job clear the new account pending plugins', async () => {

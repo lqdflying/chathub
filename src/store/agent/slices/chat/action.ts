@@ -121,6 +121,7 @@ export interface AgentChatAction {
   updateAgentConfig: (
     config: PartialDeep<LobeAgentConfig>,
     mutationContext?: AgentMutationContext,
+    pluginWriteToken?: number,
   ) => Promise<void>;
   useFetchAgentConfig: (isLogin: boolean | undefined, id: string) => SWRResponse<LobeAgentConfig>;
   useFetchFilesAndKnowledgeBases: () => SWRResponse<KnowledgeItem[]>;
@@ -286,11 +287,6 @@ export const createChatSlice: StateCreator<
     plugins: string[],
     checkpoint: AgentMutationCheckpoint,
   ) => {
-    const current = get().pendingAgentPlugins?.[sessionId];
-    if (current && isEqual(current.plugins, plugins) && isPendingPluginsCurrent(current)) {
-      return current.token;
-    }
-
     const token = ++pendingPluginWriteToken;
     set(
       {
@@ -761,14 +757,20 @@ export const createChatSlice: StateCreator<
       // Record pending intent before enqueueing so a following toggle and any
       // older queued snapshot/revalidation keep the latest list. Persist only
       // `{ plugins }` so a queued replacement cannot overwrite unrelated fields.
-      adoptPendingPlugins(mutationContext.activeId, nextPlugins, mutationContext);
+      // Pass the token through so this write does not share ownership with a
+      // later identical `{ plugins }` persist.
+      const pluginWriteToken = adoptPendingPlugins(
+        mutationContext.activeId,
+        nextPlugins,
+        mutationContext,
+      );
       get().internal_dispatchAgentMap(
         mutationContext.activeId,
         { plugins: nextPlugins },
         'optimistic_togglePlugin',
       );
 
-      await get().updateAgentConfig({ plugins: nextPlugins }, mutationContext);
+      await get().updateAgentConfig({ plugins: nextPlugins }, mutationContext, pluginWriteToken);
     },
     updateAgentChatConfig: async (config) => {
       const mutationContext = captureMutationContext();
@@ -790,7 +792,7 @@ export const createChatSlice: StateCreator<
       await get().updateAgentConfig({ chatConfig: nextConfig }, mutationContext);
     },
 
-    updateAgentConfig: async (config, originatingContext) => {
+    updateAgentConfig: async (config, originatingContext, pluginWriteToken) => {
       const mutationContext = originatingContext ?? captureMutationContext();
       if (!mutationContext) return;
 
@@ -798,8 +800,8 @@ export const createChatSlice: StateCreator<
 
       if (!activeId) return;
 
-      const pluginWriteToken = Array.isArray(config.plugins)
-        ? adoptPendingPlugins(activeId, config.plugins, mutationContext)
+      const resolvedPluginWriteToken = Array.isArray(config.plugins)
+        ? (pluginWriteToken ?? adoptPendingPlugins(activeId, config.plugins, mutationContext))
         : undefined;
       const queueKey = agentConfigUpdateQueueKey(mutationContext.accountSnapshot.scope, activeId);
 
@@ -817,7 +819,7 @@ export const createChatSlice: StateCreator<
             controller.signal,
             mutationContext,
             () => isStoreMutationContextCurrent(mutationContext),
-            pluginWriteToken,
+            resolvedPluginWriteToken,
           );
         } finally {
           endAgentConfigWrite(controller);
