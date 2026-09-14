@@ -316,11 +316,16 @@ lands in `useFetchMessages` the client revalidates `FETCH_AGENT_CONFIG` for the 
 every sibling key in the account (the same sibling-key idea as the dream). Opening Assistant
 settings also refetches so the Fixed memory list does not wait on the 5-minute SWR focus
 throttle. Settings persist patches only — a stale full snapshot must not overwrite a newer
-server document. Client `updateAgentConfig` and `internal_updateAgentConfig` serialize those
-writes per account scope and session so a later settings save cannot abort an earlier
-unpersisted patch. That queue is not a database lock: `SessionModel.updateConfig` is still
-read-merge-write, and the durable worker remains the path that takes `SELECT … FOR UPDATE`
-on the agent row.
+server document. Client `updateAgentConfig` and `internal_updateAgentConfig`
+serialize those writes per account scope and session. Each in-flight write owns
+its own `AbortController` (account reset aborts every owned controller). A later
+save in another session must not abort this one, and queued jobs re-check
+account/ownership generation before optimistic `agentMap` updates or RPC so a
+previous account's patch cannot land after switch. Global `togglePlugin`
+publishes `{ plugins }` to `agentMap` before enqueueing so a following toggle sees
+the pending list, then persists only that field. The queue is not a database
+lock: `SessionModel.updateConfig` is still read-merge-write, and the durable
+worker remains the path that takes `SELECT … FOR UPDATE` on the agent row.
 
 Entries are numbered `#N: …` lines and the numbering is kept dense: the fixed-memory editor
 renumbers on every user save and `deleteMemory` renumbers the remainder, so deleting `#2`
@@ -463,9 +468,11 @@ therefore lives outside assistant settings: a shared `TopicSummaryViewer` drawer
 model tag + copy/export) opens from the token-badge popover for the active topic and from each
 topic's dropdown menu for any topic with a summary.
 
-Memory UI actions do not gate their visible state on the write promise: config writes share an
-abort-controller slot that a newer write may abort after the server already committed, so the
-promise alone cannot distinguish "failed" from "superseded post-commit". Actions apply local state
+Memory UI actions do not gate their visible state on the write promise. Config
+writes serialize per account and session; each in-flight write has its own
+AbortController, so a later save in another session cannot cancel this one, and
+account reset aborts every owned controller. A failed or fenced promise is not
+proof that the server never committed. Actions apply local state
 optimistically, report success/failure via toast, and on failure refetch the agent config to
 converge on the database truth. The refetch goes through the scoped store's `onRefreshConfig`
 callback, which every settings surface wires to its own source (the workspace drawer and mobile
@@ -475,10 +482,9 @@ visible and marked dirty so Save remains retryable — including edits typed whi
 the write or refetch was in flight. The client does not restore the operation's
 snapshot or roll back to a stale copy, because the original write may already
 have committed.
-`updateAgentConfig` releases the shared abort
-slot when its request
-settles, so completed requests can no longer be aborted retroactively; aborting a genuinely
-in-flight previous write (rapid slider edits) is preserved. The scoped store's `onConfigChange` may
+`updateAgentConfig` drops a write's controller when that request
+settles, so completed requests can no longer be aborted retroactively. Rapid
+slider edits serialize instead of aborting the previous patch. The scoped store's `onConfigChange` may
 return a promise and is awaited, so write failures propagate to the settings UI on every surface.
 
 Compaction persists the summary, cursor, archive data, and bounded debug log in one topic update. The

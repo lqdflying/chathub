@@ -93,7 +93,11 @@ export const resetAccountScopedStores = (reason: string): void => {
 
   const agentState = useAgentStore.getState();
   abortControllers(
-    [agentState.updateAgentChatConfigSignal, agentState.updateAgentConfigSignal],
+    [
+      agentState.updateAgentChatConfigSignal,
+      agentState.updateAgentConfigSignal,
+      ...(agentState.updateAgentConfigSignals ?? []),
+    ],
     reason,
   );
   useAgentStore.setState({

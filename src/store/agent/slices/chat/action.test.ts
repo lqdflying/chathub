@@ -84,6 +84,7 @@ beforeEach(() => {
     isInboxAgentConfigInit: false,
     scopeGeneration: 0,
     updateAgentConfigSignal: undefined,
+    updateAgentConfigSignals: [],
   } as any);
   useUserStore.setState({
     authUserId: 'user-id',
@@ -601,6 +602,187 @@ describe('AgentSlice', () => {
       });
 
       expect(writes).toEqual([{ model: 'first' }, { model: 'second' }]);
+    });
+
+    it('drops a queued id-targeted write before optimistic state or RPC after account switch', async () => {
+      useAgentStore.setState({ activeAgentId: 'agent-a', activeId: 'session-a' });
+      const release = createDeferred<void>();
+      const writes: Array<{ id: string; patch: unknown; scope?: string }> = [];
+      vi.spyOn(sessionService, 'updateSessionConfig').mockImplementation(async (id, patch) => {
+        writes.push({ id, patch, scope: useUserStore.getState().userStateScope });
+        if (writes.length === 1) await release.promise;
+      });
+
+      const first = useAgentStore.getState().internal_updateAgentConfig('session-a', {
+        model: 'first',
+      });
+      const second = useAgentStore.getState().internal_updateAgentConfig('session-a', {
+        fixedMemory: 'private memory from account A',
+      });
+      const writesBeforeSwitch = writes.length;
+
+      useUserStore.setState({
+        authUserId: 'user-b',
+        ownershipInvalidationGeneration: 1,
+        user: { id: 'user-b' },
+        userStateScope: 'user:user-b',
+      });
+      useAgentStore.setState({
+        activeAgentId: 'agent-b',
+        activeId: 'session-b',
+        agentMap: {},
+        scopeGeneration: 1,
+      });
+      release.resolve();
+      await Promise.all([first, second]);
+
+      expect(writes.slice(writesBeforeSwitch)).toEqual([]);
+      expect(useAgentStore.getState().agentMap).toEqual({});
+    });
+
+    it('drops a queued id-targeted write after ownership invalidation without changing user id', async () => {
+      useAgentStore.setState({ activeAgentId: 'agent-a', activeId: 'session-a', agentMap: {} });
+      const release = createDeferred<void>();
+      const writes: unknown[] = [];
+      vi.spyOn(sessionService, 'updateSessionConfig').mockImplementation(async (_id, patch) => {
+        writes.push(patch);
+        if (writes.length === 1) await release.promise;
+      });
+
+      const first = useAgentStore.getState().internal_updateAgentConfig('session-a', {
+        model: 'first',
+      });
+      const second = useAgentStore.getState().internal_updateAgentConfig('session-a', {
+        fixedMemory: 'stale queued memory',
+      });
+
+      useUserStore.setState({
+        ownershipInvalidationGeneration: 1,
+        userStateInitializationFailure: {
+          reason: 'owner-mismatch',
+          scope: 'user:user-id',
+        },
+      });
+      useAgentStore.setState({ agentMap: {}, scopeGeneration: 1 });
+      release.resolve();
+      await Promise.all([first, second]);
+
+      expect(writes).toHaveLength(1);
+      expect(useAgentStore.getState().agentMap).toEqual({});
+    });
+
+    it('does not let an older queued session A save cancel the newest session B save', async () => {
+      useAgentStore.setState({ activeAgentId: 'agent-a', activeId: 'session-a' });
+      const releaseA = createDeferred<void>();
+      const releaseB = createDeferred<void>();
+      const persisted: Record<string, Record<string, unknown>> = {};
+      let aCalls = 0;
+      const bStarted = createDeferred<void>();
+      vi.spyOn(sessionService, 'updateSessionConfig').mockImplementation(async (id, patch, signal) => {
+        let gate: Promise<void> | undefined;
+        if (id === 'session-a' && ++aCalls === 1) gate = releaseA.promise;
+        if (id === 'session-b') {
+          gate = releaseB.promise;
+          bStarted.resolve();
+        }
+        if (gate) {
+          await Promise.race([
+            gate,
+            new Promise((_, reject) => {
+              signal?.addEventListener(
+                'abort',
+                () => reject(new Error('cancelled before dispatch')),
+                { once: true },
+              );
+            }),
+          ]);
+        }
+        if (signal?.aborted) throw new Error('cancelled before dispatch');
+        persisted[id] = merge(persisted[id] ?? {}, patch);
+      });
+
+      const first = useAgentStore
+        .getState()
+        .updateAgentConfig({ fixedMemory: 'memory A1' })
+        .catch((error) => error);
+      const olderQueued = useAgentStore
+        .getState()
+        .updateAgentConfig({ chatConfig: { enableAssistantMemory: false } })
+        .catch((error) => error);
+      useAgentStore.setState({ activeAgentId: 'agent-b', activeId: 'session-b' });
+      const newest = useAgentStore
+        .getState()
+        .updateAgentConfig({ model: 'newest model B' })
+        .catch((error) => error);
+
+      await bStarted.promise;
+      releaseA.resolve();
+      releaseB.resolve();
+      const [firstOutcome, olderOutcome, newestOutcome] = await Promise.all([
+        first,
+        olderQueued,
+        newest,
+      ]);
+
+      expect(firstOutcome).not.toBeInstanceOf(Error);
+      expect(olderOutcome).not.toBeInstanceOf(Error);
+      expect(newestOutcome).not.toBeInstanceOf(Error);
+      expect(persisted['session-b']).toEqual({ model: 'newest model B' });
+    });
+
+    it('preserves both global plugin toggles queued behind a config save', async () => {
+      useAgentStore.setState({
+        activeAgentId: 'agent-a',
+        activeId: 'session-a',
+        agentMap: { 'session-a': { ...DEFAULT_AGENT_CONFIG, plugins: [] } },
+      });
+      const release = createDeferred<void>();
+      let calls = 0;
+      let persisted: { plugins?: string[] } = { ...DEFAULT_AGENT_CONFIG, plugins: [] };
+      vi.spyOn(sessionService, 'updateSessionConfig').mockImplementation(async (_id, patch, signal) => {
+        calls += 1;
+        if (calls === 1) await release.promise;
+        if (signal?.aborted) throw new Error('cancelled before dispatch');
+        persisted = merge(persisted, patch);
+      });
+
+      const first = useAgentStore.getState().updateAgentConfig({ model: 'model-x' });
+      const pluginA = useAgentStore.getState().togglePlugin('plugin-a', true);
+      const pluginB = useAgentStore.getState().togglePlugin('plugin-b', true);
+      release.resolve();
+      await Promise.all([first, pluginA, pluginB]);
+
+      expect(persisted.plugins).toEqual(['plugin-a', 'plugin-b']);
+      expect(useAgentStore.getState().agentMap['session-a']?.plugins).toEqual([
+        'plugin-a',
+        'plugin-b',
+      ]);
+    });
+
+    it('preserves enable then disable of the same plugin while a config save is in flight', async () => {
+      useAgentStore.setState({
+        activeAgentId: 'agent-a',
+        activeId: 'session-a',
+        agentMap: { 'session-a': { ...DEFAULT_AGENT_CONFIG, plugins: [] } },
+      });
+      const release = createDeferred<void>();
+      let calls = 0;
+      let persisted: { plugins?: string[] } = { ...DEFAULT_AGENT_CONFIG, plugins: [] };
+      vi.spyOn(sessionService, 'updateSessionConfig').mockImplementation(async (_id, patch, signal) => {
+        calls += 1;
+        if (calls === 1) await release.promise;
+        if (signal?.aborted) throw new Error('cancelled before dispatch');
+        persisted = merge(persisted, patch);
+      });
+
+      const first = useAgentStore.getState().updateAgentConfig({ model: 'model-x' });
+      const pluginOn = useAgentStore.getState().togglePlugin('plugin-a', true);
+      const pluginOff = useAgentStore.getState().togglePlugin('plugin-a', false);
+      release.resolve();
+      await Promise.all([first, pluginOn, pluginOff]);
+
+      expect(persisted.plugins).toEqual([]);
+      expect(useAgentStore.getState().agentMap['session-a']?.plugins).toEqual([]);
     });
 
     it('should not update config if there is no current session', async () => {

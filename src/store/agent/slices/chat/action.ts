@@ -153,10 +153,14 @@ const rollupJobs = new Map<string, Promise<AssistantMemoryRollupResult>>();
 
 /**
  * Per account-scope + session: overlapping agent-config patches must serialize.
- * Aborting a predecessor (AbortController) cancels the HTTP call; it does not
- * roll back a mutation, and a later patch does not include the lost fields.
+ * Aborting a predecessor cancels that HTTP call only; it does not roll back a
+ * mutation, and a later patch does not include the lost fields. Each write owns
+ * its own AbortController — MDN AbortController.abort() affects only operations
+ * that received that controller's signal, so a different session's job must
+ * not abort an unrelated in-flight save.
  * SWR `mutate()` revalidates cache after a write; it is not a write lock.
  * @see https://swr.vercel.app/docs/mutation
+ * @see https://developer.mozilla.org/en-US/docs/Web/API/AbortController/abort
  */
 const agentConfigUpdateJobs = new Map<string, Promise<void>>();
 
@@ -240,6 +244,32 @@ export const createChatSlice: StateCreator<
     );
     if (!isNestedRefreshCurrent(checkpoint, isOriginatingMutationCurrent)) return;
   };
+  const beginAgentConfigWrite = () => {
+    const controller = new AbortController();
+    set(
+      {
+        updateAgentConfigSignal: controller,
+        updateAgentConfigSignals: [...(get().updateAgentConfigSignals ?? []), controller],
+      },
+      false,
+      'beginAgentConfigWrite',
+    );
+    return controller;
+  };
+  const endAgentConfigWrite = (controller: AbortController) => {
+    const remaining = (get().updateAgentConfigSignals ?? []).filter((item) => item !== controller);
+    set(
+      {
+        updateAgentConfigSignal:
+          get().updateAgentConfigSignal === controller
+            ? remaining.at(-1)
+            : get().updateAgentConfigSignal,
+        updateAgentConfigSignals: remaining,
+      },
+      false,
+      'endAgentConfigWrite',
+    );
+  };
   const writeAgentConfig = async (
     targetId: string,
     data: PartialDeep<LobeAgentConfig>,
@@ -248,15 +278,16 @@ export const createChatSlice: StateCreator<
     isOriginatingMutationCurrent?: AgentMutationCurrentness,
   ) => {
     if (signal?.aborted) return;
-    const operationController =
-      get().updateAgentConfigSignal?.signal === signal
-        ? get().updateAgentConfigSignal
-        : undefined;
+    // Fence before optimistic dispatch or RPC so a queued job from a previous
+    // account cannot land in the newly reset agentMap or fire under the new
+    // account's identity. Session navigation is not an account fence.
+    if (!isStoreMutationContextCurrent(mutationContext)) return;
+    if (isOriginatingMutationCurrent && !isOriginatingMutationCurrent()) return;
+
     const isCurrentRequest = () =>
       isStoreMutationContextCurrent(mutationContext) &&
       (isOriginatingMutationCurrent?.() ?? true) &&
-      !signal?.aborted &&
-      (!operationController || get().updateAgentConfigSignal === operationController);
+      !signal?.aborted;
 
     const previousModel = agentSelectors.getAgentConfigById(targetId)(get()).model;
     get().internal_dispatchAgentMap(targetId, data, 'optimistic_updateAgentConfig');
@@ -621,30 +652,32 @@ export const createChatSlice: StateCreator<
     },
     togglePlugin: async (id, open, originatingContext) => {
       const mutationContext = originatingContext ?? captureMutationContext();
-      if (!mutationContext) return;
+      if (!mutationContext?.activeId) return;
 
       const originConfig = agentSelectors.currentAgentConfig(get());
+      const nextPlugins = produce(originConfig.plugins || [], (plugins) => {
+        const index = plugins.indexOf(id);
+        const shouldOpen = open !== undefined ? open : index === -1;
 
-      const config = produce(originConfig, (draft) => {
-        draft.plugins = produce(draft.plugins || [], (plugins) => {
-          const index = plugins.indexOf(id);
-          const shouldOpen = open !== undefined ? open : index === -1;
-
-          if (shouldOpen) {
-            // 如果 open 为 true 或者 id 不存在于 plugins 中，则添加它
-            if (index === -1) {
-              plugins.push(id);
-            }
-          } else {
-            // 如果 open 为 false 或者 id 存在于 plugins 中，则移除它
-            if (index !== -1) {
-              plugins.splice(index, 1);
-            }
+        if (shouldOpen) {
+          if (index === -1) {
+            plugins.push(id);
           }
-        });
+        } else if (index !== -1) {
+          plugins.splice(index, 1);
+        }
       });
 
-      await get().updateAgentConfig(config, mutationContext);
+      // Publish the plugin list before enqueueing so a following toggle reads
+      // the pending optimistic set, then persist only `{ plugins }` so a queued
+      // replacement cannot overwrite unrelated fields like fixedMemory.
+      get().internal_dispatchAgentMap(
+        mutationContext.activeId,
+        { plugins: nextPlugins },
+        'optimistic_togglePlugin',
+      );
+
+      await get().updateAgentConfig({ plugins: nextPlugins }, mutationContext);
     },
     updateAgentChatConfig: async (config) => {
       const mutationContext = captureMutationContext();
@@ -681,7 +714,7 @@ export const createChatSlice: StateCreator<
         // patch already queued for the captured target.
         if (!isStoreMutationContextCurrent(mutationContext)) return;
 
-        const controller = get().internal_createAbortController('updateAgentConfigSignal');
+        const controller = beginAgentConfigWrite();
         try {
           await writeAgentConfig(
             activeId,
@@ -691,12 +724,7 @@ export const createChatSlice: StateCreator<
             () => isStoreMutationContextCurrent(mutationContext),
           );
         } finally {
-          // release the shared slot once this request settles, so a later unrelated
-          // config write can no longer abort an already-completed one (a post-commit
-          // abort made the UI reject a write the server had persisted)
-          if (get().updateAgentConfigSignal === controller) {
-            set({ updateAgentConfigSignal: undefined }, false, 'updateAgentConfig/releaseSignal');
-          }
+          endAgentConfigWrite(controller);
         }
       });
     },

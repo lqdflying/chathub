@@ -19,7 +19,10 @@ export interface AgentState {
   scopeGeneration: number;
   showAgentSetting: boolean;
   updateAgentChatConfigSignal?: AbortController;
+  /** Latest in-flight config write; not a cross-session abort slot. */
   updateAgentConfigSignal?: AbortController;
+  /** Every in-flight config-write controller so account reset can cancel all of them. */
+  updateAgentConfigSignals: AbortController[];
 }
 
 export const initialAgentChatState: AgentState = {
@@ -33,4 +36,5 @@ export const initialAgentChatState: AgentState = {
   isInboxAgentConfigInit: false,
   scopeGeneration: 0,
   showAgentSetting: false,
+  updateAgentConfigSignals: [],
 };
