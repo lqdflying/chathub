@@ -1,10 +1,11 @@
 /**
- * Map ChatHub provider ids to `@lobehub/icons` ProviderIcon keys, and optional
- * local logo URLs when the pinned icons package does not ship the brand yet.
+ * Map ChatHub provider ids to `@lobehub/icons` ProviderIcon keys, and local
+ * avatar URLs so Settings tiles match Xiaomi MiMo (full-bleed webp, not the
+ * package `IconAvatar` glyph-on-badge).
  *
  * XiaomiMiMo landed in `@lobehub/icons` v3+ as `xiaomimimo`. ChatHub still pins
- * 2.x (`^2.42.0` → 2.48.0), so `mimo` uses vendored assets under
- * `public/icons/providers/` until the package is upgraded.
+ * 2.x (`^2.42.0` → 2.48.0), so `mimo` also vendors a mono SVG. Other builtins
+ * keep package mono/color marks; only avatar tiles are local.
  *
  * Mono marks must be rendered as an inline SVG (`XiaomiMiMoMono`), not via the
  * public `.svg` URL through Avatar/`<img>` — `currentColor` does not inherit
@@ -21,26 +22,47 @@ export type ProviderLogoVariant = 'avatar' | 'mono';
 type LocalProviderLogo = {
   avatar: string;
   /** Public SVG path kept for reference/CDN; UI must use XiaomiMiMoMono for mono. */
-  mono: string;
+  mono?: string;
 };
 
-const PROVIDER_LOCAL_LOGOS: Record<string, LocalProviderLogo> = {
-  mimo: {
-    avatar: '/icons/providers/mimo-avatar.webp',
-    mono: '/icons/providers/mimo.svg',
-  },
-};
+const VENDORED_PROVIDER_AVATAR_IDS = [
+  'anthropic',
+  'azure',
+  'azureai',
+  'deepseek',
+  'google',
+  'mimo',
+  'minimax',
+  'moonshot',
+  'openai',
+  'zhipu',
+] as const;
+
+const providerAvatarUrl = (id: string): string => `/icons/providers/${id}-avatar.webp`;
+
+const PROVIDER_LOCAL_LOGOS: Record<string, LocalProviderLogo> = Object.fromEntries(
+  VENDORED_PROVIDER_AVATAR_IDS.map((id) => [
+    id,
+    {
+      avatar: providerAvatarUrl(id),
+      ...(id === 'mimo' ? { mono: '/icons/providers/mimo.svg' } : {}),
+    },
+  ]),
+);
 
 export const resolveProviderIcon = (id: string): string => PROVIDER_ICON_MAP[id] || id;
 
 /** True when ChatHub should render the inline Xiaomi MiMo mono mark. */
 export const hasLocalProviderMono = (id: string): boolean => id === 'mimo';
 
+const lookupLocalProviderLogo = (id: string): LocalProviderLogo | undefined =>
+  PROVIDER_LOCAL_LOGOS[id] ?? PROVIDER_LOCAL_LOGOS[resolveProviderIcon(id)];
+
 export const resolveProviderLogoUrl = (
   id: string,
   variant: ProviderLogoVariant = 'avatar',
 ): string | undefined => {
-  const entry = PROVIDER_LOCAL_LOGOS[id];
+  const entry = lookupLocalProviderLogo(id);
   if (!entry) return undefined;
   // Never hand the mono SVG URL to Avatar/img — callers use XiaomiMiMoMono instead.
   if (variant === 'mono') return undefined;

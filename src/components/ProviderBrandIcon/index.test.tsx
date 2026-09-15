@@ -3,9 +3,20 @@ import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@lobehub/icons', () => ({
-  ModelIcon: ({ model, style, type }: { model: string; style?: object; type?: string }) => (
+  ModelIcon: ({
+    model,
+    shape,
+    style,
+    type,
+  }: {
+    model: string;
+    shape?: string;
+    style?: object;
+    type?: string;
+  }) => (
     <div
       data-model={model}
+      data-shape={shape ?? ''}
       data-style={JSON.stringify(style ?? null)}
       data-testid="package-model-icon"
       data-type={type ?? ''}
@@ -16,15 +27,18 @@ vi.mock('@lobehub/icons', () => ({
   ),
   ProviderIcon: ({
     provider,
+    shape,
     style,
     type,
   }: {
     provider: string;
+    shape?: string;
     style?: object;
     type?: string;
   }) => (
     <div
       data-provider={provider}
+      data-shape={shape ?? ''}
       data-style={JSON.stringify(style ?? null)}
       data-testid="package-provider-icon"
       data-type={type ?? ''}
@@ -93,12 +107,11 @@ describe('ProviderBrandIcon', () => {
 
   it('keeps package-default circle when callers omit style (API-key recovery avatar)', () => {
     render(<ProviderBrandIcon provider={'openai'} size={80} type={'avatar'} />);
-    const el = screen.getByTestId('package-provider-icon');
-    expect(el.getAttribute('data-provider')).toBe('openai');
-    expect(el.getAttribute('data-style')).toBe('null');
-    const lock = screen.getByTestId('icon-size-lock') as HTMLElement;
-    expect(lock.style.height).toBe('80px');
-    expect(lock.style.width).toBe('80px');
+    const img = screen.getByTestId('local-avatar');
+    expect(img.getAttribute('src')).toBe('/icons/providers/openai-avatar.webp');
+    expect(img.getAttribute('data-shape')).toBe('circle');
+    expect(img.getAttribute('data-style')).toBe('null');
+    expect(screen.queryByTestId('icon-size-lock')).toBeNull();
   });
 
   it('uses circle for unstyled local mimo avatar (same contract as package default)', () => {
@@ -117,8 +130,36 @@ describe('ProviderBrandIcon', () => {
         type={'avatar'}
       />,
     );
+    const img = screen.getByTestId('local-avatar');
+    expect(img.getAttribute('src')).toBe('/icons/providers/openai-avatar.webp');
+    expect(img.getAttribute('data-shape')).toBe('square');
+    expect(img.getAttribute('data-style')).toContain('"borderRadius":6');
+  });
+
+  it('does not replace package mono with the avatar webp', () => {
+    render(<ProviderBrandIcon provider={'openai'} size={20} type={'mono'} />);
     const el = screen.getByTestId('package-provider-icon');
+    expect(el.getAttribute('data-provider')).toBe('openai');
+    expect(el.getAttribute('data-type')).toBe('mono');
+    const lock = screen.getByTestId('icon-size-lock') as HTMLElement;
+    expect(lock.style.height).toBe('20px');
+    expect(lock.style.width).toBe('20px');
+  });
+
+  it('uses a square package avatar for unknown providers in Settings', () => {
+    render(
+      <ProviderBrandIcon
+        provider={'not-exist-provider'}
+        size={24}
+        style={PROVIDER_SETTINGS_AVATAR_STYLE}
+        type={'avatar'}
+      />,
+    );
+    const el = screen.getByTestId('package-provider-icon');
+    expect(el.getAttribute('data-provider')).toBe('not-exist-provider');
+    expect(el.getAttribute('data-shape')).toBe('square');
     expect(el.getAttribute('data-style')).toContain('"borderRadius":6');
+    expect(screen.queryByTestId('icon-size-lock')).toBeNull();
   });
 });
 
@@ -141,9 +182,7 @@ describe('ModelBrandIcon', () => {
     expect(screen.getByTestId('package-model-icon').getAttribute('data-model')).toBe(
       'deepseek-chat',
     );
-    const lock = screen.getByTestId('icon-size-lock') as HTMLElement;
-    expect(lock.style.height).toBe('20px');
-    expect(lock.style.width).toBe('20px');
+    expect(screen.queryByTestId('icon-size-lock')).toBeNull();
   });
 });
 
@@ -158,24 +197,31 @@ describe('ProviderBrandCombine', () => {
     expect(screen.queryByTestId('icon-size-lock')).toBeNull();
   });
 
-  it('uses a sized package avatar plus title for deepseek (not ProviderCombine)', () => {
+  it('uses a sized local avatar plus title for deepseek (not ProviderCombine)', () => {
     render(<ProviderBrandCombine provider={'deepseek'} size={24} title={'DeepSeek'} />);
-    const el = screen.getByTestId('package-provider-icon');
-    expect(el.getAttribute('data-provider')).toBe('deepseek');
-    expect(el.getAttribute('data-style')).toContain('"borderRadius":6');
+    const img = screen.getByTestId('local-avatar');
+    expect(img.getAttribute('src')).toBe('/icons/providers/deepseek-avatar.webp');
+    expect(img.getAttribute('data-shape')).toBe('square');
     expect(screen.getByText('DeepSeek')).toBeTruthy();
     expect(screen.queryByTestId('package-provider-combine')).toBeNull();
-    const lock = screen.getByTestId('icon-size-lock') as HTMLElement;
-    expect(lock.style.height).toBe('24px');
-    expect(lock.style.width).toBe('24px');
+    expect(screen.queryByTestId('package-provider-icon')).toBeNull();
   });
 
-  it('uses a sized package avatar plus title for openai', () => {
+  it('uses a sized local avatar plus title for openai', () => {
     render(<ProviderBrandCombine provider={'openai'} size={24} title={'OpenAI'} />);
-    expect(screen.getByTestId('package-provider-icon').getAttribute('data-provider')).toBe(
-      'openai',
-    );
+    const img = screen.getByTestId('local-avatar');
+    expect(img.getAttribute('src')).toBe('/icons/providers/openai-avatar.webp');
+    expect(img.getAttribute('data-shape')).toBe('square');
     expect(screen.getByText('OpenAI')).toBeTruthy();
     expect(screen.queryByTestId('package-provider-combine')).toBeNull();
+  });
+
+  it('uses the openai avatar tile for OpenAI Compatible', () => {
+    render(
+      <ProviderBrandCombine provider={'openaicompatible'} size={24} title={'OpenAI Compatible'} />,
+    );
+    expect(screen.getByTestId('local-avatar').getAttribute('src')).toBe(
+      '/icons/providers/openai-avatar.webp',
+    );
   });
 });

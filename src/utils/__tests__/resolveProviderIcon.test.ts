@@ -1,4 +1,9 @@
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { describe, expect, it } from 'vitest';
+
+import { DEFAULT_MODEL_PROVIDER_LIST } from '@/config/modelProviders';
 
 import {
   hasLocalProviderMono,
@@ -32,9 +37,32 @@ describe('resolveProviderLogoUrl', () => {
     expect(hasLocalProviderMono('deepseek')).toBe(false);
   });
 
+  it('returns a local avatar tile for every builtin provider, including compat aliases', () => {
+    for (const provider of DEFAULT_MODEL_PROVIDER_LIST) {
+      expect(resolveProviderLogoUrl(provider.id), provider.id).toMatch(
+        /^\/icons\/providers\/.+-avatar\.webp$/,
+      );
+    }
+
+    expect(resolveProviderLogoUrl('openaicompatible')).toBe('/icons/providers/openai-avatar.webp');
+    expect(resolveProviderLogoUrl('anthropiccompatible')).toBe(
+      '/icons/providers/anthropic-avatar.webp',
+    );
+    expect(resolveProviderLogoUrl('deepseek')).toBe('/icons/providers/deepseek-avatar.webp');
+  });
+
+  it('ships the webp files referenced by builtin providers', () => {
+    const publicRoot = join(process.cwd(), 'public');
+    for (const provider of DEFAULT_MODEL_PROVIDER_LIST) {
+      const url = resolveProviderLogoUrl(provider.id);
+      expect(url, provider.id).toBeTruthy();
+      expect(existsSync(join(publicRoot, url!.replace(/^\//, ''))), url).toBe(true);
+    }
+  });
+
   it('returns undefined for providers without a local override', () => {
-    expect(resolveProviderLogoUrl('deepseek')).toBeUndefined();
-    expect(resolveProviderLogoUrl('openaicompatible')).toBeUndefined();
+    expect(resolveProviderLogoUrl('not-exist-provider')).toBeUndefined();
+    expect(resolveProviderLogoUrl('acme')).toBeUndefined();
   });
 });
 

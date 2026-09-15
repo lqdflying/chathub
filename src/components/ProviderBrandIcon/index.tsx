@@ -27,7 +27,8 @@ const useStyles = createStyles(({ css }) => ({
     justify-content: center;
     overflow: hidden;
 
-    svg {
+    /* Direct-child color/mono SVGs only. Nested IconAvatar glyphs must not be scaled. */
+    > svg {
       max-width: 100%;
       max-height: 100%;
     }
@@ -40,19 +41,25 @@ const wantsRoundedSquare = (style?: CSSProperties): boolean => {
   return radius !== '50%' && radius !== '50';
 };
 
-const IconSizeLock = memo<{ children: ReactNode; size: number }>(({ children, size }) => {
-  const { styles } = useStyles();
+const IconSizeLock = memo<{ children: ReactNode; size: number; style?: CSSProperties }>(
+  ({ children, size, style }) => {
+    const { styles } = useStyles();
 
-  return (
-    <span
-      className={styles.sizeLock}
-      data-testid="icon-size-lock"
-      style={{ height: size, width: size }}
-    >
-      {children}
-    </span>
-  );
-});
+    return (
+      <span
+        className={styles.sizeLock}
+        data-testid="icon-size-lock"
+        style={{
+          height: size,
+          width: size,
+          ...(wantsRoundedSquare(style) ? { borderRadius: style?.borderRadius } : {}),
+        }}
+      >
+        {children}
+      </span>
+    );
+  },
+);
 
 IconSizeLock.displayName = 'IconSizeLock';
 
@@ -77,29 +84,41 @@ export const ProviderBrandIcon = memo<ProviderBrandIconProps>(
       return <XiaomiMiMoMono size={size} style={style} />;
     }
 
-    const logo = resolveProviderLogoUrl(provider, 'avatar');
-    if (logo) {
+    if (type !== 'mono' && type !== 'color') {
+      const logo = resolveProviderLogoUrl(provider, 'avatar');
+      if (logo) {
+        return (
+          <Avatar
+            alt={provider}
+            avatar={logo}
+            shape={wantsRoundedSquare(style) ? 'square' : 'circle'}
+            size={size}
+            style={style}
+          />
+        );
+      }
+    }
+
+    const icon = (
+      <ProviderIcon
+        provider={resolveProviderIcon(provider)}
+        shape={wantsRoundedSquare(style) ? 'square' : undefined}
+        size={size}
+        style={style}
+        type={type}
+      />
+    );
+
+    // Avatar tiles already declare width/height. Lock only color/mono SVGs that overflow 24px.
+    if (type === 'mono' || type === 'color') {
       return (
-        <Avatar
-          alt={provider}
-          avatar={logo}
-          shape={wantsRoundedSquare(style) ? 'square' : 'circle'}
-          size={size}
-          style={style}
-        />
+        <IconSizeLock size={size} style={style}>
+          {icon}
+        </IconSizeLock>
       );
     }
 
-    return (
-      <IconSizeLock size={size}>
-        <ProviderIcon
-          provider={resolveProviderIcon(provider)}
-          size={size}
-          style={style}
-          type={type}
-        />
-      </IconSizeLock>
-    );
+    return icon;
   },
 );
 
@@ -164,11 +183,25 @@ export const ModelBrandIcon = memo<ModelBrandIconProps>(({ model, size = 24, sty
     );
   }
 
-  return (
-    <IconSizeLock size={size}>
-      <ModelIcon model={model} size={size} style={style} type={type} />
-    </IconSizeLock>
+  const icon = (
+    <ModelIcon
+      model={model}
+      shape={wantsRoundedSquare(style) ? 'square' : undefined}
+      size={size}
+      style={style}
+      type={type}
+    />
   );
+
+  if (type === 'mono' || type === 'color') {
+    return (
+      <IconSizeLock size={size} style={style}>
+        {icon}
+      </IconSizeLock>
+    );
+  }
+
+  return icon;
 });
 
 ModelBrandIcon.displayName = 'ModelBrandIcon';
