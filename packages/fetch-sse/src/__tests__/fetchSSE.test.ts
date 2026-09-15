@@ -39,6 +39,18 @@ describe('extractAssistantTextFromSse', () => {
     expect(looksLikeSse(toolOnly)).toBe(true);
     expect(extractAssistantTextFromSse(toolOnly)).toBe('');
   });
+
+  it('treats heartbeat comments as SSE framing, not assistant text', () => {
+    const heartbeat = ': chathub-ping\n\n';
+    expect(looksLikeSse(heartbeat)).toBe(true);
+    expect(extractAssistantTextFromSse(heartbeat)).toBe('');
+  });
+
+  it('still extracts event:text after heartbeat comments', () => {
+    const raw = ': chathub-ping\n\nevent: text\ndata: "pong"\n\n';
+    expect(looksLikeSse(raw)).toBe(true);
+    expect(extractAssistantTextFromSse(raw)).toBe('pong');
+  });
 });
 
 describe('fetchSSE', () => {
@@ -844,6 +856,83 @@ describe('fetchSSE', () => {
           type: 'done',
         }),
       );
+    });
+
+    it('does not dump comment-only SSE leftovers as assistant text', async () => {
+      const mockOnFinish = vi.fn();
+      const mockOnMessageHandle = vi.fn();
+      const heartbeat = ': chathub-ping\n\n';
+
+      (fetchEventSource as any).mockImplementationOnce(
+        async (_url: string, options: FetchEventSourceInit) => {
+          await options.onopen!({
+            clone: () => ({
+              headers: new Headers({ 'content-type': 'text/event-stream' }),
+              ok: true,
+            }),
+            headers: new Headers({ 'content-type': 'text/event-stream' }),
+            ok: true,
+          } as any);
+          options.onRawChunk?.(new TextEncoder().encode(heartbeat));
+          options.onmessage!({ data: '', event: '' } as any);
+        },
+      );
+
+      await fetchSSE('/', {
+        onFinish: mockOnFinish,
+        onMessageHandle: mockOnMessageHandle,
+        rawByteCaptureMax: 64 * 1024,
+        responseAnimation: 'none',
+      });
+
+      expect(mockOnMessageHandle).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'text' }),
+      );
+      expect(mockOnFinish).toHaveBeenCalledWith('', expect.objectContaining({ type: 'done' }));
+    });
+
+    it('does not recover heartbeat comments as assistant text after WebKit Load failed', async () => {
+      const mockOnAbort = vi.fn();
+      const mockOnFinish = vi.fn();
+      const mockOnErrorHandle = vi.fn();
+      const mockOnMessageHandle = vi.fn();
+      const heartbeat = ': chathub-ping\n\n';
+
+      const makeErroredCloneResponse = (): any => ({
+        clone: () => makeErroredCloneResponse(),
+        headers: new Headers({ 'content-type': 'text/event-stream' }),
+        ok: true,
+        text: async () => {
+          throw new TypeError('Load failed');
+        },
+      });
+
+      (fetchEventSource as any).mockImplementationOnce(
+        async (_url: string, options: FetchEventSourceInit) => {
+          await options.onopen!(makeErroredCloneResponse());
+          options.onRawChunk?.(new TextEncoder().encode(heartbeat));
+          options.onerror!(new TypeError('Load failed'));
+        },
+      );
+
+      await fetchSSE('/', {
+        onAbort: mockOnAbort,
+        onErrorHandle: mockOnErrorHandle,
+        onFinish: mockOnFinish,
+        onMessageHandle: mockOnMessageHandle,
+        rawByteCaptureMax: 64 * 1024,
+        responseAnimation: 'none',
+      });
+
+      expect(mockOnAbort).toHaveBeenCalledWith(
+        '',
+        expect.objectContaining({ errorKind: 'webkit_load_failed' }),
+      );
+      expect(mockOnFinish).toHaveBeenCalledWith('', expect.objectContaining({ type: 'abort' }));
+      expect(mockOnMessageHandle).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'text' }),
+      );
+      expect(mockOnErrorHandle).not.toHaveBeenCalled();
     });
 
     it('does not duplicate smooth text via raw capture when tokens remain queued', async () => {

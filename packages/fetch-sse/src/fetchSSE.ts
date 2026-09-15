@@ -266,9 +266,15 @@ export const standardizeAnimationStyle = (
   return typeof animationStyle === 'object' ? animationStyle : { text: animationStyle };
 };
 
-/** True when the body looks like SSE framing (not plain assistant text). */
+/**
+ * True when the body looks like SSE framing (not plain assistant text).
+ * Comment lines (`:` at the start of a line) are protocol keep-alives per
+ * WHATWG HTML §9.2 / MDN SSE — they dispatch no event and are not output.
+ */
 export const looksLikeSse = (raw: string): boolean =>
-  /(^|\r?\n)event\s*:/i.test(raw) || /(^|\r?\n)data\s*:/i.test(raw);
+  /(^|\r?\n)event\s*:/i.test(raw) ||
+  /(^|\r?\n)data\s*:/i.test(raw) ||
+  /(^|\r?\n):/.test(raw);
 
 /** Pull concatenated `event: text` JSON string payloads from an SSE body. */
 export const extractAssistantTextFromSse = (raw: string): string => {
@@ -648,6 +654,10 @@ export const fetchSSE = async (url: string, options: RequestInit & FetchSSEOptio
       // Never dump raw SSE as assistant text (tool-only) and never race smooth
       // animation. Prefer in-stream capture (Safari abort). Legacy clone().text
       // remains only for non-abort empty parses when capture was not enabled.
+      const isEventStream = (response.headers.get('content-type') ?? '')
+        .toLowerCase()
+        .includes('text/event-stream');
+
       const applyRecoveredBody = (recovered: string) => {
         const extracted = extractAssistantTextFromSse(recovered);
         if (extracted) {
@@ -655,7 +665,10 @@ export const fetchSSE = async (url: string, options: RequestInit & FetchSSEOptio
           options.onMessageHandle?.({ text: output, type: 'text' });
           return;
         }
-        if (!looksLikeSse(recovered) && recovered.trim()) {
+        // Skip protocol-only leftovers: SSE comments (`: chathub-ping`) and
+        // any other event-stream body that did not yield assistant text.
+        if (isEventStream || looksLikeSse(recovered)) return;
+        if (recovered.trim()) {
           output = recovered;
           options.onMessageHandle?.({ text: output, type: 'text' });
         }

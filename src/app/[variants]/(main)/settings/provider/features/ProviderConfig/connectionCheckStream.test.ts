@@ -3,6 +3,10 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { OpenAIStream } from '../../../../../../../../packages/model-runtime/src/core/streams/openai/openai';
 import { OpenAIResponsesStream } from '../../../../../../../../packages/model-runtime/src/core/streams/openai/responsesStream';
+import {
+  SSE_HEARTBEAT_INTERVAL_MS,
+  StreamingResponse,
+} from '../../../../../../../../packages/model-runtime/src/utils/response';
 
 import { hasSuccessfulConnectionCheck } from './connectionCheckParams';
 
@@ -162,6 +166,64 @@ describe('OpenAI-compatible Connectivity Check stream terminals', () => {
 
     expect(result.text).toBe('hello');
     expect(result.streamCompleted).toBeUndefined();
+    expect(result.pass).toBe(true);
+  });
+
+  it('rejects a comment-only SSE capture without recovering heartbeat text', async () => {
+    const result = await inspectCompatibleCheck(sseResponse(': chathub-ping\n\n'));
+
+    expect(result.text).toBe('');
+    expect(result.streamCompleted).toBeUndefined();
+    expect(result.pass).toBe(false);
+  });
+
+  it('still extracts Chat Completions text after heartbeat comments', async () => {
+    const result = await inspectCompatibleCheck(
+      sseResponse(': chathub-ping\n\nevent: text\ndata: "pong"\n\n'),
+    );
+
+    expect(result.text).toBe('pong');
+    expect(result.streamCompleted).toBeUndefined();
+    expect(result.pass).toBe(true);
+  });
+
+  it('still accepts an explicit empty Chat Completions stop after heartbeats', async () => {
+    const result = await inspectCompatibleCheck(
+      sseResponse(': chathub-ping\n\nevent: stop\ndata: "stop"\n\n'),
+    );
+
+    expect(result.text).toBe('');
+    expect(result.streamCompleted).toBe(true);
+    expect(result.pass).toBe(true);
+  });
+
+  it('rejects an empty Chat Completions iterator wrapped with the server heartbeat', async () => {
+    const stream = OpenAIStream(chunks([]) as any, { enableStreaming: true });
+    const result = await inspectCompatibleCheck(
+      StreamingResponse(stream, { heartbeatIntervalMs: SSE_HEARTBEAT_INTERVAL_MS }),
+    );
+
+    expect(result.text).toBe('');
+    expect(result.streamCompleted).toBeUndefined();
+    expect(result.pass).toBe(false);
+  });
+
+  it('still accepts explicit empty Chat Completions stop under the server heartbeat wrapper', async () => {
+    const stream = OpenAIStream(
+      chunks([
+        {
+          id: 'probe',
+          choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+        },
+      ]) as any,
+      { enableStreaming: true },
+    );
+    const result = await inspectCompatibleCheck(
+      StreamingResponse(stream, { heartbeatIntervalMs: SSE_HEARTBEAT_INTERVAL_MS }),
+    );
+
+    expect(result.text).toBe('');
+    expect(result.streamCompleted).toBe(true);
     expect(result.pass).toBe(true);
   });
 });
