@@ -1,7 +1,6 @@
 'use client';
 
 import {
-  Avatar,
   Form,
   type FormGroupItemType,
   type FormItemProps,
@@ -44,6 +43,11 @@ import { KeyVaultsConfigKey, LLMProviderApiTokenKey, LLMProviderBaseUrlKey } fro
 import Checker, { CheckErrorRender } from './Checker';
 import EnableSwitch from './EnableSwitch';
 import { SkeletonInput } from './SkeletonInput';
+import {
+  PROVIDER_CONFIG_TITLE_ICON_SIZE,
+  ProviderConfigCustomLogo,
+  providerConfigTitleRowStyle,
+} from './titleIcon';
 import UpdateProviderInfo from './UpdateProviderInfo';
 
 const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
@@ -848,26 +852,28 @@ const ProviderConfig = memo<ProviderConfigProps>(
           align={'center'}
           gap={4}
           horizontal
-          style={{
-            height: 24,
-            maxHeight: 24,
-            minWidth: 0,
-            overflow: 'hidden',
-            ...(enabled ? {} : { filter: 'grayscale(100%)', maxHeight: 24, opacity: 0.66 }),
-          }}
+          style={providerConfigTitleRowStyle(!!enabled)}
         >
           {isCustom ? (
             <Flexbox align={'center'} gap={8} horizontal>
               {logoUrl ? (
-                <Avatar avatar={logoUrl} shape={'circle'} size={32} title={name || id} />
+                <ProviderConfigCustomLogo logoUrl={logoUrl} title={name || id} />
               ) : (
-                <ProviderBrandIcon provider={'not-exist-provider'} size={24} type={'avatar'} />
+                <ProviderBrandIcon
+                  provider={'not-exist-provider'}
+                  size={PROVIDER_CONFIG_TITLE_ICON_SIZE}
+                  type={'avatar'}
+                />
               )}
               {name}
             </Flexbox>
           ) : (
             <>
-              <ProviderBrandCombine provider={id} size={24} title={name} />
+              <ProviderBrandCombine
+                provider={id}
+                size={PROVIDER_CONFIG_TITLE_ICON_SIZE}
+                title={name}
+              />
               <Tooltip title={t('providerModels.config.helpDoc')}>
                 <Link
                   href={urlJoin(BASE_PROVIDER_DOC_URL, id)}
