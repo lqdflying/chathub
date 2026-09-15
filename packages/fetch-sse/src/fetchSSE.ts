@@ -78,6 +78,12 @@ export type OnFinishHandler = (
     observationId?: string | null;
     reasoning?: ModelReasoning;
     speed?: ModelPerformance;
+    /**
+     * True only after a normalized SSE `stop` event with a successful
+     * completion reason (`stop` for Chat Completions, `completed` for
+     * Responses). Clean EOF / HTTP 200 is `type: 'done'` without this flag.
+     */
+    streamCompleted?: boolean;
     toolCalls?: MessageToolCall[];
     traceId?: string | null;
     type?: SSEFinishType;
@@ -308,6 +314,7 @@ export const fetchSSE = async (url: string, options: RequestInit & FetchSSEOptio
   let finishedType: SSEFinishType = 'done';
   let response!: Response;
   let sawFatalStreamEvent = false;
+  let streamCompleted = false;
 
   const { text, speed: smoothingSpeed } = standardizeAnimationStyle(
     options.responseAnimation ?? {},
@@ -467,7 +474,18 @@ export const fetchSSE = async (url: string, options: RequestInit & FetchSSEOptio
         case 'error': {
           finishedType = 'error';
           sawFatalStreamEvent = true;
+          streamCompleted = false;
           options.onErrorHandle?.(data);
+          break;
+        }
+
+        case 'stop': {
+          // Chat Completions finish_reason and Responses status both arrive as
+          // event:stop. Only explicit successful terminals count; missing stop
+          // plus clean EOF stays type:done without streamCompleted.
+          if (data === 'stop' || data === 'completed') {
+            streamCompleted = true;
+          }
           break;
         }
 
@@ -677,6 +695,7 @@ export const fetchSSE = async (url: string, options: RequestInit & FetchSSEOptio
                 }
               : undefined,
           speed,
+          ...(streamCompleted ? { streamCompleted: true } : {}),
           toolCalls,
           traceId,
           type: finishedType,

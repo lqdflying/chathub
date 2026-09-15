@@ -1031,6 +1031,7 @@ describe('OpenAIResponsesStream', () => {
 
     expect(chunks).toMatchSnapshot();
     expect(chunks.some((c) => c.includes('event: usage'))).toBe(true);
+    expect(chunks.some((c) => c.includes('event: stop'))).toBe(true);
   });
 
   it('should normalize OpenAI-compatible cached tokens in response.completed usage', async () => {

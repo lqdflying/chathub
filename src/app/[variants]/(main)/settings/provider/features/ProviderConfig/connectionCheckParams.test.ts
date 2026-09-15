@@ -99,7 +99,7 @@ describe('connectionCheckParams', () => {
     );
   });
 
-  it('accepts a successful OpenAI-compatible SSE finish with empty text', () => {
+  it('accepts an OpenAI-compatible empty stream only with explicit streamCompleted', () => {
     expect(
       hasSuccessfulConnectionCheck('openaicompatible', '', { content: '' }, false, true),
     ).toBe(true);

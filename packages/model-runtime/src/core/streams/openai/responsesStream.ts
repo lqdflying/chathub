@@ -395,11 +395,14 @@ const transformOpenAIStream = (
 
           const convertedUsage = convertOpenAIResponseUsage(response.usage!, payload);
           streamContext.usage = convertedUsage;
-          return {
-            data: normalizeOpenAIStreamUsage(convertedUsage),
-            id: response.id,
-            type: 'usage',
-          };
+          return [
+            {
+              data: normalizeOpenAIStreamUsage(convertedUsage),
+              id: response.id,
+              type: 'usage',
+            },
+            { data: 'completed', id: response.id, type: 'stop' },
+          ];
         }
 
         return { data: 'completed', id: chunk.response.id || streamContext.id, type: 'stop' };

@@ -142,6 +142,13 @@ exports[`OpenAIResponsesStream > Reasoning > summary 1`] = `
   "data: {"inputCacheMissTokens":93,"inputCachedTokens":2298,"inputTextTokens":2391,"outputReasoningTokens":128,"outputTextTokens":16,"totalInputTokens":2391,"totalOutputTokens":144,"totalTokens":2535}
 
 ",
+  "id: resp_684313b89200819087f27686e0c822260b502bf083132d0d
+",
+  "event: stop
+",
+  "data: "completed"
+
+",
 ]
 `;
 
@@ -285,6 +292,13 @@ exports[`OpenAIResponsesStream > should handle response.completed with usage 1`]
   "event: usage
 ",
   "data: {"inputTextTokens":100,"outputTextTokens":50,"totalInputTokens":100,"totalOutputTokens":50,"totalTokens":150}
+
+",
+  "id: resp_completed_usage
+",
+  "event: stop
+",
+  "data: "completed"
 
 ",
 ]

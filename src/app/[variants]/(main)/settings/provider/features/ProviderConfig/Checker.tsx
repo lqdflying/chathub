@@ -142,7 +142,7 @@ const Checker = memo<ConnectionCheckerProps>(
       const applyConnectionResult = (
         value: unknown,
         reasoning?: { content?: string },
-        finishType?: string,
+        streamCompleted?: boolean,
       ) => {
         if (
           !isError &&
@@ -151,7 +151,7 @@ const Checker = memo<ConnectionCheckerProps>(
             value,
             reasoning,
             jsonInspection?.completed,
-            finishType === 'done',
+            streamCompleted,
           )
         ) {
           settlePass();
@@ -163,8 +163,8 @@ const Checker = memo<ConnectionCheckerProps>(
                 : 'connection_check_empty',
               response: jsonInspection?.summary,
               result: {
-                finishType,
                 reasoningLength: reasoning?.content?.length ?? 0,
+                streamCompleted: !!streamCompleted,
                 textLength: typeof value === 'string' ? value.length : 0,
                 textType: value === null ? 'null' : typeof value,
               },
@@ -201,7 +201,7 @@ const Checker = memo<ConnectionCheckerProps>(
           // Prefer a prior onAbort *pass* (content already seen). Empty abort
           // leaves settled null so recovery text can still pass here.
           if (settled) return;
-          applyConnectionResult(value, context?.reasoning, context?.type);
+          applyConnectionResult(value, context?.reasoning, context?.streamCompleted);
         },
         onJsonResponse: (inspection) => {
           jsonInspection = inspection;

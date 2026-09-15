@@ -17,10 +17,13 @@ describe('ProviderConfig Checker', () => {
     expect(hasConnectionCheckOutput('   \n')).toBe(false);
   });
 
-  it('accepts a successful OpenAI-compatible SSE finish with empty text', () => {
+  it('accepts an OpenAI-compatible empty result only when streamCompleted is true', () => {
     expect(
       hasSuccessfulConnectionCheck('openaicompatible', '', { content: '' }, false, true),
     ).toBe(true);
+    expect(
+      hasSuccessfulConnectionCheck('openaicompatible', '', { content: '' }, false, false),
+    ).toBe(false);
   });
 
   it('Safari abort path accepts reasoning from interrupt.reasoning or message buffer', () => {

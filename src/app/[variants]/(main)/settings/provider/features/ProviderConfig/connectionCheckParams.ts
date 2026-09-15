@@ -9,6 +9,7 @@ export const hasConnectionCheckResult = (
 ) => hasConnectionCheckOutput(text) || hasConnectionCheckOutput(reasoning?.content);
 
 const COMPLETED_JSON_ENVELOPE_PROVIDERS = new Set(['minimax', 'openai', 'openaicompatible']);
+/** Empty-output exception for streaming Check: requires fetchSSE `streamCompleted`. */
 const STREAM_COMPLETED_PROVIDERS = new Set(['openaicompatible']);
 
 export const hasSuccessfulConnectionCheck = (

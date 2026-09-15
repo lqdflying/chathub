@@ -508,6 +508,64 @@ describe('fetchSSE', () => {
     });
   });
 
+  it('sets streamCompleted only after a successful stop terminal', async () => {
+    const mockOnFinish = vi.fn();
+
+    (fetchEventSource as any).mockImplementationOnce(
+      (_url: string, options: FetchEventSourceInit) => {
+        options.onopen!({ clone: () => ({ ok: true, headers: new Headers() }) } as any);
+        options.onmessage!({ event: 'stop', data: JSON.stringify('stop') } as any);
+      },
+    );
+
+    await fetchSSE('/', { onFinish: mockOnFinish, responseAnimation: 'none' });
+
+    expect(mockOnFinish).toHaveBeenCalledWith(
+      '',
+      expect.objectContaining({ streamCompleted: true, type: 'done' }),
+    );
+
+    mockOnFinish.mockClear();
+    (fetchEventSource as any).mockImplementationOnce(
+      (_url: string, options: FetchEventSourceInit) => {
+        options.onopen!({ clone: () => ({ ok: true, headers: new Headers() }) } as any);
+        options.onmessage!({ event: 'stop', data: JSON.stringify('completed') } as any);
+      },
+    );
+
+    await fetchSSE('/', { onFinish: mockOnFinish, responseAnimation: 'none' });
+
+    expect(mockOnFinish).toHaveBeenCalledWith(
+      '',
+      expect.objectContaining({ streamCompleted: true, type: 'done' }),
+    );
+
+    mockOnFinish.mockClear();
+    (fetchEventSource as any).mockImplementationOnce(
+      (_url: string, options: FetchEventSourceInit) => {
+        options.onopen!({ clone: () => ({ ok: true, headers: new Headers() }) } as any);
+        options.onmessage!({ event: 'stop', data: JSON.stringify('length') } as any);
+      },
+    );
+
+    await fetchSSE('/', { onFinish: mockOnFinish, responseAnimation: 'none' });
+
+    expect(mockOnFinish.mock.calls[0][1]).not.toHaveProperty('streamCompleted');
+    expect(mockOnFinish.mock.calls[0][1]).toMatchObject({ type: 'done' });
+
+    mockOnFinish.mockClear();
+    (fetchEventSource as any).mockImplementationOnce(
+      (_url: string, options: FetchEventSourceInit) => {
+        options.onopen!({ clone: () => ({ ok: true, headers: new Headers() }) } as any);
+      },
+    );
+
+    await fetchSSE('/', { onFinish: mockOnFinish, responseAnimation: 'none' });
+
+    expect(mockOnFinish.mock.calls[0][1]).not.toHaveProperty('streamCompleted');
+    expect(mockOnFinish).toHaveBeenCalledWith('', expect.objectContaining({ type: 'done' }));
+  });
+
   it('should call onFinish with correct parameters for different finish types', async () => {
     const mockOnFinish = vi.fn();
 
