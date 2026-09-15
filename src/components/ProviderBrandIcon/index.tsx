@@ -1,8 +1,9 @@
 'use client';
 
-import { ModelIcon, ProviderCombine, ProviderIcon } from '@lobehub/icons';
+import { ModelIcon, ProviderIcon } from '@lobehub/icons';
 import { Avatar } from '@lobehub/ui';
-import React, { CSSProperties, memo } from 'react';
+import { createStyles } from 'antd-style';
+import React, { CSSProperties, ReactNode, memo } from 'react';
 import { Flexbox } from 'react-layout-kit';
 
 import {
@@ -18,11 +19,42 @@ import { XiaomiMiMoMono } from './XiaomiMiMoMono';
 /** Settings provider tiles use this; do not bake it into ProviderBrandIcon defaults. */
 export const PROVIDER_SETTINGS_AVATAR_STYLE: CSSProperties = { borderRadius: 6 };
 
+const useStyles = createStyles(({ css }) => ({
+  sizeLock: css`
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+
+    svg {
+      max-width: 100%;
+      max-height: 100%;
+    }
+  `,
+}));
+
 const wantsRoundedSquare = (style?: CSSProperties): boolean => {
   const radius = style?.borderRadius;
   if (radius === undefined || radius === null) return false;
   return radius !== '50%' && radius !== '50';
 };
+
+const IconSizeLock = memo<{ children: ReactNode; size: number }>(({ children, size }) => {
+  const { styles } = useStyles();
+
+  return (
+    <span
+      className={styles.sizeLock}
+      data-testid="icon-size-lock"
+      style={{ height: size, width: size }}
+    >
+      {children}
+    </span>
+  );
+});
+
+IconSizeLock.displayName = 'IconSizeLock';
 
 export interface ProviderBrandIconProps {
   provider: string;
@@ -59,12 +91,14 @@ export const ProviderBrandIcon = memo<ProviderBrandIconProps>(
     }
 
     return (
-      <ProviderIcon
-        provider={resolveProviderIcon(provider)}
-        size={size}
-        style={style}
-        type={type}
-      />
+      <IconSizeLock size={size}>
+        <ProviderIcon
+          provider={resolveProviderIcon(provider)}
+          size={size}
+          style={style}
+          type={type}
+        />
+      </IconSizeLock>
     );
   },
 );
@@ -79,37 +113,23 @@ export interface ProviderBrandCombineProps {
 }
 
 /**
- * Drop-in for ProviderCombine. Settings-only consumers; local logo uses the
- * Settings rounded-square tile unless `style` opts into a circle.
+ * Settings header/card mark: sized avatar tile + title for every provider.
+ * Do not use `@lobehub/icons` ProviderCombine — wordmark SVGs ignore the 24px header.
  */
 export const ProviderBrandCombine = memo<ProviderBrandCombineProps>(
   ({ provider, size = 24, style, title }) => {
-    const logo = resolveProviderLogoUrl(provider, 'avatar');
-    if (logo) {
-      const tileStyle = { ...PROVIDER_SETTINGS_AVATAR_STYLE, ...style };
-      return (
-        <Flexbox align={'center'} gap={8} horizontal style={style}>
-          <Avatar
-            alt={title || provider}
-            avatar={logo}
-            shape={'square'}
-            size={size}
-            style={tileStyle}
-          />
-          {title ? (
-            <span style={{ fontSize: 16, fontWeight: 'bold', lineHeight: 1 }}>{title}</span>
-          ) : null}
-        </Flexbox>
-      );
-    }
-
     return (
-      <ProviderCombine
-        provider={resolveProviderIcon(provider)}
-        size={size}
-        style={style}
-        title={title}
-      />
+      <Flexbox align={'center'} gap={8} horizontal style={style}>
+        <ProviderBrandIcon
+          provider={provider}
+          size={size}
+          style={PROVIDER_SETTINGS_AVATAR_STYLE}
+          type={'avatar'}
+        />
+        {title ? (
+          <span style={{ fontSize: 16, fontWeight: 'bold', lineHeight: 1 }}>{title}</span>
+        ) : null}
+      </Flexbox>
     );
   },
 );
@@ -144,7 +164,11 @@ export const ModelBrandIcon = memo<ModelBrandIconProps>(({ model, size = 24, sty
     );
   }
 
-  return <ModelIcon model={model} size={size} style={style} type={type} />;
+  return (
+    <IconSizeLock size={size}>
+      <ModelIcon model={model} size={size} style={style} type={type} />
+    </IconSizeLock>
+  );
 });
 
 ModelBrandIcon.displayName = 'ModelBrandIcon';

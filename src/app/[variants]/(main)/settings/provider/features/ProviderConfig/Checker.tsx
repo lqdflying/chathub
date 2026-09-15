@@ -244,7 +244,7 @@ const Checker = memo<ConnectionCheckerProps>(
 
     return (
       <Flexbox gap={8}>
-        <Flexbox gap={8} horizontal>
+        <Flexbox gap={8} horizontal style={{ minWidth: 0, width: '100%' }}>
           <Select
             listItemHeight={36}
             onSelect={async (value) => {

@@ -1,6 +1,5 @@
 'use client';
 
-import { ProviderCombine } from '@lobehub/icons';
 import {
   Avatar,
   Form,
@@ -21,7 +20,7 @@ import urlJoin from 'url-join';
 import { z } from 'zod';
 
 import { FormInput, FormPassword } from '@/components/FormInput';
-import { ProviderBrandCombine } from '@/components/ProviderBrandIcon';
+import { ProviderBrandCombine, ProviderBrandIcon } from '@/components/ProviderBrandIcon';
 import { FORM_STYLE } from '@/const/layoutTokens';
 import { AES_GCM_URL, BASE_PROVIDER_DOC_URL } from '@/const/url';
 import { aiProviderSelectors, useAiInfraStore } from '@/store/aiInfra';
@@ -852,6 +851,8 @@ const ProviderConfig = memo<ProviderConfigProps>(
           style={{
             height: 24,
             maxHeight: 24,
+            minWidth: 0,
+            overflow: 'hidden',
             ...(enabled ? {} : { filter: 'grayscale(100%)', maxHeight: 24, opacity: 0.66 }),
           }}
         >
@@ -860,7 +861,7 @@ const ProviderConfig = memo<ProviderConfigProps>(
               {logoUrl ? (
                 <Avatar avatar={logoUrl} shape={'circle'} size={32} title={name || id} />
               ) : (
-                <ProviderCombine provider={'not-exist-provider'} size={24} />
+                <ProviderBrandIcon provider={'not-exist-provider'} size={24} type={'avatar'} />
               )}
               {name}
             </Flexbox>
