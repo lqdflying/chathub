@@ -18,6 +18,7 @@ const Search = memo<SearchProps>(({ value, onChange, variant }) => {
       onSearch={(keyword) => onChange(keyword)}
       placeholder={t('providerModels.list.search')}
       size={'small'}
+      style={{ minWidth: 0, width: '100%' }}
       variant={variant}
     />
   );

@@ -59,14 +59,23 @@ const ModelTitle = memo<ModelFetcherProps>(
         style={{
           background: theme.colorBgContainer,
           marginTop: mobile ? 0 : -12,
+          minWidth: 0,
           paddingTop: mobile ? 0 : 20,
           position: 'sticky',
           top: mobile ? -2 : -32,
+          width: '100%',
           zIndex: 15,
         }}
       >
-        <Flexbox align={'center'} gap={0} horizontal justify={'space-between'}>
-          <Flexbox align={'center'} gap={8} horizontal>
+        <Flexbox
+          align={'center'}
+          gap={8}
+          horizontal
+          justify={'space-between'}
+          style={{ minWidth: 0, width: '100%' }}
+          wrap={'wrap'}
+        >
+          <Flexbox align={'center'} gap={8} horizontal style={{ minWidth: 0 }}>
             <Text strong style={{ fontSize: 16 }}>
               {t('providerModels.list.title')}
             </Text>
@@ -97,14 +106,23 @@ const ModelTitle = memo<ModelFetcherProps>(
           {isLoading ? (
             <Skeleton.Button active size={'small'} style={{ width: 120 }} />
           ) : isEmpty ? null : (
-            <Flexbox gap={8} horizontal>
+            <Flexbox
+              align={'center'}
+              gap={8}
+              horizontal
+              justify={'flex-end'}
+              style={{ flex: '1 1 200px', minWidth: 0 }}
+              wrap={'wrap'}
+            >
               {!mobile && (
-                <Search
-                  onChange={(value) => {
-                    useAiInfraStore.setState({ modelSearchKeyword: value });
-                  }}
-                  value={searchKeyword}
-                />
+                <div style={{ flex: '1 1 120px', maxWidth: 240, minWidth: 0 }}>
+                  <Search
+                    onChange={(value) => {
+                      useAiInfraStore.setState({ modelSearchKeyword: value });
+                    }}
+                    value={searchKeyword}
+                  />
+                </div>
               )}
               <Space.Compact>
                 {showModelFetcher && (

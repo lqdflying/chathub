@@ -16,6 +16,7 @@ import { chatService } from '@/services/chat';
 import type { JsonChatCompletionInspection } from '@/services/chat/extractJsonChatCompletion';
 import { aiModelSelectors, aiProviderSelectors, useAiInfraStore } from '@/store/aiInfra';
 
+import { CheckerActionRow } from './checkerActionRow';
 import {
   buildConnectionCheckParams,
   hasConnectionCheckResult,
@@ -243,63 +244,64 @@ const Checker = memo<ConnectionCheckerProps>(
     );
 
     return (
-      <Flexbox gap={8}>
-        <Flexbox gap={8} horizontal style={{ minWidth: 0, width: '100%' }}>
-          <Select
-            listItemHeight={36}
-            onSelect={async (value) => {
-              setCheckModel(value);
-              setPass(false);
-              setError(undefined);
-              await updateAiProviderConfig(provider, {
-                ...currentConfig,
-                checkModel: value,
-              });
-            }}
-            optionRender={({ value }) => {
-              return (
-                <Flexbox align={'center'} gap={6} horizontal>
-                  <ModelBrandIcon model={value as string} size={20} />
-                  {value}
-                </Flexbox>
-              );
-            }}
-            options={totalModels.map((id) => ({ label: id, value: id }))}
-            style={{
-              flex: 1,
-              overflow: 'hidden',
-            }}
-            suffixIcon={isProviderConfigUpdating && <Icon icon={Loader2Icon} spin />}
-            value={checkModel}
-            virtual
-          />
-          <Button
-            disabled={isProviderConfigUpdating && !loading}
-            loading={loading}
-            onClick={async () => {
-              setLoading(true);
-              setPass(false);
-              setError(undefined);
-              try {
-                await onBeforeCheck();
-                await checkConnection();
-              } catch (e) {
+      <Flexbox gap={8} style={{ minWidth: 0, width: '100%' }}>
+        <CheckerActionRow
+          button={
+            <Button
+              disabled={isProviderConfigUpdating && !loading}
+              loading={loading}
+              onClick={async () => {
+                setLoading(true);
                 setPass(false);
-                setError(
-                  connectionCheckFailedError({
-                    message: e instanceof Error ? e.message : String(e),
-                    reason: 'check_threw',
-                  }),
+                setError(undefined);
+                try {
+                  await onBeforeCheck();
+                  await checkConnection();
+                } catch (e) {
+                  setPass(false);
+                  setError(
+                    connectionCheckFailedError({
+                      message: e instanceof Error ? e.message : String(e),
+                      reason: 'check_threw',
+                    }),
+                  );
+                } finally {
+                  setLoading(false);
+                  await onAfterCheck();
+                }
+              }}
+            >
+              {t('llm.checker.button')}
+            </Button>
+          }
+          select={
+            <Select
+              listItemHeight={36}
+              onSelect={async (value) => {
+                setCheckModel(value);
+                setPass(false);
+                setError(undefined);
+                await updateAiProviderConfig(provider, {
+                  ...currentConfig,
+                  checkModel: value,
+                });
+              }}
+              optionRender={({ value }) => {
+                return (
+                  <Flexbox align={'center'} gap={6} horizontal>
+                    <ModelBrandIcon model={value as string} size={20} />
+                    {value}
+                  </Flexbox>
                 );
-              } finally {
-                setLoading(false);
-                await onAfterCheck();
-              }
-            }}
-          >
-            {t('llm.checker.button')}
-          </Button>
-        </Flexbox>
+              }}
+              options={totalModels.map((id) => ({ label: id, value: id }))}
+              style={{ width: '100%' }}
+              suffixIcon={isProviderConfigUpdating && <Icon icon={Loader2Icon} spin />}
+              value={checkModel}
+              virtual
+            />
+          }
+        />
 
         {pass && (
           <Flexbox gap={4} horizontal>

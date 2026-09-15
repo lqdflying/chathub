@@ -137,6 +137,11 @@ const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
       overflow-wrap: anywhere;
     }
 
+    .${prefixCls}-form-item-control {
+      max-width: 100%;
+      min-width: 0;
+    }
+
     .${prefixCls}-form-item-control:has(
         .${prefixCls}-input,
         .${prefixCls}-radio-group,
