@@ -121,8 +121,9 @@ const Checker = memo<ConnectionCheckerProps>(
 
       let isError = false;
       let settled: 'pass' | 'fail' | null = null;
-      // JSON Check is the primary path. SSE abort handlers remain for runtimes
-      // that ignore responseMode json and still wrap as text/event-stream.
+      // MiniMax/OpenAI Check stay on JSON. OpenAI-compatible Check streams
+      // (fetchSSE) so gateways can record First/TTFT. SSE abort handlers also
+      // cover runtimes that ignore responseMode json and still wrap as SSE.
       let reasoningContent = '';
       let jsonInspection: JsonChatCompletionInspection | undefined;
 
@@ -138,10 +139,20 @@ const Checker = memo<ConnectionCheckerProps>(
         setError(nextError);
       };
 
-      const applyConnectionResult = (value: unknown, reasoning?: { content?: string }) => {
+      const applyConnectionResult = (
+        value: unknown,
+        reasoning?: { content?: string },
+        finishType?: string,
+      ) => {
         if (
           !isError &&
-          hasSuccessfulConnectionCheck(provider, value, reasoning, jsonInspection?.completed)
+          hasSuccessfulConnectionCheck(
+            provider,
+            value,
+            reasoning,
+            jsonInspection?.completed,
+            finishType === 'done',
+          )
         ) {
           settlePass();
         } else {
@@ -152,6 +163,7 @@ const Checker = memo<ConnectionCheckerProps>(
                 : 'connection_check_empty',
               response: jsonInspection?.summary,
               result: {
+                finishType,
                 reasoningLength: reasoning?.content?.length ?? 0,
                 textLength: typeof value === 'string' ? value.length : 0,
                 textType: value === null ? 'null' : typeof value,
@@ -189,7 +201,7 @@ const Checker = memo<ConnectionCheckerProps>(
           // Prefer a prior onAbort *pass* (content already seen). Empty abort
           // leaves settled null so recovery text can still pass here.
           if (settled) return;
-          applyConnectionResult(value, context?.reasoning);
+          applyConnectionResult(value, context?.reasoning, context?.type);
         },
         onJsonResponse: (inspection) => {
           jsonInspection = inspection;

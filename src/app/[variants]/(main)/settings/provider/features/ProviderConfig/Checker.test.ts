@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { hasConnectionCheckOutput, hasConnectionCheckResult } from './connectionCheckParams';
+import {
+  hasConnectionCheckOutput,
+  hasConnectionCheckResult,
+  hasSuccessfulConnectionCheck,
+} from './connectionCheckParams';
 import { resolveConnectionCheckModel } from './Checker';
 
 describe('ProviderConfig Checker', () => {
@@ -13,8 +17,10 @@ describe('ProviderConfig Checker', () => {
     expect(hasConnectionCheckOutput('   \n')).toBe(false);
   });
 
-  it('accepts reasoning-only connectivity output', () => {
-    expect(hasConnectionCheckResult('', { content: 'trace' })).toBe(true);
+  it('accepts a successful OpenAI-compatible SSE finish with empty text', () => {
+    expect(
+      hasSuccessfulConnectionCheck('openaicompatible', '', { content: '' }, false, true),
+    ).toBe(true);
   });
 
   it('Safari abort path accepts reasoning from interrupt.reasoning or message buffer', () => {

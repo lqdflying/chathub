@@ -9,15 +9,18 @@ export const hasConnectionCheckResult = (
 ) => hasConnectionCheckOutput(text) || hasConnectionCheckOutput(reasoning?.content);
 
 const COMPLETED_JSON_ENVELOPE_PROVIDERS = new Set(['minimax', 'openai', 'openaicompatible']);
+const STREAM_COMPLETED_PROVIDERS = new Set(['openaicompatible']);
 
 export const hasSuccessfulConnectionCheck = (
   provider: string,
   text: unknown,
   reasoning?: { content?: string },
   jsonCompleted = false,
+  streamCompleted = false,
 ) =>
   hasConnectionCheckResult(text, reasoning) ||
-  (jsonCompleted && COMPLETED_JSON_ENVELOPE_PROVIDERS.has(provider));
+  (jsonCompleted && COMPLETED_JSON_ENVELOPE_PROVIDERS.has(provider)) ||
+  (streamCompleted && STREAM_COMPLETED_PROVIDERS.has(provider));
 
 export const buildConnectionCheckParams = (provider: string, model: string) => {
   // Non-streaming upstream + ChatHub `responseMode: 'json'`: the browser reads
@@ -41,7 +44,19 @@ export const buildConnectionCheckParams = (provider: string, model: string) => {
 
   switch (provider) {
     case 'openaicompatible':
-      return base;
+      // Compatible Check must stream so gateways can record First/TTFT.
+      // Official: non-stream buffers the full JSON until done
+      // (https://developers.openai.com/api/docs/guides/streaming-responses).
+      // Set stream:true explicitly — getChatCompletion merges agent
+      // enableStreaming, so omitting stream would keep Check non-streaming
+      // when the user disabled chat streaming. Omit responseMode json so
+      // the browser uses fetchSSE like chat. Keep token-limit-free.
+      return {
+        messages: [{ content: 'hello', role: 'user' as const }],
+        model,
+        provider,
+        stream: true as const,
+      };
     case 'moonshot':
       return {
         ...cappedBase,

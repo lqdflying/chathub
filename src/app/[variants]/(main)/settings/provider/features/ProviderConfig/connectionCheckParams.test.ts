@@ -14,7 +14,7 @@ describe('connectionCheckParams', () => {
     );
   });
 
-  it('disables streaming for connectivity probes', () => {
+  it('disables streaming for JSON connectivity probes', () => {
     expect(buildConnectionCheckParams('openai', 'gpt-4o').stream).toBe(false);
     expect(buildConnectionCheckParams('minimax', 'MiniMax-M3').stream).toBe(false);
   });
@@ -22,15 +22,16 @@ describe('connectionCheckParams', () => {
   it('requests JSON so Safari does not parse a short synthetic SSE', () => {
     expect(buildConnectionCheckParams('openai', 'gpt-4o').responseMode).toBe('json');
     expect(buildConnectionCheckParams('minimax', 'MiniMax-M3').responseMode).toBe('json');
-    expect(buildConnectionCheckParams('openaicompatible', 'gpt-5.5').responseMode).toBe('json');
   });
 
-  it('omits token limit fields for OpenAI-compatible connectivity probes', () => {
+  it('streams OpenAI-compatible connectivity probes without token limits', () => {
     const params = buildConnectionCheckParams('openaicompatible', 'gpt-5.5');
 
+    expect(params.stream).toBe(true);
+    expect(params).not.toHaveProperty('responseMode');
     expect(params).not.toHaveProperty('max_tokens');
     expect(params).not.toHaveProperty('max_output_tokens');
-    expect(params.stream).toBe(false);
+    expect(params).not.toHaveProperty('apiMode');
   });
 
   it('disables Kimi thinking for moonshot connectivity probes', () => {
@@ -94,6 +95,17 @@ describe('connectionCheckParams', () => {
     );
     expect(hasSuccessfulConnectionCheck('openai', '', { content: '' }, false)).toBe(false);
     expect(hasSuccessfulConnectionCheck('openaicompatible', '', { content: '' }, false)).toBe(
+      false,
+    );
+  });
+
+  it('accepts a successful OpenAI-compatible SSE finish with empty text', () => {
+    expect(
+      hasSuccessfulConnectionCheck('openaicompatible', '', { content: '' }, false, true),
+    ).toBe(true);
+    expect(hasSuccessfulConnectionCheck('openai', '', { content: '' }, false, true)).toBe(false);
+    expect(hasSuccessfulConnectionCheck('minimax', '', { content: '' }, false, true)).toBe(false);
+    expect(hasSuccessfulConnectionCheck('moonshot', '', { content: '' }, false, true)).toBe(
       false,
     );
   });

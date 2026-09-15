@@ -2050,10 +2050,15 @@ describe('ChatService', () => {
   });
 
   describe('fetchPresetTaskResult', () => {
-    it('keeps OpenAI-compatible connection checks token-limit free and non-streaming', async () => {
+    it('keeps OpenAI-compatible connection checks token-limit free and streaming', async () => {
       const { fetchSSE } = await import('@lobechat/fetch-sse');
       const mockFetchSSE = vi.fn().mockResolvedValue(new Response('mock response'));
       vi.mocked(fetchSSE).mockImplementation(mockFetchSSE);
+
+      vi.spyOn(agentChatConfigSelectors, 'currentChatConfig').mockReturnValue({
+        enableStreaming: false,
+        searchMode: 'off',
+      } as any);
 
       useAiInfraStore.setState({
         aiProviderRuntimeConfig: {
@@ -2080,15 +2085,14 @@ describe('ChatService', () => {
         trace: {},
       });
 
-      expect(mockFetchSSE).not.toHaveBeenCalled();
-      const fetchMock = vi.mocked(fetch);
-      const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+      expect(mockFetchSSE).toHaveBeenCalled();
+      const body = JSON.parse(String(mockFetchSSE.mock.calls[0][1]?.body));
       expect(body).toMatchObject({
         model: 'gpt-5.5',
-        responseMode: 'json',
-        stream: false,
+        stream: true,
       });
       expect(body).not.toHaveProperty('apiMode');
+      expect(body).not.toHaveProperty('responseMode');
       expect(body).not.toHaveProperty('max_tokens');
       expect(body).not.toHaveProperty('max_output_tokens');
     });
