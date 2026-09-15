@@ -142,6 +142,18 @@ const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
       min-width: 0;
     }
 
+    /* Shared by every provider detail page. Long Select values must shrink inside
+       SettingContainer overflow-x: hidden, not push Check / sibling controls out. */
+    .${prefixCls}-form-item-control .${prefixCls}-select {
+      width: 100%;
+      max-width: 100%;
+      min-width: 0 !important;
+    }
+
+    .${prefixCls}-form-item-control .${prefixCls}-radio-group {
+      max-width: 100%;
+    }
+
     .${prefixCls}-form-item-control:has(
         .${prefixCls}-input,
         .${prefixCls}-radio-group,
@@ -200,29 +212,24 @@ const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
   `,
   routeSegment: css`
     display: flex !important;
+    flex-wrap: wrap;
     width: 100%;
 
     .${prefixCls}-radio-button-wrapper {
-      flex: 1;
+      display: inline-flex;
+      flex: 1 1 140px;
+      align-items: center;
+      justify-content: center;
+
       min-width: 0;
+      height: auto;
+      min-height: 32px;
+      padding-block: 4px;
+      padding-inline: 8px;
+
+      line-height: 1.3;
       text-align: center;
-      white-space: nowrap;
-    }
-
-    ${responsive.mobile} {
-      .${prefixCls}-radio-button-wrapper {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-
-        height: auto;
-        min-height: 32px;
-        padding-block: 4px;
-        padding-inline: 8px;
-
-        line-height: 1.3;
-        white-space: normal;
-      }
+      white-space: normal;
     }
   `,
   switchLoading: css`
