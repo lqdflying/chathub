@@ -156,8 +156,10 @@ const ModelList = memo<ModelListProps>(
           paddingInline={mobile ? 12 : 0}
           style={{
             background: mobile ? theme.colorBgContainer : undefined,
+            minWidth: 0,
             paddingBottom: 16,
             paddingTop: 8,
+            width: '100%',
           }}
         >
           <ModelTitle

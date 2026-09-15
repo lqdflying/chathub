@@ -101,6 +101,8 @@ const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
   `,
   form: css`
     container-type: inline-size;
+    max-width: 100%;
+    min-width: 0;
 
     .${prefixCls}-row {
       align-items: flex-start;
@@ -143,8 +145,12 @@ const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
     }
 
     /* Shared by every provider detail page. Long Select values must shrink inside
-       SettingContainer overflow-x: hidden, not push Check / sibling controls out. */
-    .${prefixCls}-form-item-control .${prefixCls}-select {
+       SettingContainer overflow-x: hidden, not push Check / sibling controls out.
+       Do not use a 320px min-width floor — label 220px + control 320px overflows
+       the detail pane next to the 280px provider menu.
+       @see https://ant.design/components/select (popupMatchSelectWidth) */
+    .${prefixCls}-form-item-control .${prefixCls}-select,
+    .${prefixCls}-form-item-control .${prefixCls}-select-selector {
       width: 100%;
       max-width: 100%;
       min-width: 0 !important;
@@ -159,10 +165,10 @@ const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
         .${prefixCls}-radio-group,
         .${prefixCls}-select
       ) {
-      flex: 1 1 320px !important;
+      flex: 1 1 200px !important;
       width: auto;
-      max-width: 800px;
-      min-width: min(100%, 320px) !important;
+      max-width: 100%;
+      min-width: 0 !important;
     }
     ${responsive.mobile} {
       width: 100%;
@@ -170,7 +176,7 @@ const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
 
       /* On mobile the lobehub Form switches antd Form.Item to layout="vertical",
          so the item row is a COLUMN flex — the desktop flex-basis overrides
-         above (1 1 220px / 1 1 320px) would become vertical heights and open a
+         above (1 1 220px / 1 1 200px) would become vertical heights and open a
          huge void between label and control. Neutralize them entirely. */
       .${prefixCls}-row {
         flex-direction: column;
@@ -905,8 +911,10 @@ const ProviderConfig = memo<ProviderConfigProps>(
 
     return (
       <Form
+        {...FORM_STYLE}
         className={cx(styles.form, className)}
         form={form}
+        itemMinWidth={undefined}
         items={[model]}
         onValuesChange={(changedValues, values) => {
           const resolvedValues = supportOpenAICompatCache
@@ -920,8 +928,8 @@ const ProviderConfig = memo<ProviderConfigProps>(
 
           debouncedHandleValueChange(id, nextValues);
         }}
+        style={{ ...FORM_STYLE.style, maxWidth: '100%', minWidth: 0, width: '100%' }}
         variant={'borderless'}
-        {...FORM_STYLE}
       />
     );
   },

@@ -50,4 +50,34 @@ describe('provider settings detail shell', () => {
     expect(custom).toContain('<ProviderConfig');
     expect(custom).toContain('<ModelList');
   });
+
+  it('keeps the detail pane shrinkable so Check and Fetch cannot be clipped', () => {
+    const root = process.cwd();
+    const layout = readFileSync(
+      join(root, 'src/app/[variants]/(main)/settings/provider/_layout/Desktop/index.tsx'),
+      'utf8',
+    );
+    expect(layout).toContain('flex={1}');
+    expect(layout).toContain('minWidth: 0');
+
+    const container = readFileSync(
+      join(root, 'src/app/[variants]/(main)/settings/provider/_layout/Desktop/Container.tsx'),
+      'utf8',
+    );
+    expect(container).toContain('minWidth: 0');
+
+    const settingContainer = readFileSync(
+      join(root, 'src/features/Setting/SettingContainer.tsx'),
+      'utf8',
+    );
+    expect(settingContainer).toContain('minWidth: 0');
+
+    const form = readFileSync(
+      join(root, 'src/app/[variants]/(main)/settings/provider/features/ProviderConfig/index.tsx'),
+      'utf8',
+    );
+    expect(form).toContain('itemMinWidth={undefined}');
+    expect(form).not.toContain('min-width: min(100%, 320px)');
+    expect(form).toContain('min-width: 0 !important');
+  });
 });

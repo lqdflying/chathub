@@ -60,6 +60,7 @@ const ModelTitle = memo<ModelFetcherProps>(
           background: theme.colorBgContainer,
           marginTop: mobile ? 0 : -12,
           minWidth: 0,
+          overflow: 'hidden',
           paddingTop: mobile ? 0 : 20,
           position: 'sticky',
           top: mobile ? -2 : -32,
@@ -72,7 +73,7 @@ const ModelTitle = memo<ModelFetcherProps>(
           gap={8}
           horizontal
           justify={'space-between'}
-          style={{ minWidth: 0, width: '100%' }}
+          style={{ flexWrap: 'wrap', minWidth: 0, overflow: 'hidden', width: '100%' }}
           wrap={'wrap'}
         >
           <Flexbox align={'center'} gap={8} horizontal style={{ minWidth: 0 }}>
@@ -111,7 +112,7 @@ const ModelTitle = memo<ModelFetcherProps>(
               gap={8}
               horizontal
               justify={'flex-end'}
-              style={{ flex: '1 1 200px', minWidth: 0 }}
+              style={{ flex: '1 1 200px', flexWrap: 'wrap', minWidth: 0, overflow: 'hidden' }}
               wrap={'wrap'}
             >
               {!mobile && (

@@ -21,6 +21,7 @@ const SettingContainer = memo<PropsWithChildren<SettingContainerProps>>(
         style={{
           background:
             variant === 'secondary' ? theme.colorBgContainerSecondary : theme.colorBgContainer,
+          minWidth: 0,
           overflowX: 'hidden',
           overflowY: 'auto',
           ...style,
@@ -34,6 +35,8 @@ const SettingContainer = memo<PropsWithChildren<SettingContainerProps>>(
           gap={64}
           style={{
             maxWidth,
+            minWidth: 0,
+            width: '100%',
           }}
           width={'100%'}
         >

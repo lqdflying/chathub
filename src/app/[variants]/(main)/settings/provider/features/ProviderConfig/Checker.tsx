@@ -295,7 +295,7 @@ const Checker = memo<ConnectionCheckerProps>(
                 );
               }}
               options={totalModels.map((id) => ({ label: id, value: id }))}
-              style={{ width: '100%' }}
+              style={{ maxWidth: '100%', minWidth: 0, width: '100%' }}
               suffixIcon={isProviderConfigUpdating && <Icon icon={Loader2Icon} spin />}
               value={checkModel}
               virtual
