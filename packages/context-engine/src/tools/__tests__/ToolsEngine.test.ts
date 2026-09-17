@@ -295,6 +295,32 @@ describe('ToolsEngine', () => {
         { id: 'dalle', reason: 'incompatible' },
       ]);
     });
+
+    it('should sort tools deterministically by resolved name regardless of toolIds order', () => {
+      const engine = new ToolsEngine({
+        manifestSchemas: [mockWebBrowsingManifest, mockDalleManifest],
+        functionCallChecker: () => true,
+      });
+
+      const forward = engine.generateToolsDetailed({
+        toolIds: ['lobe-web-browsing', 'dalle'],
+        model: 'gpt-4',
+        provider: 'openai',
+      });
+      const reverse = engine.generateToolsDetailed({
+        toolIds: ['dalle', 'lobe-web-browsing'],
+        model: 'gpt-4',
+        provider: 'openai',
+      });
+
+      const expectedNames = [
+        'dalle____generateImage____builtin',
+        'lobe-web-browsing____search____builtin',
+      ];
+      expect(forward.tools?.map((t) => t.function.name)).toEqual(expectedNames);
+      // Byte-stable across input ordering (prompt-cache friendly)
+      expect(reverse.tools).toEqual(forward.tools);
+    });
   });
 
   describe('plugin management', () => {
@@ -1061,8 +1087,9 @@ describe('ToolsEngine', () => {
 
       // Should only generate 2 tools, not 3
       expect(result).toHaveLength(2);
-      expect(result![0].function.name).toBe('lobe-web-browsing____search____builtin');
-      expect(result![1].function.name).toBe('dalle____generateImage____builtin');
+      // Deterministic name-sorted order (prompt-cache stable)
+      expect(result![0].function.name).toBe('dalle____generateImage____builtin');
+      expect(result![1].function.name).toBe('lobe-web-browsing____search____builtin');
     });
 
     it('should deduplicate between toolIds and defaultToolIds', () => {
@@ -1081,8 +1108,9 @@ describe('ToolsEngine', () => {
 
       // Should only generate 2 tools (lobe-web-browsing should appear once)
       expect(result).toHaveLength(2);
-      expect(result![0].function.name).toBe('lobe-web-browsing____search____builtin');
-      expect(result![1].function.name).toBe('dalle____generateImage____builtin');
+      // Deterministic name-sorted order (prompt-cache stable)
+      expect(result![0].function.name).toBe('dalle____generateImage____builtin');
+      expect(result![1].function.name).toBe('lobe-web-browsing____search____builtin');
     });
 
     it('should deduplicate in generateToolsDetailed', () => {

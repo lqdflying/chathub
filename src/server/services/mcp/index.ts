@@ -23,6 +23,7 @@ import {
 } from '@/libs/mcp';
 import { sanitizeMCPURLForLogging } from '@/libs/mcp/http';
 
+import { sanitizeMcpToolDescription, stripMcpResultMeta } from './metadata';
 import { McpOAuthService } from './oauth';
 
 // --- Client cache hygiene (T2) ---
@@ -150,7 +151,10 @@ export class MCPService {
         });
         this.recordCircuitSuccess(circuitKey);
         return result.map<LobeChatPluginApi>((item) => ({
-          description: item.description,
+          // Descriptions are server-controlled untrusted text that lands in the
+          // model's tools block verbatim — scrub injection imperatives and cap
+          // length at the model boundary (OpenClaw mcp-metadata pattern).
+          description: sanitizeMcpToolDescription(item.description),
           name: item.name,
           parameters: item.inputSchema as PluginSchema,
         }));
@@ -321,12 +325,15 @@ export class MCPService {
           });
 
           failurePhase = 'normalization';
-          const { content, isError } = result;
+          // `_meta` is reserved MCP protocol metadata, not part of the tool's
+          // contract with the model — strip it (top level + content items).
+          const strippedResult = stripMcpResultMeta(result);
+          const { content, isError } = strippedResult;
           let normalized: unknown;
           let resultKind = 'mcp_result';
 
           if (isError) {
-            normalized = result;
+            normalized = strippedResult;
             resultKind = 'mcp_error';
           } else {
             const data = content as { text: string; type: 'text' }[];

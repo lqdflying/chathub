@@ -255,6 +255,13 @@ export class ToolsEngine {
       })),
     );
 
+    // Sort by resolved tool name so the tools block is byte-stable across
+    // turns regardless of plugin-id ordering (prompt-cache friendly). Use a
+    // code-unit comparison — `localeCompare` output varies with ICU locale.
+    tools.sort((a, b) =>
+      a.function.name < b.function.name ? -1 : a.function.name > b.function.name ? 1 : 0,
+    );
+
     log('Converted to %d tools', tools.length);
     return tools;
   }
