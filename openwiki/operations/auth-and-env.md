@@ -399,6 +399,27 @@ saved. JSON account backup does not include `conversation_generation_*` or
 Details:
 [Durable conversation generation](../architecture/durable-conversation-generation.md).
 
+## Runtime Node heap (`NODE_OPTIONS`)
+
+The production image `ENV NODE_OPTIONS` is a single string. Docker does not
+merge it with the builder-stage `--max-old-space-size=4096`. An earlier runtime
+value kept only `--dns-result-order=ipv4first --use-openssl-ca`, so V8 used the
+~2 GiB default and long DeepSeek/tool turns could `SIGABRT` with
+`JavaScript heap out of memory`.
+
+Ship:
+
+```text
+--max-old-space-size=4096 --dns-result-order=ipv4first --use-openssl-ca
+```
+
+Do not raise the image default above 4096 MiB. Operators with more host RAM
+override the **entire** string in Compose/`lobe.env`. `env_file` last-line-wins:
+two `NODE_OPTIONS` keys in `lobe.env` keep the later one. `startServer.js`
+spawns `/bin/node /app/server.js` with inherited env, so the Next child uses
+the same flags. User-facing procedure:
+[Docker Deployment and Upgrades](https://github.com/lqdflying/chathub/wiki/Docker-Deployment-and-Upgrades).
+
 ## Change guidance
 
 If you add or rename environment variables, update all of these places together:

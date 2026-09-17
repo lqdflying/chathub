@@ -81,3 +81,16 @@ describe('Dockerfile Graphile Worker runtime overlay', () => {
     expect(result.status).toBe(0);
   });
 });
+
+describe('Dockerfile production NODE_OPTIONS', () => {
+  const runtimeStage = dockerfile.split('## Production image')[1] ?? '';
+
+  it('keeps a 4096 MiB V8 heap together with the DNS and TLS flags', () => {
+    expect(runtimeStage).toContain(
+      'NODE_OPTIONS="--max-old-space-size=4096 --dns-result-order=ipv4first --use-openssl-ca"',
+    );
+    expect(runtimeStage).not.toContain(
+      'NODE_OPTIONS="--dns-result-order=ipv4first --use-openssl-ca"',
+    );
+  });
+});

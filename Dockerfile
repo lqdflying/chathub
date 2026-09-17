@@ -244,8 +244,12 @@ FROM scratch
 # Copy all the files from app, set the correct permission for prerender cache
 COPY --from=app / /
 
+# This ENV replaces the builder NODE_OPTIONS entirely (Docker does not merge).
+# Keep the 4096 MiB V8 heap with the DNS/TLS flags. Operators may override the
+# whole string in Compose/env_file; a second NODE_OPTIONS line in env_file wins.
+# https://nodejs.org/api/cli.html#--max-old-space-sizesize-in-mib
 ENV NODE_ENV="production" \
-    NODE_OPTIONS="--dns-result-order=ipv4first --use-openssl-ca" \
+    NODE_OPTIONS="--max-old-space-size=4096 --dns-result-order=ipv4first --use-openssl-ca" \
     NODE_EXTRA_CA_CERTS="" \
     NODE_TLS_REJECT_UNAUTHORIZED="" \
     SSL_CERT_FILE="/etc/ssl/certs/ca-certificates.crt"
