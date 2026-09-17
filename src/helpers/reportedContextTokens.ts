@@ -173,6 +173,32 @@ export const getLatestReportedInputTokens = (
   return undefined;
 };
 
+export interface ReportedInputAnchor {
+  id: string;
+  totalInputTokens: number;
+}
+
+/**
+ * Newest settled assistant with provider-reported `totalInputTokens`, with its
+ * id, in the supplied window. This is the C2 usage anchor: the reported value
+ * exactly covers the fixed overhead plus every message up to that request, so
+ * estimators only need to tokenize the tail (the anchor's own reply and later
+ * messages) instead of the whole window.
+ */
+export const getLatestReportedInputAnchor = (
+  messages: UsageMessage[],
+  options?: { afterMessageId?: string; lookupMessages?: UsageMessage[] },
+): ReportedInputAnchor | undefined => {
+  const window = messagesAfterId(messages, options?.afterMessageId, options?.lookupMessages);
+  for (let index = window.length - 1; index >= 0; index -= 1) {
+    const value = readReportedInputFromMessage(window[index]);
+    const id = window[index].id;
+    if (value && id) return { id, totalInputTokens: value };
+  }
+
+  return undefined;
+};
+
 export const applyReportedInputTokenFloor = (
   estimatedTotal: number,
   reportedInput?: number,

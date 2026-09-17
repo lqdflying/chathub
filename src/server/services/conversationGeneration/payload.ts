@@ -14,6 +14,7 @@ import {
   ToolCallProcessor,
   ToolMessageReorder,
   ToolNameResolver,
+  ToolResultTruncateProcessor,
   ToolSystemRoleProvider,
   ToolsEngine,
   formatSkillInstructionsBlock,
@@ -225,6 +226,8 @@ export const buildConversationChatPayload = async ({
         enableHistoryCount: effectiveHistory.enableHistoryCount,
         historyCount: effectiveHistory.historyCount,
       }),
+      // Deterministic tool-result cap (stable per message id; wire-only view).
+      new ToolResultTruncateProcessor(),
       new SystemRoleInjector({ existingSystemRolePolicy: 'prepend', systemRole }),
       new AgentMemoryProvider({
         ...(chatConfig?.enableAssistantMemory === false ? {} : agentMemory),

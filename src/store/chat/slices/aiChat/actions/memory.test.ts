@@ -638,6 +638,94 @@ describe('chat memory actions', () => {
     );
   });
 
+  it('skips the LLM compaction when deterministic tool-result truncation reaches the low watermark', async () => {
+    const oversizedTool = {
+      ...message('tool1', 'tool', 't'.repeat(9000)),
+      tool_call_id: 'tc1',
+    } as UIChatMessage;
+    vi.mocked(estimateContextUsageAsync).mockReset().mockResolvedValue({
+      chatsToken: 550,
+      contextMessages: [...messages, oversizedTool],
+      historySummaryToken: 0,
+      inputToken: 0,
+      memoryToken: 0,
+      systemRoleToken: 0,
+      toolsToken: 0,
+      totalToken: 550,
+    });
+
+    const result = await useChatStore.getState().triggerTokenThresholdMemoryCompaction();
+
+    // Post-truncation 550 <= low (600) while the untruncated 550 + 488 recovery
+    // would have crossed high (800): truncation alone is sufficient.
+    expect(result).toEqual({
+      estimatedTokensBefore: 550,
+      highWatermark: 0.8,
+      lowWatermark: 0.6,
+      reason: 'truncation_sufficient',
+      status: 'not_needed',
+    });
+    expect(chatService.fetchPresetTaskResult).not.toHaveBeenCalled();
+  });
+
+  it('still reports below_high_watermark when truncation recovery cannot reach high', async () => {
+    const barelyOversizedTool = {
+      ...message('tool1', 'tool', 't'.repeat(8100)),
+      tool_call_id: 'tc1',
+    } as UIChatMessage;
+    vi.mocked(estimateContextUsageAsync).mockReset().mockResolvedValue({
+      chatsToken: 750,
+      contextMessages: [...messages, barelyOversizedTool],
+      historySummaryToken: 0,
+      inputToken: 0,
+      memoryToken: 0,
+      systemRoleToken: 0,
+      toolsToken: 0,
+      totalToken: 750,
+    });
+
+    const result = await useChatStore.getState().triggerTokenThresholdMemoryCompaction();
+
+    // 750 + 39 recovery = 789 < 800 high watermark.
+    expect(result).toMatchObject({ reason: 'below_high_watermark', status: 'not_needed' });
+    expect(chatService.fetchPresetTaskResult).not.toHaveBeenCalled();
+  });
+
+  it('compacts as today when truncation alone does not reach the low watermark', async () => {
+    const oversizedTool = {
+      ...message('tool1', 'tool', 't'.repeat(9000)),
+      tool_call_id: 'tc1',
+    } as UIChatMessage;
+    vi.mocked(estimateContextUsageAsync)
+      .mockReset()
+      .mockResolvedValueOnce({
+        chatsToken: 850,
+        contextMessages: [...messages, oversizedTool],
+        historySummaryToken: 0,
+        inputToken: 0,
+        memoryToken: 0,
+        systemRoleToken: 0,
+        toolsToken: 0,
+        totalToken: 850,
+      })
+      .mockResolvedValueOnce({
+        chatsToken: 4,
+        contextMessages: messages.slice(4),
+        historySummaryToken: 2,
+        inputToken: 0,
+        memoryToken: 0,
+        systemRoleToken: 0,
+        toolsToken: 0,
+        totalToken: 500,
+      });
+
+    const result = await useChatStore.getState().triggerTokenThresholdMemoryCompaction();
+
+    // 850 > low (600): the LLM compaction still runs.
+    expect(chatService.fetchPresetTaskResult).toHaveBeenCalled();
+    expect(result).toMatchObject({ status: 'compacted' });
+  });
+
   it('merges only messages after the persisted cursor into the prior summary', async () => {
     setConversation({
       topicMaps: {

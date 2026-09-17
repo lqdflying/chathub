@@ -347,7 +347,7 @@ describe('useEstimatedContextUsage', () => {
     );
   });
 
-  it('floors total usage with the latest provider-reported input tokens', () => {
+  it('anchors total usage on the latest provider-reported input tokens plus the tail', () => {
     mocks.mainChats.splice(
       0,
       mocks.mainChats.length,
@@ -362,10 +362,10 @@ describe('useEstimatedContextUsage', () => {
 
     const { result } = renderHook(() => useEstimatedContextUsage('main'));
 
-    expect(result.current.totalToken).toBe(50_000);
+    expect(result.current.totalToken).toBe(50_050);
   });
 
-  it('does not floor with the protected assistant after an identity watermark, even if updatedAt is newer', () => {
+  it('does not anchor on the protected assistant after an identity watermark, even if updatedAt is newer', () => {
     mocks.setAgentState({
       enableCompressHistory: true,
       enableHistoryCount: true,
@@ -401,7 +401,7 @@ describe('useEstimatedContextUsage', () => {
     expect(result.current.totalToken).toBeLessThan(1_048_570);
   });
 
-  it('floors a later assistant even when that row has older timestamps than the protected turn', () => {
+  it('anchors a later assistant even when that row has older timestamps than the protected turn', () => {
     mocks.setAgentState({
       enableCompressHistory: true,
       enableHistoryCount: true,
@@ -441,10 +441,10 @@ describe('useEstimatedContextUsage', () => {
     });
 
     const { result } = renderHook(() => useEstimatedContextUsage('main'));
-    expect(result.current.totalToken).toBe(400);
+    expect(result.current.totalToken).toBe(453);
   });
 
-  it('does not floor a protected assistant when a cursor exists without a watermark', () => {
+  it('does not anchor on a protected assistant when a cursor exists without a watermark', () => {
     mocks.setAgentState({
       enableCompressHistory: true,
       enableHistoryCount: true,
@@ -512,7 +512,7 @@ describe('useEstimatedContextUsage', () => {
     expect(result.current.totalToken).toBeLessThan(1_048_570);
   });
 
-  it('does not floor a request that straddled compaction after the placeholder finalizes', () => {
+  it('does not anchor on a request that straddled compaction after the placeholder finalizes', () => {
     mocks.setAgentState({
       enableCompressHistory: true,
       enableHistoryCount: true,
@@ -552,7 +552,7 @@ describe('useEstimatedContextUsage', () => {
     expect(result.current.totalToken).toBeLessThan(1_048_570);
   });
 
-  it('floors a later assistant after a persisted migration boundary', () => {
+  it('anchors a later assistant after a persisted migration boundary', () => {
     mocks.setAgentState({
       enableCompressHistory: true,
       enableHistoryCount: true,
@@ -590,10 +590,10 @@ describe('useEstimatedContextUsage', () => {
     });
 
     const { result } = renderHook(() => useEstimatedContextUsage('main'));
-    expect(result.current.totalToken).toBe(700_000);
+    expect(result.current.totalToken).toBe(700_053);
   });
 
-  it('floors a selected assistant when historyCount drops the stored marker', () => {
+  it('anchors a selected assistant when historyCount drops the stored marker', () => {
     mocks.setAgentState({
       enableCompressHistory: true,
       enableHistoryCount: true,
@@ -632,10 +632,10 @@ describe('useEstimatedContextUsage', () => {
 
     const { result } = renderHook(() => useEstimatedContextUsage('main'));
     expect(result.current.historyWindow.includedMessageCount).toBe(2);
-    expect(result.current.totalToken).toBe(700_000);
+    expect(result.current.totalToken).toBe(700_053);
   });
 
-  it('floors a new assistant after the deleted marker is rotated', () => {
+  it('anchors a new assistant after the deleted marker is rotated', () => {
     mocks.setAgentState({
       enableCompressHistory: true,
       enableHistoryCount: true,
@@ -673,10 +673,10 @@ describe('useEstimatedContextUsage', () => {
     });
 
     const { result } = renderHook(() => useEstimatedContextUsage('main'));
-    expect(result.current.totalToken).toBe(700_000);
+    expect(result.current.totalToken).toBe(700_053);
   });
 
-  it('floors a post-compaction assistant after a user-only remaining window', () => {
+  it('anchors a post-compaction assistant after a user-only remaining window', () => {
     mocks.setAgentState({
       enableCompressHistory: true,
       enableHistoryCount: true,
@@ -707,10 +707,10 @@ describe('useEstimatedContextUsage', () => {
     });
 
     const { result } = renderHook(() => useEstimatedContextUsage('main'));
-    expect(result.current.totalToken).toBe(700_000);
+    expect(result.current.totalToken).toBe(700_053);
   });
 
-  it('floors a fresh assistant after the sole post-cursor watermark is replaced by the cursor', () => {
+  it('anchors a fresh assistant after the sole post-cursor watermark is replaced by the cursor', () => {
     mocks.setAgentState({
       enableCompressHistory: true,
       enableHistoryCount: true,
@@ -741,6 +741,6 @@ describe('useEstimatedContextUsage', () => {
     });
 
     const { result } = renderHook(() => useEstimatedContextUsage('main'));
-    expect(result.current.totalToken).toBe(700_000);
+    expect(result.current.totalToken).toBe(700_053);
   });
 });

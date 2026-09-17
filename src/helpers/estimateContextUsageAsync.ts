@@ -37,6 +37,7 @@ import { buildHistorySummaryForRequest } from './memoryArchivePrompt';
 import {
   applyReportedInputTokenFloor,
   getEffectiveReportedInputTokenFloorAfterMessageId,
+  getLatestReportedInputAnchor,
   getLatestReportedInputTokens,
 } from './reportedContextTokens';
 
@@ -211,15 +212,6 @@ export const estimateContextUsageAsync = async ({
     pendingHasFiles,
     pendingInput: input,
   });
-  const chatsString = serializeMessagesForContextEstimate(chats, inputTemplate);
-  const chatsToken = await countTokens(chatsString);
-  const estimatedTotal =
-    systemRoleToken +
-    memoryToken +
-    historySummaryToken +
-    toolsToken +
-    chatsToken +
-    skillToken;
   const estimateMessages = chats.filter(({ id }) => id !== PENDING_CONTEXT_INPUT_MESSAGE_ID);
   const floorAfterMessageId = getEffectiveReportedInputTokenFloorAfterMessageId({
     cursorId: enableHistoryCompaction ? historySummaryLastMessageId : undefined,
@@ -227,16 +219,41 @@ export const estimateContextUsageAsync = async ({
     storedAfterMessageId: reportedInputTokenFloorAfterMessageId,
     topicMessages: rawMessages,
   });
-  const reportedInput = getLatestReportedInputTokens(
-    estimateMessages,
-    floorAfterMessageId
-      ? { afterMessageId: floorAfterMessageId, lookupMessages: rawMessages }
-      : undefined,
-  );
-  const floor = applyReportedInputTokenFloor(estimatedTotal, reportedInput);
+  const usageLookupOptions = floorAfterMessageId
+    ? { afterMessageId: floorAfterMessageId, lookupMessages: rawMessages }
+    : undefined;
+  const fixedTokens =
+    systemRoleToken + memoryToken + historySummaryToken + toolsToken + skillToken;
+
+  // C2 usage anchor: the newest post-watermark assistant's provider-reported
+  // totalInputTokens exactly covers fixed overhead plus history up to that
+  // request, so only the tail (the anchor's own reply and later messages,
+  // including the pending input row) needs tokenizing. This replaces the
+  // whole-window tokenizer estimate, which undercounts CJK ~3x. Without an
+  // anchor, fall back to the whole-window estimate floored by reported usage.
+  const anchor = getLatestReportedInputAnchor(estimateMessages, usageLookupOptions);
+
+  let chatsToken: number;
+  let totalToken: number;
+  if (anchor) {
+    const anchorIndex = chats.findIndex(({ id }) => id === anchor.id);
+    const tailToken = await countTokens(
+      serializeMessagesForContextEstimate(chats.slice(Math.max(0, anchorIndex)), inputTemplate),
+    );
+    totalToken = anchor.totalInputTokens + tailToken;
+    chatsToken = Math.max(0, totalToken - fixedTokens);
+  } else {
+    const wholeWindowToken = await countTokens(
+      serializeMessagesForContextEstimate(chats, inputTemplate),
+    );
+    const reportedInput = getLatestReportedInputTokens(estimateMessages, usageLookupOptions);
+    const floor = applyReportedInputTokenFloor(fixedTokens + wholeWindowToken, reportedInput);
+    chatsToken = wholeWindowToken + floor.chatsTokenDelta;
+    totalToken = floor.totalToken;
+  }
 
   return {
-    chatsToken: chatsToken + floor.chatsTokenDelta,
+    chatsToken,
     contextMessages: chats.filter(({ id }) => id !== PENDING_CONTEXT_INPUT_MESSAGE_ID),
     effectiveHistoryCount: resolveEffectiveHistoryCountForCompaction(
       effective,
@@ -248,6 +265,6 @@ export const estimateContextUsageAsync = async ({
     memoryToken,
     systemRoleToken,
     toolsToken,
-    totalToken: floor.totalToken,
+    totalToken,
   };
 };

@@ -1,3 +1,4 @@
+import { truncateToolResultContent } from '@lobechat/context-engine';
 import { chainSummaryHistory } from '@lobechat/prompts';
 import {
   type ChatTopicMetadata,
@@ -24,7 +25,10 @@ import {
   splitCompactionBatches,
 } from '@/helpers/contextCompaction';
 import { conversationGenerationIdempotencyKey } from '@/helpers/conversationGenerationIdempotency';
-import { getContextCompactionMaxSummaryTokens } from '@/helpers/contextUsageEstimate';
+import {
+  estimateToolResultTruncationRecoveryTokens,
+  getContextCompactionMaxSummaryTokens,
+} from '@/helpers/contextUsageEstimate';
 import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableConversationGeneration';
 import { estimateContextUsageAsync } from '@/helpers/estimateContextUsageAsync';
 import { createCompactionSummarizerTimeoutSignal } from '@/helpers/isContextOverflowError';
@@ -163,7 +167,13 @@ const selectTokenTargetPrefix = async ({
   for (const prefix of prefixes) {
     const removableText = prefix
       .filter(({ id }) => contextMessageIds.has(id))
-      .map(({ content }) => content)
+      // Wire terms: the request pipeline caps oversized tool results, so
+      // removing one only removes its capped bytes.
+      .map((message) =>
+        message.role === 'tool' && typeof message.content === 'string'
+          ? truncateToolResultContent(message.content)
+          : (message.content ?? ''),
+      )
       .join('');
     const removableTokens = await countTextTokens(removableText);
     const projectedTokens = estimatedTokensBefore - removableTokens + summaryGrowthAllowance;
@@ -315,6 +325,7 @@ async function runCompactionFromStore(
     targetReachable?: boolean;
     topicMessageCount?: number;
     truncatedForPreSend?: boolean;
+    truncationRecoveryTokens?: number;
   } = {};
 
   const finish = async (
@@ -372,6 +383,7 @@ async function runCompactionFromStore(
         totalToken,
         trigger,
         truncatedForPreSend: debug.truncatedForPreSend,
+        truncationRecoveryTokens: debug.truncationRecoveryTokens,
       });
     } catch {
       // Diagnostics must never interrupt compaction.
@@ -525,12 +537,34 @@ async function runCompactionFromStore(
     if (!maxTokens) {
       return finish('ineligible', { reason: 'unknown_context_window' });
     }
-    if (beforeEstimate.totalToken / maxTokens < high) {
+    // C3 truncate-before-compact: the request pipeline deterministically caps
+    // oversized tool results (ToolResultTruncateProcessor) and beforeEstimate
+    // already reflects that wire view. The pre-truncation total preserves the
+    // high-watermark trigger semantics; when truncation alone reaches the low
+    // watermark, skip the LLM compaction call entirely.
+    // Note: with a legacy (pre-cap) usage anchor, the anchor's reported input
+    // still contains uncapped tool dumps, so the recovery estimate may double
+    // count those — conservative direction only, and self-corrects once a
+    // post-cap request becomes the anchor.
+    const truncationRecoveryTokens = estimateToolResultTruncationRecoveryTokens(
+      beforeEstimate.contextMessages,
+    );
+    debug.truncationRecoveryTokens = truncationRecoveryTokens;
+    const untruncatedTotal = beforeEstimate.totalToken + truncationRecoveryTokens;
+    if (untruncatedTotal / maxTokens < high) {
       return finish('not_needed', {
         estimatedTokensBefore: beforeEstimate.totalToken,
         highWatermark: high,
         lowWatermark: low,
         reason: 'below_high_watermark',
+      });
+    }
+    if (truncationRecoveryTokens > 0 && beforeEstimate.totalToken <= maxTokens * low) {
+      return finish('not_needed', {
+        estimatedTokensBefore: beforeEstimate.totalToken,
+        highWatermark: high,
+        lowWatermark: low,
+        reason: 'truncation_sufficient',
       });
     }
   }

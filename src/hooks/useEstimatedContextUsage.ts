@@ -15,6 +15,7 @@ import { buildHistorySummaryForRequest } from '@/helpers/memoryArchivePrompt';
 import {
   applyReportedInputTokenFloor,
   getEffectiveReportedInputTokenFloorAfterMessageId,
+  getLatestReportedInputAnchor,
   getLatestReportedInputTokens,
 } from '@/helpers/reportedContextTokens';
 import { createChatToolsEngine } from '@/helpers/toolEngineering';
@@ -238,7 +239,14 @@ export const useEstimatedContextUsage = (
       toolsString: canUseTool ? toolsString : '',
     }) + knowledgeBaseToken;
 
-  const { chatsString, topicChatsString, historyWindow, reportedInputTokens } = useMemo(() => {
+  const {
+    anchorReportedInputTokens,
+    chatsString,
+    historyWindow,
+    reportedInputTokens,
+    tailString,
+    topicChatsString,
+  } = useMemo(() => {
     const state = useChatStore.getState();
     const chats =
       conversationSource === 'portal'
@@ -266,9 +274,19 @@ export const useEstimatedContextUsage = (
       storedAfterMessageId: reportedInputTokenFloorAfterMessageId,
       topicMessages: chats,
     });
+    const usageLookupOptions = floorAfterMessageId
+      ? { afterMessageId: floorAfterMessageId, lookupMessages: chats }
+      : undefined;
+    // C2 usage anchor: with a provider-reported input count, only the tail
+    // after that message needs tokenizing (mirrors estimateContextUsageAsync).
+    const anchor = getLatestReportedInputAnchor(estimateMessages, usageLookupOptions);
+    const anchorIndex = anchor ? sliced.findIndex(({ id }) => id === anchor.id) : -1;
 
     return {
-      chatsString: serializeMessagesForContextEstimate(sliced, inputTemplate),
+      anchorReportedInputTokens: anchor?.totalInputTokens,
+      chatsString: anchor
+        ? ''
+        : serializeMessagesForContextEstimate(sliced, inputTemplate),
       historyWindow: getHistoryWindowDiagnostics({
         configuredHistoryCount: historyCount,
         cursorId,
@@ -283,13 +301,13 @@ export const useEstimatedContextUsage = (
         pendingHasFiles: hasPendingFiles,
         pendingInput: input,
       }),
-      reportedInputTokens: getLatestReportedInputTokens(
-        estimateMessages,
-        floorAfterMessageId
-          ? { afterMessageId: floorAfterMessageId, lookupMessages: chats }
-          : undefined,
-      ),
-      topicChatsString: serializeMessagesForContextEstimate(chats, inputTemplate),
+      reportedInputTokens: getLatestReportedInputTokens(estimateMessages, usageLookupOptions),
+      tailString: anchor
+        ? serializeMessagesForContextEstimate(sliced.slice(Math.max(0, anchorIndex)), inputTemplate)
+        : '',
+      topicChatsString: serializeMessagesForContextEstimate(chats, inputTemplate, {
+        capToolResults: false,
+      }),
     };
   }, [
     conversationSource,
@@ -309,22 +327,29 @@ export const useEstimatedContextUsage = (
   ]);
 
   const chatsToken = useTokenCount(chatsString);
+  const tailToken = useTokenCount(tailString);
   const topicChatsToken = useTokenCount(topicChatsString);
-  const estimatedTotal =
-    systemRoleToken +
-    memoryToken +
-    historySummaryToken +
-    toolsToken +
-    chatsToken +
-    knowledgeBaseToken +
-    skillToken;
-  const floor = applyReportedInputTokenFloor(estimatedTotal, reportedInputTokens);
-  const totalToken = floor.totalToken;
+  const fixedTokens =
+    systemRoleToken + memoryToken + historySummaryToken + toolsToken + knowledgeBaseToken + skillToken;
+  const estimatedTotal = fixedTokens + chatsToken;
+
+  let chatsTokenDisplay: number;
+  let totalToken: number;
+  if (anchorReportedInputTokens !== undefined) {
+    // Anchored: provider-reported input + tail (+ current KB retrieval, which
+    // the anchor's request could not include yet).
+    totalToken = anchorReportedInputTokens + tailToken + knowledgeBaseToken;
+    chatsTokenDisplay = Math.max(0, totalToken - fixedTokens);
+  } else {
+    const floor = applyReportedInputTokenFloor(estimatedTotal, reportedInputTokens);
+    totalToken = floor.totalToken;
+    chatsTokenDisplay = chatsToken + floor.chatsTokenDelta;
+  }
   const ratio = maxTokens > 0 ? totalToken / maxTokens : 0;
 
   return {
     chatInstructionToken,
-    chatsToken: chatsToken + floor.chatsTokenDelta,
+    chatsToken: chatsTokenDisplay,
     historySummaryToken,
     historyWindow,
     inputTokenCount,

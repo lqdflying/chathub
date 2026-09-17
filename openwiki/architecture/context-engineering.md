@@ -211,6 +211,34 @@ those mismatches with `CHATHUB_COMPACTION_DEBUG` (`chathub-compaction-debug`); t
 does not change watermarks or when compact runs. `planner_settled` may also include
 `effectiveHistoryCount` (the window setting, not the included-row count),
 `excludedByHistoryCount`, and `preSendMessageCountCompact`.
+
+The estimate is **usage-anchored**: when the newest post-watermark assistant message carries
+provider-reported `totalInputTokens`, that value already covers fixed overhead plus every message
+up to its request, so `estimateContextUsageAsync` and the token popover tokenize only the tail
+(the anchor's own reply and later rows, including the pending draft) and add it to the reported
+number instead of tokenizing the whole window — the whole-window tokenizer undercounted a
+CJK-heavy History Compress prompt by roughly 3x. Without a usable anchor the estimator falls back
+to the whole-window estimate floored by the latest reported input
+(`applyReportedInputTokenFloor`), exactly as before. The anchor lookup
+(`getLatestReportedInputAnchor` in `src/helpers/reportedContextTokens.ts`) reuses the
+`reportedInputTokenFloorAfterMessageId` watermark, so a pre-compaction report can never anchor a
+post-compaction estimate.
+
+Request assembly also applies a **deterministic tool-result cap**:
+`ToolResultTruncateProcessor` (`packages/context-engine`) rewrites any `tool` message body over
+8,000 chars to a fixed prefix plus a `…[truncated N chars]` marker. The cap is a pure function of
+the message content — never of position or time — so capped bytes are stable per message id and
+the prompt-cache prefix survives across turns; stored messages keep full content and
+tool-call/tool-result pairs are never split. Both the browser (`contextEngineering.ts`) and
+worker (`payload.ts`) pipelines run it right after `HistoryTruncateProcessor`, and the estimate
+serializers apply the same cap by default so planner and popover numbers match the wire (the
+popover's topic-wide growth signal opts out). In the `token_threshold` planner the high-watermark
+gate still evaluates the **untruncated** total (estimate plus the chars/2 recovery estimate from
+`estimateToolResultTruncationRecoveryTokens`, logged as `truncationRecoveryTokens`), preserving
+trigger semantics; when truncation alone brings the wire estimate to or below the low watermark
+the run settles as `not_needed` / `truncation_sufficient` and no summarizer call is made.
+Otherwise compaction proceeds as before, with prefix selection also measured in capped (wire)
+terms.
 Token compaction chooses the oldest complete turns needed to reach the low watermark. It never
 summarizes the latest user turn or an unresolved assistant/tool tail. If fixed prompt content and the
 protected turn already exceed the target, the action reports `target_unreachable` instead of retrying
@@ -240,6 +268,15 @@ or an empty summary fails once (not Graphile-retried). Durable jobs carry the pl
 `summarizerContextWindow` (including custom/unlisted cards); the worker uses that snapshot before
 the built-in model-bank / 128k fallback.
 
+Every summarizer completion also runs under a hard deadline:
+`createCompactionSummarizerTimeoutSignal` (`src/helpers/isContextOverflowError.ts`) combines the
+caller's abort signal with `AbortSignal.timeout` (default 120s; server
+`CONTEXT_COMPACTION_SUMMARIZER_TIMEOUT_MS`, browser
+`NEXT_PUBLIC_CONTEXT_COMPACTION_SUMMARIZER_TIMEOUT_MS`). A timed-out batch maps to
+`CompactionSummarizerTimeoutError`, which fails the compaction once — like
+`EmptyCompactionSummaryError` it is never Graphile-retried — in both the browser planner
+(`summarizeBatch`) and the durable worker (`runCompactionPlan`).
+
 **Failed compaction idempotency:** a terminal `failed` / `interrupted` / `cancelled`
 `memory_compaction` row must not stick the topic. Enqueue retires that idempotency key and
 creates a new Graphile job; `succeeded` / in-flight keys still replay. The planner treats a
@@ -251,6 +288,22 @@ re-arms after a `failed` attempt, not after a stable `target_unreachable`.
 **not** enqueue chat. `target_unreachable` that drops usage into the band between low and high still
 sends. It persists the user message plus an assistant `ExceededContextWindow` error bubble and
 re-arms compact. Browser empty-at-ceiling completions also trigger another compact attempt.
+
+**Overflow self-healing:** when a provider still rejects the request (or returns an empty
+completion at the context ceiling) despite the gates above, the shared classifier
+`isContextOverflowError` (`src/helpers/isContextOverflowError.ts`) recognizes
+`AgentRuntimeErrorType.ExceededContextWindow`, the empty-completion-at-ceiling shape, and
+provider overflow signatures (`context_length_exceeded`, `maximum context length`,
+`prompt is too long`, MiniMax `2013`, and similar message/body patterns). Both lanes then force
+one compaction and re-dispatch the send **once** per send. The browser lanes
+(`internal_coreProcessMessage`, V2 `internal_execAgentRuntime`) run the manual compaction action
+with a dedicated abort controller (forcing the inline, batch-capped path even when durable
+generation is on), remove the failed assistant row (V1) or clear its error (V2), and retry with
+`contextOverflowRetried` set. The durable worker (`execute.ts`
+`attemptContextOverflowRecovery`) runs `runCompactionPlan` inline and retries the generation step
+with the same `conversationContext`, stamping `contextOverflowRetried` into the persisted config
+snapshot **before** compacting so a retried operation cannot loop. When compaction cannot reclaim
+history, the original `ExceededContextWindow` error bubble is kept.
 
 Durable enqueue returns status `enqueued` (not `ineligible`) so Compact now does not toast
 “this conversation cannot compact”. **Any** abortable pre-send run (`message_count` or `token_threshold`) processes at most

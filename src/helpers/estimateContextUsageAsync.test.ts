@@ -231,7 +231,7 @@ describe('estimateContextUsageAsync', () => {
     );
   });
 
-  it('floors the estimate with the latest provider-reported input tokens', async () => {
+  it('anchors the estimate on the latest provider-reported input tokens plus the tail', async () => {
     mocks.chats = [
       { content: 'hi', id: 'u1', role: 'user' },
       {
@@ -247,11 +247,37 @@ describe('estimateContextUsageAsync', () => {
       chatState: { inputMessage: '' } as any,
     });
 
-    expect(result.totalToken).toBe(50_000);
+    // 50_000 reported + tail 'assistant:\nok' (13) — the anchor's own reply was
+    // output of that request, so it is tokenized as part of the tail.
+    expect(result.totalToken).toBe(50_013);
     expect(result.chatsToken).toBeGreaterThan(0);
   });
 
-  it('does not floor with the protected assistant after an identity watermark, even if updatedAt is newer', async () => {
+  it('anchors mid-window and does not tokenize messages covered by the report', async () => {
+    mocks.chats = [
+      { content: 'x'.repeat(5000), id: 'u1', role: 'user' },
+      {
+        content: 'y'.repeat(100),
+        id: 'a1',
+        metadata: { totalInputTokens: 5000 },
+        role: 'assistant',
+      } as (typeof mocks.chats)[number],
+      { content: 'next', id: 'u2', role: 'user' },
+      { content: 'fresh', id: 'a2', role: 'assistant' },
+    ];
+
+    const result = await estimateContextUsageAsync({
+      agentState: {} as any,
+      chatState: { inputMessage: '' } as any,
+    });
+
+    // tail = a1 (111) + u2 ('user:\nnext' 10) + a2 ('assistant:\nfresh' 16) + 2 joins = 139
+    expect(result.totalToken).toBe(5000 + 139);
+    // The whole-window estimate would include u1's 5000 chars on top.
+    expect(result.totalToken).toBeLessThan(5000 + 5000);
+  });
+
+  it('does not anchor on the protected assistant after an identity watermark, even if updatedAt is newer', async () => {
     mocks.chats = [
       { content: 'old', id: 'u1', role: 'user' },
       {
@@ -286,7 +312,7 @@ describe('estimateContextUsageAsync', () => {
     expect(result.contextMessages.map(({ id }) => id)).toEqual(['u2', 'a2']);
   });
 
-  it('floors a later assistant even when that row has older timestamps than the protected turn', async () => {
+  it('anchors a later assistant even when that row has older timestamps than the protected turn', async () => {
     mocks.chats = [
       { content: 'old', id: 'u1', role: 'user' },
       {
@@ -325,10 +351,11 @@ describe('estimateContextUsageAsync', () => {
       chatState: { inputMessage: '' } as any,
     });
 
-    expect(result.totalToken).toBe(400);
+    // Anchor a3 (400) + tail 'assistant:\nfresh' (16) — u3 is inside the reported input.
+    expect(result.totalToken).toBe(416);
   });
 
-  it('does not floor a protected assistant when a cursor exists without a watermark', async () => {
+  it('does not anchor on a protected assistant when a cursor exists without a watermark', async () => {
     mocks.chats = [
       { content: 'old', id: 'u1', role: 'user' },
       {
@@ -393,7 +420,7 @@ describe('estimateContextUsageAsync', () => {
     expect(result.totalToken).toBeLessThan(1_048_570);
   });
 
-  it('does not floor a request that straddled compaction after the placeholder finalizes', async () => {
+  it('does not anchor on a request that straddled compaction after the placeholder finalizes', async () => {
     mocks.chats = [
       { content: 'old', id: 'u1', role: 'user' },
       {
@@ -431,7 +458,7 @@ describe('estimateContextUsageAsync', () => {
     expect(result.totalToken).toBeLessThan(1_048_570);
   });
 
-  it('floors a later assistant after a persisted migration boundary', async () => {
+  it('anchors a later assistant after a persisted migration boundary', async () => {
     mocks.chats = [
       { content: 'old', id: 'u1', role: 'user' },
       {
@@ -467,10 +494,11 @@ describe('estimateContextUsageAsync', () => {
       chatState: { inputMessage: '' } as any,
     });
 
-    expect(result.totalToken).toBe(700_000);
+    // Anchor a3 (700_000) + tail 'assistant:\nfresh' (16).
+    expect(result.totalToken).toBe(700_016);
   });
 
-  it('floors a selected assistant when historyCount drops the stored marker', async () => {
+  it('anchors a selected assistant when historyCount drops the stored marker', async () => {
     mocks.historyCount = 1;
     mocks.chats = [
       { content: 'old', id: 'u1', role: 'user' },
@@ -508,10 +536,11 @@ describe('estimateContextUsageAsync', () => {
     });
 
     expect(result.contextMessages.map(({ id }) => id)).toEqual(['u3', 'a3']);
-    expect(result.totalToken).toBe(700_000);
+    // Anchor a3 (700_000) + tail 'assistant:\nfresh' (16).
+    expect(result.totalToken).toBe(700_016);
   });
 
-  it('floors a new assistant after the deleted marker is rotated', async () => {
+  it('anchors a new assistant after the deleted marker is rotated', async () => {
     mocks.chats = [
       { content: 'old', id: 'u1', role: 'user' },
       {
@@ -547,10 +576,11 @@ describe('estimateContextUsageAsync', () => {
       chatState: { inputMessage: '' } as any,
     });
 
-    expect(result.totalToken).toBe(700_000);
+    // Anchor a4 (700_000) + tail 'assistant:\nfresh' (16).
+    expect(result.totalToken).toBe(700_016);
   });
 
-  it('floors a post-compaction assistant after a user-only remaining window', async () => {
+  it('anchors a post-compaction assistant after a user-only remaining window', async () => {
     mocks.chats = [
       { content: 'old', id: 'u1', role: 'user' },
       {
@@ -579,10 +609,11 @@ describe('estimateContextUsageAsync', () => {
       chatState: { inputMessage: '' } as any,
     });
 
-    expect(result.totalToken).toBe(700_000);
+    // Anchor a3 (700_000) + tail 'assistant:\nfresh' (16).
+    expect(result.totalToken).toBe(700_016);
   });
 
-  it('floors a fresh assistant after the sole post-cursor watermark is replaced by the cursor', async () => {
+  it('anchors a fresh assistant after the sole post-cursor watermark is replaced by the cursor', async () => {
     mocks.chats = [
       { content: 'old', id: 'u1', role: 'user' },
       {
@@ -611,6 +642,7 @@ describe('estimateContextUsageAsync', () => {
       chatState: { inputMessage: '' } as any,
     });
 
-    expect(result.totalToken).toBe(700_000);
+    // Anchor a4 (700_000) + tail 'assistant:\nfresh' (16).
+    expect(result.totalToken).toBe(700_016);
   });
 });

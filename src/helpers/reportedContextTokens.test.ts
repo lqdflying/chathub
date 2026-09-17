@@ -5,6 +5,7 @@ import { LOADING_FLAT } from '@/const/message';
 import {
   applyReportedInputTokenFloor,
   getEffectiveReportedInputTokenFloorAfterMessageId,
+  getLatestReportedInputAnchor,
   getLatestReportedInputTokenSourceId,
   getLatestReportedInputTokens,
   getReportedInputTokenFloorBoundaryId,
@@ -390,5 +391,38 @@ describe('reported context token floor', () => {
         { afterMessageId: 'u3' },
       ),
     ).toBe(700_000);
+  });
+
+  describe('getLatestReportedInputAnchor', () => {
+    it('returns the newest usage-reporting assistant with its id', () => {
+      expect(
+        getLatestReportedInputAnchor([
+          { content: 'hi', id: 'u1', role: 'user' },
+          { content: 'old', id: 'a1', metadata: { totalInputTokens: 100 }, role: 'assistant' },
+          { content: 'next', id: 'u2', role: 'user' },
+          { content: 'fresh', id: 'a2', metadata: { totalInputTokens: 200 }, role: 'assistant' },
+        ]),
+      ).toEqual({ id: 'a2', totalInputTokens: 200 });
+    });
+
+    it('skips usage-less assistants and respects the watermark window', () => {
+      const messages = [
+        { content: 'hi', id: 'u1', role: 'user' },
+        { content: 'old', id: 'a1', metadata: { totalInputTokens: 100 }, role: 'assistant' },
+        { content: 'next', id: 'u2', role: 'user' },
+        { content: 'fresh', id: 'a2', role: 'assistant' },
+      ];
+      expect(getLatestReportedInputAnchor(messages)).toEqual({ id: 'a1', totalInputTokens: 100 });
+      expect(getLatestReportedInputAnchor(messages, { afterMessageId: 'a1' })).toBeUndefined();
+    });
+
+    it('fail-closes to undefined when the watermark row is gone from the lookup', () => {
+      expect(
+        getLatestReportedInputAnchor(
+          [{ content: 'fresh', id: 'a2', metadata: { totalInputTokens: 200 }, role: 'assistant' }],
+          { afterMessageId: 'deleted' },
+        ),
+      ).toBeUndefined();
+    });
   });
 });

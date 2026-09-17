@@ -1,4 +1,4 @@
-import { applyUserInputTemplate, getSlicedMessages } from '@lobechat/context-engine';
+import { applyUserInputTemplate, getSlicedMessages, truncateToolResultContent } from '@lobechat/context-engine';
 import { chainSummaryHistory } from '@lobechat/prompts';
 import {
   type GPT5ReasoningEffort,
@@ -61,10 +61,13 @@ const serializeMessageForHistoryWindow = (
   message: MessageLikeForHistoryWindow,
   inputTemplate?: string,
 ): string => {
-  const content =
+  const rawContent =
     message.role === 'user'
       ? applyUserInputTemplate(inputTemplate, message.content ?? '')
       : (message.content ?? '');
+  // Match the wire: ToolResultTruncateProcessor caps oversized tool results.
+  const content =
+    message.role === 'tool' ? truncateToolResultContent(rawContent) : rawContent;
   const parts = [`${message.role ?? ''}:`, content];
   if (message.tool_call_id) parts.push(`tool_call_id:${message.tool_call_id}`);
   if (message.tools?.length) parts.push(JSON.stringify(message.tools));

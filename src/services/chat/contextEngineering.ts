@@ -14,6 +14,7 @@ import {
   ToolCallProcessor,
   ToolMessageReorder,
   ToolNameResolver,
+  ToolResultTruncateProcessor,
   ToolSystemRoleProvider,
 } from '@lobechat/context-engine';
 import { agentMemoryPrompt, historySummaryPrompt } from '@lobechat/prompts';
@@ -116,6 +117,11 @@ export const contextEngineering = async ({
     pipeline: [
       // 1. History truncation (MUST be first, before any message injection)
       new HistoryTruncateProcessor({ enableHistoryCount, historyCount }),
+
+      // 1.5 Deterministic tool-result cap (pure per-message content function, so the
+      // capped bytes are stable per message id and never break the prompt-cache prefix).
+      // Wire-only view: stored messages keep full content; pairs stay atomic.
+      new ToolResultTruncateProcessor(),
 
       // --------- Create system role injection providers
 

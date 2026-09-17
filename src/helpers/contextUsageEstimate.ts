@@ -1,4 +1,4 @@
-import { applyUserInputTemplate, getSlicedMessages } from '@lobechat/context-engine';
+import { applyUserInputTemplate, getSlicedMessages, truncateToolResultContent } from '@lobechat/context-engine';
 import { historySummaryPrompt } from '@lobechat/prompts';
 import type { UIChatMessage } from '@lobechat/types';
 
@@ -26,15 +26,29 @@ export type MessageLikeForContextEstimate = Pick<
   'content' | 'role' | 'tool_call_id' | 'tools'
 >;
 
+export interface SerializeContextEstimateOptions {
+  /**
+   * Cap tool-result content like the request-assembly pipeline does
+   * (ToolResultTruncateProcessor). Default true so estimates match the wire;
+   * pass false for growth signals that should see the full stored content.
+   */
+  capToolResults?: boolean;
+}
+
 /** Serialize a chat row closer to the wire than content-only joins. */
 export const serializeMessageForContextEstimate = (
   message: MessageLikeForContextEstimate,
   inputTemplate?: string,
+  options?: SerializeContextEstimateOptions,
 ): string => {
-  const content =
+  const rawContent =
     message.role === 'user'
       ? applyUserInputTemplate(inputTemplate, message.content ?? '')
       : (message.content ?? '');
+  const content =
+    message.role === 'tool' && options?.capToolResults !== false
+      ? truncateToolResultContent(rawContent)
+      : rawContent;
   const parts = [`${message.role ?? ''}:`, content];
   if (message.tool_call_id) parts.push(`tool_call_id:${message.tool_call_id}`);
   if (message.tools?.length) parts.push(JSON.stringify(message.tools));
@@ -44,8 +58,33 @@ export const serializeMessageForContextEstimate = (
 export const serializeMessagesForContextEstimate = (
   messages: MessageLikeForContextEstimate[],
   inputTemplate?: string,
+  options?: SerializeContextEstimateOptions,
 ): string =>
-  messages.map((message) => serializeMessageForContextEstimate(message, inputTemplate)).join('\n');
+  messages
+    .map((message) => serializeMessageForContextEstimate(message, inputTemplate, options))
+    .join('\n');
+
+/**
+ * Chars recoverable on the wire by the deterministic tool-result cap, expressed
+ * in tokens with the CJK-safe ratio used by the other window math. Used by the
+ * token-threshold planner to skip an LLM compaction when truncation alone
+ * reaches the low watermark.
+ */
+export const estimateToolResultTruncationRecoveryTokens = (
+  messages: Array<Pick<UIChatMessage, 'content' | 'role'>>,
+): number => {
+  let recoverableChars = 0;
+  for (const message of messages) {
+    if (message.role !== 'tool' || typeof message.content !== 'string') continue;
+    // Per-message floor at 0: barely-over-cap content gets a marker longer than
+    // the omitted text, which is not a recovery.
+    recoverableChars += Math.max(
+      0,
+      message.content.length - truncateToolResultContent(message.content).length,
+    );
+  }
+  return Math.ceil(recoverableChars / CONTEXT_CHARS_PER_TOKEN_ESTIMATE);
+};
 
 /** Match HistorySummaryProvider: count the XML wrapper, not only raw summary text. */
 export const wrapHistorySummaryForTokenEstimate = (rawSummary: string): string => {

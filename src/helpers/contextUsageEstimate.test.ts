@@ -1,9 +1,11 @@
 import type { UIChatMessage } from '@lobechat/types';
+import { TOOL_RESULT_CONTENT_MAX_CHARS, truncateToolResultContent } from '@lobechat/context-engine';
 import { describe, expect, it } from 'vitest';
 
-import { LARGE_CONTEXT_WINDOW_TOKENS } from './contextCompaction';
+import { CONTEXT_CHARS_PER_TOKEN_ESTIMATE, LARGE_CONTEXT_WINDOW_TOKENS } from './contextCompaction';
 import {
   estimateFixedContextOverheadTokens,
+  estimateToolResultTruncationRecoveryTokens,
   getContextCompactionMaxSummaryTokens,
   getHistoryWindowDiagnostics,
   resolveEffectiveHistoryWindow,
@@ -224,5 +226,55 @@ ${'Review diffs carefully.'.repeat(10)}
     expect(getContextCompactionMaxSummaryTokens('minimal')).toBe(400);
     expect(getContextCompactionMaxSummaryTokens('balanced')).toBe(600);
     expect(getContextCompactionMaxSummaryTokens('rich')).toBe(800);
+  });
+
+  describe('tool-result truncation (C3)', () => {
+    const oversizedTool = (content: string): UIChatMessage =>
+      ({ content, id: 'tool1', role: 'tool', tool_call_id: 'tc1' }) as UIChatMessage;
+
+    it('caps oversized tool results by default so estimates match the wire', () => {
+      const content = 't'.repeat(TOOL_RESULT_CONTENT_MAX_CHARS + 100);
+      const serialized = serializeMessageForContextEstimate(oversizedTool(content));
+
+      expect(serialized).toBe(
+        `tool:\n${'t'.repeat(TOOL_RESULT_CONTENT_MAX_CHARS)}\n…[truncated 100 chars]\ntool_call_id:tc1`,
+      );
+    });
+
+    it('keeps full tool content when capToolResults is false (growth signal)', () => {
+      const content = 't'.repeat(TOOL_RESULT_CONTENT_MAX_CHARS + 100);
+      const serialized = serializeMessageForContextEstimate(oversizedTool(content), undefined, {
+        capToolResults: false,
+      });
+
+      expect(serialized).toContain(content);
+    });
+
+    it('leaves user and assistant content uncapped', () => {
+      const content = 'u'.repeat(TOOL_RESULT_CONTENT_MAX_CHARS + 100);
+      expect(serializeMessageForContextEstimate(message('u1', 'user', content))).toContain(content);
+      expect(serializeMessageForContextEstimate(message('a1', 'assistant', content))).toContain(
+        content,
+      );
+    });
+
+    it('estimates recoverable tokens from the deterministic cap', () => {
+      const content = 't'.repeat(TOOL_RESULT_CONTENT_MAX_CHARS + 1000);
+      const messages = [
+        message('u1', 'user'),
+        oversizedTool(content),
+        message('a1', 'assistant'),
+      ];
+
+      const recoverableChars =
+        content.length - truncateToolResultContent(content).length;
+      expect(estimateToolResultTruncationRecoveryTokens(messages)).toBe(
+        Math.ceil(recoverableChars / CONTEXT_CHARS_PER_TOKEN_ESTIMATE),
+      );
+      // Non-tool roles never contribute.
+      expect(
+        estimateToolResultTruncationRecoveryTokens([message('u1', 'user', 'x'.repeat(20_000))]),
+      ).toBe(0);
+    });
   });
 });
