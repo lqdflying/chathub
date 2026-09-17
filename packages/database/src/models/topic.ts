@@ -181,8 +181,6 @@ export class TopicModel {
       lt(topics.lastActivityAt, activityTo),
     );
 
-  private dreamSummaryPresent = () => sql`btrim(coalesce(${topics.historySummary}, '')) <> ''`;
-
   /** Count topics linked to `agentId` active in `[activityFrom, activityTo)`. */
   countTopicsForAssistantMemoryDream = async ({
     activityFrom,
@@ -203,8 +201,9 @@ export class TopicModel {
   };
 
   /**
-   * Newest topics linked to `agentId` active in `[activityFrom, activityTo)` with a
-   * non-empty `historySummary`, capped for the dream prompt.
+   * Newest topics linked to `agentId` active in `[activityFrom, activityTo)`, capped for the
+   * dream prompt. Topics without a `historySummary` are included — the dream falls back to a
+   * recent-message excerpt for them, so a never-compacted topic still feeds the dream.
    */
   listTopicsForAssistantMemoryDream = async ({
     activityFrom,
@@ -228,7 +227,7 @@ export class TopicModel {
       })
       .from(topics)
       .innerJoin(agentsToSessions, this.dreamActivityJoin(agentId))
-      .where(and(this.dreamActivityWhere(activityFrom, activityTo), this.dreamSummaryPresent()))
+      .where(this.dreamActivityWhere(activityFrom, activityTo))
       .orderBy(desc(topics.lastActivityAt))
       .limit(Math.min(Math.max(limit, 1), 100));
   };

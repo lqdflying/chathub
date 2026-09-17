@@ -11,6 +11,12 @@ import {
 export interface AssistantMemoryDreamTopicInput {
   historySummary: string | null;
   sessionId: string | null;
+  /**
+   * Where `historySummary` text came from: a compaction summary, or a bounded excerpt of
+   * the topic's recent messages when no summary exists yet. Label only — both are capped
+   * the same. Defaults to `summary`.
+   */
+  source?: 'excerpt' | 'summary';
   title: string | null;
 }
 
@@ -51,8 +57,9 @@ export const buildAssistantMemoryDreamUserContent = (
   const blocks = withContent.map((t, i) => {
     const title = (t.title ?? '').trim() || '(untitled)';
     const sid = (t.sessionId ?? '').trim() || '(unknown)';
+    const source = t.source === 'excerpt' ? 'recent messages excerpt' : 'topic summary';
     const body = capTopicSummaryText(t.historySummary, maxChars);
-    return `### ${i + 1}. ${title}\nSession: ${sid}\n\n${body}`;
+    return `### ${i + 1}. ${title}\nSession: ${sid}\nSource: ${source}\n\n${body}`;
   });
 
   const sections: string[] = [];
@@ -65,7 +72,7 @@ export const buildAssistantMemoryDreamUserContent = (
 
   sections.push(
     `## Prior dream memory cards (read-only — do not rewrite or duplicate)\n\n${prior || '(empty)'}`,
-    `## Topic summaries from UTC day ${historyDate} (newest first; ${blocks.length} topics)\n\n${blocks.join('\n\n---\n\n')}`,
+    `## Topic summaries and recent-message excerpts from UTC day ${historyDate} (newest first; ${blocks.length} topics)\n\n${blocks.join('\n\n---\n\n')}`,
   );
 
   return sections.join('\n\n');
@@ -108,7 +115,7 @@ Output rules:
 - Do NOT duplicate anything already covered in fixed memory or prior dream cards.
 - Organize by category (Preferences / Interaction style / Workflow), never by topic. A "Topic N: ..." structure is forbidden.
 - A short memory is better than a padded one. Most days contain nothing new — extracting nothing is the normal case. Never add filler.
-- Write in the dominant language of the prior dream cards and topic summaries.
+- Write in the dominant language of the prior dream cards and topic material above.
 
 If the listed topics contain no new durable signal beyond what is already in prior dream cards or fixed memory, output exactly ${ASSISTANT_MEMORY_NO_CHANGES_SENTINEL}.
 Otherwise output only the new card body text, without preamble or explanation.`,

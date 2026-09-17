@@ -25,10 +25,12 @@ import {
   desc,
   eq,
   gt,
+  gte,
   inArray,
   isNotNull,
   isNull,
   like,
+  lt,
   or,
   sql,
 } from 'drizzle-orm';
@@ -389,6 +391,60 @@ export class MessageModel {
     });
 
     return result.map(removeMessageOrder) as DBMessageItem[];
+  };
+
+  /**
+   * Newest user/assistant text rows per topic within `[activityFrom, activityTo)`, capped
+   * per topic. Feeds the scheduled memory dream when a topic has no compaction summary —
+   * the dream turns these into a bounded recent-message excerpt instead of skipping.
+   */
+  listRecentTextForMemoryDream = async ({
+    activityFrom,
+    activityTo,
+    perTopicLimit = 20,
+    topicIds,
+  }: {
+    activityFrom: Date;
+    activityTo: Date;
+    perTopicLimit?: number;
+    topicIds: string[];
+  }): Promise<{ content: string; role: string; topicId: string }[]> => {
+    if (topicIds.length === 0) return [];
+
+    const rows = await this.db
+      .select({
+        content: messages.content,
+        role: messages.role,
+        topicId: messages.topicId,
+      })
+      .from(messages)
+      .where(
+        and(
+          eq(messages.userId, this.userId),
+          inArray(messages.topicId, topicIds),
+          inArray(messages.role, ['user', 'assistant']),
+          gte(messages.createdAt, activityFrom),
+          lt(messages.createdAt, activityTo),
+          isNotNull(messages.content),
+        ),
+      )
+      .orderBy(desc(messages.createdAt), desc(messages.messageOrder));
+
+    const kept: { content: string; role: string; topicId: string }[] = [];
+    const seen = new Map<string, number>();
+    const cap = Math.min(Math.max(perTopicLimit, 1), 100);
+
+    for (const row of rows) {
+      const topicId = row.topicId;
+      const content = (row.content ?? '').trim();
+      if (!topicId || !content) continue;
+      const countForTopic = seen.get(topicId) ?? 0;
+      if (countForTopic >= cap) continue;
+      seen.set(topicId, countForTopic + 1);
+      kept.push({ content, role: row.role, topicId });
+    }
+
+    return kept;
   };
 
   /**
@@ -808,11 +864,13 @@ export class MessageModel {
           or(
             sql`coalesce(${messagePlugins.state} -> ${MCP_RESULT_RECOVERY_STATE_KEY}::text ->> 'status', '') is distinct from 'pending'`,
             sql`${messagePlugins.state} -> ${MCP_RESULT_RECOVERY_STATE_KEY}::text ->> 'invocationId' = ${invocationId}`,
-            sql`(
-              ${messagePlugins.state} -> ${MCP_RESULT_RECOVERY_STATE_KEY}::text ->> 'status' = 'pending'
-              AND (${messagePlugins.state} -> ${MCP_RESULT_RECOVERY_STATE_KEY}::text ->> 'startedAt') is not null
-              AND (${messagePlugins.state} -> ${MCP_RESULT_RECOVERY_STATE_KEY}::text ->> 'startedAt')::bigint < ${cutoff}
-            )`,
+            sql`
+              (
+                            ${messagePlugins.state} -> ${MCP_RESULT_RECOVERY_STATE_KEY}::text ->> 'status' = 'pending'
+                            AND (${messagePlugins.state} -> ${MCP_RESULT_RECOVERY_STATE_KEY}::text ->> 'startedAt') is not null
+                            AND (${messagePlugins.state} -> ${MCP_RESULT_RECOVERY_STATE_KEY}::text ->> 'startedAt')::bigint < ${cutoff}
+                          )
+            `,
           ),
         ),
       )

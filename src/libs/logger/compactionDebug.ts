@@ -329,6 +329,7 @@ const dreamSchedulerSettledFieldsSchema = z
     reason: optionalEnum(COMPACTION_DEBUG_DREAM_SETTLE_REASONS),
     singleDayCount: optionalFiniteNumber,
     status: optionalEnum(COMPACTION_DEBUG_DREAM_STATUSES),
+    topicsWithExcerpt: optionalFiniteNumber,
     topicsWithSummary: optionalFiniteNumber,
     trigger: optionalEnum(COMPACTION_DEBUG_TRIGGERS),
   })

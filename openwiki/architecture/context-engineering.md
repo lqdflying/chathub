@@ -387,11 +387,17 @@ read time to `daily` via `resolveMemoryDreamSchedule` (shared by the settings UI
 dispatcher). There is no per-user timezone field.
 
 **Scope.** The job lists topics linked to the agent whose `lastActivityAt` falls in the
-**previous UTC calendar day**, with a non-empty `historySummary`. It does not scan all
+**previous UTC calendar day**. Each topic feeds the prompt through its non-empty
+`historySummary`; a topic without one falls back to a bounded excerpt of its own
+user/assistant messages from that UTC window (`listRecentTextForMemoryDream`, newest
+first, per-topic cap, same per-topic char budget as a summary), so never-compacted topics
+no longer force a `no_summaries` skip. `no_summaries` now means the active topics had no
+readable content at all. It does not scan all
 assistant topics and does not compact topic history. Weekly schedule still uses the
 **previous UTC calendar day** per run (not the whole week). The prompt
 (`chainAssistantMemoryDream`) is a style-learning pass: communication style, interaction
-patterns, tool habits, standing preferences — never per-topic recaps. The model outputs
+patterns, tool habits, standing preferences — never per-topic recaps. Each topic block is
+labeled `Source: topic summary` vs `Source: recent messages excerpt`. The model outputs
 **only the new card body** (or `NO_CHANGES`), not a full document rewrite; prior dream
 cards and fixed memory are read-only do-not-duplicate context in the prompt. When the new
 card would push single-day count above **Keep dream cards** (N), a second completion
@@ -442,10 +448,11 @@ overwriting newer memory or metadata.
 **Debug.** Dream events share `CHATHUB_COMPACTION_DEBUG` / `chathub-compaction-debug`:
 `dream_scheduler_tick` and `dream_scheduler_settled` with `path=assistant_memory_rollup`.
 Scheduled Graphile jobs use `trigger=scheduled`; per-card regenerate uses `trigger=manual`.
-Settle records include keep-N counts, overflow envelope kind (`none` / `overflow_v1` /
+Settle records include keep-N counts, topic source counts (`topicsWithSummary` /
+`topicsWithExcerpt`), overflow envelope kind (`none` / `overflow_v1` /
 `opaque_v3` / `opaque_payload`), and fold path (`none` / `llm` / `llm_rewrite` /
-`concat_fallback`). They are server-emitted and never include card bodies or overflow
-text. After the daily topic-note scheduler was removed, `planner_settled` with
+`concat_fallback`). They are server-emitted and never include card bodies, overflow
+text, or message excerpts. After the daily topic-note scheduler was removed, `planner_settled` with
 `trigger=scheduled` on a topic path is a regression.
 
 The settings Memory tab **Dreaming Memory** group exposes topic snippets, the UTC dream

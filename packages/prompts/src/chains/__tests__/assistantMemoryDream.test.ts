@@ -45,6 +45,29 @@ describe('buildAssistantMemoryDreamUserContent', () => {
     expect(body).toContain('UTC day 2026-08-27');
     expect(body).toContain('Prior dream memory cards');
   });
+
+  it('labels each topic block with its source kind', () => {
+    const body = buildAssistantMemoryDreamUserContent('prior', [
+      { historySummary: 'compacted summary', sessionId: 's1', title: 'A' },
+      {
+        historySummary: 'User: hi\nAssistant: hello',
+        sessionId: 's2',
+        source: 'excerpt',
+        title: 'B',
+      },
+    ]);
+    expect(body).toContain('Topic summaries and recent-message excerpts');
+    expect(body).toContain('### 1. A\nSession: s1\nSource: topic summary');
+    expect(body).toContain('### 2. B\nSession: s2\nSource: recent messages excerpt');
+  });
+
+  it('defaults a missing source to topic summary', () => {
+    const body = buildAssistantMemoryDreamUserContent('prior', [
+      { historySummary: 'hello', sessionId: 's1', title: 'A' },
+    ]);
+    expect(body).toContain('Source: topic summary');
+    expect(body).not.toContain('recent messages excerpt');
+  });
 });
 
 describe('chainAssistantMemoryDream', () => {

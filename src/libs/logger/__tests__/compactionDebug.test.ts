@@ -285,6 +285,7 @@ describe('CHATHUB_COMPACTION_DEBUG emitter', () => {
         path: 'assistant_memory_rollup',
         reason: 'no_changes',
         status: 'skipped',
+        topicsWithExcerpt: 1,
         topicsWithSummary: 2,
         trigger: 'scheduled',
       });
@@ -297,6 +298,7 @@ describe('CHATHUB_COMPACTION_DEBUG emitter', () => {
         path: 'assistant_memory_rollup',
         reason: 'no_changes',
         status: 'skipped',
+        topicsWithExcerpt: 1,
         topicsWithSummary: 2,
       });
     });

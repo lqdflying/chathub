@@ -387,7 +387,7 @@
     "dynamicMemory": {
       "deleteConfirm": "Delete this dream memory? Remaining entries will be renumbered.",
       "empty": "No dynamic memory yet. Enable the memory dream and cards will be appended at the scheduled time.",
-      "hint": "Each successful memory dream appends one UTC-dated card (#1, #2, …) from that UTC day's active topic summaries. Edit or delete cards individually; single-day cards can be regenerated for that UTC day only. Older single-day cards beyond the keep count are re-summarized into one range card of at most 6400 characters when the dream runs.",
+      "hint": "Each successful memory dream appends one UTC-dated card (#1, #2, …) from that UTC day's active topics — the compaction summary when one exists, or a short excerpt of the topic's recent messages from that day when it does not. Edit or delete cards individually; single-day cards can be regenerated for that UTC day only. Older single-day cards beyond the keep count are re-summarized into one range card of at most 6400 characters while the dream runs.",
       "lastUpdated": "Updated {{time}}",
       "save": "Save changes",
       "title": "Dynamic memory"
@@ -412,7 +412,7 @@
     "enableUserMemoryArchive": {
       "desc": "Store short summary snippets on the topic for the model to reuse.",
       "title": "Topic snippets",
-      "tooltip": "Stores short summary snippets in each topic's metadata for the model to reuse. Enable Limit history and Summarize history on Chat Preferences so compaction summaries can feed the memory dream."
+      "tooltip": "Stores short summary snippets in each topic's metadata for the model to reuse. The memory dream prefers compaction summaries (which need Limit history and Summarize history on Chat Preferences); a topic without a summary still joins through a recent-message excerpt."
     },
     "fixedMemory": {
       "addEntry": "Add memory",

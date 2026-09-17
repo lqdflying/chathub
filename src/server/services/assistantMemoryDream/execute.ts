@@ -1,5 +1,6 @@
 import type { LobeChatDatabase } from '@lobechat/database';
 import {
+  ASSISTANT_MEMORY_DREAM_MAX_CHARS_PER_TOPIC,
   ASSISTANT_MEMORY_DREAM_MAX_OUTPUT_TOKENS,
   ASSISTANT_MEMORY_DREAM_MAX_TOPICS,
   ASSISTANT_MEMORY_NO_CHANGES_SENTINEL,
@@ -8,10 +9,12 @@ import {
   chainAssistantMemoryDream,
   chainAssistantMemoryOverflowFold,
 } from '@lobechat/prompts';
+import type { AssistantMemoryDreamTopicInput } from '@lobechat/prompts';
 import type { AssistantMemoryMeta, LobeAgentChatConfig } from '@lobechat/types';
 import { and, eq } from 'drizzle-orm';
 
 import { DEFAULT_SYSTEM_AGENT_CONFIG } from '@/const/settings';
+import { MessageModel } from '@/database/models/message';
 import { TopicModel } from '@/database/models/topic';
 import { UserModel } from '@/database/models/user';
 import { agents } from '@/database/schemas';
@@ -63,6 +66,7 @@ export interface AssistantMemoryDreamExecuteResult {
   activeTopicCount?: number;
   reason?: string;
   status: 'failed' | 'skipped' | 'success';
+  topicsWithExcerpt?: number;
   topicsWithSummary?: number;
 }
 
@@ -95,6 +99,7 @@ type DreamSettleFields = {
   memoryDoc?: string | null;
   reason?: string;
   status: AssistantMemoryDreamExecuteResult['status'];
+  topicsWithExcerpt?: number;
   topicsWithSummary?: number;
   trigger?: 'manual' | 'scheduled';
 };
@@ -127,6 +132,7 @@ const settle = (fields: DreamSettleFields) => {
     reason: fields.reason,
     singleDayCount: snapshot?.singleDayCount,
     status: fields.status,
+    topicsWithExcerpt: fields.topicsWithExcerpt,
     topicsWithSummary: fields.topicsWithSummary,
     trigger: fields.trigger ?? 'scheduled',
   });
@@ -185,7 +191,7 @@ const runDreamCompletion = async ({
   model: string;
   prior: string;
   provider: string;
-  topics: Array<{ historySummary: string | null; sessionId: string | null; title: string | null }>;
+  topics: AssistantMemoryDreamTopicInput[];
   userId: string;
 }) => {
   const runtimePayload = await resolveConversationRuntimePayload({ db, provider, userId });
@@ -395,6 +401,61 @@ export const executeAssistantMemoryDream = async ({
     limit: ASSISTANT_MEMORY_DREAM_MAX_TOPICS,
   });
 
+  // Topics without a compaction summary still feed the dream: fall back to a bounded
+  // excerpt of their own user/assistant messages from the activity window. Without this,
+  // never-compacted topics made every run skip with `no_summaries`.
+  const messageModel = new MessageModel(db, userId);
+  const excerptRows = await messageModel.listRecentTextForMemoryDream({
+    activityFrom: activityWindow.from,
+    activityTo: activityWindow.to,
+    topicIds: topics
+      .filter((topic) => (topic.historySummary ?? '').trim().length === 0)
+      .map((topic) => topic.id),
+  });
+  const excerptsByTopic = new Map<string, { content: string; role: string }[]>();
+  for (const row of excerptRows) {
+    const list = excerptsByTopic.get(row.topicId) ?? [];
+    list.push(row);
+    excerptsByTopic.set(row.topicId, list);
+  }
+
+  const dreamTopics: AssistantMemoryDreamTopicInput[] = [];
+  let topicsWithSummary = 0;
+  let topicsWithExcerpt = 0;
+  for (const topic of topics) {
+    const summary = (topic.historySummary ?? '').trim();
+    if (summary) {
+      dreamTopics.push({
+        historySummary: summary,
+        sessionId: topic.sessionId,
+        source: 'summary',
+        title: topic.title,
+      });
+      topicsWithSummary += 1;
+      continue;
+    }
+    // Rows are newest-first; keep as many of the newest lines as fit the per-topic
+    // budget, then present them chronologically.
+    const rows = excerptsByTopic.get(topic.id) ?? [];
+    const lines: string[] = [];
+    let chars = 0;
+    for (const row of rows) {
+      const line = `${row.role === 'user' ? 'User' : 'Assistant'}: ${row.content}`;
+      if (lines.length > 0 && chars + line.length > ASSISTANT_MEMORY_DREAM_MAX_CHARS_PER_TOPIC)
+        break;
+      lines.push(line);
+      chars += line.length + 1;
+    }
+    if (lines.length === 0) continue;
+    dreamTopics.push({
+      historySummary: lines.reverse().join('\n'),
+      sessionId: topic.sessionId,
+      source: 'excerpt',
+      title: topic.title,
+    });
+    topicsWithExcerpt += 1;
+  }
+
   const writeMarker = async (extra: Partial<AssistantMemoryMeta> = {}) => {
     const wrote = await writeAgentMemoryIfUnchanged(db, agentId, userId, snapshot, {
       assistantMemoryMeta: {
@@ -432,16 +493,17 @@ export const executeAssistantMemoryDream = async ({
       reason: 'no_active_topics_yesterday',
       status: 'skipped' as const,
     };
-    emitSettle({ ...result, topicsWithSummary: 0 });
+    emitSettle({ ...result, topicsWithExcerpt: 0, topicsWithSummary: 0 });
     return result;
   }
 
-  if (topics.length === 0) {
+  if (dreamTopics.length === 0) {
     if (isRegenerate) {
       const result = {
         activeTopicCount,
         reason: 'no_summaries',
         status: 'skipped' as const,
+        topicsWithExcerpt: 0,
         topicsWithSummary: 0,
       };
       emitSettle(result);
@@ -456,6 +518,7 @@ export const executeAssistantMemoryDream = async ({
       activeTopicCount,
       reason: 'no_summaries',
       status: 'skipped' as const,
+      topicsWithExcerpt: 0,
       topicsWithSummary: 0,
     };
     emitSettle(result);
@@ -475,11 +538,7 @@ export const executeAssistantMemoryDream = async ({
       model,
       prior: serializeDreamMemoryPriorForPrompt(priorDoc),
       provider,
-      topics: topics.map((topic) => ({
-        historySummary: topic.historySummary,
-        sessionId: topic.sessionId,
-        title: topic.title,
-      })),
+      topics: dreamTopics,
       userId,
     });
   } catch (error) {
@@ -497,21 +556,23 @@ export const executeAssistantMemoryDream = async ({
         activeTopicCount,
         reason: 'no_changes',
         status: 'skipped' as const,
-        topicsWithSummary: topics.length,
+        topicsWithExcerpt,
+        topicsWithSummary,
       };
       emitSettle(result);
       return result;
     }
     if (!(await writeMarker())) {
       const result = { reason: 'stale_conflict', status: 'skipped' as const };
-      emitSettle({ ...result, topicsWithSummary: topics.length });
+      emitSettle({ ...result, topicsWithExcerpt, topicsWithSummary });
       return result;
     }
     const result = {
       activeTopicCount,
       reason: 'no_changes',
       status: 'skipped' as const,
-      topicsWithSummary: topics.length,
+      topicsWithExcerpt,
+      topicsWithSummary,
     };
     emitSettle(result);
     return result;
@@ -527,7 +588,8 @@ export const executeAssistantMemoryDream = async ({
         activeTopicCount,
         reason: 'completion_failed',
         status: 'failed' as const,
-        topicsWithSummary: topics.length,
+        topicsWithExcerpt,
+        topicsWithSummary,
       };
       emitSettle(result);
       return result;
@@ -546,14 +608,15 @@ export const executeAssistantMemoryDream = async ({
     });
     if (!wrote) {
       const result = { reason: 'stale_conflict', status: 'skipped' as const };
-      emitSettle({ ...result, topicsWithSummary: topics.length });
+      emitSettle({ ...result, topicsWithExcerpt, topicsWithSummary });
       return result;
     }
     const result = {
       activeTopicCount,
       reason: 'completion_failed',
       status: 'failed' as const,
-      topicsWithSummary: topics.length,
+      topicsWithExcerpt,
+      topicsWithSummary,
     };
     emitSettle(result);
     return result;
@@ -678,7 +741,7 @@ export const executeAssistantMemoryDream = async ({
     );
     if ('error' in replaced) {
       const result = { reason: replaced.error, status: 'failed' as const };
-      emitSettle({ ...result, topicsWithSummary: topics.length });
+      emitSettle({ ...result, topicsWithExcerpt, topicsWithSummary });
       return result;
     }
     nextDoc = finalizeDreamDocument(replaced.doc);
@@ -710,14 +773,15 @@ export const executeAssistantMemoryDream = async ({
   });
   if (!wrote) {
     const result = { reason: 'stale_conflict', status: 'skipped' as const };
-    emitSettle({ ...result, topicsWithSummary: topics.length });
+    emitSettle({ ...result, topicsWithExcerpt, topicsWithSummary });
     return result;
   }
 
   const result = {
     activeTopicCount,
     status: 'success' as const,
-    topicsWithSummary: topics.length,
+    topicsWithExcerpt,
+    topicsWithSummary,
   };
   emitSettle({
     ...result,

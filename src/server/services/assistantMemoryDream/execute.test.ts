@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const listTopics = vi.fn();
 const countTopics = vi.fn();
+const listRecentText = vi.fn();
 const chat = vi.fn();
 const consume = vi.fn();
 const updateReturning = vi.fn();
@@ -13,6 +14,12 @@ vi.mock('@/database/models/topic', () => ({
   TopicModel: class {
     countTopicsForAssistantMemoryDream = countTopics;
     listTopicsForAssistantMemoryDream = listTopics;
+  },
+}));
+
+vi.mock('@/database/models/message', () => ({
+  MessageModel: class {
+    listRecentTextForMemoryDream = listRecentText;
   },
 }));
 
@@ -116,6 +123,7 @@ describe('executeAssistantMemoryDream', () => {
     ]);
     chat.mockResolvedValue({});
     consume.mockResolvedValue({ content: '- Prefers tables\n', error: undefined });
+    listRecentText.mockResolvedValue([]);
   });
 
   it('writes updated memory and the period marker on success', async () => {
@@ -191,6 +199,129 @@ describe('executeAssistantMemoryDream', () => {
       }),
     );
     expect(chat).not.toHaveBeenCalled();
+  });
+
+  it('dreams from a recent-message excerpt when the topic has no summary', async () => {
+    listTopics.mockResolvedValue([
+      {
+        historySummary: null,
+        id: 't1',
+        lastActivityAt: new Date('2026-08-27T12:00:00.000Z'),
+        sessionId: 's1',
+        title: 'Topic',
+        updatedAt: new Date(),
+      },
+    ]);
+    // newest first, as the model query returns them
+    listRecentText.mockResolvedValue([
+      { content: 'Sure — here is the table.', role: 'assistant', topicId: 't1' },
+      { content: 'Please answer with a table.', role: 'user', topicId: 't1' },
+    ]);
+    const db = createDb();
+    const result = await executeAssistantMemoryDream({
+      agentId: 'agent-1',
+      db,
+      now: NOW,
+      periodStamp: PERIOD,
+      userId: 'user-1',
+    });
+
+    expect(result).toMatchObject({
+      status: 'success',
+      topicsWithExcerpt: 1,
+      topicsWithSummary: 0,
+    });
+    expect(listRecentText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        activityFrom: new Date('2026-08-27T00:00:00.000Z'),
+        activityTo: new Date('2026-08-28T00:00:00.000Z'),
+        topicIds: ['t1'],
+      }),
+    );
+    const userContent = chat.mock.calls[0][0].messages[1].content as string;
+    expect(userContent).toContain('Source: recent messages excerpt');
+    // excerpt is presented chronologically even though rows arrive newest-first
+    expect(userContent).toContain('User: Please answer with a table.\nAssistant: Sure — here is the table.');
+    expect(lastDreamSettle()).toMatchObject({
+      status: 'success',
+      topicsWithExcerpt: 1,
+      topicsWithSummary: 0,
+    });
+  });
+
+  it('mixes summaries and excerpts in one run', async () => {
+    listTopics.mockResolvedValue([
+      {
+        historySummary: 'user prefers tables',
+        id: 't1',
+        lastActivityAt: new Date('2026-08-27T12:00:00.000Z'),
+        sessionId: 's1',
+        title: 'Summarized',
+        updatedAt: new Date(),
+      },
+      {
+        historySummary: '  ',
+        id: 't2',
+        lastActivityAt: new Date('2026-08-27T11:00:00.000Z'),
+        sessionId: 's1',
+        title: 'Raw',
+        updatedAt: new Date(),
+      },
+    ]);
+    listRecentText.mockResolvedValue([{ content: 'hi there', role: 'user', topicId: 't2' }]);
+    const db = createDb();
+    const result = await executeAssistantMemoryDream({
+      agentId: 'agent-1',
+      db,
+      now: NOW,
+      periodStamp: PERIOD,
+      userId: 'user-1',
+    });
+
+    expect(result).toMatchObject({
+      status: 'success',
+      topicsWithExcerpt: 1,
+      topicsWithSummary: 1,
+    });
+    expect(listRecentText).toHaveBeenCalledWith(expect.objectContaining({ topicIds: ['t2'] }));
+    const userContent = chat.mock.calls[0][0].messages[1].content as string;
+    expect(userContent).toContain('Source: topic summary');
+    expect(userContent).toContain('Source: recent messages excerpt');
+  });
+
+  it('still skips with no_summaries when active topics have no readable content', async () => {
+    listTopics.mockResolvedValue([
+      {
+        historySummary: null,
+        id: 't1',
+        lastActivityAt: new Date('2026-08-27T12:00:00.000Z'),
+        sessionId: 's1',
+        title: 'Topic',
+        updatedAt: new Date(),
+      },
+    ]);
+    listRecentText.mockResolvedValue([]);
+    const db = createDb();
+    const result = await executeAssistantMemoryDream({
+      agentId: 'agent-1',
+      db,
+      now: NOW,
+      periodStamp: PERIOD,
+      userId: 'user-1',
+    });
+
+    expect(result).toMatchObject({
+      reason: 'no_summaries',
+      status: 'skipped',
+      topicsWithExcerpt: 0,
+      topicsWithSummary: 0,
+    });
+    expect(chat).not.toHaveBeenCalled();
+    expect(lastDreamSettle()).toMatchObject({
+      reason: 'no_summaries',
+      topicsWithExcerpt: 0,
+      topicsWithSummary: 0,
+    });
   });
 
   it('records lastError without a marker when completion fails', async () => {
