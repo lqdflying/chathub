@@ -120,14 +120,14 @@ describe('CHATHUB_COMPACTION_DEBUG emitter', () => {
 
     it('keeps built-in model ids readable while fingerprinting custom model ids', () => {
       logCompactionDebugSafe('worker_settled', {
-        model: 'gpt-5-mini',
+        model: 'gpt-5.4-mini',
         provider: 'openai',
         sessionId: 'sess-private-conversation',
         trigger: 'manual',
       });
 
       const record = JSON.parse(consoleLogSpy.mock.calls[0][1] as string);
-      expect(record.model).toBe('gpt-5-mini');
+      expect(record.model).toBe('gpt-5.4-mini');
       expect(record.provider).toBe('openai');
       expect(record).not.toHaveProperty('sessionId');
       expect(consoleLogSpy.mock.calls[0][1]).not.toContain('sess-private-conversation');

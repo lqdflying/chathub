@@ -120,13 +120,13 @@ describe('CHATHUB_GENERATION_DEBUG emitter', () => {
     it('keeps built-in model ids readable while fingerprinting custom model ids', () => {
       logGenerationDebugSafe('execute_started', {
         kind: 'memory_compaction',
-        model: 'gpt-5-mini',
+        model: 'gpt-5.4-mini',
         provider: 'openai',
         sessionId: 'sess-private-conversation',
       });
 
       const record = JSON.parse(consoleLogSpy.mock.calls[0][1] as string);
-      expect(record.model).toBe('gpt-5-mini');
+      expect(record.model).toBe('gpt-5.4-mini');
       expect(record.provider).toBe('openai');
       expect(record.sessionId).toMatchObject({ type: 'identifier' });
       expect(consoleLogSpy.mock.calls[0][1]).not.toContain('sess-private-conversation');

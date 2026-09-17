@@ -243,14 +243,14 @@ describe('structured tools debug logging', () => {
 
     logToolsDebugSafe('call_tool_complete', {
       durationMs: 4,
-      model: 'gpt-5-mini',
+      model: 'gpt-5.4-mini',
       provider: 'openai',
       sessionId: 'sess-private-conversation',
     });
 
     const json = consoleLogSpy.mock.calls[0][1] as string;
     expect(JSON.parse(json)).toMatchObject({
-      model: 'gpt-5-mini',
+      model: 'gpt-5.4-mini',
       provider: 'openai',
     });
     expect(JSON.parse(json).sessionId).toMatchObject({ type: 'identifier' });
