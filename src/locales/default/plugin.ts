@@ -286,7 +286,9 @@ export default {
   memory: {
     apiName: {
       deleteMemory: '删除记忆',
+      readMemory: '读取记忆',
       saveMemory: '保存记忆',
+      searchMemory: '搜索记忆',
       updateMemory: '更新记忆',
     },
     title: '记忆',

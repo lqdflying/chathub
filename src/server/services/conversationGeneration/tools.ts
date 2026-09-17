@@ -17,6 +17,8 @@ import {
   appendFixedMemoryEntry,
   deleteFixedMemoryEntry,
   formatFixedMemoryEntries,
+  readAssistantMemory,
+  searchAssistantMemory,
   updateFixedMemoryEntry,
 } from '@/helpers/assistantMemory';
 import { hashGenerationDebugValue, logGenerationDebugSafe } from '@/libs/logger/generationDebug';
@@ -184,7 +186,7 @@ const invokeMemoryTool = async ({
   }
 
   const [agent] = await db
-    .select({ fixedMemory: agents.fixedMemory, id: agents.id })
+    .select({ assistantMemory: agents.assistantMemory, fixedMemory: agents.fixedMemory, id: agents.id })
     .from(agentsToSessions)
     .innerJoin(agents, and(eq(agents.id, agentsToSessions.agentId), eq(agents.userId, userId)))
     .where(and(eq(agentsToSessions.sessionId, sessionId), eq(agentsToSessions.userId, userId)))
@@ -252,6 +254,29 @@ const invokeMemoryTool = async ({
           content = { deleted: true, index, renumbered: true };
         }
       }
+      break;
+    }
+    case MemoryApiName.searchMemory: {
+      const query = typeof args.query === 'string' ? args.query.trim() : '';
+      if (!query) {
+        content = { error: 'searchMemory requires a non-empty query' };
+      } else {
+        content = {
+          hits: searchAssistantMemory({
+            dynamicMemory: agent.assistantMemory,
+            fixedMemory: agent.fixedMemory,
+            limit: typeof args.limit === 'number' ? args.limit : undefined,
+            query,
+          }),
+        };
+      }
+      break;
+    }
+    case MemoryApiName.readMemory: {
+      content = readAssistantMemory({
+        dynamicMemory: agent.assistantMemory,
+        fixedMemory: agent.fixedMemory,
+      });
       break;
     }
     default: {

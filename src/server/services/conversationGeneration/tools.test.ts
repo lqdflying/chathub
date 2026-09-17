@@ -225,6 +225,52 @@ describe('executeConversationToolStep', () => {
     );
   });
 
+  it('answers searchMemory in the worker lane without any write', async () => {
+    const whereUpdate = vi.fn().mockResolvedValue(undefined);
+    const trx = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          innerJoin: vi.fn(() => ({
+            where: vi.fn(() => ({
+              for: vi.fn(() => ({
+                limit: vi.fn().mockResolvedValue([
+                  {
+                    assistantMemory: '#1 [2026-09-01]:\ndiscussed tea brewing',
+                    fixedMemory: '#1: drinks green tea',
+                    id: 'agent-1',
+                  },
+                ]),
+              })),
+            })),
+          })),
+        })),
+      })),
+      update: vi.fn(() => ({ set: vi.fn(() => ({ where: whereUpdate })) })),
+    };
+    const db = {
+      transaction: vi.fn(async (callback) => callback(trx)),
+    };
+
+    const result = await executeConversationToolStep({
+      assistantMessage,
+      attempt: 1,
+      db: db as any,
+      operationId: 'operation-1',
+      payload: payload({
+        apiName: MemoryApiName.searchMemory,
+        arguments: JSON.stringify({ query: 'tea' }),
+        identifier: MemoryManifest.identifier,
+      }),
+      userId: 'user-1',
+    });
+
+    expect(result).toMatchObject({ shouldContinue: true, success: true });
+    const content = JSON.parse(result.content!);
+    expect(content.hits).toHaveLength(2);
+    // read-only: no agents update
+    expect(trx.update).not.toHaveBeenCalled();
+  });
+
   it('persists MCP failures as replayable tool results', async () => {
     pluginMocks.findById.mockResolvedValue({
       customParams: { mcp: { type: 'http', url: 'https://mcp.example.test' } },

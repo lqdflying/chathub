@@ -4,7 +4,9 @@ import { systemPrompt } from './systemRole';
 
 export const MemoryApiName = {
   deleteMemory: 'deleteMemory',
+  readMemory: 'readMemory',
   saveMemory: 'saveMemory',
+  searchMemory: 'searchMemory',
   updateMemory: 'updateMemory',
 } as const;
 
@@ -65,6 +67,35 @@ export const MemoryManifest: BuiltinToolManifest = {
           match: matchParameter,
         },
         required: ['index', 'match'],
+        type: 'object',
+      },
+    },
+    {
+      description:
+        "Search this assistant's memory (fixed entries and dynamic dream cards) by keywords and get the most relevant entries with their numbers. Use when the injected memory is marked truncated, or before updating an entry you cannot see.",
+      name: MemoryApiName.searchMemory,
+      parameters: {
+        properties: {
+          limit: {
+            description: 'Maximum entries to return (default 5, max 10)',
+            type: 'number',
+          },
+          query: {
+            description:
+              "Keywords to look for, in the user's language. CJK text is matched by character bigrams, so short phrases work.",
+            type: 'string',
+          },
+        },
+        required: ['query'],
+        type: 'object',
+      },
+    },
+    {
+      description:
+        "Read the full text of this assistant's memory (all fixed entries and all dynamic dream cards). Prefer searchMemory for large memories; use this when you need complete entries or the injected memory is marked truncated.",
+      name: MemoryApiName.readMemory,
+      parameters: {
+        properties: {},
         type: 'object',
       },
     },

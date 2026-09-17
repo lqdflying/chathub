@@ -15,7 +15,42 @@ export interface AgentMemoryConfig {
   fixedMemory?: string;
   /** Format both memory tiers into the injected block */
   formatAgentMemory?: (input: { dynamicMemory?: string; fixedMemory?: string }) => string;
+  /**
+   * Char budget for the injected block. Docs that fit are injected whole
+   * (byte-stable); larger docs inject a deterministic head portion plus a
+   * pointer to the searchMemory/readMemory recall tools. Default 24k chars.
+   */
+  maxChars?: number;
 }
+
+/** Default injection budget for the formatted memory block. */
+export const AGENT_MEMORY_INJECTION_MAX_CHARS = 24_000;
+
+/** One-line pointer appended when the memory block is truncated to budget. */
+export const AGENT_MEMORY_TRUNCATED_POINTER =
+  '…[assistant memory truncated — call searchMemory to find specific entries or readMemory for the full text]';
+
+/**
+ * Budget the formatted memory block. The decision is a pure function of the
+ * doc, so the injected prefix stays byte-stable per doc state: under budget →
+ * unchanged; over budget → deterministic head cut at a line boundary plus the
+ * recall-tools pointer.
+ */
+export const applyAgentMemoryBudget = (
+  formatted: string,
+  maxChars: number = AGENT_MEMORY_INJECTION_MAX_CHARS,
+): string => {
+  if (formatted.length <= maxChars) return formatted;
+
+  const headBudget = Math.max(0, maxChars - AGENT_MEMORY_TRUNCATED_POINTER.length - 1);
+  let head = formatted.slice(0, headBudget);
+  // Snap to a line boundary when one exists in the back third of the head, so
+  // the cut does not land mid-entry.
+  const lineBreak = head.lastIndexOf('\n');
+  if (lineBreak >= Math.floor(headBudget * 0.65)) head = head.slice(0, lineBreak);
+
+  return `${head.trimEnd()}\n${AGENT_MEMORY_TRUNCATED_POINTER}`;
+};
 
 const defaultAgentMemoryFormatter = ({
   dynamicMemory,
@@ -59,10 +94,11 @@ export class AgentMemoryProvider extends BaseProvider {
     }
 
     const formatter = this.config.formatAgentMemory ?? defaultAgentMemoryFormatter;
-    const formatted = formatter({
+    const rawFormatted = formatter({
       dynamicMemory: dynamicMemory || undefined,
       fixedMemory: fixedMemory || undefined,
     }).trim();
+    const formatted = applyAgentMemoryBudget(rawFormatted, this.config.maxChars).trim();
 
     if (!formatted) {
       log('Formatted agent memory is empty, skipping injection');
@@ -75,6 +111,7 @@ export class AgentMemoryProvider extends BaseProvider {
       dynamicLength: dynamicMemory.length,
       fixedLength: fixedMemory.length,
       injected: true,
+      truncated: formatted.length < rawFormatted.length,
     };
 
     log(

@@ -6,6 +6,7 @@ import { useChatStore } from '@/store/chat';
 const { agentStoreMock } = vi.hoisted(() => {
   const state = {
     activeId: 'session-1',
+    assistantMemory: '' as string | null,
     enableAssistantMemory: true,
     fixedMemory: '' as string | null,
     internal_updateAgentConfig: vi.fn(async (_id: string, patch: any) => {
@@ -24,13 +25,17 @@ vi.mock('@/store/agent/selectors', () => ({
     enableAssistantMemory: () => agentStoreMock.enableAssistantMemory,
   },
   agentSelectors: {
-    getAgentConfigById: () => () => ({ fixedMemory: agentStoreMock.fixedMemory }),
+    getAgentConfigById: () => () => ({
+      assistantMemory: agentStoreMock.assistantMemory,
+      fixedMemory: agentStoreMock.fixedMemory,
+    }),
   },
 }));
 
 beforeEach(() => {
   vi.clearAllMocks();
   agentStoreMock.activeId = 'session-1';
+  agentStoreMock.assistantMemory = '';
   agentStoreMock.enableAssistantMemory = true;
   agentStoreMock.fixedMemory = '';
 });
@@ -226,6 +231,77 @@ describe('saveMemory builtin tool executor', () => {
     expect(agentStoreMock.fixedMemory).toBe('#1: will succeed');
 
     pluginError.mockRestore();
+    updateContent.mockRestore();
+  });
+
+  it('searchMemory returns ranked hits across both tiers without writing', async () => {
+    agentStoreMock.fixedMemory = '#1: prefers dark mode\n#2: drinks green tea';
+    agentStoreMock.assistantMemory = '#1 [2026-09-01]:\n discussed tea brewing times';
+    const { result } = renderHook(() => useChatStore());
+    const updateContent = vi
+      .spyOn(result.current, 'internal_updateMessageContent')
+      .mockResolvedValue(undefined as any);
+
+    let outcome: boolean | undefined;
+    await act(async () => {
+      outcome = await result.current.searchMemory('msg-1', { query: 'tea' });
+    });
+
+    expect(outcome).toBe(true);
+    expect(agentStoreMock.internal_updateAgentConfig).not.toHaveBeenCalled();
+    const payload = JSON.parse(updateContent.mock.calls[0][1] as string);
+    expect(payload.hits).toHaveLength(2);
+    expect(payload.hits.map((hit: any) => hit.source).sort()).toEqual(['dynamic', 'fixed']);
+
+    updateContent.mockRestore();
+  });
+
+  it('searchMemory returns an error tool result on empty query', async () => {
+    const { result } = renderHook(() => useChatStore());
+    const updateContent = vi
+      .spyOn(result.current, 'internal_updateMessageContent')
+      .mockResolvedValue(undefined as any);
+    const pluginError = vi
+      .spyOn(result.current, 'internal_updatePluginError')
+      .mockResolvedValue(undefined as any);
+
+    await act(async () => {
+      await result.current.searchMemory('msg-1', { query: '  ' });
+    });
+
+    expect(pluginError).not.toHaveBeenCalled();
+    expect(updateContent).toHaveBeenCalledWith(
+      'msg-1',
+      JSON.stringify({ error: 'searchMemory requires a non-empty query' }),
+    );
+
+    updateContent.mockRestore();
+    pluginError.mockRestore();
+  });
+
+  it('readMemory returns both tiers as tool result content', async () => {
+    agentStoreMock.fixedMemory = '#1: prefers dark mode';
+    agentStoreMock.assistantMemory = '#1 [2026-09-01]:\nsummary body';
+    const { result } = renderHook(() => useChatStore());
+    const updateContent = vi
+      .spyOn(result.current, 'internal_updateMessageContent')
+      .mockResolvedValue(undefined as any);
+
+    let outcome: boolean | undefined;
+    await act(async () => {
+      outcome = await result.current.readMemory('msg-1');
+    });
+
+    expect(outcome).toBe(true);
+    expect(updateContent).toHaveBeenCalledWith(
+      'msg-1',
+      JSON.stringify({
+        dynamic: '#1 [2026-09-01]:\nsummary body',
+        fixed: '#1: prefers dark mode',
+        totalChars: '#1: prefers dark mode'.length + '#1 [2026-09-01]:\nsummary body'.length,
+      }),
+    );
+
     updateContent.mockRestore();
   });
 });

@@ -4,6 +4,8 @@ import {
   appendFixedMemoryEntry,
   deleteFixedMemoryEntry,
   formatFixedMemoryEntries,
+  readAssistantMemory,
+  searchAssistantMemory,
   updateFixedMemoryEntry,
 } from '@/helpers/assistantMemory';
 import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selectors';
@@ -17,9 +19,21 @@ export interface MemoryAction {
     aiSummary?: boolean,
     diagnosticId?: string,
   ) => Promise<boolean | undefined>;
+  readMemory: (
+    id: string,
+    params?: Record<string, never>,
+    aiSummary?: boolean,
+    diagnosticId?: string,
+  ) => Promise<boolean | undefined>;
   saveMemory: (
     id: string,
     params: { content: string },
+    aiSummary?: boolean,
+    diagnosticId?: string,
+  ) => Promise<boolean | undefined>;
+  searchMemory: (
+    id: string,
+    params: { limit?: number; query: string },
     aiSummary?: boolean,
     diagnosticId?: string,
   ) => Promise<boolean | undefined>;
@@ -114,6 +128,45 @@ export const memorySlice: StateCreator<
     return job;
   };
 
+  /**
+   * Read-only memory recall (searchMemory/readMemory): same gates as writes,
+   * but no write queue and no agent-config mutation.
+   */
+  const runMemoryRead = async (
+    id: string,
+    aiSummary: boolean,
+    read: (config: { assistantMemory?: string | null; fixedMemory?: string | null }) => object,
+  ): Promise<boolean | undefined> => {
+    const invocationGeneration = get().conversationClearGeneration;
+    const invocationIsCurrent = () => get().conversationClearGeneration === invocationGeneration;
+
+    const agentState = getAgentStoreState();
+    const activeId = agentState.activeId;
+
+    if (!activeId || !agentChatConfigSelectors.enableAssistantMemory(agentState)) {
+      await get().internal_updatePluginError(id, {
+        message: 'assistant memory is disabled for this assistant',
+        type: 'PluginServerError',
+      });
+      return aiSummary;
+    }
+
+    try {
+      const config = agentSelectors.getAgentConfigById(activeId)(agentState);
+      const result = read(config);
+      if (!invocationIsCurrent()) return false;
+      await get().internal_updateMessageContent(id, JSON.stringify(result));
+    } catch (error) {
+      if (!invocationIsCurrent()) return false;
+      await get().internal_updatePluginError(id, {
+        message: (error as Error)?.message || 'failed to read memory',
+        type: 'PluginServerError',
+      });
+    }
+
+    return aiSummary;
+  };
+
   return {
     deleteMemory: async (id, params, aiSummary = true) =>
       runMemoryWrite(id, aiSummary, (currentDoc) => {
@@ -143,6 +196,26 @@ export const memorySlice: StateCreator<
 
         const { doc, index } = appendFixedMemoryEntry(currentDoc, content);
         return { doc, result: { content, index, saved: true } };
+      }),
+    readMemory: async (id, _params, aiSummary = true) =>
+      runMemoryRead(id, aiSummary, (config) =>
+        readAssistantMemory({
+          dynamicMemory: config.assistantMemory,
+          fixedMemory: config.fixedMemory,
+        }),
+      ),
+    searchMemory: async (id, params, aiSummary = true) =>
+      runMemoryRead(id, aiSummary, (config) => {
+        const query = (params?.query ?? '').trim();
+        if (!query) return { error: 'searchMemory requires a non-empty query' };
+        return {
+          hits: searchAssistantMemory({
+            dynamicMemory: config.assistantMemory,
+            fixedMemory: config.fixedMemory,
+            limit: params?.limit,
+            query,
+          }),
+        };
       }),
     updateMemory: async (id, params, aiSummary = true) =>
       runMemoryWrite(id, aiSummary, (currentDoc) => {

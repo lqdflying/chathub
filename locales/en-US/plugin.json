@@ -283,7 +283,9 @@
   "memory": {
     "apiName": {
       "deleteMemory": "Delete memory",
+      "readMemory": "Read memory",
       "saveMemory": "Save memory",
+      "searchMemory": "Search memory",
       "updateMemory": "Update memory"
     },
     "title": "Memory"

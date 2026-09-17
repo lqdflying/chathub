@@ -248,6 +248,153 @@ export const deleteFixedMemoryEntry = (
 /** Allow slightly over target before trimming, so borderline outputs are kept intact. */
 const TOKEN_CAP_TOLERANCE = 1.15;
 
+// --- Lexical memory search + dream-card dedupe (M1/M3) ---
+
+const LATIN_WORD_RUN = /[a-z0-9]+/g;
+// CJK unified ideographs (+ ext A, compat), Japanese kana, Korean syllables
+const CJK_RUN = /[㐀-䶿一-鿿豈-﫿぀-ヿ가-힯]+/g;
+
+/**
+ * CJK-aware lexical tokenizer shared by memory search scoring and dream-card
+ * dedupe. Latin/digit runs become lowercase word unigrams; CJK runs become
+ * character bigrams (a lone CJK char stays a unigram) so Chinese/Japanese
+ * text overlaps meaningfully without word segmentation.
+ */
+export const tokenizeMemoryText = (text: string): Set<string> => {
+  const tokens = new Set<string>();
+  const lower = text.toLowerCase();
+
+  for (const match of lower.matchAll(LATIN_WORD_RUN)) tokens.add(match[0]);
+
+  for (const match of lower.matchAll(CJK_RUN)) {
+    const run = match[0];
+    if (run.length === 1) {
+      tokens.add(run);
+      continue;
+    }
+    for (let i = 0; i < run.length - 1; i++) tokens.add(run.slice(i, i + 2));
+  }
+
+  return tokens;
+};
+
+/** Jaccard similarity over token sets; 0 when both are empty. */
+export const jaccardSimilarity = (a: Set<string>, b: Set<string>): number => {
+  if (a.size === 0 || b.size === 0) return 0;
+  let intersection = 0;
+  for (const token of a) if (b.has(token)) intersection += 1;
+  return intersection / (a.size + b.size - intersection);
+};
+
+/** Near-duplicate threshold for dream-card append (Jaccard over CJK-aware tokens). */
+export const DREAM_CARD_DEDUPE_THRESHOLD = 0.8;
+
+/**
+ * Return the existing dream card whose body is a near-duplicate of `body`
+ * (highest similarity wins), so the dream append path can skip instead of
+ * accumulating paraphrase duplicates of the same day summary.
+ */
+export const findNearDuplicateDreamCard = (
+  doc: string | null | undefined,
+  body: string,
+  threshold: number = DREAM_CARD_DEDUPE_THRESHOLD,
+): DreamMemoryEntry | undefined => {
+  const bodyTokens = tokenizeMemoryText(body);
+  if (bodyTokens.size === 0) return undefined;
+
+  let best: { entry: DreamMemoryEntry; score: number } | undefined;
+  for (const entry of parseDreamMemoryEntries(doc)) {
+    const score = jaccardSimilarity(bodyTokens, tokenizeMemoryText(entry.body));
+    if (score >= threshold && (!best || score > best.score)) best = { entry, score };
+  }
+  return best?.entry;
+};
+
+export interface MemorySearchHit {
+  /** Card text (capped), as the model would read it. */
+  content: string;
+  /** Entry number within its tier (`#N`). */
+  index: number;
+  /** Query-token coverage in [0, 1]. */
+  score: number;
+  source: 'dynamic' | 'fixed';
+}
+
+const SEARCH_SNIPPET_MAX_CHARS = 500;
+
+/**
+ * Lexical top-k over both memory tiers (fixed entries + dream cards).
+ * Deterministic: coverage desc, then token overlap desc, then tier/order.
+ */
+export const searchAssistantMemory = ({
+  dynamicMemory,
+  fixedMemory,
+  limit = 5,
+  query,
+}: {
+  dynamicMemory?: string | null;
+  fixedMemory?: string | null;
+  limit?: number;
+  query: string;
+}): MemorySearchHit[] => {
+  const queryTokens = tokenizeMemoryText(query);
+  if (queryTokens.size === 0) return [];
+
+  const cap = Math.min(Math.max(Math.floor(limit) || 5, 1), 10);
+  const cards: Array<{ content: string; index: number; order: number; source: 'dynamic' | 'fixed' }> = [
+    ...parseFixedMemoryEntries(fixedMemory).map((entry, order) => ({
+      content: entry.content,
+      index: entry.index,
+      order,
+      source: 'fixed' as const,
+    })),
+    ...parseDreamMemoryEntries(dynamicMemory).map((entry, order) => ({
+      content: entry.body,
+      index: entry.index,
+      order,
+      source: 'dynamic' as const,
+    })),
+  ];
+
+  return cards
+    .map((card) => {
+      const cardTokens = tokenizeMemoryText(card.content);
+      let overlap = 0;
+      for (const token of queryTokens) if (cardTokens.has(token)) overlap += 1;
+      return { ...card, overlap, score: overlap / queryTokens.size };
+    })
+    .filter((card) => card.overlap > 0)
+    .sort(
+      (a, b) =>
+        b.score - a.score ||
+        b.overlap - a.overlap ||
+        (a.source === b.source ? a.order - b.order : a.source === 'fixed' ? -1 : 1),
+    )
+    .slice(0, cap)
+    .map(({ content, index, score, source }) => ({
+      content:
+        content.length > SEARCH_SNIPPET_MAX_CHARS
+          ? `${content.slice(0, SEARCH_SNIPPET_MAX_CHARS)}…`
+          : content,
+      index,
+      score: Math.round(score * 1000) / 1000,
+      source,
+    }));
+};
+
+/** Full memory text for the `readMemory` recall API (both tiers, as injected). */
+export const readAssistantMemory = ({
+  dynamicMemory,
+  fixedMemory,
+}: {
+  dynamicMemory?: string | null;
+  fixedMemory?: string | null;
+}): { dynamic: string; fixed: string; totalChars: number } => {
+  const fixed = (fixedMemory ?? '').trim();
+  const dynamic = (dynamicMemory ?? '').trim();
+  return { dynamic, fixed, totalChars: fixed.length + dynamic.length };
+};
+
 /**
  * Cap dynamic memory by tokens instead of characters, so CJK text is held to
  * the same budget as English (the 3200-char cap is ~4x the token target for

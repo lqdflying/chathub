@@ -397,6 +397,37 @@ describe('executeAssistantMemoryDream', () => {
     });
   });
 
+  it('skips append when the new card is a near-duplicate of an existing card', async () => {
+    // dream output is '- Prefers tables' (beforeEach); existing card body matches
+    const db = createDb({
+      ...agentRow,
+      assistantMemory: '#1 [2026-08-20]:\n- Prefers tables',
+    });
+    const result = await executeAssistantMemoryDream({
+      agentId: 'agent-1',
+      db,
+      now: NOW,
+      periodStamp: PERIOD,
+      userId: 'user-1',
+    });
+
+    expect(result).toMatchObject({
+      duplicateOfIndex: 1,
+      reason: 'duplicate_card',
+      status: 'skipped',
+    });
+    // marker committed so the period is not retried; doc left unchanged
+    expect(updateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        assistantMemoryMeta: expect.objectContaining({
+          lastDreamMarker: PERIOD,
+          lastDreamStatus: 'completed',
+        }),
+      }),
+    );
+    expect(updateSet.mock.calls[0][0].assistantMemory).toBeUndefined();
+  });
+
   it('settles regenerate as a manual single-day rewrite without folding overflow', async () => {
     const db = createDb({
       ...agentRow,

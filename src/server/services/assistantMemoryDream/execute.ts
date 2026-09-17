@@ -25,6 +25,7 @@ import {
   capDreamMemoryDocument,
   dreamMemoryDebugSnapshot,
   enforceDreamMemoryRetention,
+  findNearDuplicateDreamCard,
   hasDreamMemoryEntryForDate,
   normalizeAssistantMemoryText,
   normalizeDreamMemoryDocument,
@@ -746,6 +747,24 @@ export const executeAssistantMemoryDream = async ({
     }
     nextDoc = finalizeDreamDocument(replaced.doc);
   } else {
+    // M3 dedupe: a near-duplicate of an existing card (Jaccard >= 0.8 over
+    // CJK-aware tokens) is not appended — the dream still commits its marker
+    // so the period is not retried.
+    const duplicate = findNearDuplicateDreamCard(priorDoc, nextBody);
+    if (duplicate) {
+      if (!(await writeMarker())) {
+        const result = { reason: 'stale_conflict', status: 'skipped' as const };
+        emitSettle({ ...result, topicsWithExcerpt, topicsWithSummary });
+        return result;
+      }
+      const result = {
+        duplicateOfIndex: duplicate.index,
+        reason: 'duplicate_card',
+        status: 'skipped' as const,
+      };
+      emitSettle({ ...result, topicsWithExcerpt, topicsWithSummary });
+      return result;
+    }
     const appended = appendDreamMemoryEntry(priorDoc, historyDate, nextBody);
     const folded = await applyScheduledFold(appended.doc);
     nextDoc = folded.doc;

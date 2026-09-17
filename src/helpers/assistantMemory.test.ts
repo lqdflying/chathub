@@ -15,6 +15,7 @@ import {
   deleteFixedMemoryEntry,
   dreamMemoryTotalCharBudget,
   enforceDreamMemoryRetention,
+  findNearDuplicateDreamCard,
   formatFixedMemoryEntries,
   hashText,
   hasDreamMemoryEntryForDate,
@@ -22,15 +23,19 @@ import {
   hasNewSuccessfulMemoryToolResult,
   hasOpaqueOverflowEnvelope,
   isSuccessfulMemoryToolResult,
+  jaccardSimilarity,
   normalizeAssistantMemoryText,
   normalizeDreamMemoryDocument,
   overflowSummaryTextBudget,
   parseDreamMemoryEntries,
   parseFixedMemoryEntries,
+  readAssistantMemory,
   renumberFixedMemoryEntries,
   resolveLastDreamStatus,
+  searchAssistantMemory,
   serializeDreamMemoryPriorForPrompt,
   serializeVisibleDreamMemoryDocument,
+  tokenizeMemoryText,
   updateDreamMemoryEntry,
   updateFixedMemoryEntry,
   visibleDreamMemoryBody,
@@ -1379,5 +1384,105 @@ describe('dream memory entries', () => {
     expect(saved?.body.split('\n')).toContain(storedMarker);
     expect(saved?.body).toContain(payload);
     expect(saved?.body).toContain('EDIT');
+  });
+});
+
+describe('tokenizeMemoryText', () => {
+  it('tokenizes Latin words as lowercase unigrams', () => {
+    expect([...tokenizeMemoryText('Prefers Dark MODE')].sort()).toEqual(['dark', 'mode', 'prefers']);
+  });
+
+  it('tokenizes CJK runs as character bigrams', () => {
+    const tokens = tokenizeMemoryText('喜欢喝茶');
+    expect(tokens).toEqual(new Set(['喜欢', '欢喝', '喝茶']));
+  });
+
+  it('keeps a lone CJK char as a unigram and mixes with Latin', () => {
+    const tokens = tokenizeMemoryText('茶 tea');
+    expect(tokens.has('茶')).toBe(true);
+    expect(tokens.has('tea')).toBe(true);
+  });
+});
+
+describe('jaccardSimilarity', () => {
+  it('is 1 for identical sets and 0 for disjoint sets', () => {
+    expect(jaccardSimilarity(new Set(['a', 'b']), new Set(['a', 'b']))).toBe(1);
+    expect(jaccardSimilarity(new Set(['a']), new Set(['b']))).toBe(0);
+  });
+
+  it('returns 0 when either set is empty', () => {
+    expect(jaccardSimilarity(new Set(), new Set(['a']))).toBe(0);
+    expect(jaccardSimilarity(new Set(), new Set())).toBe(0);
+  });
+});
+
+describe('findNearDuplicateDreamCard', () => {
+  const doc = '#1 [2026-09-01]:\nuser prefers tables over lists and short answers';
+
+  it('flags a paraphrase duplicate at the default threshold', () => {
+    const dupe = findNearDuplicateDreamCard(
+      doc,
+      'user prefers tables over lists and short answers',
+    );
+    expect(dupe?.index).toBe(1);
+  });
+
+  it('returns undefined for clearly different content', () => {
+    expect(findNearDuplicateDreamCard(doc, 'the deploy pipeline uses docker buildx')).toBeUndefined();
+  });
+
+  it('matches CJK near-duplicates via bigrams', () => {
+    const cjkDoc = '#1 [2026-09-01]:\n用户偏好简洁回答，喜欢表格而不是列表';
+    const dupe = findNearDuplicateDreamCard(cjkDoc, '用户偏好简洁回答，喜欢表格而不是列表');
+    expect(dupe?.index).toBe(1);
+  });
+
+  it('returns undefined for an empty body', () => {
+    expect(findNearDuplicateDreamCard(doc, '   ')).toBeUndefined();
+  });
+});
+
+describe('searchAssistantMemory', () => {
+  const fixedMemory = '#1: prefers dark mode\n#2: drinks green tea daily';
+  const dynamicMemory = '#1 [2026-09-01]:\ndiscussed green tea brewing times\n#2 [2026-09-02]:\ndeploy uses docker';
+
+  it('ranks hits across both tiers by query-token coverage', () => {
+    const hits = searchAssistantMemory({ dynamicMemory, fixedMemory, query: 'green tea' });
+    expect(hits.length).toBe(2);
+    // both cards cover both query tokens; fixed tier wins the tie by order
+    expect(hits[0].score).toBe(1);
+    expect(hits.map((hit) => hit.source).sort()).toEqual(['dynamic', 'fixed']);
+  });
+
+  it('respects the limit and clamps it to 10', () => {
+    const hits = searchAssistantMemory({ dynamicMemory, fixedMemory, limit: 1, query: 'tea' });
+    expect(hits).toHaveLength(1);
+  });
+
+  it('returns [] for an empty query or no overlap', () => {
+    expect(searchAssistantMemory({ dynamicMemory, fixedMemory, query: ' ' })).toEqual([]);
+    expect(searchAssistantMemory({ dynamicMemory, fixedMemory, query: 'kubernetes' })).toEqual([]);
+  });
+
+  it('matches CJK queries against CJK cards', () => {
+    const hits = searchAssistantMemory({
+      dynamicMemory: '#1 [2026-09-01]:\n用户喜欢喝茶',
+      fixedMemory: '',
+      query: '喝茶',
+    });
+    expect(hits).toHaveLength(1);
+    expect(hits[0].source).toBe('dynamic');
+  });
+});
+
+describe('readAssistantMemory', () => {
+  it('returns both tiers trimmed with the combined char count', () => {
+    expect(
+      readAssistantMemory({ dynamicMemory: ' #1 [2026-09-01]:\nbody ', fixedMemory: ' #1: x ' }),
+    ).toEqual({ dynamic: '#1 [2026-09-01]:\nbody', fixed: '#1: x', totalChars: 26 });
+  });
+
+  it('handles empty memory', () => {
+    expect(readAssistantMemory({})).toEqual({ dynamic: '', fixed: '', totalChars: 0 });
   });
 });

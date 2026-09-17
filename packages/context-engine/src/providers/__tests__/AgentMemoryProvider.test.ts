@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import type { PipelineContext } from '../../types';
-import { AgentMemoryProvider } from '../AgentMemory';
+import {
+  AGENT_MEMORY_TRUNCATED_POINTER,
+  AgentMemoryProvider,
+  applyAgentMemoryBudget,
+} from '../AgentMemory';
 
 const createContext = (messages: any[]): PipelineContext => ({
   initialState: { messages: [] } as any,
@@ -37,6 +41,7 @@ describe('AgentMemoryProvider', () => {
       dynamicLength: 0,
       fixedLength: 'User is allergic to peanuts.'.length,
       injected: true,
+      truncated: false,
     });
   });
 
@@ -104,5 +109,50 @@ describe('AgentMemoryProvider', () => {
 
     const systemMessage = result.messages.find((msg) => msg.role === 'system');
     expect(systemMessage!.content).toBe('<assistant_memory>[fix|dyn]</assistant_memory>');
+  });
+
+  it('injects the whole block unchanged when it fits the budget (byte-stable)', async () => {
+    const provider = new AgentMemoryProvider({ fixedMemory: 'short note', maxChars: 24_000 });
+
+    const first = await provider.process(createContext([{ id: 'u1', role: 'user', content: 'Hi' }]));
+    const second = await provider.process(createContext([{ id: 'u1', role: 'user', content: 'Hi' }]));
+
+    const firstContent = first.messages.find((msg) => msg.role === 'system')!.content as string;
+    expect(firstContent).not.toContain(AGENT_MEMORY_TRUNCATED_POINTER);
+    expect(firstContent).toBe(second.messages.find((msg) => msg.role === 'system')!.content);
+    expect(first.metadata.agentMemory).toMatchObject({ truncated: false });
+  });
+
+  it('truncates an over-budget block to a deterministic head plus the recall pointer', async () => {
+    const fixedMemory = Array.from({ length: 200 }, (_, i) => `#${i + 1}: entry ${i}`).join('\n');
+    const provider = new AgentMemoryProvider({ fixedMemory, maxChars: 500 });
+
+    const first = await provider.process(createContext([{ id: 'u1', role: 'user', content: 'Hi' }]));
+    const second = await provider.process(createContext([{ id: 'u1', role: 'user', content: 'Hi' }]));
+
+    const content = first.messages.find((msg) => msg.role === 'system')!.content as string;
+    expect(content).toContain(AGENT_MEMORY_TRUNCATED_POINTER);
+    expect(content.length).toBeLessThanOrEqual(500);
+    // deterministic: same doc → same injected bytes
+    expect(content).toBe(second.messages.find((msg) => msg.role === 'system')!.content);
+    // cut lands at a line boundary, not mid-entry
+    expect(content.slice(0, content.indexOf(AGENT_MEMORY_TRUNCATED_POINTER)).trimEnd()).toMatch(
+      /entry \d+$/,
+    );
+    expect(first.metadata.agentMemory).toMatchObject({ truncated: true });
+  });
+});
+
+describe('applyAgentMemoryBudget', () => {
+  it('returns the input unchanged at exactly the budget', () => {
+    const text = 'a'.repeat(100);
+    expect(applyAgentMemoryBudget(text, 100)).toBe(text);
+  });
+
+  it('caps over-budget input and appends the pointer', () => {
+    const text = `line one\nline two\n${'x'.repeat(1000)}`;
+    const result = applyAgentMemoryBudget(text, 200);
+    expect(result.length).toBeLessThanOrEqual(200);
+    expect(result.endsWith(AGENT_MEMORY_TRUNCATED_POINTER)).toBe(true);
   });
 });
