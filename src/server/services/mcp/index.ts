@@ -218,6 +218,7 @@ export class MCPService {
     toolName: string,
     argsStr: any,
     oauthContext?: MCPOAuthContext,
+    { retriedOnStaleSession = false }: { retriedOnStaleSession?: boolean } = {},
   ): Promise<any> {
     return runWithToolsDebugContext(
       this.getDebugContext(params, 'call_tool', toolName),
@@ -284,6 +285,23 @@ export class MCPService {
           });
           return normalized;
         } catch (error) {
+          // A stale streamable-HTTP session means the request never reached the
+          // server, so evicting the poisoned client and retrying once on a fresh
+          // connection is safe. Tool-level failures (isError / McpError) are
+          // never replayed — the call may have reached the server and could be
+          // mutating.
+          if (!retriedOnStaleSession && (error as Error).message === 'NoValidSessionId') {
+            logToolsDebugSafe('call_tool_retry', {
+              durationMs: Date.now() - start,
+              reason: 'stale_session',
+              toolName,
+            });
+            await this.evictClient(this.serializeParams(params, oauthContext), 'stale_session');
+            return this.callTool(params, toolName, argsStr, oauthContext, {
+              retriedOnStaleSession: true,
+            });
+          }
+
           logToolsDebugSafe('call_tool_failed', {
             ...describeToolsDebugError(error),
             durationMs: Date.now() - start,

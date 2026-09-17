@@ -1,7 +1,25 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
 
 import { sanitizeToolDebugPayload } from '@/libs/logger/toolsDebug';
+
+import { MCPClient } from './client';
+
+vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
+  Client: vi.fn(),
+}));
+
+vi.mock('@modelcontextprotocol/sdk/client/streamableHttp.js', () => ({
+  StreamableHTTPClientTransport: vi.fn(),
+}));
+
+const MockSDKClient = vi.mocked(
+  (await import('@modelcontextprotocol/sdk/client/index.js')).Client,
+);
+const MockStreamableTransport = vi.mocked(
+  (await import('@modelcontextprotocol/sdk/client/streamableHttp.js'))
+    .StreamableHTTPClientTransport,
+);
 
 const getProperty = (value: any, key: string) =>
   value.entries.find(
@@ -166,5 +184,118 @@ describe('sanitizeToolDebugPayload', () => {
     expect(out).toMatchObject({ omittedProperties: 5, propertyCount: 55, type: 'object' });
     expect(out.entries).toHaveLength(50);
     expect(JSON.stringify(out)).not.toContain('person-');
+  });
+});
+
+describe('MCPClient', () => {
+  const params = {
+    name: 'test-mcp',
+    type: 'http' as const,
+    url: 'https://mcp.example.com/mcp',
+  };
+
+  let sdkClient: any;
+  let transport: any;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sdkClient = {
+      callTool: vi.fn(),
+      close: vi.fn().mockResolvedValue(undefined),
+      connect: vi.fn().mockResolvedValue(undefined),
+      getServerCapabilities: vi.fn().mockReturnValue({ tools: {} }),
+      getServerVersion: vi.fn().mockReturnValue({ name: 'test-server', version: '1.0.0' }),
+    };
+    transport = { close: vi.fn().mockResolvedValue(undefined) };
+    MockSDKClient.mockImplementation(() => sdkClient);
+    MockStreamableTransport.mockImplementation(() => transport);
+  });
+
+  describe('disconnect', () => {
+    it('closes the SDK client (which also closes the transport)', async () => {
+      const client = new MCPClient(params);
+
+      await client.disconnect();
+
+      expect(sdkClient.close).toHaveBeenCalledTimes(1);
+      expect(transport.close).not.toHaveBeenCalled();
+    });
+
+    it('falls back to closing the transport when SDK close fails', async () => {
+      sdkClient.close.mockRejectedValueOnce(new Error('close failed'));
+      const client = new MCPClient(params);
+
+      await client.disconnect();
+
+      expect(sdkClient.close).toHaveBeenCalledTimes(1);
+      expect(transport.close).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('initialize', () => {
+    it('connects to the server', async () => {
+      const client = new MCPClient(params);
+
+      await client.initialize();
+
+      expect(sdkClient.connect).toHaveBeenCalledTimes(1);
+      expect(sdkClient.connect.mock.calls[0][0]).toBe(transport);
+    });
+
+    it('rejects with INITIALIZATION_TIMEOUT and closes the half-open transport', async () => {
+      process.env.MCP_INITIALIZATION_TIMEOUT = '50';
+      sdkClient.connect.mockReturnValue(new Promise(() => {}));
+      const client = new MCPClient(params);
+
+      try {
+        await expect(client.initialize()).rejects.toMatchObject({
+          data: { type: 'INITIALIZATION_TIMEOUT' },
+        });
+        expect(transport.close).toHaveBeenCalledTimes(1);
+      } finally {
+        delete process.env.MCP_INITIALIZATION_TIMEOUT;
+      }
+    });
+
+    it('still wraps unknown connect failures as UNKNOWN_ERROR', async () => {
+      sdkClient.connect.mockRejectedValue(new Error('socket hangup'));
+      const client = new MCPClient(params);
+
+      await expect(client.initialize()).rejects.toMatchObject({
+        data: { type: 'UNKNOWN_ERROR' },
+      });
+    });
+  });
+
+  describe('callTool', () => {
+    it('passes the configured timeout to the SDK', async () => {
+      sdkClient.callTool.mockResolvedValue({ content: [], isError: false });
+      const client = new MCPClient(params);
+
+      await client.callTool('testTool', { a: 1 });
+
+      expect(sdkClient.callTool).toHaveBeenCalledWith(
+        { arguments: { a: 1 }, name: 'testTool' },
+        undefined,
+        { timeout: 60_000 },
+      );
+    });
+
+    it('maps streamable-HTTP session expiry to NoValidSessionId', async () => {
+      sdkClient.callTool.mockRejectedValue(
+        new Error('Error POSTing to endpoint: No valid session ID provided'),
+      );
+      const client = new MCPClient(params);
+
+      await expect(client.callTool('testTool', {})).rejects.toThrow('NoValidSessionId');
+    });
+
+    it('rethrows other errors unchanged', async () => {
+      const boom = new Error('upstream boom');
+      sdkClient.callTool.mockRejectedValue(boom);
+      const client = new MCPClient(params);
+
+      await expect(client.callTool('testTool', {})).rejects.toBe(boom);
+    });
   });
 });

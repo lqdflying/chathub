@@ -340,6 +340,35 @@ describe('MCPService', () => {
       await expect(mcpService.callTool(mockParams, 'testTool', '{}')).rejects.toThrow(TRPCError);
     });
 
+    it('should retry once on a fresh client when the streamable-HTTP session expired', async () => {
+      mockClient.callTool
+        .mockRejectedValueOnce(new Error('NoValidSessionId'))
+        .mockResolvedValueOnce({
+          content: [{ type: 'text', text: 'recovered' }],
+          isError: false,
+        });
+
+      const result = await mcpService.callTool(mockParams, 'testTool', '{}');
+
+      expect(mockClient.callTool).toHaveBeenCalledTimes(2);
+      expect(result).toBe('recovered');
+    });
+
+    it('should fail after a single stale-session retry, never replaying further', async () => {
+      mockClient.callTool.mockRejectedValue(new Error('NoValidSessionId'));
+
+      await expect(mcpService.callTool(mockParams, 'testTool', '{}')).rejects.toThrow(TRPCError);
+      // initial attempt + exactly one retry
+      expect(mockClient.callTool).toHaveBeenCalledTimes(2);
+    });
+
+    it('should never replay non-session failures (possibly mutating calls)', async () => {
+      mockClient.callTool.mockRejectedValue(new Error('upstream boom'));
+
+      await expect(mcpService.callTool(mockParams, 'testTool', '{}')).rejects.toThrow(TRPCError);
+      expect(mockClient.callTool).toHaveBeenCalledTimes(1);
+    });
+
     it('should parse args string correctly', async () => {
       const argsObject = { param1: 'value1', param2: 'value2' };
       const argsString = JSON.stringify(argsObject);

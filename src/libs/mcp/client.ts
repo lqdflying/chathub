@@ -13,6 +13,7 @@ import {
 import { createMCPAuthenticatedFetch } from './http';
 import {
   MCPClientParams,
+  MCPError,
   McpPrompt,
   McpResource,
   McpTool,
@@ -27,6 +28,10 @@ const MCP_TOOL_TIMEOUT = (() => {
   const val = Number(process.env.MCP_TOOL_TIMEOUT);
   return Number.isFinite(val) && val > 0 ? val : 60_000;
 })();
+
+// MCP initialization handshake timeout default (milliseconds). Read at call time via
+// MCP_INITIALIZATION_TIMEOUT so a hung connect() cannot wait on undici/SDK defaults forever.
+const DEFAULT_INITIALIZATION_TIMEOUT_MS = 30_000;
 
 export class MCPClient {
   private mcp: Client;
@@ -99,7 +104,7 @@ export class MCPClient {
     logToolsDebugSafe('mcp_operation_started', { operation: 'initialize' });
 
     try {
-      await this.mcp.connect(this.transport, { onprogress: options.onProgress });
+      await this.connectWithInitializationTimeout(options.onProgress);
       const capabilities = this.mcp.getServerCapabilities?.();
       const serverVersion = this.mcp.getServerVersion?.();
       logToolsDebugSafe('mcp_operation_complete', {
@@ -124,6 +129,8 @@ export class MCPClient {
       log('MCP connection failed class=%s', e instanceof Error ? e.name : typeof e);
 
       const error = e as Error;
+      // Structured errors raised by this client (initialization timeout) pass through unwrapped.
+      if ((e as MCPError)?.data?.type === 'INITIALIZATION_TIMEOUT') throw e;
       if (error.message.includes('401')) throw createMCPError('AUTHORIZATION_ERROR', error.message);
 
       if ((e as any).code === -32_000) {
@@ -151,17 +158,66 @@ export class MCPClient {
     }
   }
 
+  /**
+   * Race the SDK handshake against a hard deadline. A hung connect() previously
+   * relied on undici/SDK defaults; on timeout the half-open transport is closed
+   * best-effort so sockets are not leaked.
+   */
+  private async connectWithInitializationTimeout(
+    onProgress?: (progress: Progress) => void,
+  ): Promise<void> {
+    const val = Number(process.env.MCP_INITIALIZATION_TIMEOUT);
+    const timeoutMs =
+      Number.isFinite(val) && val > 0 ? val : DEFAULT_INITIALIZATION_TIMEOUT_MS;
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        reject(
+          createMCPError(
+            'INITIALIZATION_TIMEOUT',
+            `MCP initialization timed out after ${timeoutMs}ms`,
+            {
+              params: { type: this.params.type },
+              step: 'mcp_connect',
+            },
+          ),
+        );
+      }, timeoutMs);
+      // Never keep a server process alive for this timer.
+      (timer as any)?.unref?.();
+    });
+
+    try {
+      await Promise.race([
+        this.mcp.connect(this.transport, { onprogress: onProgress }),
+        timeoutPromise,
+      ]);
+    } catch (error) {
+      if ((error as MCPError)?.data?.type === 'INITIALIZATION_TIMEOUT') {
+        try {
+          await (this.transport as any)?.close?.();
+        } catch {
+          // best-effort cleanup of the half-open transport
+        }
+      }
+      throw error;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
   async disconnect() {
     log('Disconnecting MCP connection...');
-    // Assuming the mcp client has a disconnect method
-    if (this.mcp && typeof (this.mcp as any).disconnect === 'function') {
-      await (this.mcp as any).disconnect();
+    try {
+      // The SDK Client exposes close() (Protocol.close also closes the
+      // transport); there is no disconnect() method on it.
+      await this.mcp.close();
       log('MCP connection disconnected.');
-    } else {
-      log('MCP client does not have a disconnect method or is not initialized.');
-      // Depending on the transport, we might need specific cleanup
+    } catch (error) {
+      log('MCP client close failed, closing transport directly: %s', (error as Error).message);
       if (this.transport && typeof (this.transport as any).close === 'function') {
-        (this.transport as any).close();
+        await (this.transport as any).close();
         log('Transport closed.');
       }
     }
@@ -265,6 +321,11 @@ export class MCPClient {
       logToolsDebugVerbose('call_tool_error', {
         error: describeToolsDebugError(e),
       });
+
+      // Same stale-session mapping as listTools so MCPService can evict + retry.
+      if ((e as Error).message.includes('No valid session ID provided')) {
+        throw new Error('NoValidSessionId');
+      }
 
       throw e;
     }
