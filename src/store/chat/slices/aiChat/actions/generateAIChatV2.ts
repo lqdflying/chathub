@@ -135,6 +135,8 @@ export interface AIGenerateV2Action {
     conversationContext?: ConversationContext;
     contextExportCaptureId?: string;
     contextExportRequest?: ContextExportRequestContext;
+    /** Internal: set when this turn already self-healed one context overflow. */
+    contextOverflowRetried?: boolean;
     expectedConversationVersion?: number;
     messages: UIChatMessage[];
     userMessageId: string;
@@ -1803,6 +1805,40 @@ export const generateAIChatV2: StateCreator<
         }
       }
       const { isFunctionCall, persistenceAmbiguous, persistenceFailure } = fetchResult;
+
+      // C1 context overflow self-healing (V2 lane): compact the settled
+      // history once and re-run the runtime on the same assistant row. The
+      // error field is cleared so a successful retry never shows a stale bubble.
+      if (
+        fetchResult.contextOverflow &&
+        !params.contextOverflowRetried &&
+        !!conversationContext.topicId &&
+        !params.threadId &&
+        !params.inPortalThread &&
+        isPersistenceCurrent()
+      ) {
+        const compaction = await get()
+          .triggerManualMemoryCompaction({
+            abortController: new AbortController(),
+            conversation: {
+              sessionId: conversationContext.sessionId,
+              topicId: conversationContext.topicId,
+            },
+          })
+          .catch(() => undefined);
+        if (compaction?.status === 'compacted' && isPersistenceCurrent()) {
+          logGenerationDebugClientSafe('context_overflow_retry', {
+            lane: 'browser_v2',
+            stillCurrent: isCurrentConversation(),
+          });
+          await get().internal_updateMessageError(assistantId, null).catch(() => undefined);
+          return get().internal_execAgentRuntime({
+            ...params,
+            contextOverflowRetried: true,
+          });
+        }
+      }
+
       if (!shouldRunToolLoop(assistantId)) return;
 
       // 5. if it's the function call message, trigger the function method

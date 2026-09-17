@@ -1409,6 +1409,108 @@ describe('chatMessage actions', () => {
       expect(result.current.refreshMessages).toHaveBeenCalled();
     });
 
+    it('compacts once and re-dispatches when the fetch fails with context overflow', async () => {
+      act(() => {
+        useChatStore.setState({ internal_coreProcessMessage: realCoreProcessMessage });
+      });
+
+      const { result } = renderHook(() => useChatStore());
+      const userMessage = createMockMessage({
+        content: TEST_CONTENT.USER_MESSAGE,
+        id: TEST_IDS.USER_MESSAGE_ID,
+        role: 'user',
+      });
+
+      const fetchAIChatSpy = vi
+        .spyOn(result.current, 'internal_fetchAIChatMessage')
+        .mockResolvedValueOnce({ content: '', contextOverflow: true, isFunctionCall: false })
+        .mockResolvedValueOnce({ content: 'recovered', isFunctionCall: false });
+      const compactionSpy = vi
+        .spyOn(result.current, 'triggerManualMemoryCompaction')
+        .mockResolvedValue({ status: 'compacted' } as any);
+      vi.spyOn(messageService, 'createMessage').mockResolvedValue(TEST_IDS.ASSISTANT_MESSAGE_ID);
+      const deleteMessageSpy = vi
+        .spyOn(result.current, 'internal_deleteMessage')
+        .mockResolvedValue(undefined as any);
+
+      await act(async () => {
+        await result.current.internal_coreProcessMessage([userMessage], userMessage.id);
+      });
+
+      expect(compactionSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          conversation: { sessionId: TEST_IDS.SESSION_ID, topicId: TEST_IDS.TOPIC_ID },
+        }),
+      );
+      expect(deleteMessageSpy).toHaveBeenCalledWith(TEST_IDS.ASSISTANT_MESSAGE_ID);
+      expect(fetchAIChatSpy).toHaveBeenCalledTimes(2);
+      expect(fetchAIChatSpy.mock.calls[1][0].params).toMatchObject({
+        contextOverflowRetried: true,
+      });
+    });
+
+    it('keeps the error bubble when compaction cannot reclaim history', async () => {
+      act(() => {
+        useChatStore.setState({ internal_coreProcessMessage: realCoreProcessMessage });
+      });
+
+      const { result } = renderHook(() => useChatStore());
+      const userMessage = createMockMessage({
+        content: TEST_CONTENT.USER_MESSAGE,
+        id: TEST_IDS.USER_MESSAGE_ID,
+        role: 'user',
+      });
+
+      const fetchAIChatSpy = vi
+        .spyOn(result.current, 'internal_fetchAIChatMessage')
+        .mockResolvedValue({ content: '', contextOverflow: true, isFunctionCall: false });
+      const compactionSpy = vi
+        .spyOn(result.current, 'triggerManualMemoryCompaction')
+        .mockResolvedValue({ reason: 'not_needed', status: 'not_needed' } as any);
+      vi.spyOn(messageService, 'createMessage').mockResolvedValue(TEST_IDS.ASSISTANT_MESSAGE_ID);
+      const deleteMessageSpy = vi
+        .spyOn(result.current, 'internal_deleteMessage')
+        .mockResolvedValue(undefined as any);
+
+      await act(async () => {
+        await result.current.internal_coreProcessMessage([userMessage], userMessage.id);
+      });
+
+      expect(compactionSpy).toHaveBeenCalled();
+      expect(deleteMessageSpy).not.toHaveBeenCalled();
+      expect(fetchAIChatSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not retry again when the send already self-healed an overflow', async () => {
+      act(() => {
+        useChatStore.setState({ internal_coreProcessMessage: realCoreProcessMessage });
+      });
+
+      const { result } = renderHook(() => useChatStore());
+      const userMessage = createMockMessage({
+        content: TEST_CONTENT.USER_MESSAGE,
+        id: TEST_IDS.USER_MESSAGE_ID,
+        role: 'user',
+      });
+
+      const fetchAIChatSpy = vi
+        .spyOn(result.current, 'internal_fetchAIChatMessage')
+        .mockResolvedValue({ content: '', contextOverflow: true, isFunctionCall: false });
+      const compactionSpy = vi
+        .spyOn(result.current, 'triggerManualMemoryCompaction')
+        .mockResolvedValue({ status: 'compacted' } as any);
+      vi.spyOn(messageService, 'createMessage').mockResolvedValue(TEST_IDS.ASSISTANT_MESSAGE_ID);
+
+      await act(async () => {
+        await result.current.internal_coreProcessMessage([userMessage], userMessage.id, {
+          contextOverflowRetried: true,
+        });
+      });
+
+      expect(compactionSpy).not.toHaveBeenCalled();
+      expect(fetchAIChatSpy).toHaveBeenCalledTimes(1);
+    });
+
     it('accounts for the active RAG prompt and includes its summary in context export', async () => {
       act(() => {
         useChatStore.setState({ internal_coreProcessMessage: realCoreProcessMessage });

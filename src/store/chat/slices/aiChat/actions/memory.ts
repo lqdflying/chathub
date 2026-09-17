@@ -27,6 +27,7 @@ import { conversationGenerationIdempotencyKey } from '@/helpers/conversationGene
 import { getContextCompactionMaxSummaryTokens } from '@/helpers/contextUsageEstimate';
 import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableConversationGeneration';
 import { estimateContextUsageAsync } from '@/helpers/estimateContextUsageAsync';
+import { createCompactionSummarizerTimeoutSignal } from '@/helpers/isContextOverflowError';
 import {
   getReportedInputTokenFloorBoundaryId,
   withReportedInputTokenFloorMetadata,
@@ -111,7 +112,10 @@ export interface MemoryCompactionConversationScope {
 export interface ChatMemoryAction {
   internal_ensureReportedInputTokenFloorWatermark: () => Promise<void>;
   internal_invalidateMemoryCompaction: (messageIds: string[]) => Promise<void>;
-  triggerManualMemoryCompaction: () => Promise<MemoryCompactionResult>;
+  triggerManualMemoryCompaction: (options?: {
+    abortController?: AbortController;
+    conversation?: MemoryCompactionConversationScope;
+  }) => Promise<MemoryCompactionResult>;
   triggerMessageCountMemoryCompaction: (
     abortController?: AbortController,
     conversation?: MemoryCompactionConversationScope,
@@ -190,8 +194,14 @@ const summarizeBatch = async ({
   let failed = false;
   let output = '';
 
+  // C4: bound the summarizer call so a hung completion fails the compaction
+  // once (empty_or_failed_summary) instead of blocking the send path forever.
+  const { signal: summarizerSignal } = createCompactionSummarizerTimeoutSignal(
+    abortController?.signal,
+  );
+
   await chatService.fetchPresetTaskResult({
-    abortController,
+    abortController: { signal: summarizerSignal } as AbortController,
     onError: () => {
       failed = true;
     },
@@ -1133,7 +1143,8 @@ export const chatMemory: StateCreator<
     });
   },
 
-  triggerManualMemoryCompaction: () => triggerCompaction(set, get, 'manual'),
+  triggerManualMemoryCompaction: (options) =>
+    triggerCompaction(set, get, 'manual', options?.abortController, options?.conversation),
   triggerMessageCountMemoryCompaction: (abortController, conversation) =>
     triggerCompaction(set, get, 'message_count', abortController, conversation),
   triggerTokenThresholdMemoryCompaction: (abortController, conversation) =>

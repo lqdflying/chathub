@@ -44,6 +44,8 @@ import {
   getCompactionSummarizerContextWindow,
   getCompactionSummarizerInputBudget,
   getListedModelContextWindowTokens,
+  getMessagesAfterHistorySummaryCursor,
+  getSettledCompactionPrefixes,
   parseCompactionSummarizerContextWindow,
   splitCompactionBatches,
 } from '@/helpers/contextCompaction';
@@ -52,6 +54,11 @@ import {
   createEmptyCompletionAtContextCeilingError,
   isEmptyCompletionAtContextCeiling,
 } from '@/helpers/emptyCompletionAtContextCeiling';
+import {
+  createCompactionSummarizerTimeoutSignal,
+  isContextOverflowError,
+  resolveCompactionSummarizerTimeoutMs,
+} from '@/helpers/isContextOverflowError';
 import {
   applySupervisorToolCalls,
   formatSupervisorTodoContent,
@@ -180,6 +187,13 @@ const toError = (error: unknown): ConversationGenerationError => {
       type: 'GenerationError',
     };
   }
+  if (error instanceof CompactionSummarizerTimeoutError) {
+    return {
+      body: { name: error.name, timeoutMs: error.timeoutMs },
+      message: error.message,
+      type: 'GenerationError',
+    };
+  }
   if (error instanceof CompactionPromptTooLargeError) {
     return {
       body: {
@@ -261,8 +275,7 @@ export class EmptyCompactionSummaryError extends Error {
  * A compaction batch still exceeds the History Compress model window.
  * Retrying the same oversized prompt will not succeed.
  */
-export class CompactionPromptTooLargeError extends Error {
-  readonly budgetTokens: number;
+export class CompactionPromptTooLargeError extends Error {  readonly budgetTokens: number;
   readonly estimatedTokens: number;
 
   constructor({
@@ -281,21 +294,26 @@ export class CompactionPromptTooLargeError extends Error {
   }
 }
 
+/**
+ * The compaction summarizer exceeded its deadline. Like
+ * EmptyCompactionSummaryError this fails the compaction once — a hung upstream
+ * completion must not burn Graphile retries on the same stuck request.
+ */
+export class CompactionSummarizerTimeoutError extends Error {
+  readonly timeoutMs: number;
+
+  constructor(timeoutMs: number) {
+    super(`Memory compaction summarizer timed out after ${timeoutMs}ms.`);
+    this.name = 'CompactionSummarizerTimeoutError';
+    this.timeoutMs = timeoutMs;
+  }
+}
+
 export const isContextLengthOverflowError = (error: unknown): boolean => {
   if (error instanceof CompactionPromptTooLargeError) return true;
-  const message =
-    error instanceof UpstreamCompletionError
-      ? `${error.message} ${error.upstream.type}`
-      : error instanceof Error
-        ? error.message
-        : String(error);
-  const text = message.toLowerCase();
-  return (
-    text.includes('exceededcontextwindow') ||
-    text.includes('maximum context length') ||
-    text.includes('context_length_exceeded') ||
-    text.includes('string_above_max_length')
-  );
+  // Shared classifier: structured ExceededContextWindow type, MiniMax 2013,
+  // and provider overflow signatures in message/body text.
+  return isContextOverflowError(error);
 };
 
 export const executeConversationGeneration = async ({
@@ -453,7 +471,11 @@ export const executeConversationGeneration = async ({
       return;
     }
 
-    if (error instanceof EmptyCompactionSummaryError || isContextLengthOverflowError(error)) {
+    if (
+      error instanceof EmptyCompactionSummaryError ||
+      error instanceof CompactionSummarizerTimeoutError ||
+      isContextLengthOverflowError(error)
+    ) {
       await finalize(model, claimed, 'failed', normalizedError, db, latestAssistantId);
       return;
     }
@@ -922,6 +944,143 @@ const executeChat = async (
   let content = '';
   let reasoning: UIChatMessage['reasoning'] | undefined;
 
+  /**
+   * C1 worker-lane context-overflow self-healing: when the provider rejects
+   * the request for window size, compact the settled history inline (same
+   * planner core as `executeCompaction`) and rebuild the payload once. The
+   * `contextOverflowRetried` config flag is persisted before compacting so a
+   * crashing recovery cannot loop across Graphile attempts.
+   *
+   * Returns the rebuilt chat payload, or `undefined` when recovery is not
+   * possible (already retried, non-regular topic, nothing compactable,
+   * compaction invalidated/failed) and the caller should finalize as failed.
+   */
+  const attemptContextOverflowRecovery = async (): Promise<
+    Awaited<ReturnType<typeof buildConversationChatPayload>>['payload'] | undefined
+  > => {
+    if (operation.config.contextOverflowRetried) return undefined;
+    if (!operation.topicId || operation.groupId || operation.threadId) return undefined;
+
+    const retriedConfig = { ...operation.config, contextOverflowRetried: true };
+    try {
+      await updateOperation(model, operation, { config: retriedConfig });
+    } catch {
+      // Ownership moved off this attempt — do not recover on a stale claim.
+      return undefined;
+    }
+    operation.config = retriedConfig;
+
+    const topic = await new TopicModel(db, operation.userId).findById(operation.topicId);
+    const currentCursor = (topic?.metadata as ChatTopicMetadata | null)?.historySummaryLastMessageId;
+    const currentSummary = topic?.historySummary || '';
+    const afterCursor = getMessagesAfterHistorySummaryCursor(messages, currentCursor);
+    // Longest settled prefix keeps the in-flight turn (latest user message and
+    // its tool tail) out of the compaction candidates.
+    const candidates = getSettledCompactionPrefixes(afterCursor).at(-1) ?? [];
+    if (!candidates.length) {
+      logGenerationDebugSafe('context_overflow_recovery_skipped', {
+        model: operation.config.model,
+        operationHash: hashGenerationDebugValue(operation.id),
+        provider: operation.config.provider,
+        reason: 'no_compactable_history',
+      });
+      return undefined;
+    }
+
+    const recoveryOperation: ConversationGenerationOperation = {
+      ...operation,
+      config: {
+        ...operation.config,
+        compaction: {
+          candidateMessageIds: candidates.map(({ id }) => id),
+          expectedCursorId: currentCursor ?? undefined,
+          expectedFingerprint: createCompactionFingerprint({
+            cursorId: currentCursor ?? undefined,
+            messages: candidates,
+            summary: currentSummary,
+          }),
+          expectedHistorySummary: currentSummary,
+          trigger: 'token_threshold',
+        },
+        historySummary: currentSummary,
+      },
+    };
+
+    let result: Awaited<ReturnType<typeof runCompactionPlan>>;
+    try {
+      result = await runCompactionPlan(db, recoveryOperation, { runSignal: abortController.signal });
+    } catch (error) {
+      logGenerationDebugSafe('context_overflow_recovery_skipped', {
+        errorClass: error instanceof Error ? error.name : 'Error',
+        operationHash: hashGenerationDebugValue(operation.id),
+        reason: 'compaction_failed',
+      });
+      return undefined;
+    }
+    if (result.status === 'invalidated') {
+      logGenerationDebugSafe('context_overflow_recovery_skipped', {
+        operationHash: hashGenerationDebugValue(operation.id),
+        reason: 'compaction_invalidated',
+      });
+      return undefined;
+    }
+
+    const nextConfig = {
+      ...operation.config,
+      historySummary: result.historySummary,
+      historySummaryLastMessageId: result.compactedThroughMessageId,
+    };
+    try {
+      await updateOperation(model, operation, { config: nextConfig });
+    } catch {
+      return undefined;
+    }
+    operation.config = nextConfig;
+
+    // Reset the failed assistant row so the retry regenerates cleanly instead
+    // of resuming into the persisted overflow error.
+    await messageModel.update(assistantId, {
+      content: LOADING_FLAT,
+      error: null,
+      reasoning: undefined,
+    });
+    content = '';
+    reasoning = undefined;
+
+    const rebuilt = await buildConversationChatPayload({
+      agentMemory: {
+        dynamicMemory: agent?.assistantMemory || undefined,
+        fixedMemory: agent?.fixedMemory || undefined,
+      },
+      config: {
+        ...operation.config,
+        activatedSkillIds,
+        plugins: operation.config.plugins || agent?.plugins || undefined,
+        systemRole: operation.config.systemRole || agent?.systemRole || undefined,
+      },
+      db,
+      generalInstruction,
+      messages: workingMessages,
+      profile: {
+        email: user?.email,
+        fullName: user?.fullName,
+        nickname: user?.username,
+        username: user?.username,
+      },
+      runtimeState,
+      sessionId: operation.sessionId,
+      userId: operation.userId,
+    });
+    logGenerationDebugSafe('context_overflow_retry', {
+      candidateCount: candidates.length,
+      lane: 'worker',
+      model: operation.config.model,
+      operationHash: hashGenerationDebugValue(operation.id),
+      provider: operation.config.provider,
+    });
+    return rebuilt.payload;
+  };
+
   const flush = async (force = false) => {
     if (
       !force &&
@@ -1032,6 +1191,15 @@ const executeChat = async (
         }
 
         if (result.error) {
+          // C1: overflow self-healing — compact once and retry the model call
+          // with the reclaimed window before giving up on the turn.
+          if (isContextLengthOverflowError(result.error)) {
+            const recoveredPayload = await attemptContextOverflowRecovery();
+            if (recoveredPayload) {
+              currentPayload = recoveredPayload;
+              continue;
+            }
+          }
           await messageModel.update(assistantId, {
             content: result.content || content,
             error: result.error as any,
@@ -1069,6 +1237,13 @@ const executeChat = async (
             usage: result.usage,
           })
         ) {
+          // C1: an empty completion at the window ceiling is an overflow
+          // signature — compact once and retry before failing the turn.
+          const recoveredPayload = await attemptContextOverflowRecovery();
+          if (recoveredPayload) {
+            currentPayload = recoveredPayload;
+            continue;
+          }
           const error = createEmptyCompletionAtContextCeilingError({
             contextWindowTokens: getListedModelContextWindowTokens(
               operation.config.model,
@@ -1770,27 +1945,28 @@ const executeTts = async (
   await finalizeUnlessStopped(db, model, operation, options?.runSignal);
 };
 
-const executeCompaction = async (
+type CompactionPlanResult =
+  | { message: string; status: 'invalidated' }
+  | {
+      compactedThroughMessageId: string;
+      historySummary: string;
+      metadata: ChatTopicMetadata;
+      status: 'compacted' | 'target_unreachable';
+    };
+
+/**
+ * Core of `executeCompaction`, shared with the chat context-overflow
+ * self-healing path: validate the planned snapshot, summarize batches (each
+ * bounded by the summarizer timeout), persist with the write lock, and emit
+ * the snapshot event. Finalizing the operation stays with the caller.
+ */
+const runCompactionPlan = async (
   db: LobeChatDatabase,
   operation: ConversationGenerationOperation,
   options?: { runSignal?: AbortSignal },
-) => {
+): Promise<CompactionPlanResult> => {
   const model = new ConversationGenerationModel(db, operation.userId);
-  const compaction = operation.config.compaction;
-  if (!operation.topicId || operation.groupId || operation.threadId || !compaction) {
-    await finalize(
-      model,
-      operation,
-      'interrupted',
-      {
-        message:
-          'Background compaction requires a planned regular-topic snapshot; the client must re-plan it.',
-        type: 'CompactionInvalidated',
-      },
-      db,
-    );
-    return;
-  }
+  const compaction = operation.config.compaction!;
   await updateOperation(model, operation, { phase: 'compacting' });
   const aiChat = new AiChatService(db, operation.userId);
   const { messages } = await aiChat.getMessagesAndTopics({
@@ -1811,17 +1987,10 @@ const executeCompaction = async (
     candidateMessages.length !== compaction.candidateMessageIds.length ||
     initialFingerprint !== compaction.expectedFingerprint
   ) {
-    await finalize(
-      model,
-      operation,
-      'interrupted',
-      {
-        message: 'Compaction input changed before summarization started.',
-        type: 'CompactionInvalidated',
-      },
-      db,
-    );
-    return;
+    return {
+      message: 'Compaction input changed before summarization started.',
+      status: 'invalidated',
+    };
   }
 
   let historySummary = operation.config.historySummary || '';
@@ -1852,16 +2021,28 @@ const executeCompaction = async (
       historySummary = buildOversizedCompactionTurnStub(batch, historySummary || undefined);
       continue;
     }
-    const { content, reasoningChars } = await runSimpleCompletion(
-      db,
-      operation,
-      {
-        ...chainSummaryHistory(batch, historySummary || undefined, { summaryMaxTokens }),
-        max_tokens: summaryMaxTokens,
-        stream: false,
-      },
-      options?.runSignal,
-    );
+    // C4: bound each summarizer completion; a deadline maps to a fail-once
+    // error (no Graphile retry), while a worker-fence abort stays an abort.
+    const summarizerTimeout = createCompactionSummarizerTimeoutSignal(options?.runSignal);
+    let completion: Awaited<ReturnType<typeof runSimpleCompletion>>;
+    try {
+      completion = await runSimpleCompletion(
+        db,
+        operation,
+        {
+          ...chainSummaryHistory(batch, historySummary || undefined, { summaryMaxTokens }),
+          max_tokens: summaryMaxTokens,
+          stream: false,
+        },
+        summarizerTimeout.signal,
+      );
+    } catch (error) {
+      if (summarizerTimeout.isSummarizerTimeout()) {
+        throw new CompactionSummarizerTimeoutError(resolveCompactionSummarizerTimeoutMs());
+      }
+      throw error;
+    }
+    const { content, reasoningChars } = completion;
     if (!content) {
       throw new EmptyCompactionSummaryError({
         contentChars: 0,
@@ -1913,17 +2094,10 @@ const executeCompaction = async (
     operation.conversationVersion ?? undefined,
   );
   if (!persisted) {
-    await finalize(
-      model,
-      operation,
-      'interrupted',
-      {
-        message: 'Compaction input was invalidated before the summary could be persisted.',
-        type: 'CompactionInvalidated',
-      },
-      db,
-    );
-    return;
+    return {
+      message: 'Compaction input was invalidated before the summary could be persisted.',
+      status: 'invalidated',
+    };
   }
 
   await emit(model, operation, 'snapshot', {
@@ -1933,6 +2107,46 @@ const executeCompaction = async (
     status: persisted.status,
     topicId: operation.topicId,
   });
+  return {
+    compactedThroughMessageId,
+    historySummary,
+    metadata: persisted.metadata,
+    status: persisted.status,
+  };
+};
+
+const executeCompaction = async (
+  db: LobeChatDatabase,
+  operation: ConversationGenerationOperation,
+  options?: { runSignal?: AbortSignal },
+) => {
+  const model = new ConversationGenerationModel(db, operation.userId);
+  const compaction = operation.config.compaction;
+  if (!operation.topicId || operation.groupId || operation.threadId || !compaction) {
+    await finalize(
+      model,
+      operation,
+      'interrupted',
+      {
+        message:
+          'Background compaction requires a planned regular-topic snapshot; the client must re-plan it.',
+        type: 'CompactionInvalidated',
+      },
+      db,
+    );
+    return;
+  }
+  const result = await runCompactionPlan(db, operation, options);
+  if (result.status === 'invalidated') {
+    await finalize(
+      model,
+      operation,
+      'interrupted',
+      { message: result.message, type: 'CompactionInvalidated' },
+      db,
+    );
+    return;
+  }
   await finalizeUnlessStopped(db, model, operation, options?.runSignal);
 };
 

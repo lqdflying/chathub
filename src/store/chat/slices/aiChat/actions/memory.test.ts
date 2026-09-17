@@ -865,19 +865,46 @@ describe('chat memory actions', () => {
   });
 
   it('reports a mid-request abort as ineligible, not failed', async () => {
-    vi.mocked(chatService.fetchPresetTaskResult).mockImplementation(async ({ abortController }) => {
+    const controller = new AbortController();
+    vi.mocked(chatService.fetchPresetTaskResult).mockImplementation(async () => {
       // a user Stop lands while the summarize request is in flight; errorHandle then
       // resolves without calling onFinish or onError
-      abortController?.abort();
+      controller.abort();
     });
 
     const result = await useChatStore
       .getState()
-      .triggerTokenThresholdMemoryCompaction(new AbortController());
+      .triggerTokenThresholdMemoryCompaction(controller);
 
     expect(result).toEqual({ reason: 'aborted', status: 'ineligible' });
     expect(topicService.updateTopic).not.toHaveBeenCalled();
     expect(topicService.persistMemoryCompaction).not.toHaveBeenCalled();
+  });
+
+  it('fails the compaction once when the summarizer exceeds its deadline', async () => {
+    process.env.CONTEXT_COMPACTION_SUMMARIZER_TIMEOUT_MS = '30';
+    const controller = new AbortController();
+    vi.mocked(chatService.fetchPresetTaskResult).mockImplementation(async ({ abortController }) => {
+      // The summarizer hangs; only the built-in deadline resolves the request,
+      // without calling onFinish or onError (same as an aborted fetch).
+      await new Promise<void>((resolve) => {
+        abortController?.signal.addEventListener('abort', () => resolve(), { once: true });
+      });
+    });
+
+    try {
+      const result = await useChatStore
+        .getState()
+        .triggerTokenThresholdMemoryCompaction(controller);
+
+      expect(result).toMatchObject({ reason: 'empty_or_failed_summary', status: 'failed' });
+      // The caller's own controller is untouched — the deadline is internal.
+      expect(controller.signal.aborted).toBe(false);
+      expect(topicService.updateTopic).not.toHaveBeenCalled();
+      expect(topicService.persistMemoryCompaction).not.toHaveBeenCalled();
+    } finally {
+      delete process.env.CONTEXT_COMPACTION_SUMMARIZER_TIMEOUT_MS;
+    }
   });
 
   it('does not persist a summary when Stop lands after the summarizer finishes', async () => {

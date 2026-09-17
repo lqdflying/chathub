@@ -35,6 +35,7 @@ import {
   createEmptyCompletionAtContextCeilingError,
   isEmptyCompletionAtContextCeiling,
 } from '@/helpers/emptyCompletionAtContextCeiling';
+import { isContextOverflowError } from '@/helpers/isContextOverflowError';
 import { buildHistorySummaryForRequest } from '@/helpers/memoryArchivePrompt';
 import {
   getMimoTokenPlanEnvHint,
@@ -201,6 +202,8 @@ interface ProcessMessageParams {
   conversationContext?: ConversationContext;
   contextExportCaptureId?: string;
   contextExportRequest?: ContextExportRequestContext;
+  /** Internal: set when this send already self-healed one context overflow. */
+  contextOverflowRetried?: boolean;
   expectedConversationVersion?: number;
   traceId?: string;
   isWelcomeQuestion?: boolean;
@@ -264,6 +267,8 @@ export interface AIGenerateAction {
   }) => Promise<{
     isFunctionCall: boolean;
     content: string;
+    /** True when the stream failed with a context-overflow signature. */
+    contextOverflow?: boolean;
     persistenceAmbiguous?: boolean;
     persistenceFailure?: { bodyKind: string; httpStatus?: number };
     traceId?: string;
@@ -961,6 +966,48 @@ export const generateAIChat: StateCreator<
       }
     }
     const { isFunctionCall, persistenceAmbiguous, persistenceFailure } = fetchResult;
+
+    // C1 context overflow self-healing (browser lane): the provider rejected
+    // the request for window size even after the pre-send gate — compact the
+    // settled history once and re-dispatch the send with a fresh assistant row.
+    // One retry per send; tool continuations are excluded because their tool
+    // result messages belong to the in-flight turn the compaction must not
+    // fold away.
+    if (
+      fetchResult.contextOverflow &&
+      !params?.contextOverflowRetried &&
+      !params?.isToolContinuation &&
+      isRegularTopicRequest &&
+      isPersistenceCurrent()
+    ) {
+      const compaction = await get()
+        .triggerManualMemoryCompaction({
+          // A dedicated controller selects the bounded inline path (vs durable
+          // enqueue) so the retry can resume immediately after the summary lands.
+          abortController: new AbortController(),
+          conversation: {
+            sessionId: conversationContext.sessionId,
+            topicId: conversationContext.topicId!,
+          },
+        })
+        .catch(() => undefined);
+      if (compaction?.status === 'compacted' && isPersistenceCurrent()) {
+        logGenerationDebugClientSafe('context_overflow_retry', {
+          lane: 'browser',
+          spanId: debugSpanId,
+          stillCurrent: isCurrentConversation(),
+        });
+        await get()
+          .internal_deleteMessage(assistantId)
+          .catch(() => undefined);
+        if (isCurrentConversation()) await refreshMessages(conversationContext).catch(() => undefined);
+        return get().internal_coreProcessMessage(originalMessages, userMessageId, {
+          ...params,
+          contextOverflowRetried: true,
+        });
+      }
+    }
+
     if (!shouldRunToolLoop(assistantId)) return;
 
     // 5. if it's the function call message, trigger the function method
@@ -1105,6 +1152,9 @@ export const generateAIChat: StateCreator<
     let thinkingStartAt: number;
     let duration: number;
     let streamOutcome: 'abort' | 'error' | 'ok' = 'ok';
+    // C1: set when the stream failed with a context-overflow signature so the
+    // caller can compact once and re-dispatch instead of leaving an error bubble.
+    let contextOverflow = false;
     // to upload image
     const uploadTasks: Map<string, Promise<{ id?: string; url?: string }>> = new Map();
 
@@ -1255,6 +1305,7 @@ export const generateAIChat: StateCreator<
           // not stay a `...` placeholder; only the in-app surface (context
           // snapshot + refresh) requires the conversation to still be active.
           streamOutcome = 'error';
+          if (isContextOverflowError(error)) contextOverflow = true;
           const conversationKey = deferredBrowserGenerationLaneKey(
             conversationContext.sessionId,
             conversationContext.topicId,
@@ -1262,6 +1313,7 @@ export const generateAIChat: StateCreator<
           );
           logGenerationDebugClientSafe('fetch_stream_error', {
             classifiedAs: 'error',
+            contextOverflow: contextOverflow || undefined,
             errorClass:
               error.body && typeof error.body === 'object'
                 ? (error.body as { name?: string }).name
@@ -1342,6 +1394,7 @@ export const generateAIChat: StateCreator<
             })
           ) {
             streamOutcome = 'error';
+            contextOverflow = true;
             const error = createEmptyCompletionAtContextCeilingError({
               contextWindowTokens: getListedModelContextWindowTokens(model, provider),
               totalInputTokens: usage?.totalInputTokens,
@@ -1560,6 +1613,7 @@ export const generateAIChat: StateCreator<
 
     return {
       isFunctionCall,
+      contextOverflow,
       persistenceAmbiguous,
       persistenceFailure,
       traceId: msgTraceId,

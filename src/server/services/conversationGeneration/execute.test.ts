@@ -2697,6 +2697,312 @@ describe('executeConversationGeneration memory compaction', () => {
   );
 });
 
+describe('executeConversationGeneration context overflow self-healing', () => {
+  const topicMessages = [
+    { content: 'first question', id: 'u1', role: 'user', updatedAt: 1 },
+    { content: 'first answer', id: 'a1', role: 'assistant', updatedAt: 1 },
+    { content: 'current question', id: 'u2', role: 'user', updatedAt: 1 },
+  ];
+  const assistant = {
+    content: LOADING_FLAT,
+    error: undefined as unknown,
+    id: 'asst-1',
+    metadata: {} as Record<string, unknown>,
+    role: 'assistant',
+    tools: [] as unknown[],
+  };
+
+  const buildChatOperation = (overrides: Record<string, unknown> = {}) => ({
+    assistantMessageId: assistant.id,
+    attempt: 0,
+    config: { model: 'test-model', provider: 'test-provider' },
+    id: 'cgo_overflow_chat',
+    kind: 'chat',
+    lane: 'lane-1',
+    laneGeneration: 1,
+    parentMessageId: 'u2',
+    revision: 0,
+    sessionId: 'session-1',
+    status: 'pending',
+    topicId: 'topic-1',
+    userId: 'user-1',
+    ...overrides,
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    modelMocks.insertEvent.mockResolvedValue({ id: 1 });
+    modelMocks.isSupersededByLaneGeneration.mockResolvedValue(false);
+    modelMocks.touchHeartbeat.mockResolvedValue({ status: 'processing' });
+    modelMocks.finalizeActive.mockImplementation(async (id, status) => ({
+      id,
+      revision: 5,
+      status,
+    }));
+    assistant.content = LOADING_FLAT;
+    assistant.error = undefined;
+    assistant.metadata = {};
+    assistant.tools = [];
+    aiChatMocks.getMessagesAndTopics.mockResolvedValue({
+      messages: [...topicMessages, { ...assistant, parentId: 'u2', updatedAt: 1 }],
+      topics: [],
+    });
+    topicMocks.findById.mockResolvedValue({
+      historySummary: '',
+      id: 'topic-1',
+      metadata: {},
+    });
+    topicMocks.update.mockResolvedValue({ id: 'topic-1' });
+    messageMocks.findById.mockImplementation(async (id) =>
+      id === assistant.id ? { ...assistant, metadata: { ...assistant.metadata } } : undefined,
+    );
+    messageMocks.update.mockImplementation(async (id, value) => {
+      if (id === assistant.id) Object.assign(assistant, value);
+    });
+    messageMocks.updateMetadata.mockImplementation(async (id, value) => {
+      if (id === assistant.id) assistant.metadata = { ...assistant.metadata, ...value };
+    });
+    messageMocks.lockCompactionCandidateRows.mockImplementation(async (ids: string[]) =>
+      ids
+        .map((id) => topicMessages.find((message) => message.id === id))
+        .filter(Boolean)
+        .map((message) => ({ ...message, threadId: null })),
+    );
+    messageMocks.queryMainTopicBoundaryRows.mockResolvedValue(
+      topicMessages.map(({ id, role }) => ({ id, role })),
+    );
+    vi.mocked(withConversationWriteLockOrThrow).mockImplementation(async (_db, _userId, work) =>
+      work({} as any),
+    );
+    runtimeMocks.chat.mockResolvedValue(new Response());
+  });
+
+  it('compacts once and retries the model call when the provider rejects with overflow', async () => {
+    const row = buildChatOperation();
+    vi.mocked(consumeProtocolResponse)
+      // 1. main model call overflows
+      .mockResolvedValueOnce({
+        content: '',
+        error: {
+          message: "This model's maximum context length is 128000 tokens.",
+          type: 'ProviderBizError',
+        },
+      })
+      // 2. recovery summarizer succeeds
+      .mockResolvedValueOnce({ content: 'compacted summary' })
+      // 3. retried main model call succeeds
+      .mockResolvedValueOnce({ content: 'recovered answer' });
+
+    await runOperation(row);
+
+    expect(runtimeMocks.chat).toHaveBeenCalledTimes(3);
+    // Retry budget was not burned and the operation did not fail.
+    expect(modelMocks.markForRetry).not.toHaveBeenCalled();
+    // The retry flag was persisted on the operation config before compacting.
+    expect(modelMocks.update).toHaveBeenCalledWith(
+      row.id,
+      expect.objectContaining({
+        config: expect.objectContaining({ contextOverflowRetried: true }),
+      }),
+      expect.anything(),
+    );
+    // The failed assistant row was reset before the retry.
+    expect(messageMocks.update).toHaveBeenCalledWith(
+      assistant.id,
+      expect.objectContaining({ content: LOADING_FLAT, error: null }),
+    );
+    expect(assistant.content).toBe('recovered answer');
+    expect(assistant.metadata[CONVERSATION_GENERATION_TURN_COMPLETE]).toBe(true);
+    expect(modelMocks.finalizeActive).toHaveBeenCalledWith(
+      row.id,
+      'succeeded',
+      undefined,
+      expect.anything(),
+    );
+    expect(generationDebugMocks.logGenerationDebugSafe).toHaveBeenCalledWith(
+      'context_overflow_retry',
+      expect.objectContaining({ candidateCount: 2, lane: 'worker' }),
+    );
+  });
+
+  it('finalizes failed when the retried call overflows again', async () => {
+    const row = buildChatOperation({ id: 'cgo_overflow_twice' });
+    vi.mocked(consumeProtocolResponse)
+      .mockResolvedValueOnce({
+        content: '',
+        error: {
+          message: "This model's maximum context length is 128000 tokens.",
+          type: 'ProviderBizError',
+        },
+      })
+      .mockResolvedValueOnce({ content: 'compacted summary' })
+      .mockResolvedValueOnce({
+        content: '',
+        error: {
+          message: "This model's maximum context length is 128000 tokens.",
+          type: 'ProviderBizError',
+        },
+      });
+
+    await runOperation(row);
+
+    expect(runtimeMocks.chat).toHaveBeenCalledTimes(3);
+    expect(modelMocks.markForRetry).not.toHaveBeenCalled();
+    expect(modelMocks.finalizeActive).toHaveBeenCalledWith(
+      row.id,
+      'failed',
+      expect.objectContaining({
+        message: expect.stringContaining('maximum context length'),
+      }),
+      expect.anything(),
+    );
+  });
+
+  it('does not attempt recovery when the operation already carries the retry flag', async () => {
+    const row = buildChatOperation({
+      config: {
+        contextOverflowRetried: true,
+        model: 'test-model',
+        provider: 'test-provider',
+      },
+      id: 'cgo_overflow_flagged',
+    });
+    vi.mocked(consumeProtocolResponse).mockResolvedValue({
+      content: '',
+      error: {
+        message: "This model's maximum context length is 128000 tokens.",
+        type: 'ProviderBizError',
+      },
+    });
+
+    await runOperation(row);
+
+    // Only the overflowing main call — no summarizer, no retry.
+    expect(runtimeMocks.chat).toHaveBeenCalledTimes(1);
+    expect(modelMocks.finalizeActive).toHaveBeenCalledWith(
+      row.id,
+      'failed',
+      expect.objectContaining({
+        message: expect.stringContaining('maximum context length'),
+      }),
+      expect.anything(),
+    );
+  });
+
+  it('keeps the error bubble when there is no compactable history', async () => {
+    const row = buildChatOperation({ id: 'cgo_overflow_empty' });
+    aiChatMocks.getMessagesAndTopics.mockResolvedValue({
+      messages: [
+        { content: 'current question', id: 'u2', role: 'user', updatedAt: 1 },
+        { ...assistant, parentId: 'u2', updatedAt: 1 },
+      ],
+      topics: [],
+    });
+    vi.mocked(consumeProtocolResponse).mockResolvedValue({
+      content: '',
+      error: {
+        message: "This model's maximum context length is 128000 tokens.",
+        type: 'ProviderBizError',
+      },
+    });
+
+    await runOperation(row);
+
+    expect(runtimeMocks.chat).toHaveBeenCalledTimes(1);
+    expect(generationDebugMocks.logGenerationDebugSafe).toHaveBeenCalledWith(
+      'context_overflow_recovery_skipped',
+      expect.objectContaining({ reason: 'no_compactable_history' }),
+    );
+    expect(modelMocks.finalizeActive).toHaveBeenCalledWith(
+      row.id,
+      'failed',
+      expect.objectContaining({
+        message: expect.stringContaining('maximum context length'),
+      }),
+      expect.anything(),
+    );
+  });
+});
+
+describe('executeConversationGeneration compaction summarizer timeout', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    modelMocks.insertEvent.mockResolvedValue({ id: 1 });
+    modelMocks.isSupersededByLaneGeneration.mockResolvedValue(false);
+    modelMocks.touchHeartbeat.mockResolvedValue({ status: 'processing' });
+    modelMocks.finalizeActive.mockImplementation(async (id, status) => ({
+      id,
+      revision: 5,
+      status,
+    }));
+  });
+
+  it('fails once without a Graphile retry when the summarizer exceeds its deadline', async () => {
+    process.env.CONTEXT_COMPACTION_SUMMARIZER_TIMEOUT_MS = '30';
+    try {
+      const candidateMessages = [
+        { content: 'hello', id: 'u1', role: 'user', updatedAt: 1 },
+        { content: 'world', id: 'a1', role: 'assistant', updatedAt: 1 },
+      ];
+      const expectedFingerprint = createCompactionFingerprint({
+        messages: candidateMessages as any,
+        summary: '',
+      });
+      const row = {
+        attempt: 0,
+        config: {
+          compaction: {
+            candidateMessageIds: ['u1', 'a1'],
+            expectedFingerprint,
+            expectedHistorySummary: '',
+            trigger: 'manual',
+          },
+          model: 'gpt-5-mini',
+          provider: 'openai',
+        },
+        id: 'cgo_summarizer_timeout',
+        kind: 'memory_compaction',
+        lane: 'lane-1',
+        laneGeneration: 1,
+        revision: 0,
+        sessionId: 'session-1',
+        status: 'pending',
+        topicId: 'topic-1',
+        userId: 'user-1',
+      };
+      aiChatMocks.getMessagesAndTopics.mockResolvedValue({
+        messages: candidateMessages,
+        topics: [],
+      });
+      // The summarizer hangs until the deadline aborts it.
+      runtimeMocks.chat.mockImplementation(
+        (_payload, options: { signal?: AbortSignal } | undefined) =>
+          new Promise((_resolve, reject) => {
+            options?.signal?.addEventListener('abort', () =>
+              reject(new Error('The operation was aborted')),
+            );
+          }),
+      );
+
+      await runOperation(row);
+
+      expect(modelMocks.markForRetry).not.toHaveBeenCalled();
+      expect(modelMocks.finalizeActive).toHaveBeenCalledWith(
+        row.id,
+        'failed',
+        expect.objectContaining({
+          body: expect.objectContaining({ name: 'CompactionSummarizerTimeoutError' }),
+          message: expect.stringContaining('timed out'),
+          type: 'GenerationError',
+        }),
+        expect.objectContaining({ attempt: 1, laneGeneration: 1 }),
+      );
+    } finally {
+      delete process.env.CONTEXT_COMPACTION_SUMMARIZER_TIMEOUT_MS;
+    }
+  });
+});
+
 describe('executeConversationGeneration translation', () => {
   beforeEach(() => {
     vi.clearAllMocks();

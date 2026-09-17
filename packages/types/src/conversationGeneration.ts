@@ -95,6 +95,12 @@ export interface ConversationGenerationConfigSnapshot {
   agentParams?: Record<string, unknown>;
   chatConfig?: Partial<LobeAgentChatConfig>;
   compaction?: ConversationGenerationCompactionSnapshot;
+  /**
+   * Set after the worker self-healed one context-overflow failure with an
+   * inline compaction + retry, so a second overflow finalizes as failed
+   * instead of looping.
+   */
+  contextOverflowRetried?: boolean;
   enableMemoryTool?: boolean;
   fetchOnClient?: boolean;
   groupId?: string;
