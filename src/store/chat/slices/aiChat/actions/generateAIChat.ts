@@ -18,7 +18,7 @@ import { nanoid } from '@lobechat/utils';
 import { produce } from 'immer';
 import { StateCreator } from 'zustand/vanilla';
 
-import { normalizeAssistantMemoryText } from '@/helpers/assistantMemory';
+import { normalizeAssistantMemoryText, partitionMemoryByTrust } from '@/helpers/assistantMemory';
 import {
   getListedModelContextWindowTokens,
   getMessagesAfterHistorySummaryCursor,
@@ -1185,13 +1185,16 @@ export const generateAIChat: StateCreator<
     // Two-tier assistant memory for the target agent (member requests carry their own
     // config via params.agentConfig); injected by AgentMemoryProvider, separate from
     // the topic history summary. Absent flag means enabled (default true).
+    // Provenance: entries tagged `untrusted` are partitioned into a separate
+    // marked section (M2); with none, the docs pass through byte-identical.
     const agentMemoryForRequest =
       chatConfig.enableAssistantMemory === false
         ? {}
-        : {
+        : partitionMemoryByTrust({
             dynamicMemory: normalizeAssistantMemoryText(agentConfig.assistantMemory) || undefined,
+            entryOrigins: agentConfig.assistantMemoryMeta?.entryOrigins,
             fixedMemory: (agentConfig.fixedMemory ?? '').trim() || undefined,
-          };
+          });
     const requestMessages = enableHistoryCompaction
       ? getMessagesAfterHistorySummaryCursor(
           messages,

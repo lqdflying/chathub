@@ -1,16 +1,20 @@
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { memoryEntryOriginKey } from '@/helpers/assistantMemory';
 import { useChatStore } from '@/store/chat';
+import { chatSelectors } from '@/store/chat/selectors';
 
 const { agentStoreMock } = vi.hoisted(() => {
   const state = {
     activeId: 'session-1',
     assistantMemory: '' as string | null,
+    assistantMemoryMeta: undefined as any,
     enableAssistantMemory: true,
     fixedMemory: '' as string | null,
     internal_updateAgentConfig: vi.fn(async (_id: string, patch: any) => {
       state.fixedMemory = patch.fixedMemory;
+      if (patch.assistantMemoryMeta) state.assistantMemoryMeta = patch.assistantMemoryMeta;
     }),
   };
   return { agentStoreMock: state };
@@ -27,6 +31,7 @@ vi.mock('@/store/agent/selectors', () => ({
   agentSelectors: {
     getAgentConfigById: () => () => ({
       assistantMemory: agentStoreMock.assistantMemory,
+      assistantMemoryMeta: agentStoreMock.assistantMemoryMeta,
       fixedMemory: agentStoreMock.fixedMemory,
     }),
   },
@@ -36,6 +41,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   agentStoreMock.activeId = 'session-1';
   agentStoreMock.assistantMemory = '';
+  agentStoreMock.assistantMemoryMeta = undefined;
   agentStoreMock.enableAssistantMemory = true;
   agentStoreMock.fixedMemory = '';
 });
@@ -54,6 +60,9 @@ describe('saveMemory builtin tool executor', () => {
 
     expect(outcome).toBe(true);
     expect(agentStoreMock.internal_updateAgentConfig).toHaveBeenCalledWith('session-1', {
+      assistantMemoryMeta: {
+        entryOrigins: { [memoryEntryOriginKey('likes tea')]: 'agent' },
+      },
       fixedMemory: '#1: likes tea',
     });
     expect(updateContent).toHaveBeenCalledWith(
@@ -301,6 +310,67 @@ describe('saveMemory builtin tool executor', () => {
         totalChars: '#1: prefers dark mode'.length + '#1 [2026-09-01]:\nsummary body'.length,
       }),
     );
+
+    updateContent.mockRestore();
+  });
+
+  it('tags memory-tool writes as agent origin', async () => {
+    const { result } = renderHook(() => useChatStore());
+    const updateContent = vi
+      .spyOn(result.current, 'internal_updateMessageContent')
+      .mockResolvedValue(undefined as any);
+
+    await act(async () => {
+      await result.current.saveMemory('msg-1', { content: 'likes tea' });
+    });
+
+    expect(agentStoreMock.assistantMemoryMeta?.entryOrigins).toEqual({
+      [memoryEntryOriginKey('likes tea')]: 'agent',
+    });
+
+    updateContent.mockRestore();
+  });
+
+  it('downgrades the origin to untrusted when recent history contains MCP tool output', async () => {
+    const chatsSpy = vi.spyOn(chatSelectors, 'mainDisplayChats').mockReturnValue([
+      { id: 't1', plugin: { identifier: 'mcp__notion' }, role: 'tool' },
+      { id: 'a1', role: 'assistant' },
+    ] as any);
+    const { result } = renderHook(() => useChatStore());
+    const updateContent = vi
+      .spyOn(result.current, 'internal_updateMessageContent')
+      .mockResolvedValue(undefined as any);
+
+    await act(async () => {
+      await result.current.saveMemory('msg-1', { content: 'attacker controlled note' });
+    });
+
+    expect(agentStoreMock.assistantMemoryMeta?.entryOrigins).toEqual({
+      [memoryEntryOriginKey('attacker controlled note')]: 'untrusted',
+    });
+
+    updateContent.mockRestore();
+    chatsSpy.mockRestore();
+  });
+
+  it('keeps existing origins when a later write adds another entry', async () => {
+    agentStoreMock.fixedMemory = '#1: owner fact';
+    agentStoreMock.assistantMemoryMeta = {
+      entryOrigins: { [memoryEntryOriginKey('owner fact')]: 'owner' },
+    };
+    const { result } = renderHook(() => useChatStore());
+    const updateContent = vi
+      .spyOn(result.current, 'internal_updateMessageContent')
+      .mockResolvedValue(undefined as any);
+
+    await act(async () => {
+      await result.current.saveMemory('msg-1', { content: 'agent note' });
+    });
+
+    expect(agentStoreMock.assistantMemoryMeta?.entryOrigins).toEqual({
+      [memoryEntryOriginKey('owner fact')]: 'owner',
+      [memoryEntryOriginKey('agent note')]: 'agent',
+    });
 
     updateContent.mockRestore();
   });

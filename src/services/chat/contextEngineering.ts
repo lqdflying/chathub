@@ -66,7 +66,7 @@ const resolveProxyImageUrls = async (messages: UIChatMessage[]): Promise<UIChatM
 };
 
 interface ContextEngineeringContext {
-  agentMemory?: { dynamicMemory?: string; fixedMemory?: string };
+  agentMemory?: { dynamicMemory?: string; fixedMemory?: string; untrustedMemory?: string };
   enableHistoryCount?: boolean;
   existingSystemRolePolicy?: 'prepend' | 'skip';
   historyCount?: number;

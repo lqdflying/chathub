@@ -19,6 +19,19 @@ export interface AssistantMemoryLastError {
 }
 
 /**
+ * Provenance of a memory entry (M2).
+ * - `owner` — user edit via assistant settings;
+ * - `dream` — scheduled dream card;
+ * - `agent` — memory-tool write during a chat;
+ * - `untrusted` — memory-tool write downgraded because the writing turn's
+ *   recent history contained external (MCP / web) tool output, a
+ *   prompt-injection persistence vector.
+ *
+ * Entries without a recorded origin predate provenance and render trusted.
+ */
+export type MemoryEntryOrigin = 'agent' | 'dream' | 'owner' | 'untrusted';
+
+/**
  * Rollup bookkeeping stored alongside `assistantMemory` (dynamic memory).
  *
  * Write contract — this object is persisted through config deep-merge
@@ -55,6 +68,12 @@ export interface AssistantMemoryMeta {
   lastError?: AssistantMemoryLastError | null;
   /** ISO timestamp of the last rollup that advanced the watermarks. */
   lastRollupAt?: string;
+  /**
+   * Provenance per memory entry, keyed by content hash (`hashText` of the
+   * fixed-entry text or dream-card body). Absent key = predates provenance,
+   * rendered trusted. See {@link MemoryEntryOrigin}.
+   */
+  entryOrigins?: Record<string, MemoryEntryOrigin>;
   /** One-slot undo backup; restore swaps it with the current memory, so restoring twice is a redo. */
   previousMemory?: { at: string; text: string } | null;
   topicWatermarks?: AssistantMemoryTopicWatermark[];

@@ -72,6 +72,7 @@ vi.mock('@/helpers/assistantMemory', async (importOriginal) => {
 });
 
 import { logCompactionDebugSafe } from '@/libs/logger/compactionDebug';
+import { memoryEntryOriginKey } from '@/helpers/assistantMemory';
 import { executeAssistantMemoryDream } from './execute';
 
 const NOW = new Date('2026-08-28T03:00:00.000Z');
@@ -149,6 +150,24 @@ describe('executeAssistantMemoryDream', () => {
       }),
     );
     expect(updateWhere).toHaveBeenCalled();
+  });
+
+  it('tags dream cards with dream origin on a successful append (M2)', async () => {
+    const db = createDb();
+    const result = await executeAssistantMemoryDream({
+      agentId: 'agent-1',
+      db,
+      now: NOW,
+      periodStamp: PERIOD,
+      userId: 'user-1',
+    });
+
+    expect(result).toMatchObject({ status: 'success' });
+    const meta = updateSet.mock.calls[0][0].assistantMemoryMeta;
+    // legacy card + the new card, both tagged `dream`
+    expect(Object.keys(meta.entryOrigins ?? {})).toHaveLength(2);
+    expect(Object.values(meta.entryOrigins ?? {})).toEqual(['dream', 'dream']);
+    expect(meta.entryOrigins[memoryEntryOriginKey('prior memory')]).toBe('dream');
   });
 
   it('writes the marker without changing memory on NO_CHANGES', async () => {

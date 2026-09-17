@@ -23,6 +23,7 @@ import type { LobeChatDatabase } from '@lobechat/database';
 import { agentMemoryPrompt, historySummaryPrompt, pluginPrompts } from '@lobechat/prompts';
 import type {
   ConversationGenerationConfigSnapshot,
+  MemoryEntryOrigin,
   OpenAIChatMessage,
   UIChatMessage,
 } from '@lobechat/types';
@@ -33,6 +34,7 @@ import { ModelProvider } from 'model-bank';
 import { PluginModel } from '@/database/models/plugin';
 import { SkillModel } from '@/database/models/skill';
 import { getLLMConfig } from '@/envs/llm';
+import { partitionMemoryByTrust } from '@/helpers/assistantMemory';
 import {
   getMessagesAfterHistorySummaryCursor,
   resolveEffectiveHistoryWindow,
@@ -96,7 +98,11 @@ export const buildConversationChatPayload = async ({
   sessionId,
   userId,
 }: {
-  agentMemory?: { dynamicMemory?: string; fixedMemory?: string };
+  agentMemory?: {
+    dynamicMemory?: string;
+    entryOrigins?: Record<string, MemoryEntryOrigin>;
+    fixedMemory?: string;
+  };
   config: ConversationGenerationConfigSnapshot;
   db: LobeChatDatabase;
   generalInstruction?: string;
@@ -230,7 +236,9 @@ export const buildConversationChatPayload = async ({
       new ToolResultTruncateProcessor(),
       new SystemRoleInjector({ existingSystemRolePolicy: 'prepend', systemRole }),
       new AgentMemoryProvider({
-        ...(chatConfig?.enableAssistantMemory === false ? {} : agentMemory),
+        // Provenance partition (M2): untrusted entries render in a separate
+        // marked section; with none, docs pass through byte-identical.
+        ...(chatConfig?.enableAssistantMemory === false ? {} : partitionMemoryByTrust(agentMemory)),
         formatAgentMemory: agentMemoryPrompt,
       }),
       new SkillInstructionsProvider({

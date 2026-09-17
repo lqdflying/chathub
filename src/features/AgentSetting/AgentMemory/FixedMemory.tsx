@@ -16,6 +16,7 @@ import {
   type FixedMemoryEntry,
   appendFixedMemoryEntry,
   deleteFixedMemoryEntry,
+  mergeNewEntryOrigins,
   parseFixedMemoryEntries,
   renumberFixedMemoryEntries,
   updateFixedMemoryEntry,
@@ -70,7 +71,11 @@ const FixedMemory = memo(() => {
   const [editDraft, setEditDraft] = useState('');
   const [adding, setAdding] = useState(false);
   const [addDraft, setAddDraft] = useState('');
-  const [fixedMemory, updateConfig] = useStore((s) => [s.config.fixedMemory, s.setAgentConfig]);
+  const [fixedMemory, assistantMemoryMeta, updateConfig] = useStore((s) => [
+    s.config.fixedMemory,
+    s.config.assistantMemoryMeta,
+    s.setAgentConfig,
+  ]);
 
   const entries = parseFixedMemoryEntries(fixedMemory);
   const hasFreeformLines = (fixedMemory ?? '')
@@ -79,7 +84,23 @@ const FixedMemory = memo(() => {
 
   // the write can fail after the optimistic local update — surface it
   const persist = (nextDoc: string) => {
-    Promise.resolve(updateConfig({ fixedMemory: nextDoc }))
+    // M2 provenance: entries first appearing in this save are owner-authored;
+    // pre-existing content keeps its recorded origin.
+    const newOrigins = mergeNewEntryOrigins(
+      fixedMemory,
+      nextDoc,
+      assistantMemoryMeta?.entryOrigins ?? undefined,
+      'owner',
+    );
+    Promise.resolve(
+      updateConfig({
+        assistantMemoryMeta: {
+          ...assistantMemoryMeta,
+          entryOrigins: { ...assistantMemoryMeta?.entryOrigins, ...newOrigins },
+        },
+        fixedMemory: nextDoc,
+      }),
+    )
       .then(() => {
         message.success(t('settingChatMemory.saveSuccess'));
       })

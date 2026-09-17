@@ -4,13 +4,21 @@ import {
   appendFixedMemoryEntry,
   deleteFixedMemoryEntry,
   formatFixedMemoryEntries,
+  isMemoryWriteTainted,
+  MEMORY_TAINT_WINDOW,
+  mergeNewEntryOrigins,
   readAssistantMemory,
   searchAssistantMemory,
   updateFixedMemoryEntry,
 } from '@/helpers/assistantMemory';
 import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selectors';
 import { getAgentStoreState } from '@/store/agent/store';
+import { chatSelectors } from '@/store/chat/selectors';
 import { ChatStore } from '@/store/chat/store';
+import { builtinTools } from '@/tools';
+
+const BUILTIN_TOOL_IDENTIFIERS = new Set(builtinTools.map((tool) => tool.identifier));
+const isBuiltinToolIdentifier = (identifier: string) => BUILTIN_TOOL_IDENTIFIERS.has(identifier);
 
 export interface MemoryAction {
   deleteMemory: (
@@ -105,7 +113,25 @@ export const memorySlice: StateCreator<
 
         // direct id-targeted write: does NOT touch the shared abortable
         // updateAgentConfigSignal slot (see the canary.2 stale-abort fix)
+        //
+        // M2 provenance: entries authored by this write are tagged `agent`,
+        // downgraded to `untrusted` when the writing turn's recent history
+        // contains external (MCP / web) tool output.
+        const tainted = isMemoryWriteTainted(
+          chatSelectors.mainDisplayChats(get()).slice(-MEMORY_TAINT_WINDOW),
+          isBuiltinToolIdentifier,
+        );
+        const newOrigins = mergeNewEntryOrigins(
+          config.fixedMemory,
+          outcome.doc,
+          config.assistantMemoryMeta?.entryOrigins,
+          tainted ? 'untrusted' : 'agent',
+        );
         await getAgentStoreState().internal_updateAgentConfig(activeId, {
+          assistantMemoryMeta: {
+            ...config.assistantMemoryMeta,
+            entryOrigins: { ...config.assistantMemoryMeta?.entryOrigins, ...newOrigins },
+          },
           fixedMemory: outcome.doc,
         });
         if (!invocationIsCurrent()) return false;

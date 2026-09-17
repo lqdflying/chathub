@@ -1,5 +1,11 @@
 // Context Provider exports
-export { AgentMemoryProvider } from './AgentMemory';
+export {
+  AGENT_MEMORY_INJECTION_MAX_CHARS,
+  AGENT_MEMORY_TRUNCATED_POINTER,
+  AgentMemoryProvider,
+  applyAgentMemoryBudget,
+  formatUntrustedMemorySection,
+} from './AgentMemory';
 export { HistorySummaryProvider } from './HistorySummary';
 export { InboxGuideProvider } from './InboxGuide';
 export { SkillInstructionsProvider } from './SkillInstructions';

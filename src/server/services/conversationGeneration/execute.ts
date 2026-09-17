@@ -905,6 +905,7 @@ const executeChat = async (
   const built = await buildConversationChatPayload({
     agentMemory: {
       dynamicMemory: agent?.assistantMemory || undefined,
+      entryOrigins: agent?.assistantMemoryMeta?.entryOrigins ?? undefined,
       fixedMemory: agent?.fixedMemory || undefined,
     },
     config: {
@@ -1050,6 +1051,7 @@ const executeChat = async (
     const rebuilt = await buildConversationChatPayload({
       agentMemory: {
         dynamicMemory: agent?.assistantMemory || undefined,
+        entryOrigins: agent?.assistantMemoryMeta?.entryOrigins ?? undefined,
         fixedMemory: agent?.fixedMemory || undefined,
       },
       config: {
@@ -1455,6 +1457,7 @@ const executeChat = async (
       const continued = await buildConversationChatPayload({
         agentMemory: {
           dynamicMemory: continuedAgent?.assistantMemory || undefined,
+          entryOrigins: continuedAgent?.assistantMemoryMeta?.entryOrigins ?? undefined,
           fixedMemory: continuedAgent?.fixedMemory || undefined,
         },
         config: {

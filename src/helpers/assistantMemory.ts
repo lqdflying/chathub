@@ -3,7 +3,7 @@ import {
   ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS,
   ASSISTANT_MEMORY_TARGET_TOKENS,
 } from '@lobechat/prompts';
-import type { AssistantMemoryMeta, LobeAgentChatConfig } from '@lobechat/types';
+import type { AssistantMemoryMeta, LobeAgentChatConfig, MemoryEntryOrigin } from '@lobechat/types';
 import dayjs, { type Dayjs } from 'dayjs';
 
 const PREAMBLE_PATTERNS = [
@@ -393,6 +393,162 @@ export const readAssistantMemory = ({
   const fixed = (fixedMemory ?? '').trim();
   const dynamic = (dynamicMemory ?? '').trim();
   return { dynamic, fixed, totalChars: fixed.length + dynamic.length };
+};
+
+// --- Memory provenance (M2) ---
+
+/** Origin map key for one entry: content hash of the fixed-entry text / dream-card body. */
+export const memoryEntryOriginKey = (content: string): string => hashText(content.trim());
+
+/** Recorded origin for one entry; undefined = predates provenance (trusted). */
+export const memoryEntryOrigin = (
+  entryOrigins: Record<string, MemoryEntryOrigin> | null | undefined,
+  content: string,
+): MemoryEntryOrigin | undefined => entryOrigins?.[memoryEntryOriginKey(content)];
+
+/** Web browsing tool output is external content for provenance taint. */
+const WEB_BROWSING_IDENTIFIER = 'lobe-web-browsing';
+
+/** How many messages before the memory write are scanned for external tool output. */
+export const MEMORY_TAINT_WINDOW = 10;
+
+/**
+ * Taint rule (M2): a memory write is downgraded to `untrusted` when the
+ * writing turn's recent history contains external tool output — MCP/custom
+ * plugins or web browsing. The memory tool's own results never taint.
+ */
+export const isMemoryWriteTainted = (
+  recentMessages: Array<{ plugin?: { identifier?: string | null } | null; role?: string | null }>,
+  isBuiltinIdentifier: (identifier: string) => boolean,
+): boolean =>
+  recentMessages.some((message) => {
+    if (message.role !== 'tool') return false;
+    const identifier = message.plugin?.identifier;
+    if (!identifier || identifier === MEMORY_TOOL_IDENTIFIER) return false;
+    return identifier === WEB_BROWSING_IDENTIFIER || !isBuiltinIdentifier(identifier);
+  });
+
+export interface PartitionedMemoryByTrust {
+  dynamicMemory?: string;
+  fixedMemory?: string;
+  /** Untrusted entries/cards serialized for a separate, clearly marked section. */
+  untrustedMemory?: string;
+}
+
+/**
+ * Split both memory tiers into trusted content (rendered as today) and
+ * `untrusted` entries (rendered in a separate "treat as data" section).
+ * Byte-stable fast path: with no untrusted entries the input docs pass through
+ * unchanged, so prompt-cache prefixes are unaffected for existing agents.
+ */
+export const partitionMemoryByTrust = ({
+  dynamicMemory,
+  entryOrigins,
+  fixedMemory,
+}: {
+  dynamicMemory?: string | null;
+  entryOrigins?: Record<string, MemoryEntryOrigin> | null;
+  fixedMemory?: string | null;
+} = {}): PartitionedMemoryByTrust => {
+  const fixed = (fixedMemory ?? '').trim() || undefined;
+  const dynamic = (dynamicMemory ?? '').trim() || undefined;
+  if (!entryOrigins || Object.keys(entryOrigins).length === 0) {
+    return { dynamicMemory: dynamic, fixedMemory: fixed };
+  }
+
+  const isUntrusted = (content: string) =>
+    entryOrigins[memoryEntryOriginKey(content)] === 'untrusted';
+
+  // Fixed tier: pull untrusted entry lines out; keep all other lines in place.
+  const trustedFixedLines: string[] = [];
+  const untrustedFixed: string[] = [];
+  for (const line of (fixed ?? '').split('\n')) {
+    const match = FIXED_MEMORY_ENTRY_LINE.exec(line);
+    if (match && isUntrusted(match[2].trim())) untrustedFixed.push(`#${match[1]}: ${match[2].trim()}`);
+    else trustedFixedLines.push(line);
+  }
+
+  // Dynamic tier: split dream cards (normalize first so a legacy preamble is kept as a card).
+  const trustedCards: DreamMemoryEntry[] = [];
+  const untrustedCards: DreamMemoryEntry[] = [];
+  for (const entry of parseDreamMemoryEntries(normalizeDreamMemoryDocument(dynamic))) {
+    (isUntrusted(entry.body) ? untrustedCards : trustedCards).push(entry);
+  }
+
+  if (untrustedFixed.length === 0 && untrustedCards.length === 0) {
+    return { dynamicMemory: dynamic, fixedMemory: fixed };
+  }
+
+  const untrusted = [
+    ...untrustedFixed,
+    ...untrustedCards.map((entry) => serializeDreamMemoryEntries([entry])),
+  ].join('\n');
+
+  return {
+    dynamicMemory: serializeDreamMemoryEntries(trustedCards) || undefined,
+    fixedMemory: trustedFixedLines.join('\n').trim() || undefined,
+    untrustedMemory: untrusted || undefined,
+  };
+};
+
+/**
+ * Tag entries that appear in `nextDoc` but not in `previousDoc` (and have no
+ * recorded origin) with `origin`:
+ * - `owner` for user edits in assistant settings;
+ * - `agent` / `untrusted` for memory-tool writes (taint-dependent).
+ * Entries whose content already existed keep their recorded origin — a user
+ * re-saving the doc does not launder an `untrusted` entry into `owner`.
+ */
+export const mergeNewEntryOrigins = (
+  previousDoc: string | null | undefined,
+  nextDoc: string | null | undefined,
+  entryOrigins: Record<string, MemoryEntryOrigin> | null | undefined,
+  origin: MemoryEntryOrigin,
+): Record<string, MemoryEntryOrigin> | undefined => {
+  const previousContents = new Set(
+    parseFixedMemoryEntries(previousDoc).map((entry) => memoryEntryOriginKey(entry.content)),
+  );
+  let next: Record<string, MemoryEntryOrigin> | undefined;
+  for (const entry of parseFixedMemoryEntries(nextDoc)) {
+    const key = memoryEntryOriginKey(entry.content);
+    if (previousContents.has(key) || entryOrigins?.[key]) continue;
+    next = { ...next, [key]: origin };
+  }
+  return next;
+};
+
+/**
+ * Dream-path provenance sync (M2): prune origins whose content no longer
+ * exists in either tier, then tag dream cards with no recorded origin as
+ * `dream` (the dynamic tier is only ever written by the dream job). Existing
+ * origins (`owner` / `agent` / `untrusted`) are preserved.
+ */
+export const syncDreamEntryOrigins = (
+  dynamicMemory: string | null | undefined,
+  {
+    entryOrigins,
+    fixedMemory,
+  }: {
+    entryOrigins?: Record<string, MemoryEntryOrigin> | null;
+    fixedMemory?: string | null;
+  },
+): Record<string, MemoryEntryOrigin> | undefined => {
+  const liveKeys = new Set<string>();
+  for (const entry of parseFixedMemoryEntries(fixedMemory)) {
+    liveKeys.add(memoryEntryOriginKey(entry.content));
+  }
+  const cards = parseDreamMemoryEntries(normalizeDreamMemoryDocument(dynamicMemory));
+  for (const card of cards) liveKeys.add(memoryEntryOriginKey(card.body));
+
+  let next: Record<string, MemoryEntryOrigin> | undefined;
+  for (const [key, origin] of Object.entries(entryOrigins ?? {})) {
+    if (liveKeys.has(key)) next = { ...next, [key]: origin };
+  }
+  for (const card of cards) {
+    const key = memoryEntryOriginKey(card.body);
+    if (!next?.[key]) next = { ...next, [key]: 'dream' };
+  }
+  return next;
 };
 
 /**

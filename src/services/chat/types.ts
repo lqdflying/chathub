@@ -11,6 +11,8 @@ import type { JsonChatCompletionInspection } from './extractJsonChatCompletion';
 export interface AgentMemoryPayload {
   dynamicMemory?: string;
   fixedMemory?: string;
+  /** Provenance-tagged untrusted entries, rendered in a separate marked section */
+  untrustedMemory?: string;
 }
 
 export interface FetchOptions extends FetchSSEOptions {

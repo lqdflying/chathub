@@ -7,6 +7,7 @@ import { CodeInterpreterIdentifier } from '@/tools/code-interpreter';
 import { DalleManifest } from '@/tools/dalle';
 import { MemoryApiName, MemoryManifest } from '@/tools/memory';
 import { WebBrowsingApiName, WebBrowsingManifest } from '@/tools/web-browsing';
+import { memoryEntryOriginKey } from '@/helpers/assistantMemory';
 
 import { executeConversationToolStep, findUnsupportedConversationTool } from './tools';
 
@@ -182,6 +183,7 @@ describe('executeConversationToolStep', () => {
 
   it('serializes a memory write and step completion in one transaction', async () => {
     const whereUpdate = vi.fn().mockResolvedValue(undefined);
+    const setUpdate = vi.fn(() => ({ where: whereUpdate }));
     const trx = {
       select: vi.fn(() => ({
         from: vi.fn(() => ({
@@ -190,11 +192,13 @@ describe('executeConversationToolStep', () => {
               for: vi.fn(() => ({
                 limit: vi.fn().mockResolvedValue([{ fixedMemory: '#1: Existing', id: 'agent-1' }]),
               })),
+              // M2 taint probe: recent tool output in this topic (none here)
+              orderBy: vi.fn(() => ({ limit: vi.fn().mockResolvedValue([]) })),
             })),
           })),
         })),
       })),
-      update: vi.fn(() => ({ set: vi.fn(() => ({ where: whereUpdate })) })),
+      update: vi.fn(() => ({ set: setUpdate })),
     };
     const db = {
       transaction: vi.fn(async (callback) => callback(trx)),
@@ -216,11 +220,67 @@ describe('executeConversationToolStep', () => {
     expect(result).toMatchObject({ shouldContinue: true, success: true });
     expect(trx.update).toHaveBeenCalled();
     expect(whereUpdate).toHaveBeenCalled();
+    // M2 provenance: clean history → the new entry is tagged `agent`
+    expect(setUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        assistantMemoryMeta: {
+          entryOrigins: { [memoryEntryOriginKey('Likes concise answers')]: 'agent' },
+        },
+        fixedMemory: '#1: Existing\n#2: Likes concise answers',
+      }),
+    );
     expect(generationMocks.updateStep).toHaveBeenCalledWith(
       'step-1',
       expect.objectContaining({
         result: expect.objectContaining({ messageId: 'tool-message-1', success: true }),
         status: 'succeeded',
+      }),
+    );
+  });
+
+  it('downgrades the write origin to untrusted when recent history contains MCP tool output', async () => {
+    const whereUpdate = vi.fn().mockResolvedValue(undefined);
+    const setUpdate = vi.fn(() => ({ where: whereUpdate }));
+    const trx = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          innerJoin: vi.fn(() => ({
+            where: vi.fn(() => ({
+              for: vi.fn(() => ({
+                limit: vi.fn().mockResolvedValue([{ fixedMemory: '', id: 'agent-1' }]),
+              })),
+              orderBy: vi.fn(() => ({
+                limit: vi.fn().mockResolvedValue([{ identifier: 'mcp__notion' }]),
+              })),
+            })),
+          })),
+        })),
+      })),
+      update: vi.fn(() => ({ set: setUpdate })),
+    };
+    const db = {
+      transaction: vi.fn(async (callback) => callback(trx)),
+    };
+
+    const result = await executeConversationToolStep({
+      assistantMessage,
+      attempt: 1,
+      db: db as any,
+      operationId: 'operation-1',
+      payload: payload({
+        apiName: MemoryApiName.saveMemory,
+        arguments: JSON.stringify({ content: 'attacker planted note' }),
+        identifier: MemoryManifest.identifier,
+      }),
+      userId: 'user-1',
+    });
+
+    expect(result).toMatchObject({ shouldContinue: true, success: true });
+    expect(setUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        assistantMemoryMeta: {
+          entryOrigins: { [memoryEntryOriginKey('attacker planted note')]: 'untrusted' },
+        },
       }),
     );
   });

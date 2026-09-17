@@ -35,6 +35,7 @@ import {
   replaceDreamMemoryEntryBody,
   resolveMemoryDreamMaxEntries,
   serializeDreamMemoryPriorForPrompt,
+  syncDreamEntryOrigins,
   visibleDreamMemoryBody,
   wrapOverflowSummaryBody,
 } from '@/helpers/assistantMemory';
@@ -774,12 +775,20 @@ export const executeAssistantMemoryDream = async ({
     keepCount = folded.keepCount;
   }
 
+  // M2 provenance: tag untagged cards in the new doc as `dream` and prune
+  // origins whose content no longer exists in either tier.
+  const entryOrigins = syncDreamEntryOrigins(nextDoc, {
+    entryOrigins: snapshot.assistantMemoryMeta.entryOrigins,
+    fixedMemory: agent.fixedMemory,
+  });
+
   const wrote = await writeAgentMemoryIfUnchanged(db, agentId, userId, snapshot, {
     assistantMemory: nextDoc,
     assistantMemoryMeta: isRegenerate
-      ? snapshot.assistantMemoryMeta
+      ? { ...snapshot.assistantMemoryMeta, entryOrigins }
       : {
           ...snapshot.assistantMemoryMeta,
+          entryOrigins,
           lastDreamAt: nowISO(),
           lastDreamMarker: periodStamp,
           lastDreamStatus: 'completed',

@@ -1,22 +1,26 @@
 import type { LobeChatDatabase, Transaction } from '@lobechat/database';
 import type {
+  AssistantMemoryMeta,
   ChatToolPayload,
   ConversationGenerationConfigSnapshot,
   ConversationGenerationError,
   UIChatMessage,
 } from '@lobechat/types';
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { createHash } from 'node:crypto';
 
 import { ConversationGenerationModel } from '@/database/models/conversationGeneration';
 import { MessageModel } from '@/database/models/message';
 import { PluginModel } from '@/database/models/plugin';
 import { SkillModel } from '@/database/models/skill';
-import { agents, agentsToSessions } from '@/database/schemas';
+import { agents, agentsToSessions, messagePlugins, messages } from '@/database/schemas';
 import {
   appendFixedMemoryEntry,
   deleteFixedMemoryEntry,
   formatFixedMemoryEntries,
+  isMemoryWriteTainted,
+  MEMORY_TAINT_WINDOW,
+  mergeNewEntryOrigins,
   readAssistantMemory,
   searchAssistantMemory,
   updateFixedMemoryEntry,
@@ -37,6 +41,9 @@ import { WebBrowsingExecutionRuntime } from '@/tools/web-browsing/ExecutionRunti
 import { toPersistedConversationMessageSessionId } from './inboxSession';
 
 const searchRuntime = new WebBrowsingExecutionRuntime({ searchService: new SearchService() });
+
+const BUILTIN_TOOL_IDENTIFIERS = new Set(builtinTools.map((tool) => tool.identifier));
+const isBuiltinToolIdentifier = (identifier: string) => BUILTIN_TOOL_IDENTIFIERS.has(identifier);
 
 const hashInput = (value: unknown) =>
   createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -186,7 +193,12 @@ const invokeMemoryTool = async ({
   }
 
   const [agent] = await db
-    .select({ assistantMemory: agents.assistantMemory, fixedMemory: agents.fixedMemory, id: agents.id })
+    .select({
+      assistantMemory: agents.assistantMemory,
+      assistantMemoryMeta: agents.assistantMemoryMeta,
+      fixedMemory: agents.fixedMemory,
+      id: agents.id,
+    })
     .from(agentsToSessions)
     .innerJoin(agents, and(eq(agents.id, agentsToSessions.agentId), eq(agents.userId, userId)))
     .where(and(eq(agentsToSessions.sessionId, sessionId), eq(agentsToSessions.userId, userId)))
@@ -285,9 +297,48 @@ const invokeMemoryTool = async ({
   }
 
   if (nextDocument !== undefined) {
+    // M2 provenance: entries authored by this write are tagged `agent`,
+    // downgraded to `untrusted` when the writing turn's recent history
+    // contains external (MCP / web) tool output — a prompt-injection
+    // persistence vector.
+    const recentToolOutput = await db
+      .select({ identifier: messagePlugins.identifier })
+      .from(messages)
+      .innerJoin(
+        messagePlugins,
+        and(eq(messagePlugins.id, messages.id), eq(messagePlugins.userId, userId)),
+      )
+      .where(
+        and(
+          eq(messages.userId, userId),
+          eq(messages.role, 'tool'),
+          assistantMessage.topicId
+            ? eq(messages.topicId, assistantMessage.topicId)
+            : eq(messages.sessionId, sessionId),
+        ),
+      )
+      .orderBy(desc(messages.createdAt))
+      .limit(MEMORY_TAINT_WINDOW);
+
+    const tainted = isMemoryWriteTainted(
+      recentToolOutput.map(({ identifier }) => ({ plugin: { identifier }, role: 'tool' })),
+      isBuiltinToolIdentifier,
+    );
+    const meta = (agent.assistantMemoryMeta ?? {}) as AssistantMemoryMeta;
+    const newOrigins = mergeNewEntryOrigins(
+      agent.fixedMemory,
+      nextDocument,
+      meta.entryOrigins,
+      tainted ? 'untrusted' : 'agent',
+    );
+
     await db
       .update(agents)
-      .set({ fixedMemory: nextDocument, updatedAt: new Date() })
+      .set({
+        assistantMemoryMeta: { ...meta, entryOrigins: { ...meta.entryOrigins, ...newOrigins } },
+        fixedMemory: nextDocument,
+        updatedAt: new Date(),
+      })
       .where(and(eq(agents.id, agent.id), eq(agents.userId, userId)));
   }
 
