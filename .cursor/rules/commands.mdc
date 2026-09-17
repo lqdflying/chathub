@@ -21,14 +21,14 @@ cd packages/database && bunx vitest run --silent='passed-only' '[file]'
 bun run type-check      # Strict tsc via scripts/type-check-tsc.sh (filters known Drizzle noise)
 bun run type-check:tsgo # tsgo (fast)
 
-# Type-check pitfall — false pass on direct bash invocation:
-# scripts/type-check-tsc.sh calls bare `tsc` and swallows failures with `|| true`.
-# Run it via `bun run type-check` (bun prepends node_modules/.bin to PATH, so tsc
-# resolves). Direct `bash scripts/type-check-tsc.sh` outside bun false-passes in
-# <1s with "Type check passed." when tsc is not on PATH — a real run takes ~90s+.
-# If you must invoke the script directly:
+# Type-check pitfall — the script calls bare `tsc`; run it via `bun run type-check`
+# (bun prepends node_modules/.bin to PATH, so tsc resolves). Direct
+# `bash scripts/type-check-tsc.sh` outside bun now exits 1 with a clear message
+# (guard added after a false-pass incident: `|| true` used to swallow
+# "command not found" and report "Type check passed." in <1s — a real run takes
+# ~90s+). If you must invoke the script directly:
 #   PATH="$PWD/node_modules/.bin:$PATH" bash scripts/type-check-tsc.sh
-# Treat any sub-second "Type check passed." as a false pass and re-run via bun.
+# Treat any sub-second "Type check passed." as suspect.
 
 # Linting
 bun run lint       # ts + style + type-check + circular deps

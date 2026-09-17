@@ -6,6 +6,17 @@
 # bun's package resolution creating a second copy of drizzle-orm.
 set -o pipefail
 
+# tsc must resolve before running. The `|| true` on the tsc invocation below
+# would otherwise swallow "command not found" and the script would false-pass
+# with "Type check passed." in under a second. `bun run type-check` prepends
+# node_modules/.bin to PATH; direct bash invocation does not.
+if ! command -v tsc >/dev/null 2>&1; then
+  echo "error: tsc not found on PATH." >&2
+  echo "Run via 'bun run type-check' (bun prepends node_modules/.bin), or prefix:" >&2
+  echo "  PATH=\"\$PWD/node_modules/.bin:\$PATH\" bash scripts/type-check-tsc.sh" >&2
+  exit 1
+fi
+
 KNOWN_DRIZZLE_FILES=(
   "packages/database/src/schemas/agent.ts"
   "packages/database/src/schemas/apiKey.ts"

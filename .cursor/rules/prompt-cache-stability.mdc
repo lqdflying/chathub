@@ -108,4 +108,4 @@ When using or updating `skills/chathub-provider-probe`:
 - Assert thinking blocks round-trip unchanged (signature, redacted data)
 - Assert unsigned reasoning (content without signature) does NOT produce a thinking content part
 - Assert array system-message content builds Anthropic text blocks with `cache_control` on the last block only
-- Run `bun run type-check` (strict tsc via `scripts/type-check-tsc.sh`; never invoke the script with bare `bash` — it false-passes when `tsc` is not on PATH, see `.cursor/rules/commands.mdc`)
+- Run `bun run type-check` (strict tsc via `scripts/type-check-tsc.sh`; direct `bash` invocation requires `tsc` on PATH — a guard exits 1 otherwise, see `.cursor/rules/commands.mdc`)
