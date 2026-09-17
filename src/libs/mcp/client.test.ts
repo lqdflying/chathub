@@ -281,6 +281,20 @@ describe('MCPClient', () => {
       );
     });
 
+    it('forwards an abort signal to the SDK request options', async () => {
+      sdkClient.callTool.mockResolvedValue({ content: [], isError: false });
+      const client = new MCPClient(params);
+      const controller = new AbortController();
+
+      await client.callTool('testTool', {}, { signal: controller.signal });
+
+      expect(sdkClient.callTool).toHaveBeenCalledWith(
+        { arguments: {}, name: 'testTool' },
+        undefined,
+        { signal: controller.signal, timeout: 60_000 },
+      );
+    });
+
     it('maps streamable-HTTP session expiry to NoValidSessionId', async () => {
       sdkClient.callTool.mockRejectedValue(
         new Error('Error POSTing to endpoint: No valid session ID provided'),

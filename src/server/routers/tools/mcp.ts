@@ -235,6 +235,7 @@ export const mcpRouter = router({
         input.toolName,
         input.args,
         oauthContext,
+        { signal: ctx.signal },
       );
 
       try {

@@ -1,7 +1,7 @@
 import { CustomPluginMetadata } from '@lobechat/types';
 import { safeParseJSON } from '@lobechat/utils';
 import { LobeChatPluginApi, LobeChatPluginManifest, PluginSchema } from '@lobehub/chat-plugin-sdk';
-import { McpError } from '@modelcontextprotocol/sdk/types.js';
+import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 import { TRPCError } from '@trpc/server';
 import { createHash } from 'node:crypto';
 
@@ -25,6 +25,50 @@ import { sanitizeMCPURLForLogging } from '@/libs/mcp/http';
 
 import { McpOAuthService } from './oauth';
 
+// --- Client cache hygiene (T2) ---
+// A cached client previously lived until process restart or OAuth rotation; a crashed
+// server or rotating bearer token could pin a zombie connection forever. The sweep keeps
+// the cache bounded and self-healing.
+const MCP_CLIENT_CACHE_MAX_SIZE = (() => {
+  const val = Number(process.env.MCP_CLIENT_CACHE_MAX_SIZE);
+  return Number.isFinite(val) && val > 0 ? val : 100;
+})();
+const MCP_CLIENT_IDLE_TTL_MS = (() => {
+  const val = Number(process.env.MCP_CLIENT_IDLE_TTL_MS);
+  return Number.isFinite(val) && val > 0 ? val : 30 * 60_000;
+})();
+const MCP_CLIENT_CACHE_SWEEP_INTERVAL_MS = 60_000;
+
+// --- Circuit breaker (T5) ---
+// After consecutive transport-level failures, fail fast instead of serializing 60s
+// timeouts (a hung server would otherwise pin Graphile worker lanes).
+const MCP_CIRCUIT_FAILURE_THRESHOLD = 3;
+const MCP_CIRCUIT_COOLDOWN_MS = 60_000;
+
+// Undici/network signatures meaning the cached connection is dead and must be rebuilt.
+const CONNECTION_FAILURE_PATTERNS = [
+  'fetch failed',
+  'ECONNREFUSED',
+  'ECONNRESET',
+  'ENETUNREACH',
+  'EHOSTUNREACH',
+  'ETIMEDOUT',
+  'socket hang up',
+  'terminated',
+];
+
+const isAbortError = (error: unknown): boolean => {
+  const err = error as Error | undefined;
+  return (
+    !!err && (err.name === 'AbortError' || /aborted|abort/i.test(err.message || ''))
+  );
+};
+
+const isConnectionFailureError = (error: unknown): boolean => {
+  const message = (error as Error | undefined)?.message || '';
+  return CONNECTION_FAILURE_PATTERNS.some((pattern) => message.includes(pattern));
+};
+
 export interface MCPOAuthContext {
   oauthService: McpOAuthService;
   pluginIdentifier: string;
@@ -36,10 +80,19 @@ export class MCPService {
   private clients: Map<string, MCPClient> = new Map();
   private clientInitializations: Map<string, Promise<MCPClient>> = new Map();
   private oauthCredentialFingerprints: Map<string, string> = new Map();
+  private clientLastUsedAt: Map<string, number> = new Map();
+  private circuitState: Map<string, { failures: number; openedUntil: number }> = new Map();
+  private cacheSweepTimer?: ReturnType<typeof setInterval>;
   private fetchFn?: typeof fetch;
 
   constructor(options: { fetchFn?: typeof fetch } = {}) {
     this.fetchFn = options.fetchFn;
+    this.cacheSweepTimer = setInterval(
+      () => this.sweepClientCache(),
+      MCP_CLIENT_CACHE_SWEEP_INTERVAL_MS,
+    );
+    // Never keep a server process alive for cache hygiene.
+    (this.cacheSweepTimer as any)?.unref?.();
   }
 
   private sanitizeForLogging = <T extends Record<string, any>>(
@@ -77,11 +130,14 @@ export class MCPService {
   ): Promise<LobeChatPluginApi[]> {
     return runWithToolsDebugContext(this.getDebugContext(params, 'list_tools'), async () => {
       const start = Date.now();
+      const circuitKey = this.serializeParams(params, oauthContext);
       logToolsDebugSafe('mcp_operation_started', {
         operation: 'list_tools',
         retryAttempt: retryTime || 0,
         skipCache: !!skipCache,
       });
+
+      this.assertCircuitClosed(circuitKey);
 
       try {
         const client = await this.getClient(params, skipCache, oauthContext);
@@ -92,6 +148,7 @@ export class MCPService {
           result: summarizeToolsDebugValue(result),
           retryAttempt: retryTime || 0,
         });
+        this.recordCircuitSuccess(circuitKey);
         return result.map<LobeChatPluginApi>((item) => ({
           description: item.description,
           name: item.name,
@@ -115,6 +172,13 @@ export class MCPService {
             { retryTime: nextReTryTime, skipCache: true },
             oauthContext,
           );
+        }
+
+        // Giving up: count the failure toward the circuit breaker and drop a
+        // dead connection from the cache so the next call rebuilds it.
+        this.recordCircuitFailure(circuitKey, error);
+        if (isConnectionFailureError(error)) {
+          await this.evictClient(circuitKey, 'connection_failure');
         }
 
         throw new TRPCError({
@@ -218,13 +282,17 @@ export class MCPService {
     toolName: string,
     argsStr: any,
     oauthContext?: MCPOAuthContext,
-    { retriedOnStaleSession = false }: { retriedOnStaleSession?: boolean } = {},
+    {
+      retriedOnStaleSession = false,
+      signal,
+    }: { retriedOnStaleSession?: boolean; signal?: AbortSignal } = {},
   ): Promise<any> {
     return runWithToolsDebugContext(
       this.getDebugContext(params, 'call_tool', toolName),
       async () => {
         const start = Date.now();
         let failurePhase = 'client_lookup';
+        const circuitKey = this.serializeParams(params, oauthContext);
         logToolsDebugSafe('call_tool_started', {
           arguments: summarizeToolsDebugValue(argsStr),
           authType: params.auth?.type || 'none',
@@ -232,13 +300,17 @@ export class MCPService {
           toolName,
         });
 
+        // Fail fast while the circuit is open; the throw must stay outside the
+        // try below so it is not counted as another server failure.
+        this.assertCircuitClosed(circuitKey, toolName);
+
         try {
           const client = await this.getClient(params, false, oauthContext);
           failurePhase = 'argument_parse';
           const args = safeParseJSON(argsStr);
 
           failurePhase = 'upstream_call';
-          const result = await client.callTool(toolName, args);
+          const result = await client.callTool(toolName, args, { signal });
           logToolsDebugSafe('call_tool_upstream_complete', {
             contentCount: Array.isArray(result.content) ? result.content.length : 0,
             durationMs: Date.now() - start,
@@ -283,6 +355,7 @@ export class MCPService {
             resultKind,
             toolName,
           });
+          this.recordCircuitSuccess(circuitKey);
           return normalized;
         } catch (error) {
           // A stale streamable-HTTP session means the request never reached the
@@ -296,9 +369,10 @@ export class MCPService {
               reason: 'stale_session',
               toolName,
             });
-            await this.evictClient(this.serializeParams(params, oauthContext), 'stale_session');
+            await this.evictClient(circuitKey, 'stale_session');
             return this.callTool(params, toolName, argsStr, oauthContext, {
               retriedOnStaleSession: true,
+              signal,
             });
           }
 
@@ -308,7 +382,22 @@ export class MCPService {
             failurePhase,
             toolName,
           });
-          if (error instanceof McpError) return error.message;
+
+          // A dead connection must not pin the cached client until TTL.
+          if (isConnectionFailureError(error)) {
+            await this.evictClient(circuitKey, 'connection_failure');
+          }
+
+          if (error instanceof McpError) {
+            // SDK request timeouts indicate an unhealthy server; other McpErrors
+            // are application-level results and do not count toward the breaker.
+            if (error.code === ErrorCode.RequestTimeout) {
+              this.recordCircuitFailure(circuitKey, error, toolName);
+            }
+            return error.message;
+          }
+
+          this.recordCircuitFailure(circuitKey, error, toolName);
 
           throw new TRPCError({
             cause: error,
@@ -377,6 +466,7 @@ export class MCPService {
             initializationCount: this.clientInitializations.size,
             outcome: 'hit',
           });
+          this.touchClient(key);
           return cached;
         }
       }
@@ -563,6 +653,8 @@ export class MCPService {
         },
       });
       this.clients.set(key, client);
+      this.touchClient(key);
+      this.enforceClientCacheLimit();
       if (params.type === 'http' && params.auth?.type === 'oauth2' && !oauthContext) {
         this.oauthCredentialFingerprints.set(key, this.fingerprint(params.auth.accessToken || ''));
       }
@@ -596,12 +688,83 @@ export class MCPService {
     const client = this.clients.get(key);
     this.clients.delete(key);
     this.oauthCredentialFingerprints.delete(key);
+    this.clientLastUsedAt.delete(key);
     logToolsDebugSafe('client_cache_evicted', {
       cacheSize: this.clients.size,
       clientPresent: !!client,
       reason,
     });
     if (client) await this.disconnectClient(client);
+  }
+
+  // --- Circuit breaker ---
+
+  private assertCircuitClosed(key: string, toolName?: string): void {
+    const state = this.circuitState.get(key);
+    if (!state?.openedUntil) return;
+    const remainingMs = state.openedUntil - Date.now();
+    if (remainingMs <= 0) {
+      // Cooldown elapsed: allow one trial request through.
+      this.circuitState.delete(key);
+      return;
+    }
+    logToolsDebugSafe('circuit_fail_fast', {
+      cacheSize: this.clients.size,
+      retryAfterMs: remainingMs,
+      toolName,
+    });
+    throw new TRPCError({
+      code: 'SERVICE_UNAVAILABLE',
+      message:
+        'The MCP server is temporarily unavailable after repeated failures. Please retry shortly.',
+    });
+  }
+
+  private recordCircuitSuccess(key: string): void {
+    this.circuitState.delete(key);
+  }
+
+  private recordCircuitFailure(key: string, error: unknown, toolName?: string): void {
+    // Caller-driven aborts say nothing about server health.
+    if (isAbortError(error)) return;
+    const state = this.circuitState.get(key) ?? { failures: 0, openedUntil: 0 };
+    state.failures += 1;
+    if (state.failures >= MCP_CIRCUIT_FAILURE_THRESHOLD && state.openedUntil <= Date.now()) {
+      state.openedUntil = Date.now() + MCP_CIRCUIT_COOLDOWN_MS;
+      logToolsDebugSafe('circuit_opened', {
+        cacheSize: this.clients.size,
+        cooldownMs: MCP_CIRCUIT_COOLDOWN_MS,
+        failures: state.failures,
+        toolName,
+      });
+    }
+    this.circuitState.set(key, state);
+  }
+
+  // --- Cache hygiene ---
+
+  private touchClient(key: string): void {
+    this.clientLastUsedAt.set(key, Date.now());
+  }
+
+  private sweepClientCache(now = Date.now()): void {
+    for (const [key, lastUsedAt] of this.clientLastUsedAt) {
+      if (now - lastUsedAt > MCP_CLIENT_IDLE_TTL_MS) {
+        void this.evictClient(key, 'idle_ttl');
+      }
+    }
+    this.enforceClientCacheLimit();
+  }
+
+  private enforceClientCacheLimit(): void {
+    if (this.clients.size <= MCP_CLIENT_CACHE_MAX_SIZE) return;
+    const byLastUse = [...this.clients.keys()].sort(
+      (a, b) => (this.clientLastUsedAt.get(a) ?? 0) - (this.clientLastUsedAt.get(b) ?? 0),
+    );
+    const excess = this.clients.size - MCP_CLIENT_CACHE_MAX_SIZE;
+    for (const key of byLastUse.slice(0, excess)) {
+      void this.evictClient(key, 'cache_size_limit');
+    }
   }
 
   private async evictUnscopedOAuthClient(

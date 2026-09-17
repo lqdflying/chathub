@@ -380,7 +380,9 @@ describe('MCPService', () => {
 
       await mcpService.callTool(mockParams, 'testTool', argsString);
 
-      expect(mockClient.callTool).toHaveBeenCalledWith('testTool', argsObject);
+      expect(mockClient.callTool).toHaveBeenCalledWith('testTool', argsObject, {
+        signal: undefined,
+      });
     });
   });
 
@@ -707,6 +709,155 @@ describe('MCPService', () => {
         'Unable to initialize the MCP client.',
       );
       expect(client.disconnect).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('resilience', () => {
+    const params = {
+      name: 'resilient-mcp',
+      type: 'http' as const,
+      url: 'https://resilient.example.com/mcp',
+    };
+
+    const createService = async () => {
+      const { MCPService } = await import('./index');
+      return new MCPService();
+    };
+
+    describe('circuit breaker', () => {
+      it('opens after 3 consecutive failures and then fails fast without touching the client', async () => {
+        const service = await createService();
+        const client = { callTool: vi.fn().mockRejectedValue(new Error('boom')) };
+        vi.spyOn(service as any, 'getClient').mockResolvedValue(client);
+
+        for (let i = 0; i < 3; i += 1) {
+          await expect(service.callTool(params, 'tool', '{}')).rejects.toThrow(TRPCError);
+        }
+        expect(client.callTool).toHaveBeenCalledTimes(3);
+
+        await expect(service.callTool(params, 'tool', '{}')).rejects.toMatchObject({
+          code: 'SERVICE_UNAVAILABLE',
+        });
+        expect(client.callTool).toHaveBeenCalledTimes(3);
+      });
+
+      it('resets the failure counter on success', async () => {
+        const service = await createService();
+        const client = { callTool: vi.fn() };
+        vi.spyOn(service as any, 'getClient').mockResolvedValue(client);
+        const key = (service as any).serializeParams(params);
+
+        client.callTool.mockRejectedValueOnce(new Error('boom'));
+        await expect(service.callTool(params, 'tool', '{}')).rejects.toThrow(TRPCError);
+        expect((service as any).circuitState.get(key)?.failures).toBe(1);
+
+        client.callTool.mockResolvedValueOnce({
+          content: [{ text: 'ok', type: 'text' }],
+          isError: false,
+        });
+        await service.callTool(params, 'tool', '{}');
+        expect((service as any).circuitState.has(key)).toBe(false);
+      });
+
+      it('allows a trial request once the cooldown has elapsed', async () => {
+        const service = await createService();
+        const client = {
+          callTool: vi.fn().mockResolvedValue({ content: [], isError: false }),
+        };
+        vi.spyOn(service as any, 'getClient').mockResolvedValue(client);
+        const key = (service as any).serializeParams(params);
+        (service as any).circuitState.set(key, { failures: 3, openedUntil: Date.now() - 1 });
+
+        const result = await service.callTool(params, 'tool', '{}');
+
+        expect(result).toEqual([]);
+        expect(client.callTool).toHaveBeenCalledTimes(1);
+        expect((service as any).circuitState.has(key)).toBe(false);
+      });
+
+      it('does not count caller-driven aborts toward the breaker', async () => {
+        const service = await createService();
+        const abortError = new Error('The operation was aborted');
+        abortError.name = 'AbortError';
+        const client = { callTool: vi.fn().mockRejectedValue(abortError) };
+        vi.spyOn(service as any, 'getClient').mockResolvedValue(client);
+
+        for (let i = 0; i < 5; i += 1) {
+          await expect(service.callTool(params, 'tool', '{}')).rejects.toThrow(TRPCError);
+        }
+
+        const key = (service as any).serializeParams(params);
+        expect((service as any).circuitState.has(key)).toBe(false);
+      });
+    });
+
+    describe('cache hygiene', () => {
+      it('evicts idle clients past the TTL on sweep', async () => {
+        const service = await createService();
+        const now = Date.now();
+        const oldClient = { disconnect: vi.fn().mockResolvedValue(undefined) };
+        const freshClient = { disconnect: vi.fn().mockResolvedValue(undefined) };
+        (service as any).clients.set('old-key', oldClient);
+        (service as any).clientLastUsedAt.set('old-key', now - 31 * 60_000);
+        (service as any).clients.set('fresh-key', freshClient);
+        (service as any).clientLastUsedAt.set('fresh-key', now);
+
+        (service as any).sweepClientCache(now);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+
+        expect((service as any).clients.has('old-key')).toBe(false);
+        expect(oldClient.disconnect).toHaveBeenCalledTimes(1);
+        expect((service as any).clients.has('fresh-key')).toBe(true);
+      });
+
+      it('evicts least-recently-used clients beyond the cache size limit', async () => {
+        const service = await createService();
+        const now = Date.now();
+        const clients = (service as any).clients as Map<string, any>;
+        const lastUsed = (service as any).clientLastUsedAt as Map<string, number>;
+        for (let i = 0; i < 101; i += 1) {
+          clients.set(`key-${i}`, { disconnect: vi.fn().mockResolvedValue(undefined) });
+          lastUsed.set(`key-${i}`, now + i);
+        }
+
+        (service as any).enforceClientCacheLimit();
+        await new Promise((resolve) => setTimeout(resolve, 10));
+
+        expect(clients.size).toBe(100);
+        expect(clients.has('key-0')).toBe(false);
+        expect(clients.has('key-100')).toBe(true);
+      });
+
+      it('evicts the cached client on connection failure', async () => {
+        const service = await createService();
+        const key = (service as any).serializeParams(params);
+        const cachedClient = {
+          callTool: vi.fn().mockRejectedValue(new Error('fetch failed')),
+          disconnect: vi.fn().mockResolvedValue(undefined),
+        };
+        (service as any).clients.set(key, cachedClient);
+        vi.spyOn(service as any, 'getClient').mockResolvedValue(cachedClient);
+
+        await expect(service.callTool(params, 'tool', '{}')).rejects.toThrow(TRPCError);
+
+        expect((service as any).clients.has(key)).toBe(false);
+        expect(cachedClient.disconnect).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    describe('abort propagation', () => {
+      it('forwards the abort signal to the MCP client', async () => {
+        const service = await createService();
+        const client = {
+          callTool: vi.fn().mockResolvedValue({ content: [], isError: false }),
+        };
+        vi.spyOn(service as any, 'getClient').mockResolvedValue(client);
+        const controller = new AbortController();
+
+        await service.callTool(params, 'tool', '{}', undefined, { signal: controller.signal });
+
+        expect(client.callTool).toHaveBeenCalledWith('tool', {}, { signal: controller.signal });
+      });
     });
   });
 });

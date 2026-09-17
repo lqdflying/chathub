@@ -309,10 +309,11 @@ export class MCPClient {
     return manifest;
   }
 
-  async callTool(toolName: string, args: any) {
+  async callTool(toolName: string, args: any, options?: { signal?: AbortSignal }) {
     logToolsDebugVerbose('call_tool', { args, timeoutMs: MCP_TOOL_TIMEOUT, toolName });
     try {
       const result = await this.mcp.callTool({ arguments: args, name: toolName }, undefined, {
+        signal: options?.signal,
         timeout: MCP_TOOL_TIMEOUT,
       });
       logToolsDebugVerbose('call_tool_result', result);

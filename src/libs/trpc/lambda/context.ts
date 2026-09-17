@@ -41,6 +41,8 @@ export interface AuthContext {
   oidcAuth?: OIDCAuth | null;
   rawAuthUserId?: string | null;
   resHeaders?: Headers;
+  /** Aborts when the client disconnects/aborts the HTTP request (best-effort upstream cancellation). */
+  signal?: AbortSignal;
   userAgent?: string;
   userId?: string | null;
 }
@@ -57,6 +59,7 @@ export const createContextInner = async (params?: {
   nextAuth?: User;
   oidcAuth?: OIDCAuth | null;
   rawAuthUserId?: string | null;
+  signal?: AbortSignal;
   userAgent?: string;
   userId?: string | null;
 }): Promise<AuthContext> => {
@@ -72,6 +75,7 @@ export const createContextInner = async (params?: {
     oidcAuth: params?.oidcAuth,
     rawAuthUserId: params?.rawAuthUserId,
     resHeaders: responseHeaders,
+    signal: params?.signal,
     userAgent: params?.userAgent,
     userId: params?.userId,
   };
@@ -91,6 +95,7 @@ export const createLambdaContext = async (request: NextRequest): Promise<LambdaC
     return {
       accountScope,
       rawAuthUserId: devUserId,
+      signal: request.signal,
       userId: devUserId,
     };
   }
@@ -111,6 +116,7 @@ export const createLambdaContext = async (request: NextRequest): Promise<LambdaC
     accountScope,
     authorizationHeader: authorization,
     marketAccessToken,
+    signal: request.signal,
     userAgent,
   };
   log('LobeChat Authorization header: %s', authorization ? 'exists' : 'not found');

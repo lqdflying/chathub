@@ -280,6 +280,7 @@ export const invokeConversationTool = async ({
   inputHash,
   operationId,
   payload,
+  signal,
   userId,
 }: {
   assistantMessage: UIChatMessage;
@@ -288,6 +289,7 @@ export const invokeConversationTool = async ({
   inputHash: string;
   operationId?: string;
   payload: ChatToolPayload;
+  signal?: AbortSignal;
   userId: string;
 }): Promise<ConversationToolInvocationResult> => {
   const messageModel = new MessageModel(db, userId);
@@ -461,6 +463,7 @@ export const invokeConversationTool = async ({
         payload.apiName,
         payload.arguments,
         oauthContext,
+        { signal },
       );
       const content = stringifyToolResult(data);
       const isError = Boolean((data as { isError?: unknown } | null)?.isError);
@@ -481,6 +484,10 @@ export const invokeConversationTool = async ({
         success: !isError,
       };
     } catch (error) {
+      // Caller aborted (stop / heartbeat lost): do not persist a bogus tool
+      // error — operation teardown owns the outcome and the 90s stale-pending
+      // recovery reclaims the invocation row.
+      if (signal?.aborted) throw error;
       const normalized = toToolError(error);
       const content = JSON.stringify({ error: normalized.message, type: normalized.type });
       const persisted = await messageModel.persistMCPResult(toolMessage.id, invocationId, content);
@@ -540,6 +547,7 @@ export const executeConversationToolStep = async ({
   db,
   operationId,
   payload,
+  signal,
   userId,
 }: {
   assistantMessage: UIChatMessage;
@@ -547,6 +555,7 @@ export const executeConversationToolStep = async ({
   db: LobeChatDatabase;
   operationId: string;
   payload: ChatToolPayload;
+  signal?: AbortSignal;
   userId: string;
 }): Promise<ConversationToolInvocationResult> => {
   const inputHash = getConversationToolInputHash(operationId, payload);
@@ -587,6 +596,7 @@ export const executeConversationToolStep = async ({
               inputHash,
               operationId,
               payload,
+              signal,
               userId,
             });
       if (payload.identifier === DalleManifest.identifier) {

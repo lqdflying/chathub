@@ -1161,6 +1161,7 @@ const executeChat = async (
               db,
               operationId: operation.id,
               payload: tool,
+              signal: abortController.signal,
               userId: operation.userId,
             });
             if (invocation.success) toolResultCount += 1;
