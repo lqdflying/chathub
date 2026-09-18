@@ -59,7 +59,9 @@ const Item = memo<ChatListItemProps>(
     const { styles, cx } = useStyles();
     const containerRef = useRef<HTMLDivElement | null>(null);
     const settledHeightRef = useRef<number | undefined>(undefined);
+    const isScrollingRef = useRef(false);
     const [frozenHeight, setFrozenHeight] = useState<number>();
+    isScrollingRef.current = !!isScrolling;
 
     const raw = useChatStore(chatSelectors.getRawMessageById(id));
     const item = useMemo(
@@ -122,6 +124,29 @@ const Item = memo<ChatListItemProps>(
       const nextFrozen = resolveFrozenRowMinHeight(!!isScrolling, nextSettled);
       if (nextFrozen !== frozenHeight) setFrozenHeight(nextFrozen);
     }, [frozenHeight, isScrolling, item]);
+
+    // Width / late child layout can change height without replacing `item`.
+    // ResizeObserver reports those boxes ([MDN](https://developer.mozilla.org/en-US/docs/Web/API/ResizeObserver)).
+    // Write the ref only — do not setState here, or minHeight would loop the observer.
+    useEffect(() => {
+      const element = containerRef.current;
+      if (!element || typeof ResizeObserver === 'undefined') return;
+
+      const observer = new ResizeObserver(() => {
+        if (isScrollingRef.current) return;
+
+        const measured = element.getBoundingClientRect().height;
+        settledHeightRef.current = captureSettledRowHeight(
+          false,
+          measured,
+          settledHeightRef.current,
+        );
+      });
+
+      observer.observe(element);
+
+      return () => observer.disconnect();
+    }, [id, item?.id]);
 
     const renderContent = useMemo(() => {
       switch (item?.role) {
