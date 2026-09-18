@@ -11,7 +11,7 @@ import { chatSelectors } from '@/store/chat/selectors';
 import AutoScroll from '../AutoScroll';
 import SkeletonList from '../SkeletonList';
 import { VirtuosoContext, resetVirtuosoVisibleItems, setVirtuosoGlobalRef } from './VirtuosoContext';
-import { resolveVirtuosoOverscan } from './scrollViewport';
+import { ENABLE_LIGHT_SCROLL_MARKDOWN, resolveVirtuosoOverscan } from './scrollViewport';
 import { useSustainedScrolling } from './useSustainedScrolling';
 
 interface VirtualizedListProps {
@@ -35,7 +35,6 @@ const VirtualizedList = memo<VirtualizedListProps>(({ mobile, dataSource, itemCo
   const [isScrolling, setIsScrolling] = useState(false);
   // Hover / layout can flip Virtuoso isScrolling without a wheel gesture.
   // https://github.com/petyosi/react-virtuoso/issues/114
-  // https://virtuoso.dev/react-virtuoso/virtuoso/scroll-handling/
   const lightScroll = useSustainedScrolling(isScrolling);
 
   const [id, isFirstLoading, isCurrentChatLoaded] = useChatStore((s) => [
@@ -95,13 +94,17 @@ const VirtualizedList = memo<VirtualizedListProps>(({ mobile, dataSource, itemCo
         }}
 
         computeItemKey={(_, item) => item}
-        context={{ isScrolling: lightScroll }}
+        context={{
+          isScrolling: ENABLE_LIGHT_SCROLL_MARKDOWN ? lightScroll : false,
+        }}
         data={dataSource}
         followOutput={getFollowOutput}
         increaseViewportBy={overscan}
         initialTopMostItemIndex={dataSource?.length - 1}
         isScrolling={setIsScrolling}
         itemContent={itemContent}
+        // https://github.com/petyosi/react-virtuoso/discussions/1083
+        skipAnimationFrameInResizeObserver
         ref={virtuosoRef}
       />
       <WideScreenContainer

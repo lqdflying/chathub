@@ -4,10 +4,14 @@ export const MOBILE_OVERSCAN_VIEWPORTS = 0.5;
 export const MOBILE_OVERSCAN_MAX_PX = 400;
 
 /**
+ * Off: `<pre>` is not the same size as Shiki ([Virtuoso scroll handling](https://virtuoso.dev/react-virtuoso/virtuoso/scroll-handling/)).
+ * Hold/freeze still jumped the PC list on wheel-stop (`v2.0.7-canary.1` / `.2`).
+ */
+export const ENABLE_LIGHT_SCROLL_MARKDOWN = false;
+
+/**
  * Virtuoso `isScrolling` also fires on list/layout updates, not only wheel
  * input ([issue #114](https://github.com/petyosi/react-virtuoso/issues/114)).
- * Hover action chrome and a Shiki↔plain swap then change row height, which
- * reports scrolling again. Wait this long before light markdown.
  */
 export const LIGHT_SCROLL_ACTIVATE_MS = 150;
 
@@ -27,7 +31,8 @@ export const captureSettledRowHeight = (
 export const shouldApplyLightScrollMarkdown = (
   isLightScroll: boolean,
   settledHeight?: number,
-): boolean => isLightScroll && settledHeight !== undefined && settledHeight > 0;
+): boolean =>
+  ENABLE_LIGHT_SCROLL_MARKDOWN && isLightScroll && settledHeight !== undefined && settledHeight > 0;
 
 /** Virtuoso placeholders must keep size (official scroll-handling example). */
 export const resolveFrozenRowMinHeight = (

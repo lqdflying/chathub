@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  ENABLE_LIGHT_SCROLL_MARKDOWN,
   captureSettledRowHeight,
   resolveFrozenRowMinHeight,
   resolveVirtuosoOverscan,
@@ -58,8 +59,9 @@ describe('resolveFrozenRowMinHeight', () => {
 });
 
 describe('shouldApplyLightScrollMarkdown', () => {
-  it('requires a known idle height so the placeholder can keep size', () => {
-    expect(shouldApplyLightScrollMarkdown(true, 420)).toBe(true);
+  it('stays off while the Shiki swap is disabled', () => {
+    expect(ENABLE_LIGHT_SCROLL_MARKDOWN).toBe(false);
+    expect(shouldApplyLightScrollMarkdown(true, 420)).toBe(false);
     expect(shouldApplyLightScrollMarkdown(true, undefined)).toBe(false);
     expect(shouldApplyLightScrollMarkdown(false, 420)).toBe(false);
   });
