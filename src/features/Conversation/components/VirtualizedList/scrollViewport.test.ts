@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { resolveVirtuosoOverscan } from './scrollViewport';
+import {
+  captureSettledRowHeight,
+  resolveFrozenRowMinHeight,
+  resolveVirtuosoOverscan,
+} from './scrollViewport';
 
 describe('resolveVirtuosoOverscan', () => {
   afterEach(() => {
@@ -32,5 +36,22 @@ describe('resolveVirtuosoOverscan', () => {
     });
 
     expect(resolveVirtuosoOverscan(true)).toBe(400);
+  });
+});
+
+describe('captureSettledRowHeight', () => {
+  it('records the idle height', () => {
+    expect(captureSettledRowHeight(false, 420, 100)).toBe(420);
+  });
+
+  it('keeps the last idle height after light markdown turns on', () => {
+    expect(captureSettledRowHeight(true, 80, 420)).toBe(420);
+  });
+});
+
+describe('resolveFrozenRowMinHeight', () => {
+  it('freezes the idle height only while light-scrolling', () => {
+    expect(resolveFrozenRowMinHeight(true, 420)).toBe(420);
+    expect(resolveFrozenRowMinHeight(false, 420)).toBeUndefined();
   });
 });

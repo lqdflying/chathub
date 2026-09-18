@@ -12,6 +12,7 @@ import AutoScroll from '../AutoScroll';
 import SkeletonList from '../SkeletonList';
 import { VirtuosoContext, resetVirtuosoVisibleItems, setVirtuosoGlobalRef } from './VirtuosoContext';
 import { resolveVirtuosoOverscan } from './scrollViewport';
+import { useSustainedScrolling } from './useSustainedScrolling';
 
 interface VirtualizedListProps {
   dataSource: string[];
@@ -32,6 +33,10 @@ const VirtualizedList = memo<VirtualizedListProps>(({ mobile, dataSource, itemCo
   const prevDataLengthRef = useRef(dataSource.length);
   const [atBottom, setAtBottom] = useState(true);
   const [isScrolling, setIsScrolling] = useState(false);
+  // Hover / layout can flip Virtuoso isScrolling without a wheel gesture.
+  // https://github.com/petyosi/react-virtuoso/issues/114
+  // https://virtuoso.dev/react-virtuoso/virtuoso/scroll-handling/
+  const lightScroll = useSustainedScrolling(isScrolling);
 
   const [id, isFirstLoading, isCurrentChatLoaded] = useChatStore((s) => [
     chatSelectors.currentChatKey(s),
@@ -90,7 +95,7 @@ const VirtualizedList = memo<VirtualizedListProps>(({ mobile, dataSource, itemCo
         }}
 
         computeItemKey={(_, item) => item}
-        context={{ isScrolling }}
+        context={{ isScrolling: lightScroll }}
         data={dataSource}
         followOutput={getFollowOutput}
         increaseViewportBy={overscan}

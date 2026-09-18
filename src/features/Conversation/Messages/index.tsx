@@ -8,6 +8,10 @@ import {
   removeVirtuosoVisibleItem,
   upsertVirtuosoVisibleItem,
 } from '@/features/Conversation/components/VirtualizedList/VirtuosoContext';
+import {
+  captureSettledRowHeight,
+  resolveFrozenRowMinHeight,
+} from '@/features/Conversation/components/VirtualizedList/scrollViewport';
 import { useChatStore } from '@/store/chat';
 import { chatSelectors } from '@/store/chat/selectors';
 
@@ -54,6 +58,7 @@ const Item = memo<ChatListItemProps>(
   }) => {
     const { styles, cx } = useStyles();
     const containerRef = useRef<HTMLDivElement | null>(null);
+    const settledHeightRef = useRef<number | undefined>(undefined);
     const [frozenHeight, setFrozenHeight] = useState<number>();
 
     const raw = useChatStore(chatSelectors.getRawMessageById(id));
@@ -106,15 +111,17 @@ const Item = memo<ChatListItemProps>(
       };
     }, [index]);
 
+    // Sample idle height only. Measuring after light markdown freezes the
+    // short <pre> and the Shiki restore jumps the list (PC hover shiver).
+    // https://virtuoso.dev/react-virtuoso/virtuoso/scroll-handling/
     useLayoutEffect(() => {
-      if (isScrolling && containerRef.current && frozenHeight === undefined) {
-        setFrozenHeight(containerRef.current.getBoundingClientRect().height);
-        return;
-      }
-      if (!isScrolling && frozenHeight !== undefined) {
-        setFrozenHeight(undefined);
-      }
-    }, [frozenHeight, isScrolling]);
+      const measured = containerRef.current?.getBoundingClientRect().height;
+      const nextSettled = captureSettledRowHeight(!!isScrolling, measured, settledHeightRef.current);
+      settledHeightRef.current = nextSettled;
+
+      const nextFrozen = resolveFrozenRowMinHeight(!!isScrolling, nextSettled);
+      if (nextFrozen !== frozenHeight) setFrozenHeight(nextFrozen);
+    }, [frozenHeight, isScrolling, item]);
 
     const renderContent = useMemo(() => {
       switch (item?.role) {
