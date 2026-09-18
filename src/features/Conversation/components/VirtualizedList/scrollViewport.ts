@@ -11,21 +11,29 @@ export const MOBILE_OVERSCAN_MAX_PX = 400;
  */
 export const LIGHT_SCROLL_ACTIVATE_MS = 150;
 
-/** Keep the last idle height; do not sample after light markdown is on. */
+/** Keep minHeight after the wheel stops until Shiki has painted again. */
+export const LIGHT_SCROLL_RELEASE_MS = 150;
+
+/** Keep the last idle height; do not sample while light markdown or restore hold is on. */
 export const captureSettledRowHeight = (
-  isLightScroll: boolean,
+  lockHeight: boolean,
   elementHeight: number | undefined,
   previousSettled?: number,
 ): number | undefined => {
-  if (!isLightScroll && elementHeight !== undefined) return elementHeight;
+  if (!lockHeight && elementHeight !== undefined) return elementHeight;
   return previousSettled;
 };
 
-/** Virtuoso placeholders must keep size (official scroll-handling example). */
-export const resolveFrozenRowMinHeight = (
+export const shouldApplyLightScrollMarkdown = (
   isLightScroll: boolean,
   settledHeight?: number,
-): number | undefined => (isLightScroll ? settledHeight : undefined);
+): boolean => isLightScroll && settledHeight !== undefined && settledHeight > 0;
+
+/** Virtuoso placeholders must keep size (official scroll-handling example). */
+export const resolveFrozenRowMinHeight = (
+  lockHeight: boolean,
+  settledHeight?: number,
+): number | undefined => (lockHeight ? settledHeight : undefined);
 
 export const resolveVisibleViewportHeight = (): number => {
   if (typeof window === 'undefined') return 0;

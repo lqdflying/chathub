@@ -9,8 +9,10 @@ import {
   upsertVirtuosoVisibleItem,
 } from '@/features/Conversation/components/VirtualizedList/VirtuosoContext';
 import {
+  LIGHT_SCROLL_RELEASE_MS,
   captureSettledRowHeight,
   resolveFrozenRowMinHeight,
+  shouldApplyLightScrollMarkdown,
 } from '@/features/Conversation/components/VirtualizedList/scrollViewport';
 import { useChatStore } from '@/store/chat';
 import { chatSelectors } from '@/store/chat/selectors';
@@ -60,8 +62,14 @@ const Item = memo<ChatListItemProps>(
     const containerRef = useRef<HTMLDivElement | null>(null);
     const settledHeightRef = useRef<number | undefined>(undefined);
     const isScrollingRef = useRef(false);
-    const [frozenHeight, setFrozenHeight] = useState<number>();
+    const holdRestoreRef = useRef(false);
+    const [holdRestore, setHoldRestore] = useState(false);
     isScrollingRef.current = !!isScrolling;
+    holdRestoreRef.current = holdRestore;
+
+    const lockRowHeight = !!isScrolling || holdRestore;
+    const frozenHeight = resolveFrozenRowMinHeight(lockRowHeight, settledHeightRef.current);
+    const applyLight = shouldApplyLightScrollMarkdown(!!isScrolling, frozenHeight);
 
     const raw = useChatStore(chatSelectors.getRawMessageById(id));
     const item = useMemo(
@@ -117,13 +125,25 @@ const Item = memo<ChatListItemProps>(
     // short <pre> and the Shiki restore jumps the list (PC hover shiver).
     // https://virtuoso.dev/react-virtuoso/virtuoso/scroll-handling/
     useLayoutEffect(() => {
-      const measured = containerRef.current?.getBoundingClientRect().height;
-      const nextSettled = captureSettledRowHeight(!!isScrolling, measured, settledHeightRef.current);
-      settledHeightRef.current = nextSettled;
+      if (lockRowHeight) return;
 
-      const nextFrozen = resolveFrozenRowMinHeight(!!isScrolling, nextSettled);
-      if (nextFrozen !== frozenHeight) setFrozenHeight(nextFrozen);
-    }, [frozenHeight, isScrolling, item]);
+      const measured = containerRef.current?.getBoundingClientRect().height;
+      settledHeightRef.current = captureSettledRowHeight(false, measured, settledHeightRef.current);
+    }, [item, lockRowHeight]);
+
+    // Keep minHeight after the wheel stops so restoring Shiki cannot collapse
+    // the row for one frame ([Virtuoso same-size placeholders](https://virtuoso.dev/react-virtuoso/virtuoso/scroll-handling/)).
+    useEffect(() => {
+      if (isScrolling) {
+        setHoldRestore(true);
+        return;
+      }
+
+      if (!holdRestore) return;
+
+      const timer = window.setTimeout(() => setHoldRestore(false), LIGHT_SCROLL_RELEASE_MS);
+      return () => window.clearTimeout(timer);
+    }, [holdRestore, isScrolling]);
 
     // Width / late child layout can change height without replacing `item`.
     // ResizeObserver reports those boxes ([MDN](https://developer.mozilla.org/en-US/docs/Web/API/ResizeObserver)).
@@ -133,7 +153,7 @@ const Item = memo<ChatListItemProps>(
       if (!element || typeof ResizeObserver === 'undefined') return;
 
       const observer = new ResizeObserver(() => {
-        if (isScrollingRef.current) return;
+        if (isScrollingRef.current || holdRestoreRef.current) return;
 
         const measured = element.getBoundingClientRect().height;
         settledHeightRef.current = captureSettledRowHeight(
@@ -156,7 +176,7 @@ const Item = memo<ChatListItemProps>(
               {...item}
               disableEditing={disableEditing}
               index={index}
-              isScrolling={isScrolling}
+              isScrolling={applyLight}
             />
           );
         }
@@ -167,7 +187,7 @@ const Item = memo<ChatListItemProps>(
               {...item}
               disableEditing={disableEditing}
               index={index}
-              isScrolling={isScrolling}
+              isScrolling={applyLight}
               showTitle={item.groupId ? true : false}
             />
           );
@@ -179,7 +199,7 @@ const Item = memo<ChatListItemProps>(
       }
 
       return null;
-    }, [disableEditing, index, isScrolling, item]);
+    }, [applyLight, disableEditing, index, item]);
 
     if (!item) return;
 

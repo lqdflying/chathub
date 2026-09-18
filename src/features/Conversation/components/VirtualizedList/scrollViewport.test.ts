@@ -4,6 +4,7 @@ import {
   captureSettledRowHeight,
   resolveFrozenRowMinHeight,
   resolveVirtuosoOverscan,
+  shouldApplyLightScrollMarkdown,
 } from './scrollViewport';
 
 describe('resolveVirtuosoOverscan', () => {
@@ -50,8 +51,16 @@ describe('captureSettledRowHeight', () => {
 });
 
 describe('resolveFrozenRowMinHeight', () => {
-  it('freezes the idle height only while light-scrolling', () => {
+  it('freezes the idle height while scrolling or holding restore', () => {
     expect(resolveFrozenRowMinHeight(true, 420)).toBe(420);
     expect(resolveFrozenRowMinHeight(false, 420)).toBeUndefined();
+  });
+});
+
+describe('shouldApplyLightScrollMarkdown', () => {
+  it('requires a known idle height so the placeholder can keep size', () => {
+    expect(shouldApplyLightScrollMarkdown(true, 420)).toBe(true);
+    expect(shouldApplyLightScrollMarkdown(true, undefined)).toBe(false);
+    expect(shouldApplyLightScrollMarkdown(false, 420)).toBe(false);
   });
 });

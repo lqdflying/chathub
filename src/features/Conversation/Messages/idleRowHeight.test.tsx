@@ -2,6 +2,8 @@ import { act, render } from '@testing-library/react';
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { LIGHT_SCROLL_RELEASE_MS } from '@/features/Conversation/components/VirtualizedList/scrollViewport';
+
 vi.stubGlobal('React', React);
 
 const RAW_MESSAGE = {
@@ -29,7 +31,11 @@ vi.mock('antd-style', () => ({
 }));
 
 vi.mock('./Assistant', () => ({
-  default: () => <div data-testid="assistant-child">plain message text</div>,
+  default: ({ isScrolling }: { isScrolling?: boolean }) => (
+    <div data-scrolling={isScrolling ? 'true' : 'false'} data-testid="assistant-child">
+      plain message text
+    </div>
+  ),
 }));
 
 vi.mock('./User', () => ({ default: () => null }));
@@ -135,5 +141,34 @@ describe('ChatItem idle row height cache', () => {
 
     const row = container.querySelector('[data-index="0"]') as HTMLElement;
     expect(row.style.minHeight).toBe('240px');
+  });
+
+  it('does not switch to light markdown until an idle height exists', () => {
+    const { getByTestId } = render(<Item id="message" index={0} isScrolling />);
+
+    expect(getByTestId('assistant-child').dataset.scrolling).toBe('false');
+  });
+
+  it('keeps minHeight after the wheel stops so restore cannot collapse the row', () => {
+    vi.useFakeTimers();
+    const { container, rerender } = render(<Item id="message" index={0} />);
+
+    measuredHeight = 240;
+    notifyResize();
+
+    rerender(<Item id="message" index={0} isScrolling />);
+
+    measuredHeight = 80;
+    rerender(<Item id="message" index={0} />);
+
+    const row = container.querySelector('[data-index="0"]') as HTMLElement;
+    expect(row.style.minHeight).toBe('240px');
+
+    act(() => {
+      vi.advanceTimersByTime(LIGHT_SCROLL_RELEASE_MS);
+    });
+    expect(row.style.minHeight).toBe('');
+
+    vi.useRealTimers();
   });
 });
