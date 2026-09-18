@@ -1077,7 +1077,12 @@ describe('executeConversationGeneration chat resume', () => {
 
     expect(modelMocks.update).toHaveBeenCalledWith(
       'cgo_planning',
-      expect.objectContaining({ phase: 'planning' }),
+      expect.objectContaining({
+        config: expect.objectContaining({
+          planningPhaseEnteredAt: expect.any(String),
+        }),
+        phase: 'planning',
+      }),
       expect.anything(),
     );
     expect(modelMocks.insertEvent).toHaveBeenCalledWith(

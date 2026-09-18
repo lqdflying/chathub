@@ -143,6 +143,35 @@ export class ConversationGenerationModel {
     });
   };
 
+  latestPlanningPhaseEnteredAt = async (operationIds: string[]) => {
+    const found = new Map<string, string>();
+    if (operationIds.length === 0) return found;
+
+    const rows = await this.db
+      .selectDistinctOn([conversationGenerationEvents.operationId], {
+        operationId: conversationGenerationEvents.operationId,
+        payload: conversationGenerationEvents.payload,
+      })
+      .from(conversationGenerationEvents)
+      .where(
+        and(
+          eq(conversationGenerationEvents.userId, this.userId),
+          inArray(conversationGenerationEvents.operationId, operationIds),
+          eq(conversationGenerationEvents.type, 'snapshot'),
+          sql`${conversationGenerationEvents.payload}->>'phase' = 'planning'`,
+        ),
+      )
+      .orderBy(conversationGenerationEvents.operationId, desc(conversationGenerationEvents.id));
+
+    for (const row of rows) {
+      const phaseEnteredAt = row.payload?.phaseEnteredAt;
+      if (typeof phaseEnteredAt === 'string' && phaseEnteredAt) {
+        found.set(row.operationId, phaseEnteredAt);
+      }
+    }
+    return found;
+  };
+
   findMaxLaneGeneration = async (lane: string) => {
     const [row] = await this.db
       .select({ laneGeneration: max(conversationGenerationOperations.laneGeneration) })

@@ -20,6 +20,8 @@ const modelMocks = vi.hoisted(() => ({
   findMaxLaneGeneration: vi.fn(),
   insertEvent: vi.fn(),
   latestEventId: vi.fn(),
+  latestPlanningPhaseEnteredAt: vi.fn(),
+  listActiveByUser: vi.fn(),
   listEventsAfter: vi.fn(),
   listPendingWithoutJob: vi.fn(),
   listStaleCancelling: vi.fn(),
@@ -76,6 +78,8 @@ vi.mock('@/database/models/conversationGeneration', () => ({
     insertEvent = bindDbMethod(modelMocks.insertEvent);
     releaseIdempotencyKey = bindDbMethod(modelMocks.releaseIdempotencyKey);
     latestEventId = bindDbMethod(modelMocks.latestEventId);
+    latestPlanningPhaseEnteredAt = bindDbMethod(modelMocks.latestPlanningPhaseEnteredAt);
+    listActiveByUser = bindDbMethod(modelMocks.listActiveByUser);
     listEventsAfter = bindDbMethod(modelMocks.listEventsAfter);
     listPendingWithoutJob = bindDbMethod(modelMocks.listPendingWithoutJob);
     listStaleCancelling = bindDbMethod(modelMocks.listStaleCancelling);
@@ -1201,5 +1205,46 @@ describe('ConversationGenerationService.enqueue deferral', () => {
       deferred: true,
       reason: 'fetch_on_client',
     });
+  });
+});
+
+describe('ConversationGenerationService.listActive', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    modelMocks.latestPlanningPhaseEnteredAt.mockResolvedValue(new Map());
+  });
+
+  it('returns the persisted planning clock instead of heartbeat updatedAt', async () => {
+    modelMocks.listActiveByUser.mockResolvedValue([
+      {
+        config: { planningPhaseEnteredAt: '2026-09-18T08:00:00.000Z' },
+        id: 'cgo_config',
+        phase: 'planning',
+        updatedAt: '2026-09-18T08:01:00.000Z',
+      },
+      {
+        config: {},
+        id: 'cgo_event',
+        phase: 'planning',
+        updatedAt: '2026-09-18T08:01:00.000Z',
+      },
+    ]);
+    modelMocks.latestPlanningPhaseEnteredAt.mockResolvedValue(
+      new Map([['cgo_event', '2026-09-18T07:59:00.000Z']]),
+    );
+
+    await expect(
+      new ConversationGenerationService({} as any, 'user-1').listActive(),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        id: 'cgo_config',
+        phaseEnteredAt: '2026-09-18T08:00:00.000Z',
+      }),
+      expect.objectContaining({
+        id: 'cgo_event',
+        phaseEnteredAt: '2026-09-18T07:59:00.000Z',
+      }),
+    ]);
+    expect(modelMocks.latestPlanningPhaseEnteredAt).toHaveBeenCalledWith(['cgo_event']);
   });
 });

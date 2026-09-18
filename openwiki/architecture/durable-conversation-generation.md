@@ -448,11 +448,14 @@ The tool continuation budget is checked before creating another assistant
 placeholder. Creating that placeholder and recording its id happen in one
 database transaction (Drizzle nested transactions use PostgreSQL savepoints).
 
-Before each model HTTP call the worker sets operation `phase` to `planning`
-and emits a snapshot with `phaseEnteredAt`. The client stores those fields on
-the attached operation (not on message metadata) and shows a labeled
+Before each model HTTP call the worker sets operation `phase` to `planning`,
+writes immutable `config.planningPhaseEnteredAt`, and emits a snapshot with
+`phaseEnteredAt`. `listActive` returns that clock (config first, else the
+latest planning snapshot). The client stores it on the attached operation
+(not on message metadata, not heartbeat `updatedAt`) and shows a labeled
 “Planning next step” row on the empty assistant. After about 20 seconds the
-same phase switches copy to “Still working…”. First streamed tokens flip
+same phase switches copy to “Still working…”. Topic switch or visibility
+resync must keep the original timestamp. First streamed tokens flip
 `phase` to `model`. Exhausting the tool-turn budget writes
 `conversationGenerationStopReason: tool_cap` on the last assistant and logs
 `stopReason` on `execute_settled`. A finished model reply with no tools is

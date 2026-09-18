@@ -110,6 +110,12 @@ export interface ConversationGenerationConfigSnapshot {
   isWelcomeQuestion?: boolean;
   locale?: string;
   model: string;
+  /**
+   * Immutable clock for the current `planning` phase. Written by the worker
+   * when it enters planning; not a request setting. Heartbeats must not
+   * overwrite it.
+   */
+  planningPhaseEnteredAt?: string;
   plugins?: string[];
   provider: string;
   ragQuery?: string;
@@ -147,6 +153,8 @@ export interface ConversationGenerationOperation {
   laneGeneration: number;
   parentMessageId?: string | null;
   phase?: ConversationGenerationPhase | null;
+  /** Present on listActive when `phase === 'planning'`. Not heartbeat `updatedAt`. */
+  phaseEnteredAt?: string;
   placeholdersCleanedAt?: Date | string | null;
   revision: number;
   sessionId?: string | null;
@@ -232,6 +240,7 @@ export const ConversationGenerationConfigSchema = z.object({
   isWelcomeQuestion: z.boolean().optional(),
   locale: z.string().optional(),
   model: z.string().min(1),
+  planningPhaseEnteredAt: z.string().min(1).optional(),
   plugins: z.array(z.string()).optional(),
   provider: z.string().min(1),
   ragQuery: z.string().optional(),

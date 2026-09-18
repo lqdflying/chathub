@@ -582,7 +582,9 @@ const emitPlanningPhase = async (
   assistantMessageId: string,
 ) => {
   const phaseEnteredAt = new Date().toISOString();
-  await updateOperation(model, operation, { phase: 'planning' });
+  const nextConfig = { ...operation.config, planningPhaseEnteredAt: phaseEnteredAt };
+  await updateOperation(model, operation, { config: nextConfig, phase: 'planning' });
+  operation.config = nextConfig;
   operation.phase = 'planning';
   await emit(model, operation, 'snapshot', {
     assistantMessageId,

@@ -36,4 +36,14 @@ describe('PlanningNextStep', () => {
     expect(screen.getByText('planningNextStep.slow')).toBeTruthy();
     expect(screen.getByTestId('circle-loader')).toBeTruthy();
   });
+
+  it('renders still-working copy immediately when the phase clock is already past 20s', () => {
+    render(
+      <PlanningNextStep
+        phaseEnteredAt={new Date(Date.now() - PLANNING_NEXT_STEP_SLOW_MS - 1000).toISOString()}
+      />,
+    );
+
+    expect(screen.getByText('planningNextStep.slow')).toBeTruthy();
+  });
 });

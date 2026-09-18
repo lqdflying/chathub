@@ -106,10 +106,12 @@ describe('ConversationGenerationConfigSchema', () => {
           trigger: 'scheduled',
         },
         model: 'summary-model',
+        planningPhaseEnteredAt: '2026-09-18T08:00:00.000Z',
         provider: 'summary-provider',
         title: { force: true, topicId: 'topic-1' },
       }),
     ).toMatchObject({
+      planningPhaseEnteredAt: '2026-09-18T08:00:00.000Z',
       compaction: {
         candidateMessageIds: ['message-1', 'message-2'],
         summarizerContextWindow: 8192,

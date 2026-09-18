@@ -9,6 +9,7 @@ import {
 } from '@lobechat/types';
 import { StateCreator } from 'zustand/vanilla';
 
+import { resolveSyncedPlanningPhaseEnteredAt } from '@/helpers/planningPhaseEnteredAt';
 import {
   hashGenerationDebugClientValue,
   logDeferredGenerationLane,
@@ -921,6 +922,7 @@ export const conversationGeneration: StateCreator<
           operation.threadId ?? null,
           operation.kind,
         );
+        const attached = findAttachedOperation(get().serverGenerationOperations, operation.id);
         get().attachConversationGeneration({
           assistantMessageId: operation.assistantMessageId || undefined,
           clearGeneration: operationClearGeneration,
@@ -931,10 +933,10 @@ export const conversationGeneration: StateCreator<
           laneGeneration: operation.laneGeneration,
           operationId: operation.id,
           phase: operation.phase ?? undefined,
-          phaseEnteredAt:
-            operation.phase === 'planning' && operation.updatedAt
-              ? new Date(operation.updatedAt).toISOString()
-              : undefined,
+          phaseEnteredAt: resolveSyncedPlanningPhaseEnteredAt({
+            attached,
+            operation,
+          }),
           revision: operation.revision,
           sessionId: operationSessionId,
           threadId: operation.threadId || undefined,

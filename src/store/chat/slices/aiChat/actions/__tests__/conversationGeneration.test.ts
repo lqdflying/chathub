@@ -713,6 +713,7 @@ describe('conversationGeneration store actions', () => {
         lane: 'lane-main',
         laneGeneration: 1,
         phase: 'planning',
+        phaseEnteredAt: '2026-09-18T08:00:00.000Z',
         revision: 4,
         sessionId: TEST_IDS.SESSION_ID,
         status: 'processing',
@@ -731,8 +732,57 @@ describe('conversationGeneration store actions', () => {
       ].cgo_planning_sync,
     ).toMatchObject({
       phase: 'planning',
-      phaseEnteredAt: '2026-09-18T08:01:00.000Z',
+      phaseEnteredAt: '2026-09-18T08:00:00.000Z',
     });
+  });
+
+  it('does not restart planning elapsed time from a heartbeat updatedAt', async () => {
+    const topicKey = messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID);
+    const phaseEnteredAt = new Date(Date.now() - 25_000).toISOString();
+
+    act(() => {
+      useChatStore.getState().attachConversationGeneration({
+        assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        clearGeneration: 0,
+        generation: 0,
+        kind: 'chat',
+        lane: 'lane-main',
+        laneGeneration: 1,
+        operationId: 'cgo_planning_clock',
+        phase: 'planning',
+        phaseEnteredAt,
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
+        userScope: 'current',
+      });
+    });
+
+    vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValue([
+      {
+        assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        id: 'cgo_planning_clock',
+        kind: 'chat',
+        lane: 'lane-main',
+        laneGeneration: 1,
+        phase: 'planning',
+        revision: 8,
+        sessionId: TEST_IDS.SESSION_ID,
+        status: 'processing',
+        topicId: TEST_IDS.TOPIC_ID,
+        updatedAt: new Date().toISOString(),
+      },
+    ] as any);
+
+    await act(async () => {
+      await useChatStore.getState().syncActiveConversationGenerations({ reason: 'visibility' });
+    });
+
+    expect(useChatStore.getState().serverGenerationOperations[topicKey].cgo_planning_clock).toMatchObject(
+      {
+        phase: 'planning',
+        phaseEnteredAt,
+      },
+    );
   });
 
   it('re-cancels and skips attach when the lane is marked stopped', async () => {

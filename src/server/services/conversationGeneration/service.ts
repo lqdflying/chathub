@@ -13,6 +13,7 @@ import { makeWorkerUtils } from 'graphile-worker';
 
 import { ConversationGenerationModel } from '@/database/models/conversationGeneration';
 import { MessageModel } from '@/database/models/message';
+import { attachPlanningPhaseEnteredAt } from '@/helpers/planningPhaseEnteredAt';
 import { hashGenerationDebugValue, logGenerationDebugSafe } from '@/libs/logger/generationDebug';
 import { describeToolsDebugError } from '@/libs/logger/toolsDebug';
 import { withConversationWriteLockOrThrow } from '@/server/services/conversationWriteLock';
@@ -394,7 +395,18 @@ export class ConversationGenerationService {
   };
 
   listActive = async () => {
-    return new ConversationGenerationModel(this.db, this.userId).listActiveByUser();
+    const model = new ConversationGenerationModel(this.db, this.userId);
+    const operations = await model.listActiveByUser();
+    const missingIds = operations
+      .filter(
+        (operation) =>
+          operation.phase === 'planning' && !operation.config?.planningPhaseEnteredAt,
+      )
+      .map((operation) => operation.id);
+    return attachPlanningPhaseEnteredAt(
+      operations,
+      await model.latestPlanningPhaseEnteredAt(missingIds),
+    );
   };
 
   listEvents = async (cursor = 0) => {
