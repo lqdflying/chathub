@@ -33,11 +33,11 @@ export const PortalToken = memo(() => {
 });
 
 export const GroupChatToken = memo(() => {
-  const total = useChatStore(chatSelectors.mainAIChatsMessageString);
+  const messageRevision = useChatStore(chatSelectors.mainAIFollowOutputRevision);
 
   return (
     <Token>
-      <LargeTokenContentForGroupChat total={total} />
+      <LargeTokenContentForGroupChat messageRevision={messageRevision} />
     </Token>
   );
 });

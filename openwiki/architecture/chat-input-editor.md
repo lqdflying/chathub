@@ -186,7 +186,11 @@ on `chatKey` (session + topic) change, the previous thread scope when
 `portalThreadId` changes, and everything in `resetAccountScopedStores`. Desktop /
 thread intercept uses a Lexical capture-phase `paste` listener plus the shortcut
 tracker (`PastedTextPlugin`); V1Mobile uses `TextArea` `onPaste` and keeps chips
-in `pastedAddons` so they stay visible while the textarea is focused. All send
+in `pastedAddons` so they stay visible while the textarea is focused. V1Mobile
+keeps a local draft during `compositionstart`…`compositionend` and only calls
+`updateInputMessage` when composition ends (or on blur), so CJK / mobile OS
+suggestions do not broadcast every intermediate glyph to the chat store. Desktop
+Lexical composers call `updateInputMessage` instead of raw `setState`. All send
 paths (`useSend`, group send, V1Mobile, thread) join typed prompt first, then
 each paste body from that composer only, with blank lines. Join uses trim only
 to skip blank segments; the original prompt and paste bytes are preserved.

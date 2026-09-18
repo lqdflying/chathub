@@ -25,8 +25,13 @@ const Content = memo<ListProps>(({ mobile }) => {
   const data = useChatStore(chatSelectors.mainDisplayChatIDs, isEqual);
 
   const itemContent = useCallback(
-    (index: number, id: string) => (
-      <MainChatItem historyLength={data.length} id={id} index={index} />
+    (index: number, id: string, context?: { isScrolling?: boolean }) => (
+      <MainChatItem
+        historyLength={data.length}
+        id={id}
+        index={index}
+        isScrolling={context?.isScrolling}
+      />
     ),
     [data.length, mobile],
   );

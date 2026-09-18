@@ -46,9 +46,10 @@ export interface ThreadChatItemProps {
   historyLength: number;
   id: string;
   index: number;
+  isScrolling?: boolean;
 }
 
-const MainChatItem = memo<ThreadChatItemProps>(({ historyLength, id, index }) => {
+const MainChatItem = memo<ThreadChatItemProps>(({ historyLength, id, index, isScrolling }) => {
   const { styles, cx } = useStyles();
 
   const showThread = useChatStore(threadSelectors.hasThreadBySourceMsgId(id));
@@ -80,6 +81,7 @@ const MainChatItem = memo<ThreadChatItemProps>(({ historyLength, id, index }) =>
         }
         id={id}
         index={index}
+        isScrolling={isScrolling}
       />
       {isLatestItem && <SupervisorThinkingTag />}
     </>

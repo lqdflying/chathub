@@ -11,6 +11,11 @@ import MessageContent from '@/features/ChatItem/components/MessageContent';
 import Title from '@/features/ChatItem/components/Title';
 import { useStyles } from '@/features/ChatItem/style';
 import { markdownElements } from '@/features/Conversation/MarkdownElements';
+import {
+  GENERATING_MARKDOWN_THROTTLE_DESKTOP_MS,
+  GENERATING_MARKDOWN_THROTTLE_MOBILE_MS,
+  useThrottledMarkdownValue,
+} from '@/hooks/useThrottledMarkdownValue';
 import { useUserAvatar } from '@/hooks/useUserAvatar';
 import { useAgentStore } from '@/store/agent';
 import { agentChatConfigSelectors } from '@/store/agent/selectors';
@@ -24,6 +29,7 @@ import { userProfileSelectors } from '@/store/user/selectors';
 import { renderCodeBlockActions, renderCodeBlockBody } from '../../components/CodeBlockActions';
 import MarkdownTable from '../../components/MarkdownTable';
 import { useDoubleClickEdit } from '../../hooks/useDoubleClickEdit';
+import { applyLightScrollMarkdownProps } from '../../utils/lightScrollMarkdown';
 import { UserActionsBar } from './Actions';
 import { UserBelowMessage } from './BelowMessage';
 import { UserMessageExtra } from './Extra';
@@ -33,6 +39,7 @@ import { UserMessageContent } from './MessageContent';
 interface UserMessageProps extends UIChatMessage {
   disableEditing?: boolean;
   index: number;
+  isScrolling?: boolean;
 }
 
 const rehypePlugins = markdownElements
@@ -46,8 +53,19 @@ const remarkPlugins = markdownElements
   .filter(Boolean);
 
 const UserMessage = memo<UserMessageProps>((props) => {
-  const { id, ragQuery, content, createdAt, error, role, index, extra, disableEditing, targetId } =
-    props;
+  const {
+    id,
+    ragQuery,
+    content,
+    createdAt,
+    error,
+    role,
+    index,
+    extra,
+    disableEditing,
+    targetId,
+    isScrolling,
+  } = props;
 
   const { t } = useTranslation('chat');
   const { mobile } = useResponsive();
@@ -97,11 +115,17 @@ const UserMessage = memo<UserMessageProps>((props) => {
 
   const onDoubleClick = useDoubleClickEdit({ disableEditing, error, id, index, role });
 
+  const displayContent = useThrottledMarkdownValue(
+    content,
+    generating && !editing,
+    mobile ? GENERATING_MARKDOWN_THROTTLE_MOBILE_MS : GENERATING_MARKDOWN_THROTTLE_DESKTOP_MS,
+  );
+
   const renderMessage = useCallback(
     (editableContent: ReactNode) => (
       <UserMessageContent {...props} editableContent={editableContent} />
     ),
-    [props],
+    [id, props.fileList, props.imageList, props.videoList],
   );
 
   const components = useMemo(
@@ -119,22 +143,26 @@ const UserMessage = memo<UserMessageProps>((props) => {
   );
 
   const markdownProps = useMemo(
-    () => ({
-      componentProps: {
-        highlight: {
-          actionsRender: renderCodeBlockActions,
-          bodyRender: renderCodeBlockBody,
+    () =>
+      applyLightScrollMarkdownProps(
+        {
+          componentProps: {
+            highlight: {
+              actionsRender: renderCodeBlockActions,
+              bodyRender: renderCodeBlockBody,
+            },
+          },
+          components,
+          customRender: (dom: ReactNode, { text }: { text: string }) => (
+            <UserMarkdownRender displayMode={displayMode} dom={dom} id={id} text={text} />
+          ),
+          enableGithubAlert: true,
+          rehypePlugins,
+          remarkPlugins,
         },
-      },
-      components,
-      customRender: (dom: ReactNode, { text }: { text: string }) => (
-        <UserMarkdownRender displayMode={displayMode} dom={dom} id={id} text={text} />
+        isScrolling,
       ),
-      enableGithubAlert: true,
-      rehypePlugins,
-      remarkPlugins,
-    }),
-    [components, displayMode, id],
+    [components, displayMode, id, isScrolling],
   );
 
   return (
@@ -173,7 +201,7 @@ const UserMessage = memo<UserMessageProps>((props) => {
               editing={editing}
               id={id}
               markdownProps={markdownProps}
-              message={content}
+              message={displayContent}
               messageExtra={<UserMessageExtra content={content} extra={extra} id={id} />}
               onDoubleClick={onDoubleClick}
               placement={placement}

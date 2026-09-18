@@ -84,7 +84,7 @@ const Desktop = memo((props: { targetMemberId?: string }) => {
       leftActions={isDMPortal ? dmLeftActions : GROUP_CHAT_LEFT_ACTIONS}
       mentionItems={mentionItems}
       onMarkdownContentChange={(content) => {
-        useChatStore.setState({ inputMessage: content });
+        useChatStore.getState().updateInputMessage(content);
       }}
       onSend={() => {
         send({ targetMemberId: props.targetMemberId });

@@ -11,6 +11,7 @@ import { chatSelectors } from '@/store/chat/selectors';
 import AutoScroll from '../AutoScroll';
 import SkeletonList from '../SkeletonList';
 import { VirtuosoContext, resetVirtuosoVisibleItems, setVirtuosoGlobalRef } from './VirtuosoContext';
+import { resolveVirtuosoOverscan } from './scrollViewport';
 
 interface VirtualizedListProps {
   dataSource: string[];
@@ -71,11 +72,10 @@ const VirtualizedList = memo<VirtualizedListProps>(({ mobile, dataSource, itemCo
     };
   }, []);
 
-  // One extra viewport. 3× mounted every ChatItem on each store update and
-  // made large-topic scroll CPU-heavy. Virtuoso: increaseViewportBy is extra
-  // pixels outside the visible area — keep it modest.
+  // Desktop: one extra viewport. Mobile: half visualViewport, capped.
   // https://virtuoso.dev/react-virtuoso/
-  const overscan = typeof window !== 'undefined' ? window.innerHeight : 0;
+  // https://developer.mozilla.org/en-US/docs/Web/API/Visual_Viewport_API
+  const overscan = resolveVirtuosoOverscan(mobile);
 
   // first time loading or not loaded
   if (isFirstLoading || !isCurrentChatLoaded) return <SkeletonList mobile={mobile} />;
@@ -90,6 +90,7 @@ const VirtualizedList = memo<VirtualizedListProps>(({ mobile, dataSource, itemCo
         }}
 
         computeItemKey={(_, item) => item}
+        context={{ isScrolling }}
         data={dataSource}
         followOutput={getFollowOutput}
         increaseViewportBy={overscan}

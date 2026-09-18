@@ -16,8 +16,8 @@ const usage = vi.hoisted(() => ({
   totalToken: 900,
 }));
 
-vi.mock('@/hooks/useEstimatedContextUsage', () => ({
-  useEstimatedContextUsage: () => usage,
+vi.mock('@/hooks/EstimatedContextUsageProvider', () => ({
+  useLiveEstimatedContextUsage: () => usage,
 }));
 
 const COMPACTION_DEBOUNCE_MS = 750;

@@ -25,12 +25,19 @@ import { sessionSelectors } from '@/store/session/selectors';
 import { useUserStore } from '@/store/user';
 import { userGeneralSettingsSelectors, userProfileSelectors } from '@/store/user/selectors';
 
+import {
+  GENERATING_MARKDOWN_THROTTLE_DESKTOP_MS,
+  GENERATING_MARKDOWN_THROTTLE_MOBILE_MS,
+  useThrottledMarkdownValue,
+} from '@/hooks/useThrottledMarkdownValue';
+
 import ErrorMessageExtra, { useErrorContent } from '../../Error';
 import { markdownElements } from '../../MarkdownElements';
 import { renderCodeBlockActions, renderCodeBlockBody } from '../../components/CodeBlockActions';
 import MarkdownTable from '../../components/MarkdownTable';
 import MermaidZoom from '../../components/MermaidZoom';
 import { useDoubleClickEdit } from '../../hooks/useDoubleClickEdit';
+import { applyLightScrollMarkdownProps } from '../../utils/lightScrollMarkdown';
 import { normalizeThinkTags, processWithArtifact } from '../../utils/markdown';
 import { AssistantActionsBar } from './Actions';
 import { AssistantMessageExtra } from './Extra';
@@ -44,6 +51,7 @@ const MOBILE_AVATAR_SIZE = 32;
 interface AssistantMessageProps extends UIChatMessage {
   disableEditing?: boolean;
   index: number;
+  isScrolling?: boolean;
   showTitle?: boolean;
 }
 const AssistantMessage = memo<AssistantMessageProps>((props) => {
@@ -62,6 +70,7 @@ const AssistantMessage = memo<AssistantMessageProps>((props) => {
     metadata,
     meta,
     targetId,
+    isScrolling,
   } = props;
   const avatar = meta;
   const { t } = useTranslation('chat');
@@ -146,39 +155,47 @@ const AssistantMessage = memo<AssistantMessageProps>((props) => {
   );
 
   const markdownProps = useMemo(
-    () => ({
-      animated,
-      citations: search?.citations,
-      componentProps: {
-        highlight: {
-          actionsRender: renderCodeBlockActions,
-          bodyRender: renderCodeBlockBody,
-          theme: highlighterTheme,
+    () =>
+      applyLightScrollMarkdownProps(
+        {
+          animated,
+          citations: search?.citations,
+          componentProps: {
+            highlight: {
+              actionsRender: renderCodeBlockActions,
+              bodyRender: renderCodeBlockBody,
+              theme: highlighterTheme,
+            },
+            mermaid: {
+              // open the diagram in a dismissible drawer (same design as the HTML
+              // preview) and disable antd's pan-zoom lightbox, whose ✕ sits under the
+              // notch and which the phone Back can't close
+              bodyRender: ({
+                content,
+                originalNode,
+              }: {
+                content: string;
+                originalNode: ReactNode;
+              }) => <MermaidZoom content={content} originalNode={originalNode} theme={mermaidTheme} />,
+              enablePanZoom: false,
+              theme: mermaidTheme,
+            },
+          },
+          components,
+          enableCustomFootnotes: true,
+          enableGithubAlert: true,
+          rehypePlugins,
+          remarkPlugins,
+          showFootnotes:
+            search?.citations &&
+            // if the citations are all empty, we should not show the citations
+            search?.citations.length > 0 &&
+            // if the citations's url and title are all the same, we should not show the citations
+            search?.citations.every((item) => item.title !== item.url),
         },
-        mermaid: {
-          // open the diagram in a dismissible drawer (same design as the HTML
-          // preview) and disable antd's pan-zoom lightbox, whose ✕ sits under the
-          // notch and which the phone Back can't close
-          bodyRender: ({ content, originalNode }: { content: string; originalNode: ReactNode }) => (
-            <MermaidZoom content={content} originalNode={originalNode} theme={mermaidTheme} />
-          ),
-          enablePanZoom: false,
-          theme: mermaidTheme,
-        },
-      },
-      components,
-      enableCustomFootnotes: true,
-      enableGithubAlert: true,
-      rehypePlugins,
-      remarkPlugins,
-      showFootnotes:
-        search?.citations &&
-        // if the citations are all empty, we should not show the citations
-        search?.citations.length > 0 &&
-        // if the citations's url and title are all the same, we should not show the citations
-        search?.citations.every((item) => item.title !== item.url),
-    }),
-    [animated, components, role, search, highlighterTheme, mermaidTheme],
+        isScrolling,
+      ),
+    [animated, components, highlighterTheme, isScrolling, mermaidTheme, role, search],
   );
 
   const openChatSettings = useOpenChatSettings();
@@ -189,11 +206,17 @@ const AssistantMessage = memo<AssistantMessageProps>((props) => {
 
   const onDoubleClick = useDoubleClickEdit({ disableEditing, error, id, index, role });
 
+  const displayMessage = useThrottledMarkdownValue(
+    reducted ? `*${t('hideForYou')}*` : message,
+    generating && !editing,
+    mobile ? GENERATING_MARKDOWN_THROTTLE_MOBILE_MS : GENERATING_MARKDOWN_THROTTLE_DESKTOP_MS,
+  );
+
   const renderMessage = useCallback(
     (editableContent: ReactNode) => (
       <AssistantMessageContent {...props} editableContent={editableContent} />
     ),
-    [props],
+    [content, extra, id, props.chunksList, props.imageList, props.reasoning, search, tools],
   );
   const errorMessage = <ErrorMessageExtra data={props} />;
   return (
@@ -234,7 +257,7 @@ const AssistantMessage = memo<AssistantMessageProps>((props) => {
                 editing={editing}
                 id={id}
                 markdownProps={markdownProps}
-                message={reducted ? `*${t('hideForYou')}*` : message}
+                message={displayMessage}
                 messageExtra={
                   <>
                     {errorContent && (

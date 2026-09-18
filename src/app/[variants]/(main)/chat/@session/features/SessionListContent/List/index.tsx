@@ -8,6 +8,7 @@ import { Center } from 'react-layout-kit';
 import LazyLoad from 'react-lazy-load';
 
 import { SESSION_CHAT_URL } from '@/const/url';
+import { useShowMobileWorkspace } from '@/hooks/useShowMobileWorkspace';
 import { useSwitchSession } from '@/hooks/useSwitchSession';
 import { featureFlagsSelectors, useServerConfigStore } from '@/store/serverConfig';
 import { getSessionStoreState, useSessionStore } from '@/store/session';
@@ -38,8 +39,13 @@ const SessionList = memo<SessionListProps>(({ dataSource, groupId, showAddButton
   const isInit = useSessionStore(sessionSelectors.isSessionListInit);
   const { showCreateSession } = useServerConfigStore(featureFlagsSelectors);
   const mobile = useServerConfigStore((s) => s.isMobile);
+  const showMobileWorkspace = useShowMobileWorkspace();
 
   const switchSession = useSwitchSession();
+
+  // Keep the session pane mounted for instant PWA Back, but drop row
+  // subscriptions while the user is inside a topic.
+  if (mobile && showMobileWorkspace) return null;
 
   const isEmpty = !dataSource || dataSource.length === 0;
   return !isInit ? (

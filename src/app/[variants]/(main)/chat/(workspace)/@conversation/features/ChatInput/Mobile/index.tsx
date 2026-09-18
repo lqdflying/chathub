@@ -53,7 +53,7 @@ const MobileChatInput = memo(() => {
       leftActions={leftActions}
       mobile
       onMarkdownContentChange={(content) => {
-        useChatStore.setState({ inputMessage: content });
+        useChatStore.getState().updateInputMessage(content);
       }}
       onSend={() => {
         if (isSessionGroup) {

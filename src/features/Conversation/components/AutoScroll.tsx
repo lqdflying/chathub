@@ -12,14 +12,13 @@ interface AutoScrollProps {
 }
 const AutoScroll = memo<AutoScrollProps>(({ atBottom, isScrolling, onScrollToBottom }) => {
   const trackVisibility = useChatStore(chatSelectors.isAIGenerating);
-  const str = useChatStore(chatSelectors.mainAIChatsMessageString);
-  const reasoningStr = useChatStore(chatSelectors.mainAILatestMessageReasoningContent);
+  const followOutputRevision = useChatStore(chatSelectors.mainAIFollowOutputRevision);
 
   useEffect(() => {
     if (atBottom && trackVisibility && !isScrolling) {
       onScrollToBottom?.('auto');
     }
-  }, [atBottom, trackVisibility, str, reasoningStr]);
+  }, [atBottom, followOutputRevision, isScrolling, onScrollToBottom, trackVisibility]);
 
   return <BackBottom onScrollToBottom={() => onScrollToBottom('click')} visible={!atBottom} />;
 });

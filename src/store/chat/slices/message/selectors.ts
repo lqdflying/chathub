@@ -3,6 +3,7 @@ import { ChatFileItem, UIChatMessage } from '@lobechat/types';
 import { DEFAULT_USER_AVATAR } from '@/const/meta';
 import { INBOX_SESSION_ID } from '@/const/session';
 import { selectMessagesForContext } from '@/helpers/contextCompaction';
+import { createConversationMessageRevision } from '@/helpers/conversationMessageRevision';
 import { getModelContextWindowTokens } from '@/helpers/modelContextWindowTokens';
 import { useAgentStore } from '@/store/agent';
 import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selectors';
@@ -161,6 +162,32 @@ const mainAIChatsMessageString = (s: ChatStoreState): string => {
 const mainAILatestMessageReasoningContent = (s: ChatStoreState) =>
   mainAIChats(s).at(-1)?.reasoning?.content;
 
+/**
+ * Cheap follow-output / group-token fingerprint. Does not clone rows or join
+ * bodies — length + updatedAt + last reasoning length is enough to know the
+ * tail grew while generating.
+ */
+const mainAIFollowOutputRevision = (s: ChatStoreState): string => {
+  const chats = getChatsWithThread(s, activeRawChats(s));
+  const last = chats.at(-1);
+  const reasoningLength =
+    typeof last?.reasoning?.content === 'string' ? last.reasoning.content.length : 0;
+
+  return `${createConversationMessageRevision(chats)}|r:${reasoningLength}`;
+};
+
+const hasLoadingIdOnDisplay = (loadingIds: string[], s: ChatStoreState): boolean => {
+  if (loadingIds.length === 0) return false;
+
+  const loading = new Set(loadingIds);
+  const displayed = getChatsWithThread(
+    s,
+    activeRawChats(s).filter((message) => message.role !== 'tool'),
+  );
+
+  return displayed.some((message) => loading.has(message.id));
+};
+
 const currentToolMessages = (s: ChatStoreState) => {
   const messages = activeBaseChats(s);
 
@@ -256,16 +283,13 @@ const isToolApiNameShining =
     return isStreaming || isPluginInvoking;
   };
 
-const isAIGenerating = (s: ChatStoreState) =>
-  s.chatLoadingIds.some((id) => mainDisplayChatIDs(s).includes(id));
+const isAIGenerating = (s: ChatStoreState) => hasLoadingIdOnDisplay(s.chatLoadingIds, s);
 
-const isInRAGFlow = (s: ChatStoreState) =>
-  s.messageRAGLoadingIds.some((id) => mainDisplayChatIDs(s).includes(id));
+const isInRAGFlow = (s: ChatStoreState) => hasLoadingIdOnDisplay(s.messageRAGLoadingIds, s);
 
 const isCreatingMessage = (s: ChatStoreState) => s.isCreatingMessage;
 
-const isHasMessageLoading = (s: ChatStoreState) =>
-  s.messageLoadingIds.some((id) => mainDisplayChatIDs(s).includes(id));
+const isHasMessageLoading = (s: ChatStoreState) => hasLoadingIdOnDisplay(s.messageLoadingIds, s);
 
 /**
  * this function is used to determine whether the send button should be disabled
@@ -372,6 +396,7 @@ export const chatSelectors = {
   mainAIChats,
   mainAIChatsMessageString,
   mainAIChatsWithHistoryConfig,
+  mainAIFollowOutputRevision,
   mainAILatestMessageReasoningContent,
   mainDisplayChatIDs,
   mainDisplayChats,

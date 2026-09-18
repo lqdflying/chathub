@@ -1,7 +1,7 @@
 import { UIChatMessage } from '@lobechat/types';
 import { LobeAgentConfig } from '@lobechat/types';
 import { act } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { DEFAULT_INBOX_AVATAR } from '@/const/meta';
 import { INBOX_SESSION_ID } from '@/const/session';
@@ -10,6 +10,7 @@ import { ChatStore } from '@/store/chat';
 import { initialState } from '@/store/chat/initialState';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { createServerConfigStore } from '@/store/serverConfig/store';
+import { userProfileSelectors } from '@/store/user/selectors';
 import { merge } from '@/utils/merge';
 
 import { chatSelectors } from './selectors';
@@ -345,6 +346,88 @@ describe('chatSelectors', () => {
 
       // Restore the mocks after the test
       vi.restoreAllMocks();
+    });
+  });
+
+  describe('mainAIFollowOutputRevision', () => {
+    it('does not join message bodies', () => {
+      const huge = 'x'.repeat(20_000);
+      const state = merge(initialStore, {
+        messagesMap: {
+          [messageMapKey('active-session')]: [{ content: huge, id: 'msg1', role: 'user' }],
+        },
+        activeId: 'active-session',
+      });
+
+      const revision = chatSelectors.mainAIFollowOutputRevision(state);
+      expect(revision.includes(huge)).toBe(false);
+      expect(revision).toContain('20000');
+    });
+
+    it('changes when last-message reasoning length grows', () => {
+      const before = merge(initialStore, {
+        messagesMap: {
+          [messageMapKey('active-session')]: mockReasoningMessages,
+        },
+        activeId: 'active-session',
+      });
+      const after = merge(initialStore, {
+        messagesMap: {
+          [messageMapKey('active-session')]: [
+            ...mockReasoningMessages.slice(0, 2),
+            {
+              ...mockReasoningMessages[2],
+              reasoning: { content: 'Reasoning Content grown' },
+            },
+          ],
+        },
+        activeId: 'active-session',
+      });
+
+      expect(chatSelectors.mainAIFollowOutputRevision(before)).not.toBe(
+        chatSelectors.mainAIFollowOutputRevision(after),
+      );
+    });
+  });
+
+  describe('isAIGenerating', () => {
+    it('is true when a displayed row is in chatLoadingIds', () => {
+      const state = merge(initialStore, {
+        activeId: 'active-session',
+        chatLoadingIds: ['msg1'],
+        messagesMap: {
+          [messageMapKey('active-session')]: mockMessages,
+        },
+      });
+
+      expect(chatSelectors.isAIGenerating(state)).toBe(true);
+    });
+
+    it('ignores tool-only loading ids', () => {
+      const state = merge(initialStore, {
+        activeId: 'active-session',
+        chatLoadingIds: ['msg3'],
+        messagesMap: {
+          [messageMapKey('active-session')]: mockMessages,
+        },
+      });
+
+      expect(chatSelectors.isAIGenerating(state)).toBe(false);
+    });
+
+    it('does not clone display chats through getMeta', () => {
+      const spy = vi.spyOn(userProfileSelectors, 'userAvatar');
+      const state = merge(initialStore, {
+        activeId: 'active-session',
+        chatLoadingIds: ['msg1'],
+        messagesMap: {
+          [messageMapKey('active-session')]: mockMessages,
+        },
+      });
+
+      expect(chatSelectors.isAIGenerating(state)).toBe(true);
+      expect(spy).not.toHaveBeenCalled();
+      spy.mockRestore();
     });
   });
 

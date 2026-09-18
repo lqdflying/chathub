@@ -4,6 +4,7 @@ import { Icon } from '@lobehub/ui';
 import { Popover, Tooltip } from 'antd';
 import { createStyles, useTheme } from 'antd-style';
 import debug from 'debug';
+import isEqual from 'fast-deep-equal';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { memo, useCallback, useMemo, useState, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -206,13 +207,19 @@ const ChatMinimap = () => {
     getVirtuosoActiveIndex,
     () => null,
   );
-  const messages = useChatStore(chatSelectors.mainDisplayChats);
+  const displayIds = useChatStore(chatSelectors.mainDisplayChatIDs, isEqual);
+  const rawMessages = useChatStore((s) =>
+    s.activeId ? s.messagesMap[chatSelectors.currentChatKey(s)] : undefined,
+  );
 
   const theme = useTheme();
 
   const indicators = useMemo<MinimapIndicator[]>(() => {
-    return messages.reduce<MinimapIndicator[]>((acc, message, virtuosoIndex) => {
-      if (message.role !== 'user' && message.role !== 'assistant') return acc;
+    const byId = new Map((rawMessages ?? []).map((message) => [message.id, message]));
+
+    return displayIds.reduce<MinimapIndicator[]>((acc, id, virtuosoIndex) => {
+      const message = byId.get(id);
+      if (!message || (message.role !== 'user' && message.role !== 'assistant')) return acc;
 
       acc.push({
         id: message.id,
@@ -224,7 +231,7 @@ const ChatMinimap = () => {
 
       return acc;
     }, []);
-  }, [messages]);
+  }, [displayIds, rawMessages]);
 
   const indicatorIndexMap = useMemo(() => {
     const map = new Map<number, number>();

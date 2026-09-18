@@ -49,7 +49,7 @@ const ClassicChatInput = memo(() => {
       }}
       leftActions={leftActions}
       onMarkdownContentChange={(content) => {
-        useChatStore.setState({ inputMessage: content });
+        useChatStore.getState().updateInputMessage(content);
       }}
       onSend={() => {
         send();

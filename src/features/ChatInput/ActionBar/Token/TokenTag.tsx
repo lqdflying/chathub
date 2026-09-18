@@ -9,9 +9,11 @@ import { Center, Flexbox } from 'react-layout-kit';
 
 import TopicSummaryViewer from '@/features/TopicSummaryViewer';
 import {
-  EstimatedContextConversationSource,
-  useEstimatedContextUsage,
-} from '@/hooks/useEstimatedContextUsage';
+  EstimatedContextUsageProvider,
+  useEstimatedContextUsageContext,
+  useLiveEstimatedContextUsage,
+} from '@/hooks/EstimatedContextUsageProvider';
+import { EstimatedContextConversationSource } from '@/hooks/useEstimatedContextUsage';
 import { useAgentStore } from '@/store/agent';
 import { agentChatConfigSelectors } from '@/store/agent/selectors';
 import { useChatStore } from '@/store/chat';
@@ -33,7 +35,7 @@ const TOKEN_POPOVER_SECONDARY_TEXT_STYLE = {
 interface TokenTagProps {
   conversationSource?: EstimatedContextConversationSource;
 }
-const Token = memo<TokenTagProps>(({ conversationSource }) => {
+const TokenView = memo<TokenTagProps>(({ conversationSource = 'main' }) => {
   const { t } = useTranslation(['chat', 'components']);
   const theme = useTheme();
   const [awaitingTrigger, setAwaitingTrigger] = useState(false);
@@ -76,7 +78,7 @@ const Token = memo<TokenTagProps>(({ conversationSource }) => {
     topicChatsToken,
     toolsToken,
     totalToken,
-  } = useEstimatedContextUsage(conversationSource);
+  } = useLiveEstimatedContextUsage(conversationSource);
   const contextExportAllocation = useMemo(
     () => ({
       assistantMemory: memoryToken,
@@ -322,6 +324,19 @@ const Token = memo<TokenTagProps>(({ conversationSource }) => {
       )}
     </ActionPopover>
   );
+});
+
+const Token = memo<TokenTagProps>(({ conversationSource = 'main' }) => {
+  const provided = useEstimatedContextUsageContext();
+  if (!provided || provided.conversationSource !== conversationSource) {
+    return (
+      <EstimatedContextUsageProvider conversationSource={conversationSource}>
+        <TokenView conversationSource={conversationSource} />
+      </EstimatedContextUsageProvider>
+    );
+  }
+
+  return <TokenView conversationSource={conversationSource} />;
 });
 
 export default Token;

@@ -34,10 +34,10 @@ import PromptCacheHitRate from './PromptCacheHitRate';
 import TokenProgress from './TokenProgress';
 
 interface TokenTagForGroupChatProps {
-  total: string;
+  messageRevision: string;
 }
 
-const TokenTagForGroupChat = memo<TokenTagForGroupChatProps>(({ total: messageString }) => {
+const TokenTagForGroupChat = memo<TokenTagForGroupChatProps>(({ messageRevision }) => {
   const { t } = useTranslation(['chat', 'components']);
   const theme = useTheme();
 
@@ -145,7 +145,7 @@ const TokenTagForGroupChat = memo<TokenTagForGroupChatProps>(({ total: messageSt
       console.warn('Failed to calculate group orchestration tokens:', error);
       return '';
     }
-  }, [generalInstruction, groupAgents, messageString]);
+  }, [generalInstruction, groupAgents, messageRevision]);
 
   const groupOrchestrationToken = useTokenCount(groupOrchestrationString);
 
@@ -182,7 +182,7 @@ const TokenTagForGroupChat = memo<TokenTagForGroupChatProps>(({ total: messageSt
       console.warn('Failed to calculate supervisor tokens:', error);
       return '';
     }
-  }, [groupAgents, groupConfig.systemPrompt, messageString, supervisorTodos]);
+  }, [groupAgents, groupConfig.systemPrompt, messageRevision, supervisorTodos]);
 
   const supervisorToken = useTokenCount(supervisorPrompt);
 
@@ -192,7 +192,7 @@ const TokenTagForGroupChat = memo<TokenTagForGroupChatProps>(({ total: messageSt
   const chatsString = useMemo(() => {
     const chats = chatSelectors.mainAIChatsWithHistoryConfig(useChatStore.getState());
     return chats.map((chat) => chat.content).join('');
-  }, [messageString]);
+  }, [messageRevision]);
 
   const chatsToken = useTokenCount(chatsString) + inputTokenCount;
 

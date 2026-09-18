@@ -1,7 +1,7 @@
 'use client';
 
 import { createStyles } from 'antd-style';
-import { ReactNode, memo, useEffect, useMemo, useRef } from 'react';
+import { ReactNode, memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Flexbox } from 'react-layout-kit';
 
 import {
@@ -38,6 +38,7 @@ export interface ChatListItemProps {
   id: string;
   inPortalThread?: boolean;
   index: number;
+  isScrolling?: boolean;
 }
 
 const Item = memo<ChatListItemProps>(
@@ -49,9 +50,11 @@ const Item = memo<ChatListItemProps>(
     disableEditing,
     inPortalThread = false,
     index,
+    isScrolling,
   }) => {
     const { styles, cx } = useStyles();
     const containerRef = useRef<HTMLDivElement | null>(null);
+    const [frozenHeight, setFrozenHeight] = useState<number>();
 
     const raw = useChatStore(chatSelectors.getRawMessageById(id));
     const item = useMemo(
@@ -73,8 +76,7 @@ const Item = memo<ChatListItemProps>(
       if (!element) return;
 
       const root = element.closest('[data-virtuoso-scroller]');
-      const thresholds = [0, 0.01, 0.1, 0.25, 0.5, 0.75, 0.9, 1];
-      const options: any = { threshold: thresholds };
+      const options: any = { threshold: 0 };
 
       if (root instanceof Element) options.root = root;
 
@@ -104,10 +106,27 @@ const Item = memo<ChatListItemProps>(
       };
     }, [index]);
 
+    useLayoutEffect(() => {
+      if (isScrolling && containerRef.current && frozenHeight === undefined) {
+        setFrozenHeight(containerRef.current.getBoundingClientRect().height);
+        return;
+      }
+      if (!isScrolling && frozenHeight !== undefined) {
+        setFrozenHeight(undefined);
+      }
+    }, [frozenHeight, isScrolling]);
+
     const renderContent = useMemo(() => {
       switch (item?.role) {
         case 'user': {
-          return <UserMessage {...item} disableEditing={disableEditing} index={index} />;
+          return (
+            <UserMessage
+              {...item}
+              disableEditing={disableEditing}
+              index={index}
+              isScrolling={isScrolling}
+            />
+          );
         }
 
         case 'assistant': {
@@ -116,6 +135,7 @@ const Item = memo<ChatListItemProps>(
               {...item}
               disableEditing={disableEditing}
               index={index}
+              isScrolling={isScrolling}
               showTitle={item.groupId ? true : false}
             />
           );
@@ -127,7 +147,7 @@ const Item = memo<ChatListItemProps>(
       }
 
       return null;
-    }, [item]);
+    }, [disableEditing, index, isScrolling, item]);
 
     if (!item) return;
 
@@ -138,6 +158,7 @@ const Item = memo<ChatListItemProps>(
           className={cx(styles.message, className, isMessageLoading && styles.loading)}
           data-index={index}
           ref={containerRef}
+          style={frozenHeight ? { minHeight: frozenHeight } : undefined}
         >
           {renderContent}
           {endRender}

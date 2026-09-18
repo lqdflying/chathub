@@ -22,6 +22,7 @@ const Topics = memo(({ children }: PropsWithChildren) => {
   return (
     <Modal
       allowFullscreen
+      destroyOnHidden
       footer={null}
       id="mobile-topic-modal"
       onCancel={() => setOpen(false)}
@@ -31,7 +32,7 @@ const Topics = memo(({ children }: PropsWithChildren) => {
       }}
       title={t('title')}
     >
-      {children}
+      {open ? children : null}
     </Modal>
   );
 });

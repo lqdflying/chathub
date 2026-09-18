@@ -92,11 +92,17 @@ const MobileChatInputArea = forwardRef<TextAreaRef, MobileChatInputAreaProps>(
     const size = useSize(containerRef);
     const [showFullscreen, setShowFullscreen] = useState<boolean>(false);
     const [isFocused, setIsFocused] = useState<boolean>(false);
+    const [draft, setDraft] = useState(value);
 
     useEffect(() => {
       if (!size?.height) return;
       setShowFullscreen(size.height > 72);
     }, [size]);
+
+    useEffect(() => {
+      if (isChineseInput.current) return;
+      setDraft(value);
+    }, [value]);
 
     const showAddons = !expand && !isFocused;
 
@@ -135,14 +141,22 @@ const MobileChatInputArea = forwardRef<TextAreaRef, MobileChatInputAreaProps>(
               className={styles.textarea}
               onBlur={(e) => {
                 pasteBypassTracker.current.reset();
+                isChineseInput.current = false;
+                setDraft(e.target.value);
                 onInput?.(e.target.value);
                 setIsFocused(false);
               }}
               onChange={(e) => {
-                onInput?.(e.target.value);
+                const next = e.target.value;
+                setDraft(next);
+                if (isChineseInput.current) return;
+                onInput?.(next);
               }}
-              onCompositionEnd={() => {
+              onCompositionEnd={(e) => {
                 isChineseInput.current = false;
+                const next = e.currentTarget.value;
+                setDraft(next);
+                onInput?.(next);
               }}
               onCompositionStart={() => {
                 isChineseInput.current = true;
@@ -169,7 +183,7 @@ const MobileChatInputArea = forwardRef<TextAreaRef, MobileChatInputAreaProps>(
               placeholder={t('sendPlaceholder')}
               ref={ref}
               style={{ height: 38, paddingBlock: 7 }}
-              value={value}
+              value={draft}
               variant={expand ? 'borderless' : 'filled'}
             />
           </InnerContainer>

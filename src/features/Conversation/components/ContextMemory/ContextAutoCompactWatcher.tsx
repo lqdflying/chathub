@@ -7,7 +7,7 @@ import {
   createCompactionFingerprint,
   getContextCompactionWatermarks,
 } from '@/helpers/contextCompaction';
-import { useEstimatedContextUsage } from '@/hooks/useEstimatedContextUsage';
+import { useLiveEstimatedContextUsage } from '@/hooks/EstimatedContextUsageProvider';
 import { logCompactionWatcherArmed } from '@/libs/logger/compactionDebugClient';
 import { useAgentStore } from '@/store/agent';
 import { agentChatConfigSelectors } from '@/store/agent/selectors';
@@ -50,7 +50,7 @@ const COMPACTION_DEBOUNCE_MS = 750;
 const COMPACTION_FAILED_RETRY_MS = 10_000;
 
 const ContextAutoCompactWatcher = () => {
-  const { knowledgeBaseToken, maxTokens, ratio, totalToken } = useEstimatedContextUsage();
+  const { knowledgeBaseToken, maxTokens, ratio, totalToken } = useLiveEstimatedContextUsage();
   const config = useAgentStore((state) => {
     const chatConfig = agentChatConfigSelectors.currentChatConfig(state);
     return {
