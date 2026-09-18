@@ -225,8 +225,8 @@ to the whole-window estimate floored by the latest reported input
 post-compaction estimate. The anchor is only trusted against a **verified request baseline**
 (`resolveAnchorBaseline`, a bounded in-process map keyed by anchor message id): the baseline
 records the fixed-overhead tokens, a cheap prefix fingerprint (pre-anchor message count,
-content chars, newest `updatedAt`), and the **selected pre-anchor row ids** the request
-actually included. Both callers — the async estimator and the token popover hook — share
+content chars, newest `updatedAt`), the **selected pre-anchor row ids** the request
+actually included, and the **input template** applied to those user rows. Both callers — the async estimator and the token popover hook — share
 that one map, so both record overhead with the SAME sync measure
 (`estimateFixedContextOverheadTokens`, chars/2 via `CONTEXT_CHARS_PER_TOKEN_ESTIMATE`); the
 estimator's tokenized fixed count feeds only its own final math and is never registered,
@@ -234,8 +234,8 @@ otherwise a UI mount would shift the send estimate by the unit gap. Later estima
 fixed-overhead delta (skill/instruction/memory/tool changes) in those shared units.
 
 A baseline is never registered on first sight of a report. Witnesses are recorded **only by
-the send path**. Durable enqueue **captures** overhead and history-window inputs from the
-config about to be sent (`captureAnchorDispatchEvidence`) **before** `await` enqueue/send,
+the send path**. Durable enqueue **captures** overhead, history-window, and input-template
+inputs from the config about to be sent (`captureAnchorDispatchEvidence`) **before** `await` enqueue/send,
 then **commits** that evidence onto the returned assistant id
 (`commitAnchorDispatchWitness`). Re-reading live agent settings after the RPC would certify
 instructions the worker never sent. Browser retry/continuation still records at request
@@ -251,12 +251,17 @@ has no witness, so stale reports are never trusted: a prompt whose pre-reload lo
 was over 11,000 tokens is estimated in full again (the old contract showed 1,013 — a
 1,000-token report plus a 13-token tail). A full-prefix mismatch (pre-anchor edit or delete)
 invalidates the anchor **until a fresh provider report arrives under a new
-anchor id**. A history-window **expansion** (raising or disabling the limit, or an automatic
-effective-window expand that newly includes older rows) also invalidates: the report never
-counted those rows, so the estimator falls back rather than adding only the post-anchor
-tail. Sliding the window so older rows **drop out** keeps the anchor — those tokens are no
-longer sent, and keeping the report is a safe overcount. The mismatched baseline is never
-re-registered.
+anchor id**. A history-window **expansion** (raising or disabling the limit, including from an
+enabled count of **zero**, or an automatic effective-window expand that newly
+includes older rows) also invalidates: the report never counted those rows, so
+the estimator falls back rather than adding only the post-anchor tail. A
+zero-limit dispatch records an **empty** selection — `slice(-0)` would have
+certified the entire prefix. Sliding the window so older rows **drop out**
+keeps the anchor — those tokens are no longer sent, and keeping the report is a
+safe overcount. Changing `chatConfig.inputTemplate` after the request also
+invalidates (the original report counted that template on every included user
+row; the tail-only serialize would omit added text on pre-anchor history). The
+mismatched baseline is never re-registered.
 
 Request assembly also applies a **deterministic tool-result cap**:
 `ToolResultTruncateProcessor` (`packages/context-engine`) rewrites any `tool` message body over

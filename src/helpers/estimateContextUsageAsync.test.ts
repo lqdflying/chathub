@@ -195,6 +195,7 @@ describe('estimateContextUsageAsync', () => {
       assistantMessageId: assistantId,
       conversationKey: messageMapKey('session-1', topicId),
       fixedOverheadTokens: overhead.fixedOverheadTokens,
+      inputTemplate: mocks.inputTemplate,
       messages: mocks.chats,
       parentMessageId: parentId,
       selectedPrefixIds: resolveSelectedPreAnchorIds({
@@ -1035,5 +1036,48 @@ describe('estimateContextUsageAsync', () => {
     const expanded = await estimate();
     expect(expanded.contextMessages.some((message) => message.id === 'old-u')).toBe(true);
     expect(expanded.totalToken).toBeGreaterThan(20_000);
+  });
+
+  it('U3: changing the input template recounts pre-anchor user rows', async () => {
+    mocks.chats = [
+      { content: 'hi', id: 'u1', role: 'user' },
+      { content: 'ok', id: 'a1', role: 'assistant' },
+    ];
+    await landReport(1000);
+    expect((await estimate()).totalToken).toBe(1013);
+
+    // Repeating `{{text}}` expands stored "hi" to 20k chars; empty draft stays empty.
+    mocks.inputTemplate = '{{text}}'.repeat(10_000);
+    const expanded = await estimate();
+    expect(expanded.totalToken).toBeGreaterThan(20_000);
+  });
+
+  it('U3: a pending template change plus draft cannot hide historical expansion', async () => {
+    mocks.chats = [
+      { content: 'hi', id: 'u1', role: 'user' },
+      { content: LOADING_FLAT, id: 'a1', role: 'assistant' },
+    ];
+    await dispatchWitness('a1', 'u1');
+
+    mocks.inputTemplate = '{{text}}'.repeat(10_000);
+    const whilePending = await estimate();
+    expect(whilePending.inputToken).toBe(0);
+    expect(whilePending.totalToken).toBeGreaterThan(20_000);
+
+    const withDraft = await estimateContextUsageAsync({
+      agentState: {} as any,
+      chatState: { activeId: 'session-1', activeTopicId: 'topic-1', inputMessage: 'd' } as any,
+    });
+    // Draft "d" expands to 10k — below the 20k historical "hi" expansion.
+    expect(withDraft.inputToken).toBe(10_000);
+    expect(withDraft.totalToken - withDraft.inputToken).toBeGreaterThan(20_000);
+
+    mocks.chats = [
+      mocks.chats[0],
+      { content: 'ok', id: 'a1', metadata: { totalInputTokens: 1000 }, role: 'assistant' },
+    ];
+    const afterReport = await estimate();
+    expect(afterReport.inputToken).toBe(0);
+    expect(afterReport.totalToken).toBeGreaterThan(20_000);
   });
 });

@@ -19,6 +19,8 @@ export interface AnchorDispatchEvidence {
   enableHistoryCount: boolean;
   fixedOverheadTokens: number;
   historyCount?: number;
+  /** Normalized `chatConfig.inputTemplate` frozen with the sent request (U3). */
+  inputTemplate: string;
 }
 
 /**
@@ -70,6 +72,7 @@ export const captureAnchorDispatchEvidence = async ({
       enableHistoryCount,
       fixedOverheadTokens: overhead.fixedOverheadTokens,
       historyCount: chatConfig.historyCount,
+      inputTemplate: chatConfig.inputTemplate?.trim() || '',
     };
   } catch {
     return undefined;
@@ -118,15 +121,20 @@ export const commitAnchorDispatchWitness = ({
       ? messages.findIndex((message) => message.id === evidence.cursorId)
       : -1;
     const afterCursor = cursorIndex >= 0 ? messages.slice(cursorIndex + 1) : messages;
+    // `slice(-0)` is `slice(0)` and would record every row. Request assembly
+    // (`getSlicedMessages`) returns [] for any enabled count <= 0.
     const selected =
       evidence.enableHistoryCount && typeof evidence.historyCount === 'number'
-        ? afterCursor.slice(-Math.max(0, evidence.historyCount))
+        ? evidence.historyCount <= 0
+          ? []
+          : afterCursor.slice(-evidence.historyCount)
         : afterCursor;
 
     recordAnchorRequestWitness({
       assistantMessageId,
       conversationKey: messageMapKey(sessionId, topicId),
       fixedOverheadTokens: evidence.fixedOverheadTokens,
+      inputTemplate: evidence.inputTemplate,
       messages,
       parentMessageId: parentId,
       selectedPrefixIds: resolveSelectedPreAnchorIds({
@@ -149,7 +157,8 @@ export const commitAnchorDispatchWitness = ({
  * The witness binds: the pending assistant row id, its parent row, the
  * conversation key, the fixed overhead (same shared-unit assembly the
  * estimators use), the fingerprint of the full prefix through the parent,
- * and the selected pre-anchor ids the request included.
+ * the selected pre-anchor ids the request included, and the input template
+ * applied to those user rows.
  *
  * Best effort: any failure (store not refreshed yet, skill resolution, …)
  * simply skips the witness — the report then falls back to the whole-window

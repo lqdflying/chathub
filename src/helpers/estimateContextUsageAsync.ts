@@ -319,7 +319,10 @@ export const estimateContextUsageAsync = async ({
   // topic's snapshot) always falls back. Parent and content fingerprint use
   // the FULL conversation prefix so window *sliding* (older rows dropping
   // out) cannot break the match. Selected pre-anchor ids are compared
-  // separately: newly included older rows invalidate (U2).
+  // separately: newly included older rows invalidate (U2). A changed
+  // input template also invalidates (U3): the report counted the original
+  // expansion on every included user row, and the tail-only serialize
+  // would omit that added text on pre-anchor history.
   const anchor = getLatestReportedInputAnchor(estimateMessages, usageLookupOptions);
   const anchorIndex = anchor ? chats.findIndex(({ id }) => id === anchor.id) : -1;
   const rawAnchorIndex = anchor ? rawMessages.findIndex(({ id }) => id === anchor.id) : -1;
@@ -334,6 +337,7 @@ export const estimateContextUsageAsync = async ({
           anchorParentId: rawAnchorIndex > 0 ? rawMessages[rawAnchorIndex - 1]?.id : undefined,
           conversationKey: messageMapKey(chatState.activeId, chatState.activeTopicId),
           currentFixedOverheadTokens: fixedOverheadTokens,
+          inputTemplate,
           prefixFingerprint: fingerprintAnchorPrefix(fullPrefix),
           reportedInputTokens: anchor.totalInputTokens,
           selectedPrefixIds: resolveSelectedPreAnchorIds({

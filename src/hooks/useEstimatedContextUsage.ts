@@ -292,7 +292,9 @@ export const useEstimatedContextUsage = (
     // process never dispatched (reload, another topic's state) always falls
     // back. Parent and content fingerprint use the FULL conversation prefix
     // so window sliding cannot break the match; newly included older rows
-    // still invalidate via selectedPrefixIds (U2). The baseline excludes
+    // still invalidate via selectedPrefixIds (U2). A changed input
+    // template invalidates (U3) because the report counted the original
+    // expansion on every included user row. The baseline excludes
     // KB tokens: retrieval is re-fetched per request, so the anchor's
     // reported input never covered it.
     const anchor = getLatestReportedInputAnchor(estimateMessages, usageLookupOptions);
@@ -306,6 +308,7 @@ export const useEstimatedContextUsage = (
             anchorParentId: rawAnchorIndex > 0 ? chats[rawAnchorIndex - 1]?.id : undefined,
             conversationKey: messageMapKey(state.activeId, state.activeTopicId),
             currentFixedOverheadTokens: fixedOverheadTokens - knowledgeBaseToken,
+            inputTemplate: inputTemplate?.trim() || '',
             prefixFingerprint: fingerprintAnchorPrefix(fullPrefix),
             reportedInputTokens: anchor.totalInputTokens,
             selectedPrefixIds: resolveSelectedPreAnchorIds({

@@ -248,6 +248,7 @@ describe('useEstimatedContextUsage', () => {
       assistantMessageId: assistantId,
       conversationKey: messageMapKey('session-1', topicId),
       fixedOverheadTokens: overhead,
+      inputTemplate: agent.inputTemplate,
       messages: mocks.mainChats,
       parentMessageId: parentId,
       selectedPrefixIds: resolveSelectedPreAnchorIds({
@@ -906,6 +907,52 @@ describe('useEstimatedContextUsage', () => {
 
     act(() => mocks.setAgentState({ enableHistoryCount: false }));
     rerender();
+    expect(result.current.totalToken).toBeGreaterThan(20_000);
+  });
+
+  it('U3: changing the input template recounts pre-anchor user rows', () => {
+    const { result, rerender } = renderReportLanding(
+      [{ content: 'hi', id: 'u1', role: 'user' }],
+      { content: 'ok', id: 'a1', metadata: { totalInputTokens: 1000 }, role: 'assistant' },
+    );
+    expect(result.current.totalToken).toBe(1050);
+
+    act(() => mocks.setAgentState({ inputTemplate: '{{text}}'.repeat(10_000) }));
+    rerender();
+    expect(result.current.totalToken).toBeGreaterThan(20_000);
+  });
+
+  it('U3: a pending template change plus draft cannot hide historical expansion', () => {
+    act(() => mocks.setAgentState({ historyCount: 20 }));
+    mocks.mainChats.splice(
+      0,
+      mocks.mainChats.length,
+      { content: 'hi', id: 'u1', role: 'user' } as never,
+      { content: LOADING_FLAT, id: 'a1', role: 'assistant' } as never,
+    );
+    dispatchWitness('a1', 'u1');
+    const { rerender, result } = renderHook(() => useEstimatedContextUsage('main'));
+
+    act(() => mocks.setAgentState({ inputTemplate: '{{text}}'.repeat(10_000) }));
+    rerender();
+    expect(result.current.inputTokenCount).toBe(0);
+    expect(result.current.totalToken).toBeGreaterThan(20_000);
+
+    mocks.chatState.inputMessage = 'd';
+    rerender();
+    // Draft "d" expands to 10k — below the 20k historical "hi" expansion.
+    expect(result.current.inputTokenCount).toBe(10_000);
+    expect(result.current.totalToken - result.current.inputTokenCount).toBeGreaterThan(20_000);
+
+    mocks.mainChats.splice(1, 1, {
+      content: 'ok',
+      id: 'a1',
+      metadata: { totalInputTokens: 1000 },
+      role: 'assistant',
+    } as never);
+    mocks.chatState.inputMessage = '';
+    rerender();
+    expect(result.current.inputTokenCount).toBe(0);
     expect(result.current.totalToken).toBeGreaterThan(20_000);
   });
 });

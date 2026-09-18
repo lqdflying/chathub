@@ -524,6 +524,31 @@ describe('reported context token floor', () => {
       expect(resolve({ selectedPrefixIds: ['u2'] })?.overheadDelta).toBe(0);
     });
 
+    it('invalidates when the input template changes (U3)', () => {
+      clearAnchorBaselines();
+      recordWitness({ inputTemplate: '' });
+      expect(resolve({ inputTemplate: 'x'.repeat(20_000) + '{{text}}' })).toBeUndefined();
+    });
+
+    it('keeps the witness when the input template is unchanged', () => {
+      clearAnchorBaselines();
+      recordWitness({ inputTemplate: 'Ask: {{text}}' });
+      expect(resolve({ inputTemplate: 'Ask: {{text}}' })?.overheadDelta).toBe(0);
+    });
+
+    it('skips the template check when the caller omits inputTemplate', () => {
+      clearAnchorBaselines();
+      recordWitness({ inputTemplate: 'Ask: {{text}}' });
+      expect(resolve()?.overheadDelta).toBe(0);
+    });
+
+    it('invalidates a promoted baseline when the input template later changes', () => {
+      clearAnchorBaselines();
+      recordWitness({ inputTemplate: '' });
+      expect(resolve({ inputTemplate: '' })?.overheadDelta).toBe(0);
+      expect(resolve({ inputTemplate: 'Ask: {{text}}' })).toBeUndefined();
+    });
+
     it('a re-dispatch of the same row replaces the witness', () => {
       clearAnchorBaselines();
       recordWitness();

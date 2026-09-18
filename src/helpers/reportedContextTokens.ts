@@ -272,8 +272,17 @@ const selectionIncludesUnsentPrefix = (storedIds: string[], currentIds?: string[
   return currentIds.some((id) => !stored.has(id));
 };
 
+const normalizeAnchorInputTemplate = (value?: string) => (value ?? '').trim();
+
+const inputTemplateChanged = (stored: string, current?: string) => {
+  if (current === undefined) return false;
+  return normalizeAnchorInputTemplate(stored) !== normalizeAnchorInputTemplate(current);
+};
+
 interface AnchorBaseline {
   fixedOverheadTokens: number;
+  /** Normalized input template the original request applied to user rows (U3). */
+  inputTemplate: string;
   prefixFingerprint: string;
   selectedPrefixIds: string[];
 }
@@ -306,6 +315,7 @@ interface AnchorRequestWitness {
   /** Conversation the request was dispatched in (`messageMapKey`). */
   conversationKey: string;
   fixedOverheadTokens: number;
+  inputTemplate: string;
   /** Row the pending assistant was parented to at dispatch. */
   parentMessageId?: string;
   prefixFingerprint: string;
@@ -346,6 +356,7 @@ export const recordAnchorRequestWitness = ({
   assistantMessageId,
   conversationKey,
   fixedOverheadTokens,
+  inputTemplate,
   messages,
   parentMessageId,
   selectedPrefixIds,
@@ -353,6 +364,8 @@ export const recordAnchorRequestWitness = ({
   assistantMessageId: string;
   conversationKey: string;
   fixedOverheadTokens: number;
+  /** Frozen `chatConfig.inputTemplate` from the sent request; omitted stores ''. */
+  inputTemplate?: string;
   messages: Array<{ content?: unknown; id?: string; updatedAt?: unknown }>;
   parentMessageId?: string;
   selectedPrefixIds?: string[];
@@ -373,6 +386,7 @@ export const recordAnchorRequestWitness = ({
   anchorRequestWitnesses.set(assistantMessageId, {
     conversationKey,
     fixedOverheadTokens,
+    inputTemplate: normalizeAnchorInputTemplate(inputTemplate),
     parentMessageId,
     prefixFingerprint: fingerprintAnchorPrefix(prefix),
     selectedPrefixIds: recordedSelectedPrefixIds,
@@ -404,7 +418,8 @@ const floorOverheadDelta = (
  * fall back to the whole-window estimate. Three cases:
  * - Known baseline, matching prefix: trust, adding the fixed-overhead delta,
  *   unless the current selected window includes pre-anchor rows the original
- *   request did not (U2).
+ *   request did not (U2), or the input template applied to those user rows
+ *   changed (U3).
  * - Known baseline, mismatched prefix (R3): fall back permanently — the report
  *   covered the ORIGINAL prefix, so re-baselining onto an edited prefix would
  *   re-trust a report that never counted those messages. The anchor stays
@@ -422,6 +437,7 @@ export const resolveAnchorBaseline = ({
   anchorParentId,
   conversationKey,
   currentFixedOverheadTokens,
+  inputTemplate,
   prefixFingerprint,
   reportedInputTokens,
   selectedPrefixIds,
@@ -430,6 +446,8 @@ export const resolveAnchorBaseline = ({
   anchorParentId?: string;
   conversationKey: string;
   currentFixedOverheadTokens: number;
+  /** Current input template; omitted skips the U3 template check. */
+  inputTemplate?: string;
   prefixFingerprint: string;
   reportedInputTokens: number;
   /** Currently selected pre-anchor ids; omitted skips the U2 grow check. */
@@ -439,7 +457,8 @@ export const resolveAnchorBaseline = ({
   if (cached) {
     if (
       cached.prefixFingerprint !== prefixFingerprint ||
-      selectionIncludesUnsentPrefix(cached.selectedPrefixIds, selectedPrefixIds)
+      selectionIncludesUnsentPrefix(cached.selectedPrefixIds, selectedPrefixIds) ||
+      inputTemplateChanged(cached.inputTemplate, inputTemplate)
     ) {
       return undefined;
     }
@@ -458,7 +477,8 @@ export const resolveAnchorBaseline = ({
     witness.conversationKey !== conversationKey ||
     witness.parentMessageId !== anchorParentId ||
     witness.prefixFingerprint !== prefixFingerprint ||
-    selectionIncludesUnsentPrefix(witness.selectedPrefixIds, selectedPrefixIds)
+    selectionIncludesUnsentPrefix(witness.selectedPrefixIds, selectedPrefixIds) ||
+    inputTemplateChanged(witness.inputTemplate, inputTemplate)
   ) {
     return undefined;
   }
@@ -466,6 +486,7 @@ export const resolveAnchorBaseline = ({
   anchorRequestWitnesses.delete(anchorId);
   registerAnchorBaseline(anchorId, {
     fixedOverheadTokens: witness.fixedOverheadTokens,
+    inputTemplate: witness.inputTemplate,
     prefixFingerprint,
     selectedPrefixIds: witness.selectedPrefixIds,
   });
