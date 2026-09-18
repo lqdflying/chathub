@@ -1028,9 +1028,24 @@ const executeChat = async (
   if (operation.agentId) {
     workingMessages = filterMessagesForAgent(workingMessages, operation.agentId);
   }
+  // R2: retrieval augmentation is in-memory only (never persisted), so capture
+  // it so an overflow-recovery rebuild from fresh rows can reapply the SAME
+  // retrieved context instead of silently answering without it.
+  let ragAugmentation: { augmentedContent: string; baseContent: string; id: string } | undefined;
   if (operation.config.ragQuery) {
     await updateOperation(model, operation, { phase: 'retrieving' });
+    const preRagMessages = workingMessages;
     workingMessages = await injectRag(db, operation, workingMessages, agent);
+    const augmented = workingMessages.find(
+      (item, index) => item.content !== preRagMessages[index]?.content,
+    );
+    if (augmented) {
+      ragAugmentation = {
+        augmentedContent: augmented.content,
+        baseContent: preRagMessages.find((item) => item.id === augmented.id)?.content ?? '',
+        id: augmented.id,
+      };
+    }
   }
 
   const built = await buildConversationChatPayload({
@@ -1124,6 +1139,13 @@ const executeChat = async (
     // below keeps the original operation.config model/provider.
     const { model: summarizerModel, provider: summarizerProvider } =
       await loadHistoryCompressModel(db, operation.userId);
+    // R5: carry the summarizer's effective context window from the runtime
+    // model card (custom/unlisted cards included), exactly like the planned
+    // compaction snapshot — otherwise batching sizes against the model-bank /
+    // 128k fallback and overflows a small configured summarizer.
+    const summarizerCard = runtimeState.enabledAiModels?.find(
+      (item) => item.id === summarizerModel && item.providerId === summarizerProvider,
+    );
     const recoveryOperation: ConversationGenerationOperation = {
       ...operation,
       config: {
@@ -1137,6 +1159,7 @@ const executeChat = async (
             summary: currentSummary,
           }),
           expectedHistorySummary: currentSummary,
+          summarizerContextWindow: summarizerCard?.contextWindowTokens ?? undefined,
           trigger: 'token_threshold',
         },
         historySummary: currentSummary,
@@ -1205,6 +1228,18 @@ const executeChat = async (
     const recoveryAgent = operation.sessionId
       ? await new AgentModel(db, operation.userId).findBySessionId(operation.sessionId)
       : agent;
+    // R2: reapply the current turn's in-memory RAG augmentation (retrieval is
+    // never persisted) so the retried request keeps the retrieved knowledge.
+    // Only overlay onto the same base content — if the row was edited
+    // mid-flight, the stale augmentation must not resurrect old text.
+    let recoveryMessages = excludeOwnedAssistantMessages(latest, assistantId);
+    if (ragAugmentation) {
+      recoveryMessages = recoveryMessages.map((item) =>
+        item.id === ragAugmentation.id && item.content === ragAugmentation.baseContent
+          ? { ...item, content: ragAugmentation.augmentedContent }
+          : item,
+      );
+    }
     const rebuilt = await buildConversationChatPayload({
       agentMemory: {
         dynamicMemory: recoveryAgent?.assistantMemory || undefined,
@@ -1219,7 +1254,7 @@ const executeChat = async (
       },
       db,
       generalInstruction,
-      messages: excludeOwnedAssistantMessages(latest, assistantId),
+      messages: recoveryMessages,
       profile: {
         email: user?.email,
         fullName: user?.fullName,
@@ -1611,6 +1646,18 @@ const executeChat = async (
       const continuedAgent = operation.sessionId
         ? await new AgentModel(db, operation.userId).findBySessionId(operation.sessionId)
         : agent;
+      // R2: keep the current turn's in-memory RAG augmentation on the reloaded
+      // rows too — the first model call saw the augmented content, so sending
+      // the raw row here would both drop the knowledge and rewrite the wire
+      // prefix the provider already billed.
+      let continuedMessages = excludeOwnedAssistantMessages(latest, assistantId);
+      if (ragAugmentation) {
+        continuedMessages = continuedMessages.map((item) =>
+          item.id === ragAugmentation.id && item.content === ragAugmentation.baseContent
+            ? { ...item, content: ragAugmentation.augmentedContent }
+            : item,
+        );
+      }
       const continued = await buildConversationChatPayload({
         agentMemory: {
           dynamicMemory: continuedAgent?.assistantMemory || undefined,
@@ -1625,7 +1672,7 @@ const executeChat = async (
         },
         db,
         generalInstruction,
-        messages: excludeOwnedAssistantMessages(latest, assistantId),
+        messages: continuedMessages,
         runtimeState,
         sessionId: operation.sessionId,
         userId: operation.userId,

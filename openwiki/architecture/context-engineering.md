@@ -225,12 +225,17 @@ to the whole-window estimate floored by the latest reported input
 post-compaction estimate. The anchor is only trusted against a **retained request baseline**
 (`resolveAnchorBaseline`, a bounded in-process map keyed by anchor message id): the baseline
 records the fixed-overhead tokens and a cheap prefix fingerprint (pre-anchor message count,
-content chars, newest `updatedAt`) from the anchor's own request. Later estimates add the
-fixed-overhead delta (skill/instruction/memory/tool changes), and a prefix mismatch (pre-anchor
-edit, delete, or history-window shift) forces one whole-window fallback estimate and
-re-registers the baseline, so only one full estimate is paid per change. A change made while no
-estimator ran (another tab, pre-reload) is absorbed into the baseline on first sight and the next
-reply re-anchors exactly.
+content chars, newest `updatedAt`) from the anchor's own request. Both registrants — the async
+estimator and the token popover hook — share that one map, so both record overhead with the
+SAME sync measure (`estimateFixedContextOverheadTokens`, chars/2 via
+`CONTEXT_CHARS_PER_TOKEN_ESTIMATE`); the estimator's tokenized fixed count feeds only its own
+final math and is never registered, otherwise a UI mount would shift the send estimate by the
+unit gap. Later estimates add the fixed-overhead delta (skill/instruction/memory/tool changes)
+in those shared units. A prefix mismatch (pre-anchor edit, delete, or history-window shift)
+invalidates the anchor **until a fresh provider report arrives under a new anchor id**: the
+report covered the original prefix, so the estimator falls back to the whole window on every
+call and the mismatched baseline is never re-registered — an edited prefix cannot quietly
+become trusted again.
 
 Request assembly also applies a **deterministic tool-result cap**:
 `ToolResultTruncateProcessor` (`packages/context-engine`) rewrites any `tool` message body over
@@ -311,16 +316,28 @@ lane never consulted the switches. The browser lanes
 (`internal_coreProcessMessage`, V2 `internal_execAgentRuntime`) run the manual compaction action
 with a dedicated abort controller (forcing the inline, batch-capped path even when durable
 generation is on), remove the failed assistant row (V1) or clear its error (V2), and retry with
-`contextOverflowRetried` set. The durable worker (`execute.ts`
+`contextOverflowRetried` set — and request assembly treats that flag as part of the emergency
+override, applying the just-persisted summary/cursor even when the routine switches are off
+(without it the one allowed retry would resend the unshortened history and overflow again; the
+user's routine settings are left untouched). The durable worker (`execute.ts`
 `attemptContextOverflowRecovery`) runs `runCompactionPlan` inline with the configured **History
 Compress** model/provider (`loadHistoryCompressModel`, the same selection the dream job and the
-browser compaction lane use — never the chat model) and retries the generation step
+browser compaction lane use — never the chat model) **and that model's effective
+`summarizerContextWindow` resolved from the runtime model card** (custom/unlisted cards
+included, exactly like the planned-compaction snapshot — the static model-bank / 128k fallback
+applies only when the card carries no window), and retries the generation step
 with the same `conversationContext`, stamping `contextOverflowRetried` into the persisted config
 snapshot **before** compacting so a retried operation cannot loop. The recovery rebuilds the
 payload from the **current persisted transcript** (`loadScopedMessages` plus a fresh agent-row
 read), mirroring the tool-continuation reload — never from the pre-send `workingMessages`
 snapshot — so tool results and memory writes produced by the failed attempt survive the retry
-and a completed mutation cannot be repeated. When compaction cannot reclaim
+and a completed mutation cannot be repeated. Retrieval augmentation is the one deliberate
+exception to "fresh rows only": `injectRag` output is in-memory only (never persisted), so the
+executor snapshots the current turn's RAG overlay (message id plus base/augmented content) and
+reapplies it onto the reloaded rows in **both** the overflow-recovery rebuild and the
+tool-continuation reload — guarded by an unchanged base content, so a mid-flight edit never
+resurrects stale retrieved text, and the retried/continued request keeps the knowledge the
+first model call was billed for. When compaction cannot reclaim
 history, the original `ExceededContextWindow` error bubble is kept.
 
 Durable enqueue returns status `enqueued` (not `ineligible`) so Compact now does not toast
@@ -403,13 +420,17 @@ hidden from the plugin picker) with full CRUD plus recall: `saveMemory` appends,
 one entry, `deleteMemory` removes one, `searchMemory` runs a deterministic lexical top-k over both
 tiers (CJK-aware bigram tokenizer shared with dream dedupe; query-token coverage ranking), and
 `readMemory` returns the full text of both tiers. `searchMemory` snippets are **match-anchored**
-(`buildSearchSnippet`): a short snippet centers on the first query-token hit (leading `…` when
-the match sits deep in the entry) instead of always showing the entry head. `readMemory` also
-accepts an optional `{ source: 'fixed' | 'dream', index }` pair for **entry-scoped recall**
-(`readAssistantMemoryEntry`, both lanes): the model reads one complete entry/card body — never
-truncated mid-entry, capped only by a defensive 4,000-char ceiling — after a search hit, instead
-of re-paying the whole document; an unknown index returns `not_found` with the available
-indexes. The recall pair exists for the budgeted-injection
+(`buildSearchSnippet`): a short snippet centers on the first exact query-substring match
+(leading `…` when the match sits deep in the entry) instead of always showing the entry head.
+`readMemory` also accepts an optional `{ source: 'fixed' | 'dynamic', index }` pair for
+**entry-scoped recall** (`readAssistantMemoryEntry`, both lanes): after a search hit the model
+reads one entry/card body instead of re-paying the whole document; an unknown index returns
+`not_found` with the available indexes. Long entries come back in **pages**: each page is cut
+against a 7,800-char serialized budget (`MEMORY_ENTRY_READ_SERIALIZED_BUDGET`) sized so the
+JSON tool result — escapes included — stays under the 8,000-char `ToolResultTruncateProcessor`
+wire cap, and the cut never splits a surrogate pair. A truncated page carries `nextOffset`; the
+model passes it back as `offset` to continue until `truncated` is false, so complete recall is
+always reachable. The recall pair exists for the budgeted-injection
 case above: when the injected block carries the truncation marker, the model can pull the rest on
 demand instead of guessing. Request inclusion is explicit:
 `createChatToolsEngine` takes an `enableMemoryTool` option threaded from

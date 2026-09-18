@@ -4,7 +4,7 @@ import { TRPCError } from '@trpc/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { UserModel } from '@/database/models/user';
-import { createCompactionFingerprint } from '@/helpers/contextCompaction';
+import * as compactionHelpers from '@/helpers/contextCompaction';
 import {
   ConversationWriteRejectedError,
   getConversationVersion,
@@ -176,7 +176,28 @@ vi.mock('@/database/models/user', () => ({
     getUserState = userMocks.getUserState;
   },
 }));
-vi.mock('@/database/models/chunk', () => ({ ChunkModel: class {} }));
+vi.mock('@/database/models/chunk', () => ({
+  ChunkModel: class {
+    async semanticSearchForChatWithStats() {
+      return { chunks: [{ text: 'RETRIEVED_FACT' }], stats: { selectedCount: 1 } };
+    }
+  },
+}));
+vi.mock('@/server/services/rag/embedding', () => ({
+  RagEmbeddingService: class {
+    async embed() {
+      return [[1, 2, 3]];
+    }
+  },
+  resolveRagEmbeddingConfig: vi.fn(async () => ({
+    config: {},
+    fingerprint: 'test-fingerprint',
+  })),
+}));
+vi.mock('@lobechat/prompts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@lobechat/prompts')>()),
+  knowledgeBaseQAPrompts: () => 'RETRIEVED_FACT',
+}));
 vi.mock('@/server/services/aiChat', () => ({
   AiChatService: class {
     getMessagesAndTopics = aiChatMocks.getMessagesAndTopics;
@@ -2408,7 +2429,7 @@ describe('executeConversationGeneration memory compaction', () => {
       { content: 'world', id: 'a1', role: 'assistant', updatedAt: 1 },
     ];
     const expectedHistorySummary = '';
-    const expectedFingerprint = createCompactionFingerprint({
+    const expectedFingerprint = compactionHelpers.createCompactionFingerprint({
       messages: candidateMessages as any,
       summary: expectedHistorySummary,
     });
@@ -2514,7 +2535,7 @@ describe('executeConversationGeneration memory compaction', () => {
       { content: 'world', id: 'a1', role: 'assistant', updatedAt: 1 },
     ];
     const expectedHistorySummary = '';
-    const expectedFingerprint = createCompactionFingerprint({
+    const expectedFingerprint = compactionHelpers.createCompactionFingerprint({
       messages: candidateMessages as any,
       summary: expectedHistorySummary,
     });
@@ -2574,7 +2595,7 @@ describe('executeConversationGeneration memory compaction', () => {
       { content: '汉'.repeat(20_000), id: 'a1', role: 'assistant', updatedAt: 1 },
     ];
     const expectedHistorySummary = '';
-    const expectedFingerprint = createCompactionFingerprint({
+    const expectedFingerprint = compactionHelpers.createCompactionFingerprint({
       messages: candidateMessages as any,
       summary: expectedHistorySummary,
     });
@@ -2657,7 +2678,7 @@ describe('executeConversationGeneration memory compaction', () => {
         { content: 'world', id: 'a1', role: 'assistant', updatedAt: 1 },
       ];
       const expectedHistorySummary = '';
-      const expectedFingerprint = createCompactionFingerprint({
+      const expectedFingerprint = compactionHelpers.createCompactionFingerprint({
         messages: candidateMessages as any,
         summary: expectedHistorySummary,
       });
@@ -2931,6 +2952,76 @@ describe('executeConversationGeneration context overflow self-healing', () => {
     }
   });
 
+  it('overflow retry preserves the current query retrieval', async () => {
+    const row = buildChatOperation({
+      config: { model: 'test-model', provider: 'test-provider', ragQuery: 'current question' },
+    });
+    vi.mocked(consumeProtocolResponse)
+      // 1. main model call overflows
+      .mockResolvedValueOnce({
+        content: '',
+        error: { message: 'maximum context length exceeded', type: 'ProviderBizError' },
+      })
+      // 2. recovery summarizer succeeds
+      .mockResolvedValueOnce({ content: 'summary' })
+      // 3. retried main model call succeeds
+      .mockResolvedValueOnce({ content: 'done' });
+
+    await runOperation(row);
+
+    const calls = vi.mocked(buildConversationChatPayload).mock.calls;
+    expect(calls).toHaveLength(2);
+    // Retrieval really happened on the first build (not a vacuous assertion)...
+    expect(calls[0][0].messages.find((m: any) => m.id === 'u2')?.content).toContain(
+      'RETRIEVED_FACT',
+    );
+    // ...and the recovery rebuild from fresh rows reapplies the same in-memory
+    // augmentation instead of silently dropping the retrieved knowledge (R2).
+    expect(calls[1][0].messages.find((m: any) => m.id === 'u2')?.content).toContain(
+      'RETRIEVED_FACT',
+    );
+  });
+
+  it('recovery uses the configured custom summarizer window', async () => {
+    userMocks.getUserState.mockResolvedValue({
+      settings: {
+        systemAgent: {
+          historyCompress: { model: 'small-custom-model', provider: 'custom-provider' },
+        },
+      },
+    });
+    vi.mocked(loadConversationRuntimeState).mockResolvedValue({
+      enabledAiModels: [
+        { contextWindowTokens: 8192, id: 'small-custom-model', providerId: 'custom-provider' },
+      ],
+    } as any);
+    const splitSpy = vi.spyOn(compactionHelpers, 'splitCompactionBatches');
+    vi.mocked(consumeProtocolResponse)
+      .mockResolvedValueOnce({
+        content: '',
+        error: { message: 'maximum context length exceeded', type: 'ProviderBizError' },
+      })
+      .mockResolvedValueOnce({ content: 'summary' })
+      .mockResolvedValueOnce({ content: 'done' });
+
+    try {
+      await runOperation(buildChatOperation());
+      // The summarizer selection is the configured custom model (F6)...
+      expect(runtimeMocks.chat.mock.calls[1][0].model).toBe('small-custom-model');
+      // ...and the planner batches against the card's real 8,192-token window,
+      // not the 128k model-bank fallback (R5).
+      expect(splitSpy).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.objectContaining({ summarizerContextWindow: 8192 }),
+      );
+    } finally {
+      splitSpy.mockRestore();
+      userMocks.getUserState.mockReset();
+      vi.mocked(loadConversationRuntimeState).mockResolvedValue({});
+    }
+  });
+
   it('finalizes failed when the retried call overflows again', async () => {
     const row = buildChatOperation({ id: 'cgo_overflow_twice' });
     vi.mocked(consumeProtocolResponse)
@@ -3050,7 +3141,7 @@ describe('executeConversationGeneration compaction summarizer timeout', () => {
         { content: 'hello', id: 'u1', role: 'user', updatedAt: 1 },
         { content: 'world', id: 'a1', role: 'assistant', updatedAt: 1 },
       ];
-      const expectedFingerprint = createCompactionFingerprint({
+      const expectedFingerprint = compactionHelpers.createCompactionFingerprint({
         messages: candidateMessages as any,
         summary: '',
       });

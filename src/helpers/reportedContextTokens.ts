@@ -254,9 +254,11 @@ interface AnchorBaseline {
  * history prefix of ITS request; to keep the anchored total correct, later
  * estimates must add the fixed-overhead delta (skill/system/memory/tools
  * changes) and fall back to the whole-window estimate when the prefix no
- * longer corresponds (F5). First sight of an anchor re-baselines, so a change
- * made while no estimator was running (e.g. another tab or before reload) is
- * absorbed into the baseline — the next reply re-anchors exactly.
+ * longer corresponds (F5). A prefix mismatch never re-baselines (R3): the
+ * report covered the original prefix, so the anchor stays invalid until a
+ * fresh provider report arrives under a new anchor id. Both callers must pass
+ * the SAME overhead measure (`estimateFixedContextOverheadTokens`, chars/4) —
+ * the map is shared, so mixed units would register as phantom context (R4).
  */
 const anchorBaselines = new Map<string, AnchorBaseline>();
 const ANCHOR_BASELINE_LIMIT = 500;
@@ -278,8 +280,12 @@ export const clearAnchorBaselines = () => {
  * Resolve the anchor's retained baseline, or `undefined` when the prefix no
  * longer corresponds and the caller must fall back to the whole-window
  * estimate. First sight of an anchor registers the current state as the
- * baseline (delta 0). On a prefix mismatch the baseline is re-registered to
- * the current prefix, so only one fallback estimate is paid per change.
+ * baseline (delta 0). On a prefix mismatch the baseline is **kept**, not
+ * re-registered: the anchor's provider report covered the ORIGINAL prefix, so
+ * re-baselining onto an edited prefix would re-trust a report that never
+ * counted those messages (R3). The anchor therefore stays invalid — every
+ * estimate falls back to the whole window — until a fresh provider report
+ * arrives under a new anchor id.
  * The returned delta is floored so the anchored total can never drop below
  * what the next request minimally contains (current overhead + tail).
  */
@@ -303,10 +309,6 @@ export const resolveAnchorBaseline = ({
     return { overheadDelta: 0 };
   }
   if (cached.prefixFingerprint !== prefixFingerprint) {
-    registerAnchorBaseline(anchorId, {
-      fixedOverheadTokens: currentFixedOverheadTokens,
-      prefixFingerprint,
-    });
     return undefined;
   }
   const overheadDelta = currentFixedOverheadTokens - cached.fixedOverheadTokens;

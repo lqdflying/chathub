@@ -1176,8 +1176,13 @@ export const generateAIChat: StateCreator<
       !messages.some(({ groupId }) => !!groupId);
     const enableHistoryCompaction =
       isRegularTopicRequest &&
-      enableHistoryCountForRequest &&
-      !!chatConfig.enableCompressHistory;
+      // R1/D1: an emergency overflow retry must consume the summary and cursor
+      // its recovery compaction just persisted, even when the routine switches
+      // are off — otherwise the one allowed retry resends the unshortened
+      // history and predictably overflows again. With no persisted
+      // summary/cursor this is a no-op, so a failed recovery is unaffected.
+      ((enableHistoryCountForRequest && !!chatConfig.enableCompressHistory) ||
+        !!params?.contextOverflowRetried);
     const historySummaryForRequest = buildHistorySummaryForRequest({
       archives: activeTopic?.metadata?.memoryArchives,
       enableCompressHistory: enableHistoryCompaction,

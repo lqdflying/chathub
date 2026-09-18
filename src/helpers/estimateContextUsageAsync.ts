@@ -235,7 +235,11 @@ export const estimateContextUsageAsync = async ({
   // anchor, fall back to the whole-window estimate floored by reported usage.
   // F5: the anchor is only trusted against its retained baseline — fixed
   // overhead changes (skills, instructions, memory, tools) are added as a
-  // delta, and a changed message prefix falls back to the whole window.
+  // delta, and a changed message prefix falls back to the whole window
+  // (permanently, until a fresh provider report — R3). R4: the baseline
+  // registry is shared with the token popover hook, so the delta MUST use the
+  // same chars/4 overhead measure (`fixedOverheadTokens`), not the tokenized
+  // `fixedTokens` used for the final chats math below.
   const anchor = getLatestReportedInputAnchor(estimateMessages, usageLookupOptions);
   const anchorIndex = anchor ? chats.findIndex(({ id }) => id === anchor.id) : -1;
 
@@ -245,7 +249,7 @@ export const estimateContextUsageAsync = async ({
     anchor && anchorIndex >= 0
       ? resolveAnchorBaseline({
           anchorId: anchor.id,
-          currentFixedOverheadTokens: fixedTokens,
+          currentFixedOverheadTokens: fixedOverheadTokens,
           prefixFingerprint: fingerprintAnchorPrefix(chats.slice(0, anchorIndex)),
           reportedInputTokens: anchor.totalInputTokens,
         })

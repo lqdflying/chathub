@@ -9,7 +9,7 @@ import { conversationGenerationService } from '@/services/conversationGeneration
 import { messageService } from '@/services/message';
 import { ragService } from '@/services/rag';
 import { topicService } from '@/services/topic';
-import { agentChatConfigSelectors } from '@/store/agent/selectors';
+import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selectors';
 import { aiChatSelectors, chatSelectors } from '@/store/chat/selectors';
 import { deferredBrowserGenerationLaneKey } from '@/store/chat/utils/deferredBrowserGeneration';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
@@ -1871,6 +1871,48 @@ describe('chatMessage actions', () => {
           model: 'gpt-4o-mini',
           provider: 'openai',
         });
+      });
+
+      expect(streamSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          historySummary: 'Rolling topic summary',
+          params: expect.objectContaining({ messages: [messages[1]] }),
+        }),
+      );
+    });
+
+    it('emergency overflow retry consumes the summary and cursor with the routine switches disabled', async () => {
+      const { messages, streamSpy } = setupCompactedTopic();
+      // D1/R1: emergency recovery compacts with allowWhenCompactionDisabled and
+      // retries with contextOverflowRetried — the retry must consume the
+      // persisted summary/cursor even though both routine switches are off.
+      // Runtime resolution reads getAgentConfigById, so the session-specific
+      // selector must be configured off too (mocking only the active selectors
+      // would be vacuous).
+      vi.spyOn(agentSelectors, 'getAgentConfigById').mockReturnValue(
+        () =>
+          ({
+            chatConfig: {
+              enableCompressHistory: false,
+              enableHistoryCount: false,
+              enableUserMemoryArchive: false,
+            },
+            model: 'gpt-4o-mini',
+            params: {},
+          }) as any,
+      );
+      vi.mocked(agentChatConfigSelectors.currentChatConfig).mockReturnValue({
+        enableCompressHistory: false,
+        enableUserMemoryArchive: false,
+      } as any);
+      vi.mocked(agentChatConfigSelectors.enableHistoryCount).mockReturnValue(false);
+
+      await useChatStore.getState().internal_fetchAIChatMessage({
+        messageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        messages,
+        model: 'gpt-4o-mini',
+        params: { contextOverflowRetried: true },
+        provider: 'openai',
       });
 
       expect(streamSpy).toHaveBeenCalledWith(

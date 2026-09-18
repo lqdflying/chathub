@@ -486,33 +486,118 @@ export const readAssistantMemory = ({
   return { dynamic, fixed, totalChars: fixed.length + dynamic.length };
 };
 
-/** Upper bound for one entry-scoped read, so the result stays within the tool-result cap. */
-export const MEMORY_ENTRY_READ_MAX_CHARS = 7000;
+/**
+ * Serialized budget for one entry-read page. The read result travels as a JSON
+ * tool-result body that the request pipeline caps at 8,000 chars
+ * (`TOOL_RESULT_CONTENT_MAX_CHARS`), and JSON escaping can double
+ * quote/backslash-heavy content — so pages are sized by their SERIALIZED
+ * length, keeping the whole result envelope under the wire cap with margin
+ * (R6). Entries larger than one page are continued with `offset`.
+ */
+export const MEMORY_ENTRY_READ_SERIALIZED_BUDGET = 7800;
 
 export type MemoryEntryReadResult =
   | {
+      /** The page of entry content starting at `offset`. */
       content: string;
       index: number;
+      /** Present when `truncated` — pass as the next call's `offset` to continue. */
+      nextOffset?: number;
+      /** Offset into the entry this page starts at. */
+      offset: number;
       source: 'dynamic' | 'fixed';
+      /** Full entry length in chars (all pages combined). */
+      totalChars: number;
+      /** True when more content remains beyond this page. */
       truncated: boolean;
     }
   | { availableIndexes: number[]; error: 'not_found'; source: 'dynamic' | 'fixed' };
 
+/** Width of one code unit inside a JSON string literal (matches JSON.stringify). */
+const jsonEscapedUnitWidth = (code: number): number => {
+  if (code === 0x22 || code === 0x5C) return 2; // quotation mark, reverse solidus
+  if (code === 0x08 || code === 0x09 || code === 0x0A || code === 0x0C || code === 0x0D) return 2;
+  if (code < 0x20) return 6; // \u00XX control escapes
+  return 1;
+};
+
 /**
- * Entry-scoped `readMemory`: return the complete text of one entry addressed
- * by a `searchMemory` hit (`source` + `index`). This is the recall path for
- * entries omitted by the injection budget — a whole-document read is capped by
- * the request pipeline and cannot reach them (F7).
+ * Cut the longest prefix of `remaining` whose JSON-serialized read result
+ * stays under the wire budget. Never splits a surrogate pair and always makes
+ * progress for non-empty input.
+ */
+const cutEntryReadPage = ({
+  index,
+  offset,
+  remaining,
+  source,
+  totalChars,
+}: {
+  index: number;
+  offset: number;
+  remaining: string;
+  source: 'dynamic' | 'fixed';
+  totalChars: number;
+}): Extract<MemoryEntryReadResult, { content: string }> => {
+  // Worst-case envelope: every field present (nextOffset omitted on the last
+  // page only makes the serialized result shorter).
+  const envelopeLength = JSON.stringify({
+    content: '',
+    index,
+    nextOffset: 0,
+    offset,
+    source,
+    totalChars,
+    truncated: true,
+  }).length;
+  const pageBudget = Math.max(200, MEMORY_ENTRY_READ_SERIALIZED_BUDGET - envelopeLength);
+  let serialized = 2; // surrounding quotes
+  let end = 0;
+  while (end < remaining.length) {
+    const width = jsonEscapedUnitWidth(remaining.charCodeAt(end));
+    if (serialized + width > pageBudget && end > 0) break;
+    serialized += width;
+    end += 1;
+  }
+  // Do not split a surrogate pair across pages.
+  if (end > 0 && end < remaining.length) {
+    const lastCode = remaining.charCodeAt(end - 1);
+    if (lastCode >= 0xD8_00 && lastCode <= 0xDB_FF) end -= 1;
+  }
+  const content = remaining.slice(0, end);
+  const nextOffset = offset + content.length;
+  const truncated = nextOffset < totalChars;
+  return {
+    content,
+    index,
+    ...(truncated ? { nextOffset } : {}),
+    offset,
+    source,
+    totalChars,
+    truncated,
+  };
+};
+
+/**
+ * Entry-scoped `readMemory`: return the text of one entry addressed by a
+ * `searchMemory` hit (`source` + `index`), paged so every serialized page
+ * survives the wire tool-result cap including JSON escaping (R6). This is the
+ * recall path for entries omitted by the injection budget — a whole-document
+ * read is capped by the request pipeline and cannot reach them (F7). When the
+ * result is `truncated`, continue with `offset: nextOffset`.
  */
 export const readAssistantMemoryEntry = ({
   dynamicMemory,
   fixedMemory,
   index,
+  offset = 0,
   source,
 }: {
   dynamicMemory?: string | null;
   fixedMemory?: string | null;
   index: number;
+  /** Continuation offset from a previous page's `nextOffset`. */
+  offset?: number;
   source: 'dynamic' | 'fixed';
 }): MemoryEntryReadResult => {
   if (source === 'fixed') {
@@ -521,13 +606,14 @@ export const readAssistantMemoryEntry = ({
     if (!entry) {
       return { availableIndexes: entries.map((item) => item.index), error: 'not_found', source };
     }
-    const truncated = entry.content.length > MEMORY_ENTRY_READ_MAX_CHARS;
-    return {
-      content: truncated ? entry.content.slice(0, MEMORY_ENTRY_READ_MAX_CHARS) : entry.content,
+    const safeOffset = Math.min(Math.max(Math.floor(offset) || 0, 0), entry.content.length);
+    return cutEntryReadPage({
       index: entry.index,
+      offset: safeOffset,
+      remaining: entry.content.slice(safeOffset),
       source,
-      truncated,
-    };
+      totalChars: entry.content.length,
+    });
   }
 
   const cards = parseDreamMemoryEntries(normalizeDreamMemoryDocument(dynamicMemory));
@@ -536,13 +622,14 @@ export const readAssistantMemoryEntry = ({
     return { availableIndexes: cards.map((item) => item.index), error: 'not_found', source };
   }
   // Raw body, matching what search indexes and the injection renders.
-  const truncated = card.body.length > MEMORY_ENTRY_READ_MAX_CHARS;
-  return {
-    content: truncated ? card.body.slice(0, MEMORY_ENTRY_READ_MAX_CHARS) : card.body,
+  const safeOffset = Math.min(Math.max(Math.floor(offset) || 0, 0), card.body.length);
+  return cutEntryReadPage({
     index: card.index,
+    offset: safeOffset,
+    remaining: card.body.slice(safeOffset),
     source,
-    truncated,
-  };
+    totalChars: card.body.length,
+  });
 };
 
 // --- Memory provenance (M2) ---

@@ -1,3 +1,4 @@
+import { truncateToolResultContent } from '@lobechat/context-engine';
 import { ASSISTANT_MEMORY_MAX_CHARS, ASSISTANT_MEMORY_OVERFLOW_MAX_CHARS } from '@lobechat/prompts';
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
@@ -28,7 +29,6 @@ import {
   memoryEntryOriginKey,
   mergeNewEntryOrigins,
   isMemoryWriteTainted,
-  MEMORY_ENTRY_READ_MAX_CHARS,
   normalizeAssistantMemoryText,
   normalizeDreamMemoryDocument,
   overflowSummaryTextBudget,
@@ -1531,7 +1531,9 @@ describe('readAssistantMemoryEntry (F7)', () => {
     expect(readAssistantMemoryEntry({ fixedMemory, index: 2, source: 'fixed' })).toEqual({
       content: 'drinks green tea daily',
       index: 2,
+      offset: 0,
       source: 'fixed',
+      totalChars: 22,
       truncated: false,
     });
   });
@@ -1540,7 +1542,9 @@ describe('readAssistantMemoryEntry (F7)', () => {
     expect(readAssistantMemoryEntry({ dynamicMemory, index: 1, source: 'dynamic' })).toEqual({
       content: 'discussed brewing',
       index: 1,
+      offset: 0,
       source: 'dynamic',
+      totalChars: 17,
       truncated: false,
     });
   });
@@ -1553,14 +1557,73 @@ describe('readAssistantMemoryEntry (F7)', () => {
     });
   });
 
-  it('caps very long entries defensively', () => {
-    const result = readAssistantMemoryEntry({
-      fixedMemory: `#1: ${'x'.repeat(MEMORY_ENTRY_READ_MAX_CHARS + 100)}`,
+  /**
+   * Read every page of an entry, asserting each serialized page passes through
+   * the real wire tool-result cap untouched (R6), and return the reconstruction.
+   */
+  const readAllPages = (memory: string, index: number): string => {
+    const pages: string[] = [];
+    let offset: number | undefined;
+    for (let guard = 0; guard < 20; guard += 1) {
+      const result = readAssistantMemoryEntry({ fixedMemory: memory, index, offset, source: 'fixed' });
+      if (!('content' in result)) throw new Error('expected a content page');
+      const serialized = JSON.stringify(result);
+      expect(truncateToolResultContent(serialized)).toBe(serialized);
+      pages.push(result.content);
+      if (!result.truncated) return pages.join('');
+      offset = result.nextOffset;
+    }
+    throw new Error('paging did not terminate');
+  };
+
+  it('pages a long entry with continuation offsets and reconstructs it completely', () => {
+    const content = `recall-key ${'x'.repeat(15_000)} SECRET_VALUE`;
+    const reconstructed = readAllPages(`#1: ${content}`, 1);
+    expect(reconstructed).toBe(content);
+    // sanity: the entry really did span multiple pages
+    const first = readAssistantMemoryEntry({
+      fixedMemory: `#1: ${content}`,
       index: 1,
       source: 'fixed',
     });
-    expect(result).toMatchObject({ truncated: true });
-    expect((result as { content: string }).content).toHaveLength(MEMORY_ENTRY_READ_MAX_CHARS);
+    expect(first).toMatchObject({ offset: 0, totalChars: content.length, truncated: true });
+  });
+
+  it('pages quote-heavy entries so JSON escaping cannot break the wire cap', () => {
+    // 4,500 quotes double in JSON — a single-read result would exceed the
+    // 8,000-char wire cap even though the raw entry is only ~4.5k chars (R6).
+    const content = `quotation: ${'"'.repeat(4500)} SENTINEL_END`;
+    expect(readAllPages(`#1: ${content}`, 1)).toBe(content);
+  });
+
+  it('recovers the unknown suffix of a large matched entry', () => {
+    const content = `recall-key ${'x'.repeat(7500)} SECRET_VALUE`;
+    const fixedMemory = `#1: ${content}`;
+    const hit = searchAssistantMemory({ fixedMemory, query: 'recall-key' })[0];
+    const result = readAssistantMemoryEntry({ fixedMemory, index: hit.index, source: hit.source });
+    // No escaping pressure: the whole entry fits one serialized page.
+    expect('content' in result && result.content === content).toBe(true);
+    expect('content' in result && result.truncated).toBe(false);
+  });
+
+  it('continues a paged read from nextOffset without repeating content', () => {
+    // Non-periodic content so an overlapping page cannot fake reconstruction.
+    const content = Array.from({ length: 4000 }, (_, index) => `${index}:`).join('');
+    const fixedMemory = `#1: ${content}`;
+    const first = readAssistantMemoryEntry({ fixedMemory, index: 1, source: 'fixed' });
+    if (!('content' in first) || !first.truncated) throw new Error('expected a truncated page');
+    const second = readAssistantMemoryEntry({
+      fixedMemory,
+      index: 1,
+      offset: first.nextOffset,
+      source: 'fixed',
+    });
+    if (!('content' in second)) throw new Error('expected a content page');
+    // Page 2 starts exactly where page 1 stopped: no gap, no overlap.
+    expect(second.offset).toBe(first.nextOffset);
+    expect(first.content + second.content).toBe(
+      content.slice(0, first.content.length + second.content.length),
+    );
   });
 });
 

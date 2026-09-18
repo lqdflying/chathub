@@ -293,6 +293,7 @@ const invokeMemoryTool = async ({
           dynamicMemory: agent.assistantMemory,
           fixedMemory: agent.fixedMemory,
           index,
+          offset: typeof args.offset === 'number' ? args.offset : undefined,
           source,
         });
       } else {

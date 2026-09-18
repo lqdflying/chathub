@@ -92,12 +92,17 @@ export const MemoryManifest: BuiltinToolManifest = {
     },
     {
       description:
-        "Read this assistant's memory. With no arguments, returns the full text of both tiers (fixed entries and dynamic dream cards); very large memories may be truncated by the request pipeline. To read one complete entry — for example one omitted from the injected memory — pass source ('fixed' or 'dynamic') and index from a searchMemory hit.",
+        "Read this assistant's memory. With no arguments, returns the full text of both tiers (fixed entries and dynamic dream cards); very large memories may be truncated by the request pipeline. To read one complete entry — for example one omitted from the injected memory — pass source ('fixed' or 'dynamic') and index from a searchMemory hit. Long entries are returned in pages: when the result has truncated: true, call again with offset set to the returned nextOffset to continue.",
       name: MemoryApiName.readMemory,
       parameters: {
         properties: {
           index: {
             description: 'Entry number within its tier (the #N from a searchMemory hit)',
+            type: 'number',
+          },
+          offset: {
+            description:
+              'Continuation offset for a paged entry read (the nextOffset from a truncated result)',
             type: 'number',
           },
           source: {

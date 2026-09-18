@@ -2,9 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { formatSkillInstructionsBlock } from '@lobechat/context-engine';
 
-import { wrapHistorySummaryForTokenEstimate } from './contextUsageEstimate';
+import { estimateFixedContextOverheadTokens, wrapHistorySummaryForTokenEstimate } from './contextUsageEstimate';
 import { estimateContextUsageAsync } from './estimateContextUsageAsync';
-import { clearAnchorBaselines } from './reportedContextTokens';
+import { clearAnchorBaselines, fingerprintAnchorPrefix, resolveAnchorBaseline } from './reportedContextTokens';
 
 const mocks = vi.hoisted(() => ({
   chats: [{ content: 'chat-text', id: 'u1', role: 'user' }] as Array<{
@@ -300,7 +300,9 @@ describe('estimateContextUsageAsync', () => {
     expect(first.totalToken).toBe(50_013);
 
     // Activating a skill grows the fixed overhead AFTER the anchor's request;
-    // the anchored total must move up by exactly the new skill block.
+    // the anchored total must move up by exactly the new skill block, measured
+    // in the shared chars-per-token overhead units (R4: the baseline registry
+    // is shared with the token popover hook, which uses the same helper).
     const skill = {
       description: 'd',
       identifier: 'skill-1',
@@ -309,15 +311,62 @@ describe('estimateContextUsageAsync', () => {
     };
     mocks.skillRecords = [skill];
     const skillBlock = formatSkillInstructionsBlock({ activated: [skill] });
+    const overheadBefore = estimateFixedContextOverheadTokens({
+      historySummaryRaw: 'history-summary-text',
+      systemRole: 'system-role-text',
+      toolsString: 'plugin-system-role' + JSON.stringify({ function: { name: 'search' } }),
+    });
+    const overheadAfter = estimateFixedContextOverheadTokens({
+      historySummaryRaw: 'history-summary-text',
+      skillInstructions: skillBlock,
+      systemRole: 'system-role-text',
+      toolsString: 'plugin-system-role' + JSON.stringify({ function: { name: 'search' } }),
+    });
 
     const second = await estimateContextUsageAsync({
       agentState: {} as any,
       chatState: { inputMessage: '' } as any,
     });
-    expect(second.totalToken).toBe(50_013 + skillBlock.length);
+    expect(overheadAfter).toBeGreaterThan(overheadBefore);
+    expect(second.totalToken).toBe(50_013 + (overheadAfter - overheadBefore));
   });
 
-  it('falls back to the whole window once when the pre-anchor prefix changed', async () => {
+  it('shares the baseline registry with the UI hook without unit drift', async () => {
+    mocks.chats = [
+      { content: 'hi', id: 'u1', role: 'user' },
+      {
+        content: 'ok',
+        id: 'a1',
+        metadata: { totalInputTokens: 50_000 },
+        role: 'assistant',
+      } as (typeof mocks.chats)[number],
+    ];
+    const estimate = () =>
+      estimateContextUsageAsync({ agentState: {} as any, chatState: { inputMessage: '' } as any });
+    const expected = await estimate();
+
+    // R4: prime the shared registry exactly as the token popover hook does —
+    // same anchor, same prefix, overhead measured with the shared chars/4
+    // helper. The send estimator must compute the same total afterwards;
+    // passing its tokenized fixedTokens instead would register as phantom
+    // context (or negative drift in the opposite order).
+    clearAnchorBaselines();
+    const uiOverhead = estimateFixedContextOverheadTokens({
+      historySummaryRaw: 'history-summary-text',
+      systemRole: 'system-role-text',
+      toolsString: 'plugin-system-role' + JSON.stringify({ function: { name: 'search' } }),
+    });
+    resolveAnchorBaseline({
+      anchorId: 'a1',
+      currentFixedOverheadTokens: uiOverhead,
+      prefixFingerprint: fingerprintAnchorPrefix(mocks.chats.slice(0, 1) as any),
+      reportedInputTokens: 50_000,
+    });
+
+    expect((await estimate()).totalToken).toBe(expected.totalToken);
+  });
+
+  it('keeps the anchor invalid after a prefix change until a fresh provider report', async () => {
     mocks.chats = [
       { content: 'hi', id: 'u1', role: 'user' },
       {
@@ -353,12 +402,32 @@ describe('estimateContextUsageAsync', () => {
     // total far exceeds anchor + tail.
     expect(second.totalToken).toBeGreaterThan(60_000);
 
-    // The mismatch re-registered the baseline, so the next estimate anchors again.
+    // R3: the mismatch must NOT re-register the baseline — the old report never
+    // counted the edited prefix, so the anchor stays invalid (fallback) until a
+    // fresh provider report arrives under a new anchor id.
     const third = await estimateContextUsageAsync({
       agentState: {} as any,
       chatState: { inputMessage: '' } as any,
     });
-    expect(third.totalToken).toBe(50_013);
+    expect(third.totalToken).toBe(second.totalToken);
+
+    // A fresh provider report under a new anchor re-enables anchoring.
+    mocks.chats = [
+      ...mocks.chats,
+      { content: 'next', id: 'u2', role: 'user' },
+      {
+        content: 'ok2',
+        id: 'a2',
+        metadata: { totalInputTokens: 70_000 },
+        role: 'assistant',
+      } as (typeof mocks.chats)[number],
+    ];
+    const fourth = await estimateContextUsageAsync({
+      agentState: {} as any,
+      chatState: { inputMessage: '' } as any,
+    });
+    // Anchored on a2: reported 70_000 + tail ('assistant:\nok2\n' = 14 chars).
+    expect(fourth.totalToken).toBe(70_014);
   });
 
   it('does not anchor on the protected assistant after an identity watermark, even if updatedAt is newer', async () => {

@@ -235,6 +235,7 @@ export const memorySlice: StateCreator<
             dynamicMemory: config.assistantMemory,
             fixedMemory: config.fixedMemory,
             index,
+            offset: typeof params?.offset === 'number' ? params.offset : undefined,
             source,
           });
         }

@@ -5,7 +5,7 @@ export const systemPrompt =
 - \`updateMemory\`: rewrite one existing entry when a saved fact is corrected or superseded (prefer this over saving a duplicate).
 - \`deleteMemory\`: remove one entry ONLY when the user explicitly asks to forget it, or it is clearly obsolete. Remaining entries are renumbered densely afterwards.
 - \`searchMemory\`: keyword-search both memory tiers and get the most relevant entries with their numbers. Use it when the injected memory ends with a truncation marker, or to locate an entry you cannot see. Snippets are capped and centered on the match.
-- \`readMemory\`: with no arguments, read the full memory text (all fixed entries and dream cards) — very large memories may be truncated in transit. To read one complete entry, pass \`source\` and \`index\` from a \`searchMemory\` hit; the entry is returned in full.
+- \`readMemory\`: with no arguments, read the full memory text (all fixed entries and dream cards) — very large memories may be truncated in transit. To read one entry, pass \`source\` and \`index\` from a \`searchMemory\` hit; long entries come back in pages — when the result has \`truncated: true\`, call again with \`offset\` set to the returned \`nextOffset\` until \`truncated\` is false to assemble the complete entry.
 
 Rules:
 - One concise, self-contained fact per entry, written in the user's language.

@@ -332,7 +332,9 @@ describe('saveMemory builtin tool executor', () => {
       JSON.stringify({
         content: 'drinks green tea daily',
         index: 2,
+        offset: 0,
         source: 'fixed',
+        totalChars: 22,
         truncated: false,
       }),
     );
