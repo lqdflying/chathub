@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { applyUserInputTemplate } from '@lobechat/context-engine';
 
 import { LOADING_FLAT } from '@/const/message';
+import { selectMessagesForContext } from '@/helpers/contextCompaction';
 import {
   LARGE_CONTEXT_WINDOW_TOKENS,
   appendPendingUserInputForContextWindow,
@@ -15,6 +16,7 @@ import {
 import {
   clearAnchorBaselines,
   recordAnchorRequestWitness,
+  resolveSelectedPreAnchorIds,
 } from '@/helpers/reportedContextTokens';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 
@@ -221,18 +223,37 @@ describe('useEstimatedContextUsage', () => {
    * the report landed so the estimate can promote the witness to a baseline.
    */
   const dispatchWitness = (assistantId: string, parentId?: string, topicId = 'topic-1') => {
+    const overhead = estimateFixedContextOverheadTokens({
+      agentMemory: '',
+      historySummaryRaw: '',
+      skillInstructions: '',
+      systemRole: `chat instruction${mocks.systemRole}`,
+      toolsString: '',
+    });
+    const agent = mocks.getAgentState();
+    const parentIndex = parentId ? mocks.mainChats.findIndex((message) => message.id === parentId) : -1;
+    const prefix = parentIndex >= 0 ? mocks.mainChats.slice(0, parentIndex + 1) : [];
+    const selected = selectMessagesForContext({
+      cursorId: agent.enableCompressHistory
+        ? mocks.topicMetadata().historySummaryLastMessageId
+        : undefined,
+      enableHistoryCount: agent.enableHistoryCount,
+      fixedOverheadTokens: overhead,
+      historyCount: agent.historyCount,
+      inputTemplate: agent.inputTemplate,
+      maxTokens: mocks.maxTokens,
+      messages: mocks.mainChats as any,
+    });
     recordAnchorRequestWitness({
       assistantMessageId: assistantId,
       conversationKey: messageMapKey('session-1', topicId),
-      fixedOverheadTokens: estimateFixedContextOverheadTokens({
-        agentMemory: '',
-        historySummaryRaw: '',
-        skillInstructions: '',
-        systemRole: `chat instruction${mocks.systemRole}`,
-        toolsString: '',
-      }),
+      fixedOverheadTokens: overhead,
       messages: mocks.mainChats,
       parentMessageId: parentId,
+      selectedPrefixIds: resolveSelectedPreAnchorIds({
+        prefixMessages: prefix,
+        selectedMessages: selected,
+      }),
     });
   };
 
@@ -854,5 +875,37 @@ describe('useEstimatedContextUsage', () => {
     // The ORIGINAL dispatch witness promotes: report + instruction delta +
     // tail — never the 1,013 undercount.
     expect(result.current.totalToken).toBeGreaterThanOrEqual(10_000);
+  });
+
+  it('U2: widening history counts newly included pre-anchor messages', () => {
+    const { result, rerender } = renderReportLanding(
+      [
+        { content: 'x'.repeat(20_000), id: 'old-u', role: 'user' },
+        { content: 'old answer', id: 'old-a', role: 'assistant' },
+        { content: 'hi', id: 'new-u', role: 'user' },
+      ],
+      { content: 'ok', id: 'new-a', metadata: { totalInputTokens: 1000 }, role: 'assistant' },
+    );
+    expect(result.current.totalToken).toBeLessThan(2000);
+
+    act(() => mocks.setAgentState({ historyCount: 20 }));
+    rerender();
+    expect(result.current.totalToken).toBeGreaterThan(20_000);
+  });
+
+  it('U2: disabling the history limit counts newly included pre-anchor messages', () => {
+    const { result, rerender } = renderReportLanding(
+      [
+        { content: 'x'.repeat(20_000), id: 'old-u', role: 'user' },
+        { content: 'old answer', id: 'old-a', role: 'assistant' },
+        { content: 'hi', id: 'new-u', role: 'user' },
+      ],
+      { content: 'ok', id: 'new-a', metadata: { totalInputTokens: 1000 }, role: 'assistant' },
+    );
+    expect(result.current.totalToken).toBeLessThan(2000);
+
+    act(() => mocks.setAgentState({ enableHistoryCount: false }));
+    rerender();
+    expect(result.current.totalToken).toBeGreaterThan(20_000);
   });
 });

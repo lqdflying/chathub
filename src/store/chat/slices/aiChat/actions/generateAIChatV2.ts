@@ -60,7 +60,11 @@ import {
   createKnowledgeBaseSummary,
   getKnowledgeDiagnosticIdFromError,
 } from '@/store/chat/helpers/knowledgeBaseContext';
-import { recordAnchorDispatchWitness } from '@/store/chat/helpers/recordAnchorDispatchWitness';
+import {
+  captureAnchorDispatchEvidence,
+  commitAnchorDispatchWitness,
+  recordAnchorDispatchWitness,
+} from '@/store/chat/helpers/recordAnchorDispatchWitness';
 import { resolveConversationAgentRuntime } from '@/store/chat/helpers/resolveConversationAgentRuntime';
 import { MainSendMessageOperation } from '@/store/chat/slices/aiChat/initialState';
 import type { ChatStore } from '@/store/chat/store';
@@ -700,6 +704,8 @@ export const generateAIChatV2: StateCreator<
       enableUserMemoryArchive: chatConfig.enableUserMemoryArchive,
       topicSummary: activeTopic?.historySummary,
     });
+    const sentSystemRole = agentSelectors.currentAgentSystemRole(getAgentStoreState());
+    const sentAgentConfig = { ...agentConfig, model, provider, systemRole: sentSystemRole };
     const generation =
       isClientDurableConversationGenerationEnabled() &&
       model &&
@@ -721,7 +727,7 @@ export const generateAIChatV2: StateCreator<
               isWelcomeQuestion,
               locale: globalHelpers.getCurrentLanguage(),
               ragQuery: get().internal_shouldUseRAG() ? message : undefined,
-              systemRole: agentSelectors.currentAgentSystemRole(getAgentStoreState()),
+              systemRole: sentSystemRole,
               title:
                 forceGeneratedTopicTitle && sendTopicId
                   ? { force: true, topicId: sendTopicId }
@@ -731,6 +737,20 @@ export const generateAIChatV2: StateCreator<
             idempotencyKey: `chat-send:${tempId}`,
           }
         : undefined;
+    // T1: freeze sent overhead/window before the enqueue RPC. A later
+    // instruction edit must not become this request's baseline.
+    const durableDispatchEvidence = generation
+      ? await captureAnchorDispatchEvidence({
+          agentConfig: sentAgentConfig,
+          chatState: get(),
+          conversation: {
+            sessionId: conversationContext.sessionId,
+            threadId: conversationContext.threadId,
+            topicId: sendTopicId,
+          },
+          isGroupSession: activeSessionType === 'group',
+        })
+      : undefined;
     // Fence window: while the enqueue request is in flight the server operation is
     // invisible to Stop's listActive snapshot, so Stop promotes this key into the
     // lane stop marker and sync cancels the late-appearing operation instead of
@@ -825,22 +845,36 @@ export const generateAIChatV2: StateCreator<
         }
       }
 
-      // D2/T1: record the dispatch-time anchor witness for this send — the
-      // only evidence that lets the provider report promote to an anchor
-      // baseline later. Covers both lanes: the durable worker executes the
-      // config frozen above, and the browser path below assembles the same
-      // request. Estimators never record witnesses.
+      // D2/T1: associate the already-captured sent settings with the
+      // assistant id. Durable evidence was frozen before the RPC; do not
+      // re-read live agent config here (mid-wait instruction edits would
+      // undercount). Browser-only sends still record live settings — the
+      // fetch path below is the request that actually goes out.
       if (isSameAccount() && data.assistantMessageId) {
-        await recordAnchorDispatchWitness({
-          assistantMessageId: data.assistantMessageId,
-          chatState: get(),
-          conversation: {
-            sessionId: conversationContext.sessionId,
-            threadId: conversationContext.threadId,
-            topicId: conversationContext.topicId,
-          },
-          parentMessageId: data.userMessageId,
-        });
+        if (generation) {
+          commitAnchorDispatchWitness({
+            assistantMessageId: data.assistantMessageId,
+            chatState: get(),
+            conversation: {
+              sessionId: conversationContext.sessionId,
+              threadId: conversationContext.threadId,
+              topicId: conversationContext.topicId,
+            },
+            evidence: durableDispatchEvidence,
+            parentMessageId: data.userMessageId,
+          });
+        } else {
+          await recordAnchorDispatchWitness({
+            assistantMessageId: data.assistantMessageId,
+            chatState: get(),
+            conversation: {
+              sessionId: conversationContext.sessionId,
+              threadId: conversationContext.threadId,
+              topicId: conversationContext.topicId,
+            },
+            parentMessageId: data.userMessageId,
+          });
+        }
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);

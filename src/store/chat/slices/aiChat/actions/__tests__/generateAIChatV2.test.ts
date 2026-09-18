@@ -6,14 +6,24 @@ import { Mock, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LOADING_FLAT } from '@/const/message';
 import { DEFAULT_AGENT_CHAT_CONFIG, DEFAULT_MODEL, DEFAULT_PROVIDER } from '@/const/settings';
 import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableConversationGeneration';
+import {
+  computeFixedContextOverheadInput,
+  estimateContextUsageAsync,
+} from '@/helpers/estimateContextUsageAsync';
 import * as modelContextWindowTokens from '@/helpers/modelContextWindowTokens';
+import {
+  clearAnchorBaselines,
+  fingerprintAnchorPrefix,
+  resolveAnchorBaseline,
+} from '@/helpers/reportedContextTokens';
 import { aiChatService } from '@/services/aiChat';
 import { chatService } from '@/services/chat';
 import { conversationGenerationService } from '@/services/conversationGeneration';
 import { messageService } from '@/services/message';
 import { ragService } from '@/services/rag';
 import { useAgentStore } from '@/store/agent';
-import { agentChatConfigSelectors } from '@/store/agent/selectors';
+import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selectors';
+import { resolveConversationAgentRuntime } from '@/store/chat/helpers/resolveConversationAgentRuntime';
 import { aiProviderSelectors } from '@/store/aiInfra';
 import { aiChatSelectors } from '@/store/chat/selectors';
 import { useSessionStore } from '@/store/session';
@@ -2400,6 +2410,118 @@ describe('generateAIChatV2 actions', () => {
       });
 
       expect(useChatStore.getState().conversationLaneStopMarkers[laneKey]).toEqual(existingMarker);
+    });
+
+    it('T1: durable send witness uses the config frozen before the RPC', async () => {
+      clearAnchorBaselines();
+      vi.mocked(isClientDurableConversationGenerationEnabled).mockReturnValue(true);
+      vi.spyOn(aiProviderSelectors, 'isProviderFetchOnClient').mockImplementation(() => () => false);
+      const agentConfig = {
+        chatConfig: {
+          enableAssistantMemory: false,
+          enableCompressHistory: false,
+          enableHistoryCount: false,
+        },
+        model: DEFAULT_MODEL,
+        plugins: [],
+        provider: DEFAULT_PROVIDER,
+        systemRole: 'short',
+      };
+      useAgentStore.setState({
+        activeId: TEST_IDS.SESSION_ID,
+        agentMap: { [TEST_IDS.SESSION_ID]: agentConfig },
+      });
+      vi.spyOn(agentSelectors, 'currentAgentConfig').mockImplementation((state) =>
+        agentSelectors.getAgentConfigById(TEST_IDS.SESSION_ID)(state),
+      );
+      vi.spyOn(agentChatConfigSelectors, 'currentChatConfig').mockImplementation(
+        (state) => agentSelectors.getAgentConfigById(TEST_IDS.SESSION_ID)(state).chatConfig!,
+      );
+      const deferred = createDeferred<any>();
+      const sendSpy = vi
+        .spyOn(aiChatService, 'sendMessageInServer')
+        .mockReturnValueOnce(deferred.promise);
+
+      const sending = useChatStore.getState().sendMessageInServer({ message: 'hi' });
+      await vi.waitFor(() => expect(sendSpy).toHaveBeenCalled());
+      const sent = sendSpy.mock.calls.at(-1)![0];
+      expect(sent.generation?.config.systemRole).toBe('short');
+
+      useAgentStore.setState({
+        agentMap: {
+          [TEST_IDS.SESSION_ID]: { ...agentConfig, systemRole: 'x'.repeat(20_000) },
+        },
+      });
+      const user = {
+        content: 'hi',
+        id: TEST_IDS.USER_MESSAGE_ID,
+        role: 'user',
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
+      };
+      deferred.resolve({
+        assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        isCreateNewTopic: false,
+        messages: [user],
+        operationId: 'cgo-round6',
+        topicId: TEST_IDS.TOPIC_ID,
+        topics: [],
+        userMessageId: TEST_IDS.USER_MESSAGE_ID,
+      });
+      await sending;
+
+      const runtime = resolveConversationAgentRuntime(TEST_IDS.SESSION_ID);
+      const overhead = await computeFixedContextOverheadInput({
+        agentConfig: runtime.agentConfig,
+        chatState: useChatStore.getState(),
+        enableHistoryCount: runtime.enableHistoryCount,
+        isGroupSession: false,
+        sessionId: TEST_IDS.SESSION_ID,
+        skipSkills: true,
+        topicId: TEST_IDS.TOPIC_ID,
+      });
+      expect(overhead.fixedOverheadTokens).toBeGreaterThanOrEqual(10_000);
+      const baseline = resolveAnchorBaseline({
+        anchorId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        anchorParentId: TEST_IDS.USER_MESSAGE_ID,
+        conversationKey: messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID),
+        currentFixedOverheadTokens: overhead.fixedOverheadTokens,
+        prefixFingerprint: fingerprintAnchorPrefix([user]),
+        reportedInputTokens: 1000,
+      });
+      useChatStore.setState({
+        messagesMap: {
+          [messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)]: [
+            user,
+            {
+              content: 'ok',
+              id: TEST_IDS.ASSISTANT_MESSAGE_ID,
+              metadata: { totalInputTokens: 1000 },
+              role: 'assistant',
+              sessionId: TEST_IDS.SESSION_ID,
+              topicId: TEST_IDS.TOPIC_ID,
+            } as any,
+          ],
+        },
+      });
+      const anchored = await estimateContextUsageAsync({
+        agentState: useAgentStore.getState(),
+        chatState: useChatStore.getState(),
+      });
+      clearAnchorBaselines();
+      const fresh = await estimateContextUsageAsync({
+        agentState: useAgentStore.getState(),
+        chatState: useChatStore.getState(),
+      });
+      expect(
+        anchored.totalToken,
+        JSON.stringify({
+          anchored: anchored.totalToken,
+          baseline,
+          currentOverhead: overhead.fixedOverheadTokens,
+          fresh: fresh.totalToken,
+        }),
+      ).toBeGreaterThanOrEqual(fresh.totalToken);
     });
   });
 

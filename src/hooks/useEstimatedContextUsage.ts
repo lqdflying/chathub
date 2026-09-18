@@ -19,6 +19,7 @@ import {
   getLatestReportedInputAnchor,
   getLatestReportedInputTokens,
   resolveAnchorBaseline,
+  resolveSelectedPreAnchorIds,
 } from '@/helpers/reportedContextTokens';
 import { createChatToolsEngine } from '@/helpers/toolEngineering';
 import { useModelContextWindowTokens } from '@/hooks/useModelContextWindowTokens';
@@ -289,13 +290,15 @@ export const useEstimatedContextUsage = (
     // witness recorded by the send path for THIS assistant row still matches —
     // estimators never record witnesses, so a report from a request this
     // process never dispatched (reload, another topic's state) always falls
-    // back. Parent and fingerprint use the FULL conversation list so window
-    // sliding cannot break the match. The baseline excludes KB tokens:
-    // retrieval is re-fetched per request, so the anchor's reported input
-    // never covered it.
+    // back. Parent and content fingerprint use the FULL conversation prefix
+    // so window sliding cannot break the match; newly included older rows
+    // still invalidate via selectedPrefixIds (U2). The baseline excludes
+    // KB tokens: retrieval is re-fetched per request, so the anchor's
+    // reported input never covered it.
     const anchor = getLatestReportedInputAnchor(estimateMessages, usageLookupOptions);
     const anchorIndex = anchor ? sliced.findIndex(({ id }) => id === anchor.id) : -1;
     const rawAnchorIndex = anchor ? chats.findIndex(({ id }) => id === anchor.id) : -1;
+    const fullPrefix = rawAnchorIndex >= 0 ? chats.slice(0, rawAnchorIndex) : [];
     const anchorBaseline =
       anchor && anchorIndex >= 0 && rawAnchorIndex >= 0
         ? resolveAnchorBaseline({
@@ -303,8 +306,12 @@ export const useEstimatedContextUsage = (
             anchorParentId: rawAnchorIndex > 0 ? chats[rawAnchorIndex - 1]?.id : undefined,
             conversationKey: messageMapKey(state.activeId, state.activeTopicId),
             currentFixedOverheadTokens: fixedOverheadTokens - knowledgeBaseToken,
-            prefixFingerprint: fingerprintAnchorPrefix(chats.slice(0, rawAnchorIndex)),
+            prefixFingerprint: fingerprintAnchorPrefix(fullPrefix),
             reportedInputTokens: anchor.totalInputTokens,
+            selectedPrefixIds: resolveSelectedPreAnchorIds({
+              prefixMessages: fullPrefix,
+              selectedMessages: estimateMessages,
+            }),
           })
         : undefined;
 

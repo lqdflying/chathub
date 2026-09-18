@@ -5,9 +5,15 @@ import { formatSkillInstructionsBlock } from '@lobechat/context-engine';
 import { LOADING_FLAT } from '@/const/message';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 
+import { selectMessagesForContext } from './contextCompaction';
 import { estimateFixedContextOverheadTokens, wrapHistorySummaryForTokenEstimate } from './contextUsageEstimate';
 import { computeFixedContextOverheadInput, estimateContextUsageAsync } from './estimateContextUsageAsync';
-import { clearAnchorBaselines, fingerprintAnchorPrefix, recordAnchorRequestWitness } from './reportedContextTokens';
+import {
+  clearAnchorBaselines,
+  fingerprintAnchorPrefix,
+  recordAnchorRequestWitness,
+  resolveSelectedPreAnchorIds,
+} from './reportedContextTokens';
 
 const mocks = vi.hoisted(() => ({
   chats: [{ content: 'chat-text', id: 'u1', role: 'user' }] as Array<{
@@ -19,8 +25,10 @@ const mocks = vi.hoisted(() => ({
     tool_call_id?: string;
     updatedAt?: number;
   }>,
+  enableHistoryCount: true,
   historyCount: 20,
   inputTemplate: '',
+  maxTokens: 8000,
   skillRecords: [] as Array<{
     description: string;
     identifier: string;
@@ -43,7 +51,7 @@ vi.mock('@/helpers/memoryArchivePrompt', () => ({
 }));
 
 vi.mock('@/helpers/modelContextWindowTokens', () => ({
-  getModelContextWindowTokens: () => 8000,
+  getModelContextWindowTokens: () => mocks.maxTokens,
 }));
 
 vi.mock('@/helpers/toolEngineering', () => ({
@@ -67,7 +75,7 @@ vi.mock('@/store/agent/selectors', () => ({
       inputTemplate: mocks.inputTemplate,
     }),
     enableAssistantMemory: () => false,
-    enableHistoryCount: () => true,
+    enableHistoryCount: () => mocks.enableHistoryCount,
     historyCount: () => mocks.historyCount,
   },
   agentSelectors: {
@@ -135,7 +143,9 @@ describe('estimateContextUsageAsync', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     clearAnchorBaselines();
+    mocks.enableHistoryCount = true;
     mocks.historyCount = 20;
+    mocks.maxTokens = 8000;
     mocks.inputTemplate = '';
     mocks.skillRecords = [];
     mocks.topic = { metadata: {} };
@@ -170,12 +180,27 @@ describe('estimateContextUsageAsync', () => {
       sessionId: 'session-1',
       topicId,
     });
+    const parentIndex = parentId ? mocks.chats.findIndex(({ id }) => id === parentId) : -1;
+    const prefix = parentIndex >= 0 ? mocks.chats.slice(0, parentIndex + 1) : [];
+    const selected = selectMessagesForContext({
+      cursorId: mocks.topic.metadata.historySummaryLastMessageId as string | undefined,
+      enableHistoryCount: mocks.enableHistoryCount,
+      fixedOverheadTokens: overhead.fixedOverheadTokens,
+      historyCount: mocks.historyCount,
+      inputTemplate: mocks.inputTemplate,
+      maxTokens: mocks.maxTokens,
+      messages: mocks.chats as any,
+    });
     recordAnchorRequestWitness({
       assistantMessageId: assistantId,
       conversationKey: messageMapKey('session-1', topicId),
       fixedOverheadTokens: overhead.fixedOverheadTokens,
       messages: mocks.chats,
       parentMessageId: parentId,
+      selectedPrefixIds: resolveSelectedPreAnchorIds({
+        prefixMessages: prefix,
+        selectedMessages: selected,
+      }),
     });
   };
 
@@ -955,5 +980,60 @@ describe('estimateContextUsageAsync', () => {
 
     // Anchor a4 (700_000) + tail 'assistant:\nfresh' (16).
     expect(result.totalToken).toBe(700_016);
+  });
+
+  it('U2: widening history counts newly included pre-anchor messages', async () => {
+    mocks.historyCount = 2;
+    mocks.chats = [
+      { content: 'x'.repeat(20_000), id: 'old-u', role: 'user' },
+      { content: 'old answer', id: 'old-a', role: 'assistant' },
+      { content: 'hi', id: 'new-u', role: 'user' },
+      { content: 'ok', id: 'new-a', role: 'assistant' },
+    ];
+    await landReport(1000);
+    const short = await estimate();
+    expect(short.contextMessages.some((message) => message.id === 'old-u')).toBe(false);
+    expect(short.totalToken).toBe(1013);
+
+    mocks.historyCount = 20;
+    const expanded = await estimate();
+    expect(expanded.contextMessages.some((message) => message.id === 'old-u')).toBe(true);
+    expect(expanded.totalToken).toBeGreaterThan(20_000);
+  });
+
+  it('U2: disabling the history limit counts newly included pre-anchor messages', async () => {
+    mocks.historyCount = 2;
+    mocks.chats = [
+      { content: 'x'.repeat(20_000), id: 'old-u', role: 'user' },
+      { content: 'old answer', id: 'old-a', role: 'assistant' },
+      { content: 'hi', id: 'new-u', role: 'user' },
+      { content: 'ok', id: 'new-a', role: 'assistant' },
+    ];
+    await landReport(1000);
+    expect((await estimate()).totalToken).toBe(1013);
+
+    mocks.enableHistoryCount = false;
+    const unlimited = await estimate();
+    expect(unlimited.contextMessages.some((message) => message.id === 'old-u')).toBe(true);
+    expect(unlimited.totalToken).toBeGreaterThan(20_000);
+  });
+
+  it('U2: an effective-window expansion invalidates the short-window report', async () => {
+    mocks.historyCount = 2;
+    mocks.chats = [
+      { content: 'x'.repeat(20_000), id: 'old-u', role: 'user' },
+      { content: 'old answer', id: 'old-a', role: 'assistant' },
+      { content: 'hi', id: 'new-u', role: 'user' },
+      { content: 'ok', id: 'new-a', role: 'assistant' },
+    ];
+    await landReport(1000);
+    expect((await estimate()).contextMessages.some((message) => message.id === 'old-u')).toBe(
+      false,
+    );
+
+    mocks.maxTokens = 200_000;
+    const expanded = await estimate();
+    expect(expanded.contextMessages.some((message) => message.id === 'old-u')).toBe(true);
+    expect(expanded.totalToken).toBeGreaterThan(20_000);
   });
 });

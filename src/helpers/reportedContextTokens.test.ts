@@ -508,6 +508,22 @@ describe('reported context token floor', () => {
       expect(resolve()).toBeUndefined();
     });
 
+    it('invalidates when selected pre-anchor history grows (U2)', () => {
+      clearAnchorBaselines();
+      recordWitness({ selectedPrefixIds: ['u2'] });
+      expect(
+        resolve({
+          selectedPrefixIds: ['u1', 'a1', 'u2'],
+        }),
+      ).toBeUndefined();
+    });
+
+    it('keeps the witness when selected pre-anchor history only shrinks', () => {
+      clearAnchorBaselines();
+      recordWitness({ selectedPrefixIds: ['u1', 'a1', 'u2'] });
+      expect(resolve({ selectedPrefixIds: ['u2'] })?.overheadDelta).toBe(0);
+    });
+
     it('a re-dispatch of the same row replaces the witness', () => {
       clearAnchorBaselines();
       recordWitness();

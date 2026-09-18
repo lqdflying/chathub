@@ -225,10 +225,13 @@ const toEpochMs = (value: unknown): number => {
 };
 
 /**
- * Cheap fingerprint of the request prefix an anchor's reported input covered:
- * message count + content chars + newest edit time of the rows before the
- * anchor. No tokenization — any pre-anchor add/delete/edit or history-window
- * shift changes the fingerprint and invalidates the baseline.
+ * Cheap fingerprint of the FULL conversation prefix an anchor's reported input
+ * covered: message count + content chars + newest edit time of the rows before
+ * the anchor. No tokenization — any pre-anchor add/delete/edit changes the
+ * fingerprint and invalidates the baseline. History-window *selection* is a
+ * separate check (`selectedPrefixIds`): sliding the window so older rows drop
+ * out keeps the anchor (those tokens are no longer sent; overcount is safe),
+ * but newly included older rows must fall back (U2).
  */
 export const fingerprintAnchorPrefix = (
   messages: Array<{ content?: unknown; updatedAt?: unknown }>,
@@ -243,9 +246,36 @@ export const fingerprintAnchorPrefix = (
   return `${messages.length}:${chars}:${maxUpdatedAt}`;
 };
 
+/**
+ * Pre-anchor rows that the current history window actually includes. Used to
+ * detect a selection that grew (widen / disable limit / effective-window
+ * expand) without treating a slide that *drops* older rows as a mismatch.
+ */
+export const resolveSelectedPreAnchorIds = ({
+  prefixMessages,
+  selectedMessages,
+}: {
+  prefixMessages: Array<{ id?: string }>;
+  selectedMessages: Array<{ id?: string }>;
+}): string[] => {
+  const selectedIds = new Set(
+    selectedMessages.map((message) => message.id).filter((id): id is string => !!id),
+  );
+  return prefixMessages
+    .map((message) => message.id)
+    .filter((id): id is string => !!id && selectedIds.has(id));
+};
+
+const selectionIncludesUnsentPrefix = (storedIds: string[], currentIds?: string[]) => {
+  if (!currentIds) return false;
+  const stored = new Set(storedIds);
+  return currentIds.some((id) => !stored.has(id));
+};
+
 interface AnchorBaseline {
   fixedOverheadTokens: number;
   prefixFingerprint: string;
+  selectedPrefixIds: string[];
 }
 
 /**
@@ -279,6 +309,8 @@ interface AnchorRequestWitness {
   /** Row the pending assistant was parented to at dispatch. */
   parentMessageId?: string;
   prefixFingerprint: string;
+  /** Selected pre-anchor row ids the dispatched request actually included. */
+  selectedPrefixIds: string[];
 }
 
 /**
@@ -303,7 +335,9 @@ const ANCHOR_REQUEST_WITNESS_LIMIT = 100;
  * the pending assistant id, its parent row, the conversation key, the fixed
  * overhead (chars/2, `estimateFixedContextOverheadTokens`) and the full
  * conversation message list. The fingerprint covers all rows through the
- * parent. When the parent row is not visible in `messages` (store not yet
+ * parent (content-edit detection). `selectedPrefixIds` is the subset of that
+ * prefix the request actually included; omit it to treat the full prefix as
+ * selected. When the parent row is not visible in `messages` (store not yet
  * refreshed), no witness is recorded — the report then falls back to the
  * whole-window estimate, which is the safe default for an unverifiable
  * association.
@@ -314,12 +348,14 @@ export const recordAnchorRequestWitness = ({
   fixedOverheadTokens,
   messages,
   parentMessageId,
+  selectedPrefixIds,
 }: {
   assistantMessageId: string;
   conversationKey: string;
   fixedOverheadTokens: number;
   messages: Array<{ content?: unknown; id?: string; updatedAt?: unknown }>;
   parentMessageId?: string;
+  selectedPrefixIds?: string[];
 }) => {
   if (!assistantMessageId) return;
   const parentIndex = parentMessageId
@@ -327,6 +363,9 @@ export const recordAnchorRequestWitness = ({
     : -1;
   if (parentMessageId && parentIndex < 0) return;
   const prefix = parentIndex >= 0 ? messages.slice(0, parentIndex + 1) : [];
+  const recordedSelectedPrefixIds =
+    selectedPrefixIds ??
+    prefix.map((message) => message.id).filter((id): id is string => !!id);
 
   // Re-dispatch of the same row (overflow retry / continuation) replaces the
   // witness: the next report answers the LATEST request, not the original.
@@ -336,6 +375,7 @@ export const recordAnchorRequestWitness = ({
     fixedOverheadTokens,
     parentMessageId,
     prefixFingerprint: fingerprintAnchorPrefix(prefix),
+    selectedPrefixIds: recordedSelectedPrefixIds,
   });
   while (anchorRequestWitnesses.size > ANCHOR_REQUEST_WITNESS_LIMIT) {
     const oldest = anchorRequestWitnesses.keys().next().value;
@@ -362,7 +402,9 @@ const floorOverheadDelta = (
 /**
  * Resolve the anchor's retained baseline, or `undefined` when the caller must
  * fall back to the whole-window estimate. Three cases:
- * - Known baseline, matching prefix: trust, adding the fixed-overhead delta.
+ * - Known baseline, matching prefix: trust, adding the fixed-overhead delta,
+ *   unless the current selected window includes pre-anchor rows the original
+ *   request did not (U2).
  * - Known baseline, mismatched prefix (R3): fall back permanently — the report
  *   covered the ORIGINAL prefix, so re-baselining onto an edited prefix would
  *   re-trust a report that never counted those messages. The anchor stays
@@ -382,6 +424,7 @@ export const resolveAnchorBaseline = ({
   currentFixedOverheadTokens,
   prefixFingerprint,
   reportedInputTokens,
+  selectedPrefixIds,
 }: {
   anchorId: string;
   anchorParentId?: string;
@@ -389,10 +432,15 @@ export const resolveAnchorBaseline = ({
   currentFixedOverheadTokens: number;
   prefixFingerprint: string;
   reportedInputTokens: number;
+  /** Currently selected pre-anchor ids; omitted skips the U2 grow check. */
+  selectedPrefixIds?: string[];
 }): { overheadDelta: number } | undefined => {
   const cached = anchorBaselines.get(anchorId);
   if (cached) {
-    if (cached.prefixFingerprint !== prefixFingerprint) {
+    if (
+      cached.prefixFingerprint !== prefixFingerprint ||
+      selectionIncludesUnsentPrefix(cached.selectedPrefixIds, selectedPrefixIds)
+    ) {
       return undefined;
     }
     return {
@@ -409,7 +457,8 @@ export const resolveAnchorBaseline = ({
     !witness ||
     witness.conversationKey !== conversationKey ||
     witness.parentMessageId !== anchorParentId ||
-    witness.prefixFingerprint !== prefixFingerprint
+    witness.prefixFingerprint !== prefixFingerprint ||
+    selectionIncludesUnsentPrefix(witness.selectedPrefixIds, selectedPrefixIds)
   ) {
     return undefined;
   }
@@ -418,6 +467,7 @@ export const resolveAnchorBaseline = ({
   registerAnchorBaseline(anchorId, {
     fixedOverheadTokens: witness.fixedOverheadTokens,
     prefixFingerprint,
+    selectedPrefixIds: witness.selectedPrefixIds,
   });
   return {
     overheadDelta: floorOverheadDelta(

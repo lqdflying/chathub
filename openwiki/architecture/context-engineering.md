@@ -224,33 +224,39 @@ to the whole-window estimate floored by the latest reported input
 `reportedInputTokenFloorAfterMessageId` watermark, so a pre-compaction report can never anchor a
 post-compaction estimate. The anchor is only trusted against a **verified request baseline**
 (`resolveAnchorBaseline`, a bounded in-process map keyed by anchor message id): the baseline
-records the fixed-overhead tokens and a cheap prefix fingerprint (pre-anchor message count,
-content chars, newest `updatedAt`) from the anchor's own request. Both callers — the async
-estimator and the token popover hook — share that one map, so both record overhead with the
-SAME sync measure (`estimateFixedContextOverheadTokens`, chars/2 via
-`CONTEXT_CHARS_PER_TOKEN_ESTIMATE`); the estimator's tokenized fixed count feeds only its own
-final math and is never registered, otherwise a UI mount would shift the send estimate by the
-unit gap. Later estimates add the fixed-overhead delta (skill/instruction/memory/tool changes)
-in those shared units.
+records the fixed-overhead tokens, a cheap prefix fingerprint (pre-anchor message count,
+content chars, newest `updatedAt`), and the **selected pre-anchor row ids** the request
+actually included. Both callers — the async estimator and the token popover hook — share
+that one map, so both record overhead with the SAME sync measure
+(`estimateFixedContextOverheadTokens`, chars/2 via `CONTEXT_CHARS_PER_TOKEN_ESTIMATE`); the
+estimator's tokenized fixed count feeds only its own final math and is never registered,
+otherwise a UI mount would shift the send estimate by the unit gap. Later estimates add the
+fixed-overhead delta (skill/instruction/memory/tool changes) in those shared units.
 
 A baseline is never registered on first sight of a report. Witnesses are recorded **only by
-the send path** (`recordAnchorDispatchWitness` → `recordAnchorRequestWitness`) at the moment
-a request is assembled — keyed by the pending assistant id and scoped to that conversation.
-Estimators never write witnesses, so viewing another topic, changing skills mid-generation,
-or a reload into an already-running request cannot invent dispatch proof from estimate
-ordering. A report is trusted only when a witness exists for **this assistant row in this
-conversation** whose parent id and prefix fingerprint still match exactly; the witness is
-then **promoted** to a verified baseline (consumed, one-shot). Otherwise the estimator
+the send path**. Durable enqueue **captures** overhead and history-window inputs from the
+config about to be sent (`captureAnchorDispatchEvidence`) **before** `await` enqueue/send,
+then **commits** that evidence onto the returned assistant id
+(`commitAnchorDispatchWitness`). Re-reading live agent settings after the RPC would certify
+instructions the worker never sent. Browser retry/continuation still records at request
+assembly (`recordAnchorDispatchWitness`), when live settings *are* the request. Estimators
+never write witnesses, so viewing another topic, changing skills mid-generation, or a
+reload into an already-running request cannot invent dispatch proof from estimate ordering.
+A report is trusted only when a witness exists for **this assistant row in this
+conversation** whose parent id and full-prefix fingerprint still match exactly; the witness
+is then **promoted** to a verified baseline (consumed, one-shot). Otherwise the estimator
 falls back to a fresh whole-window estimate (floored by the report). After a reload, new
 tab, navigation into a request this tab did not dispatch, or baseline eviction, the module
 has no witness, so stale reports are never trusted: a prompt whose pre-reload local estimate
 was over 11,000 tokens is estimated in full again (the old contract showed 1,013 — a
-1,000-token report plus a 13-token tail). A prefix mismatch (pre-anchor edit, delete, or
-history-window shift) on an
-established baseline invalidates the anchor **until a fresh provider report arrives under a new
-anchor id**: the report covered the original prefix, so the estimator falls back to the whole
-window on every call and the mismatched baseline is never re-registered — an edited prefix
-cannot quietly become trusted again.
+1,000-token report plus a 13-token tail). A full-prefix mismatch (pre-anchor edit or delete)
+invalidates the anchor **until a fresh provider report arrives under a new
+anchor id**. A history-window **expansion** (raising or disabling the limit, or an automatic
+effective-window expand that newly includes older rows) also invalidates: the report never
+counted those rows, so the estimator falls back rather than adding only the post-anchor
+tail. Sliding the window so older rows **drop out** keeps the anchor — those tokens are no
+longer sent, and keeping the report is a safe overcount. The mismatched baseline is never
+re-registered.
 
 Request assembly also applies a **deterministic tool-result cap**:
 `ToolResultTruncateProcessor` (`packages/context-engine`) rewrites any `tool` message body over

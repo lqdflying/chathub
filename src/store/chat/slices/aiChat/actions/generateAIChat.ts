@@ -70,7 +70,11 @@ import {
   createKnowledgeBaseSummary,
   getKnowledgeDiagnosticIdFromError,
 } from '@/store/chat/helpers/knowledgeBaseContext';
-import { recordAnchorDispatchWitness } from '@/store/chat/helpers/recordAnchorDispatchWitness';
+import {
+  captureAnchorDispatchEvidence,
+  commitAnchorDispatchWitness,
+  recordAnchorDispatchWitness,
+} from '@/store/chat/helpers/recordAnchorDispatchWitness';
 import { resolveConversationAgentRuntime } from '@/store/chat/helpers/resolveConversationAgentRuntime';
 import { ChatStore } from '@/store/chat/store';
 import type { ConversationContext } from '@/store/chat/types';
@@ -563,6 +567,23 @@ export const generateAIChat: StateCreator<
         conversationContext.topicId ?? null,
         params?.threadId ?? null,
       );
+      const sentAgentConfig = {
+        ...agentConfig,
+        model,
+        provider,
+        systemRole: agentRuntime.systemRole,
+      };
+      // T1: freeze sent overhead/window before the enqueue RPC.
+      const durableDispatchEvidence = await captureAnchorDispatchEvidence({
+        agentConfig: sentAgentConfig,
+        chatState: get(),
+        conversation: {
+          sessionId: conversationContext.sessionId,
+          threadId: conversationContext.threadId ?? params?.threadId,
+          topicId: conversationContext.topicId,
+        },
+        isGroupSession: agentRuntime.isGroupSession,
+      });
       set(
         (state) =>
           trackDurableEnqueue(state, enqueueLaneKey, {
@@ -577,7 +598,7 @@ export const generateAIChat: StateCreator<
         enqueueResult = await tryEnqueueConversationGeneration({
           config: buildDurableConversationConfig({
             activatedSkillIds: params?.activatedSkillIds,
-            agentConfig: { ...agentConfig, model, provider },
+            agentConfig: sentAgentConfig,
             chatConfig,
             enableMemoryTool:
               chatConfig.enableAssistantMemory !== false &&
@@ -623,13 +644,11 @@ export const generateAIChat: StateCreator<
       }
       const operation = asConversationGenerationOperation(enqueueResult);
       if (operation && isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot)) {
-        // D2/T1: dispatch-time anchor witness for the durable lane. The worker
-        // executes the enqueued config; the witness lets its report promote to
-        // an anchor baseline later. Best effort — when the parent row is not
-        // in the store yet (fresh send before refresh), no witness is
-        // recorded and the report falls back to the whole-window estimate.
+        // D2/T1: associate the pre-RPC captured sent settings. Do not
+        // re-read live agent config after the await (mid-wait edits
+        // would undercount). Missing evidence or parent → fallback.
         if (operation.assistantMessageId) {
-          await recordAnchorDispatchWitness({
+          commitAnchorDispatchWitness({
             assistantMessageId: operation.assistantMessageId,
             chatState: get(),
             conversation: {
@@ -637,6 +656,7 @@ export const generateAIChat: StateCreator<
               threadId: conversationContext.threadId,
               topicId: conversationContext.topicId,
             },
+            evidence: durableDispatchEvidence,
             parentMessageId: userMessageId,
           });
         }
