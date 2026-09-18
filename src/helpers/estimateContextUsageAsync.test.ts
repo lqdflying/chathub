@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { formatSkillInstructionsBlock } from '@lobechat/context-engine';
+
 import { wrapHistorySummaryForTokenEstimate } from './contextUsageEstimate';
 import { estimateContextUsageAsync } from './estimateContextUsageAsync';
+import { clearAnchorBaselines } from './reportedContextTokens';
 
 const mocks = vi.hoisted(() => ({
   chats: [{ content: 'chat-text', id: 'u1', role: 'user' }] as Array<{
@@ -127,6 +130,7 @@ vi.mock('@/store/user/store', () => ({
 describe('estimateContextUsageAsync', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    clearAnchorBaselines();
     mocks.historyCount = 20;
     mocks.inputTemplate = '';
     mocks.skillRecords = [];
@@ -275,6 +279,86 @@ describe('estimateContextUsageAsync', () => {
     expect(result.totalToken).toBe(5000 + 139);
     // The whole-window estimate would include u1's 5000 chars on top.
     expect(result.totalToken).toBeLessThan(5000 + 5000);
+  });
+
+  it('adds the fixed-overhead delta when skills change after the anchor request', async () => {
+    mocks.chats = [
+      { content: 'hi', id: 'u1', role: 'user' },
+      {
+        content: 'ok',
+        id: 'a1',
+        metadata: { totalInputTokens: 50_000 },
+        role: 'assistant',
+      } as (typeof mocks.chats)[number],
+    ];
+
+    // First sight registers the anchor baseline (delta 0).
+    const first = await estimateContextUsageAsync({
+      agentState: {} as any,
+      chatState: { inputMessage: '' } as any,
+    });
+    expect(first.totalToken).toBe(50_013);
+
+    // Activating a skill grows the fixed overhead AFTER the anchor's request;
+    // the anchored total must move up by exactly the new skill block.
+    const skill = {
+      description: 'd',
+      identifier: 'skill-1',
+      instructions: 'x'.repeat(200),
+      name: 's',
+    };
+    mocks.skillRecords = [skill];
+    const skillBlock = formatSkillInstructionsBlock({ activated: [skill] });
+
+    const second = await estimateContextUsageAsync({
+      agentState: {} as any,
+      chatState: { inputMessage: '' } as any,
+    });
+    expect(second.totalToken).toBe(50_013 + skillBlock.length);
+  });
+
+  it('falls back to the whole window once when the pre-anchor prefix changed', async () => {
+    mocks.chats = [
+      { content: 'hi', id: 'u1', role: 'user' },
+      {
+        content: 'ok',
+        id: 'a1',
+        metadata: { totalInputTokens: 50_000 },
+        role: 'assistant',
+      } as (typeof mocks.chats)[number],
+    ];
+
+    const first = await estimateContextUsageAsync({
+      agentState: {} as any,
+      chatState: { inputMessage: '' } as any,
+    });
+    expect(first.totalToken).toBe(50_013);
+
+    // Editing a pre-anchor message invalidates what the reported input covered.
+    mocks.chats = [
+      { content: 'x'.repeat(60_000), id: 'u1', role: 'user', updatedAt: 2 },
+      {
+        content: 'ok',
+        id: 'a1',
+        metadata: { totalInputTokens: 50_000 },
+        role: 'assistant',
+      } as (typeof mocks.chats)[number],
+    ];
+
+    const second = await estimateContextUsageAsync({
+      agentState: {} as any,
+      chatState: { inputMessage: '' } as any,
+    });
+    // Whole-window fallback: the edited 60k prefix is tokenized again, so the
+    // total far exceeds anchor + tail.
+    expect(second.totalToken).toBeGreaterThan(60_000);
+
+    // The mismatch re-registered the baseline, so the next estimate anchors again.
+    const third = await estimateContextUsageAsync({
+      agentState: {} as any,
+      chatState: { inputMessage: '' } as any,
+    });
+    expect(third.totalToken).toBe(50_013);
   });
 
   it('does not anchor on the protected assistant after an identity watermark, even if updatedAt is newer', async () => {

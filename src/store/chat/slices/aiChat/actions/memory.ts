@@ -118,6 +118,13 @@ export interface ChatMemoryAction {
   internal_invalidateMemoryCompaction: (messageIds: string[]) => Promise<void>;
   triggerManualMemoryCompaction: (options?: {
     abortController?: AbortController;
+    /**
+     * D1: emergency context-overflow recovery deliberately overrides the
+     * routine compaction switches in both lanes. The switches govern
+     * scheduled/manual compaction, not rescuing a send the provider already
+     * rejected for window size.
+     */
+    allowWhenCompactionDisabled?: boolean;
     conversation?: MemoryCompactionConversationScope;
   }) => Promise<MemoryCompactionResult>;
   triggerMessageCountMemoryCompaction: (
@@ -260,6 +267,7 @@ async function runCompactionFromStore(
   accountMutationSnapshot: AccountMutationSnapshot,
   abortController?: AbortController,
   conversation?: MemoryCompactionConversationScope,
+  allowWhenCompactionDisabled?: boolean,
 ): Promise<MemoryCompactionResult> {
   const state = get();
   const requestedGeneration = state.conversationClearGeneration;
@@ -414,7 +422,12 @@ async function runCompactionFromStore(
   debug.enableUserMemoryArchive = !!chatConfig.enableUserMemoryArchive;
   debug.historyCount = historyCount;
 
-  if (!enableHistoryCount || !chatConfig.enableCompressHistory) {
+  // D1: emergency overflow recovery passes allowWhenCompactionDisabled — the
+  // switches govern routine compaction, not rescuing a rejected send.
+  if (
+    (!enableHistoryCount || !chatConfig.enableCompressHistory) &&
+    !allowWhenCompactionDisabled
+  ) {
     return finish('ineligible', { reason: 'history_compaction_is_disabled' });
   }
   if (trigger === 'token_threshold' && !chatConfig.enableTokenThresholdAutoCompact) {
@@ -1005,6 +1018,7 @@ const triggerCompaction = async (
   trigger: MemoryCompactionTrigger,
   abortController?: AbortController,
   conversation?: MemoryCompactionConversationScope,
+  allowWhenCompactionDisabled?: boolean,
 ): Promise<MemoryCompactionResult> => {
   const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
   const state = get();
@@ -1044,6 +1058,7 @@ const triggerCompaction = async (
     accountMutationSnapshot,
     abortController,
     conversation,
+    allowWhenCompactionDisabled,
   ).catch(() => compactionResult('failed', { reason: 'compaction_exception' }));
   compactionJobs.set(key, job);
   try {
@@ -1178,7 +1193,14 @@ export const chatMemory: StateCreator<
   },
 
   triggerManualMemoryCompaction: (options) =>
-    triggerCompaction(set, get, 'manual', options?.abortController, options?.conversation),
+    triggerCompaction(
+      set,
+      get,
+      'manual',
+      options?.abortController,
+      options?.conversation,
+      options?.allowWhenCompactionDisabled,
+    ),
   triggerMessageCountMemoryCompaction: (abortController, conversation) =>
     triggerCompaction(set, get, 'message_count', abortController, conversation),
   triggerTokenThresholdMemoryCompaction: (abortController, conversation) =>

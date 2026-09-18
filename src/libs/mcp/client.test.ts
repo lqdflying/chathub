@@ -304,6 +304,22 @@ describe('MCPClient', () => {
       await expect(client.callTool('testTool', {})).rejects.toThrow('NoValidSessionId');
     });
 
+    it('preserves an application McpError containing the stale-session phrase', async () => {
+      // F4: a JSON-RPC application error is proof the call REACHED the server —
+      // reclassifying it as a transport session rejection would replay a
+      // possibly-mutating call. Only plain transport Errors map to the retry
+      // sentinel.
+      const { McpError, ErrorCode } = await import('@modelcontextprotocol/sdk/types.js');
+      const error = new McpError(
+        ErrorCode.InternalError,
+        'No valid session ID provided by downstream application',
+      );
+      sdkClient.callTool.mockRejectedValue(error);
+      const client = new MCPClient(params);
+
+      await expect(client.callTool('mutatingTool', {})).rejects.toBe(error);
+    });
+
     it('rethrows other errors unchanged', async () => {
       const boom = new Error('upstream boom');
       sdkClient.callTool.mockRejectedValue(boom);

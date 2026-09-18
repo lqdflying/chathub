@@ -985,6 +985,8 @@ export const generateAIChat: StateCreator<
           // A dedicated controller selects the bounded inline path (vs durable
           // enqueue) so the retry can resume immediately after the summary lands.
           abortController: new AbortController(),
+          // D1: emergency recovery overrides the routine compaction switches.
+          allowWhenCompactionDisabled: true,
           conversation: {
             sessionId: conversationContext.sessionId,
             topicId: conversationContext.topicId!,

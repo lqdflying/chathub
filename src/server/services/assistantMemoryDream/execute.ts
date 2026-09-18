@@ -13,10 +13,8 @@ import type { AssistantMemoryDreamTopicInput } from '@lobechat/prompts';
 import type { AssistantMemoryMeta, LobeAgentChatConfig } from '@lobechat/types';
 import { and, eq } from 'drizzle-orm';
 
-import { DEFAULT_SYSTEM_AGENT_CONFIG } from '@/const/settings';
 import { MessageModel } from '@/database/models/message';
 import { TopicModel } from '@/database/models/topic';
-import { UserModel } from '@/database/models/user';
 import { agents } from '@/database/schemas';
 import {
   appendDreamMemoryEntry,
@@ -41,7 +39,6 @@ import {
 } from '@/helpers/assistantMemory';
 import { buildSimpleCompletionSampling } from '@/helpers/contextCompaction';
 import { logCompactionDebugSafe } from '@/libs/logger/compactionDebug';
-import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
 import { initModelRuntimeWithUserPayload } from '@/server/modules/ModelRuntime';
 import { resolveConversationRuntimePayload } from '@/server/services/conversationGeneration/credentials';
 import { createConversationRuntimeChatOptions } from '@/server/services/conversationGeneration/runtimeChatOptions';
@@ -49,6 +46,7 @@ import {
   consumeProtocolResponse,
   isIncompleteLengthStop,
 } from '@/server/services/conversationGeneration/stream';
+import { loadHistoryCompressModel } from '@/server/services/historyCompress';
 
 import { isDreamDue, previousUtcDayWindow, utcDayWindow } from './schedule';
 
@@ -162,20 +160,7 @@ const writeAgentMemoryIfUnchanged = async (
   return updated.length > 0;
 };
 
-const loadHistoryCompress = async (db: LobeChatDatabase, userId: string) => {
-  try {
-    const state = await new UserModel(db, userId).getUserState(
-      KeyVaultsGateKeeper.getUserKeyVaults,
-    );
-    const configured = (
-      state.settings?.systemAgent as { historyCompress?: { model: string; provider: string } }
-    )?.historyCompress;
-    if (configured?.model && configured.provider) return configured;
-  } catch {
-    /* fall through to defaults */
-  }
-  return DEFAULT_SYSTEM_AGENT_CONFIG.historyCompress;
-};
+const loadHistoryCompress = loadHistoryCompressModel;
 
 const runDreamCompletion = async ({
   db,

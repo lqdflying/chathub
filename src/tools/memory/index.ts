@@ -72,7 +72,7 @@ export const MemoryManifest: BuiltinToolManifest = {
     },
     {
       description:
-        "Search this assistant's memory (fixed entries and dynamic dream cards) by keywords and get the most relevant entries with their numbers. Use when the injected memory is marked truncated, or before updating an entry you cannot see.",
+        "Search this assistant's memory (fixed entries and dynamic dream cards) by keywords and get the most relevant entries with their numbers. Use when the injected memory is marked truncated, or before updating an entry you cannot see. Snippets are capped; call readMemory with a hit's source and index to read the complete entry.",
       name: MemoryApiName.searchMemory,
       parameters: {
         properties: {
@@ -92,10 +92,21 @@ export const MemoryManifest: BuiltinToolManifest = {
     },
     {
       description:
-        "Read the full text of this assistant's memory (all fixed entries and all dynamic dream cards). Prefer searchMemory for large memories; use this when you need complete entries or the injected memory is marked truncated.",
+        "Read this assistant's memory. With no arguments, returns the full text of both tiers (fixed entries and dynamic dream cards); very large memories may be truncated by the request pipeline. To read one complete entry — for example one omitted from the injected memory — pass source ('fixed' or 'dynamic') and index from a searchMemory hit.",
       name: MemoryApiName.readMemory,
       parameters: {
-        properties: {},
+        properties: {
+          index: {
+            description: 'Entry number within its tier (the #N from a searchMemory hit)',
+            type: 'number',
+          },
+          source: {
+            description:
+              "Memory tier of the entry: 'fixed' for numbered fixed entries, 'dynamic' for dream cards",
+            enum: ['fixed', 'dynamic'],
+            type: 'string',
+          },
+        },
         type: 'object',
       },
     },

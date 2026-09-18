@@ -214,6 +214,28 @@ describe('chat memory actions', () => {
     );
   });
 
+  it('overrides the disabled-compaction switches only for emergency overflow recovery (D1)', async () => {
+    vi.spyOn(agentChatConfigSelectors, 'currentChatConfig').mockReturnValue({
+      contextCompactThreshold: 0.8,
+      enableCompressHistory: false,
+      enableHistoryCount: false,
+      enableTokenThresholdAutoCompact: false,
+      historyCount: 4,
+    });
+    vi.spyOn(agentChatConfigSelectors, 'enableHistoryCount').mockReturnValue(false);
+
+    // Routine manual compaction still refuses when the switches are off.
+    const routine = await useChatStore.getState().triggerManualMemoryCompaction();
+    expect(routine).toEqual({ reason: 'history_compaction_is_disabled', status: 'ineligible' });
+
+    // The emergency recovery path deliberately overrides the switches (both
+    // lanes share this contract; the worker lane never consulted them).
+    const rescue = await useChatStore.getState().triggerManualMemoryCompaction({
+      allowWhenCompactionDisabled: true,
+    });
+    expect(rescue).toMatchObject({ status: 'compacted' });
+  });
+
   it('persists a floor watermark on the remaining protected assistant', async () => {
     const topicMessages = [
       message('u1', 'user'),

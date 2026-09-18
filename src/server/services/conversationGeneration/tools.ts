@@ -22,6 +22,7 @@ import {
   MEMORY_TAINT_WINDOW,
   mergeNewEntryOrigins,
   readAssistantMemory,
+  readAssistantMemoryEntry,
   searchAssistantMemory,
   updateFixedMemoryEntry,
 } from '@/helpers/assistantMemory';
@@ -285,10 +286,21 @@ const invokeMemoryTool = async ({
       break;
     }
     case MemoryApiName.readMemory: {
-      content = readAssistantMemory({
-        dynamicMemory: agent.assistantMemory,
-        fixedMemory: agent.fixedMemory,
-      });
+      const source = args.source;
+      const index = typeof args.index === 'number' ? args.index : Number.NaN;
+      if ((source === 'fixed' || source === 'dynamic') && Number.isInteger(index)) {
+        content = readAssistantMemoryEntry({
+          dynamicMemory: agent.assistantMemory,
+          fixedMemory: agent.fixedMemory,
+          index,
+          source,
+        });
+      } else {
+        content = readAssistantMemory({
+          dynamicMemory: agent.assistantMemory,
+          fixedMemory: agent.fixedMemory,
+        });
+      }
       break;
     }
     default: {

@@ -1820,6 +1820,8 @@ export const generateAIChatV2: StateCreator<
         const compaction = await get()
           .triggerManualMemoryCompaction({
             abortController: new AbortController(),
+            // D1: emergency recovery overrides the routine compaction switches.
+            allowWhenCompactionDisabled: true,
             conversation: {
               sessionId: conversationContext.sessionId,
               topicId: conversationContext.topicId,

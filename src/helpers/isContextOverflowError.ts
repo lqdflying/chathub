@@ -81,6 +81,11 @@ const collectErrorText = (error: unknown): string => {
   return parts.join('\n');
 };
 
+const isContextOverflowMessage = (text: string): boolean => {
+  const normalized = text.toLowerCase();
+  return OVERFLOW_MESSAGE_PATTERNS.some((pattern) => normalized.includes(pattern));
+};
+
 export const isContextOverflowError = (error: unknown): boolean => {
   if (!error || typeof error !== 'object') {
     return typeof error === 'string' && isContextOverflowMessage(error);
@@ -94,11 +99,6 @@ export const isContextOverflowError = (error: unknown): boolean => {
     }
   }
   return isContextOverflowMessage(collectErrorText(error));
-};
-
-const isContextOverflowMessage = (text: string): boolean => {
-  const normalized = text.toLowerCase();
-  return OVERFLOW_MESSAGE_PATTERNS.some((pattern) => normalized.includes(pattern));
 };
 
 /** Default History Compress summarizer deadline (both browser and worker lanes). */

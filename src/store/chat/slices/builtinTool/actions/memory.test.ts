@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { memoryEntryOriginKey } from '@/helpers/assistantMemory';
 import { useChatStore } from '@/store/chat';
 import { chatSelectors } from '@/store/chat/selectors';
+import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 
 const { agentStoreMock } = vi.hoisted(() => {
   const state = {
@@ -39,6 +40,7 @@ vi.mock('@/store/agent/selectors', () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  useChatStore.setState({ messagesMap: {} });
   agentStoreMock.activeId = 'session-1';
   agentStoreMock.assistantMemory = '';
   agentStoreMock.assistantMemoryMeta = undefined;
@@ -314,6 +316,30 @@ describe('saveMemory builtin tool executor', () => {
     updateContent.mockRestore();
   });
 
+  it('readMemory with source+index returns the single complete entry (F7)', async () => {
+    agentStoreMock.fixedMemory = '#1: prefers dark mode\n#2: drinks green tea daily';
+    const { result } = renderHook(() => useChatStore());
+    const updateContent = vi
+      .spyOn(result.current, 'internal_updateMessageContent')
+      .mockResolvedValue(undefined as any);
+
+    await act(async () => {
+      await result.current.readMemory('msg-1', { index: 2, source: 'fixed' });
+    });
+
+    expect(updateContent).toHaveBeenCalledWith(
+      'msg-1',
+      JSON.stringify({
+        content: 'drinks green tea daily',
+        index: 2,
+        source: 'fixed',
+        truncated: false,
+      }),
+    );
+
+    updateContent.mockRestore();
+  });
+
   it('tags memory-tool writes as agent origin', async () => {
     const { result } = renderHook(() => useChatStore());
     const updateContent = vi
@@ -332,7 +358,44 @@ describe('saveMemory builtin tool executor', () => {
   });
 
   it('downgrades the origin to untrusted when recent history contains MCP tool output', async () => {
-    const chatsSpy = vi.spyOn(chatSelectors, 'mainDisplayChats').mockReturnValue([
+    const { result } = renderHook(() => useChatStore());
+    // F2: taint scans the INVOKING conversation's raw history in messagesMap —
+    // display selectors strip tool rows, so seed the map with the tool message
+    // and the invoking assistant row ('msg-1') in the same conversation.
+    act(() => {
+      useChatStore.setState({
+        messagesMap: {
+          [messageMapKey('session-1', 'topic-1')]: [
+            { id: 'u1', role: 'user' },
+            { id: 't1', plugin: { identifier: 'mcp__notion' }, role: 'tool' },
+            { id: 'msg-1', role: 'assistant' },
+          ] as any,
+        },
+      });
+    });
+    const updateContent = vi
+      .spyOn(result.current, 'internal_updateMessageContent')
+      .mockResolvedValue(undefined as any);
+
+    await act(async () => {
+      await result.current.saveMemory('msg-1', { content: 'attacker controlled note' });
+    });
+
+    expect(agentStoreMock.assistantMemoryMeta?.entryOrigins).toEqual({
+      [memoryEntryOriginKey('attacker controlled note')]: 'untrusted',
+    });
+
+    updateContent.mockRestore();
+    act(() => {
+      useChatStore.setState({ messagesMap: {} });
+    });
+  });
+
+  it('falls back to the active raw history when the invoking row is not in any loaded map', async () => {
+    // Deferred-lane case: the tool message id is not in messagesMap (e.g. the
+    // conversation was never loaded in this tab), so the taint scan uses the
+    // active conversation's raw history (mainAIChats keeps tool rows).
+    const chatsSpy = vi.spyOn(chatSelectors, 'mainAIChats').mockReturnValue([
       { id: 't1', plugin: { identifier: 'mcp__notion' }, role: 'tool' },
       { id: 'a1', role: 'assistant' },
     ] as any);
@@ -342,7 +405,7 @@ describe('saveMemory builtin tool executor', () => {
       .mockResolvedValue(undefined as any);
 
     await act(async () => {
-      await result.current.saveMemory('msg-1', { content: 'attacker controlled note' });
+      await result.current.saveMemory('msg-9', { content: 'attacker controlled note' });
     });
 
     expect(agentStoreMock.assistantMemoryMeta?.entryOrigins).toEqual({

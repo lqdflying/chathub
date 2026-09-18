@@ -70,6 +70,16 @@ export const hashText = (text: string): string => {
  * style. Next index = highest existing `#N:` line + 1, so user edits/deletions
  * never cause collisions.
  */
+/**
+ * Fixed entries are single-line by contract ("one concise fact per entry").
+ * Collapse embedded newlines/whitespace runs so a model-authored entry can
+ * never smuggle continuation lines past provenance partitioning (F3): origin
+ * tags key on the entry's first line, so stored multiline entries would leak
+ * their tail into the trusted block.
+ */
+const normalizeFixedEntryContent = (content: string): string =>
+  content.trim().replaceAll(/\s+/g, ' ');
+
 export const appendFixedMemoryEntry = (
   doc: string | null | undefined,
   content: string,
@@ -80,7 +90,7 @@ export const appendFixedMemoryEntry = (
     maxIndex = Math.max(maxIndex, Number(match[1]));
   }
   const index = maxIndex + 1;
-  const entry = `#${index}: ${content.trim()}`;
+  const entry = `#${index}: ${normalizeFixedEntryContent(content)}`;
   return { doc: base ? `${base}\n${entry}` : entry, index };
 };
 
@@ -215,7 +225,7 @@ export const updateFixedMemoryEntry = (
     return { entries: parseFixedMemoryEntries(doc), error: 'mismatch' };
   }
 
-  const nextContent = content.trim();
+  const nextContent = normalizeFixedEntryContent(content);
   lines[target.line] = `#${index}: ${nextContent}`;
   return { doc: lines.join('\n').trim(), entry: { content: nextContent, index } };
 };
@@ -250,9 +260,9 @@ const TOKEN_CAP_TOLERANCE = 1.15;
 
 // --- Lexical memory search + dream-card dedupe (M1/M3) ---
 
-const LATIN_WORD_RUN = /[a-z0-9]+/g;
+const LATIN_WORD_RUN = /[\da-z]+/g;
 // CJK unified ideographs (+ ext A, compat), Japanese kana, Korean syllables
-const CJK_RUN = /[㐀-䶿一-鿿豈-﫿぀-ヿ가-힯]+/g;
+const CJK_RUN = /[぀-ヿ㐀-䶿一-鿿가-힯豈-﫿]+/g;
 
 /**
  * CJK-aware lexical tokenizer shared by memory search scoring and dream-card
@@ -284,6 +294,68 @@ export const jaccardSimilarity = (a: Set<string>, b: Set<string>): number => {
   let intersection = 0;
   for (const token of a) if (b.has(token)) intersection += 1;
   return intersection / (a.size + b.size - intersection);
+};
+
+const DREAM_MEMORY_HEADER = /^#(\d+) \[([^\]]+)]:\s*(.*)$/;
+const DREAM_SINGLE_DAY_TAG = /^\d{4}-\d{2}-\d{2}$/;
+
+export interface DreamMemoryEntry {
+  body: string;
+  dateTag: string;
+  index: number;
+  /** True when `dateTag` is a single UTC day (`YYYY-MM-DD`). */
+  regenerable: boolean;
+}
+
+const isDreamSingleDayTag = (tag: string) => DREAM_SINGLE_DAY_TAG.test(tag);
+
+/** Numbered dream cards (`#N [date]:` blocks) in document order. */
+export const parseDreamMemoryEntries = (doc: string | null | undefined): DreamMemoryEntry[] => {
+  const text = (doc ?? '').trim();
+  if (!text) return [];
+
+  const entries: DreamMemoryEntry[] = [];
+  let current: DreamMemoryEntry | null = null;
+
+  for (const line of text.split('\n')) {
+    const match = DREAM_MEMORY_HEADER.exec(line);
+    if (match) {
+      if (current) entries.push(current);
+      const bodyStart = match[3].trim();
+      const dateTag = match[2].trim();
+      current = {
+        body: bodyStart,
+        dateTag,
+        index: Number(match[1]),
+        regenerable: isDreamSingleDayTag(dateTag),
+      };
+    } else if (current) {
+      current.body = current.body ? `${current.body}\n${line}` : line;
+    }
+  }
+  if (current) entries.push({ ...current, body: current.body.trim() });
+
+  return entries;
+};
+
+export const serializeDreamMemoryEntries = (entries: DreamMemoryEntry[]): string =>
+  entries
+    .map((entry) => {
+      const header = `#${entry.index} [${entry.dateTag}]:`;
+      return entry.body ? `${header}\n${entry.body}` : header;
+    })
+    .join('\n')
+    .trim();
+
+/**
+ * Wrap a legacy free-text dynamic memory blob as `#1 [legacy]:` so dated cards can
+ * append without losing prior content.
+ */
+export const normalizeDreamMemoryDocument = (doc: string | null | undefined): string => {
+  const trimmed = (doc ?? '').trim();
+  if (!trimmed) return '';
+  if (parseDreamMemoryEntries(trimmed).length > 0) return trimmed;
+  return `#1 [legacy]:\n${trimmed}`;
 };
 
 /** Near-duplicate threshold for dream-card append (Jaccard over CJK-aware tokens). */
@@ -321,6 +393,28 @@ export interface MemorySearchHit {
 }
 
 const SEARCH_SNIPPET_MAX_CHARS = 500;
+
+/** Lead-in kept before the first match so a mid-entry match stays readable. */
+const SEARCH_SNIPPET_MATCH_LEAD_IN_CHARS = 80;
+
+/**
+ * Snippet window for one hit. Head-anchored when the content fits or the match
+ * is early; otherwise anchored on the first verbatim query occurrence so the
+ * matched context is actually visible (a head-only window can omit the match
+ * entirely for long entries — F7). `readMemory` with the hit's source+index
+ * returns the complete entry.
+ */
+const buildSearchSnippet = (content: string, query: string): string => {
+  if (content.length <= SEARCH_SNIPPET_MAX_CHARS) return content;
+  const matchIndex = content.toLowerCase().indexOf(query.trim().toLowerCase());
+  if (matchIndex < SEARCH_SNIPPET_MAX_CHARS) {
+    return `${content.slice(0, SEARCH_SNIPPET_MAX_CHARS)}…`;
+  }
+  const start = Math.max(0, matchIndex - SEARCH_SNIPPET_MATCH_LEAD_IN_CHARS);
+  const window = content.slice(start, start + SEARCH_SNIPPET_MAX_CHARS);
+  const suffix = start + SEARCH_SNIPPET_MAX_CHARS < content.length ? '…' : '';
+  return `…${window}${suffix}`;
+};
 
 /**
  * Lexical top-k over both memory tiers (fixed entries + dream cards).
@@ -372,10 +466,7 @@ export const searchAssistantMemory = ({
     )
     .slice(0, cap)
     .map(({ content, index, score, source }) => ({
-      content:
-        content.length > SEARCH_SNIPPET_MAX_CHARS
-          ? `${content.slice(0, SEARCH_SNIPPET_MAX_CHARS)}…`
-          : content,
+      content: buildSearchSnippet(content, query),
       index,
       score: Math.round(score * 1000) / 1000,
       source,
@@ -393,6 +484,65 @@ export const readAssistantMemory = ({
   const fixed = (fixedMemory ?? '').trim();
   const dynamic = (dynamicMemory ?? '').trim();
   return { dynamic, fixed, totalChars: fixed.length + dynamic.length };
+};
+
+/** Upper bound for one entry-scoped read, so the result stays within the tool-result cap. */
+export const MEMORY_ENTRY_READ_MAX_CHARS = 7000;
+
+export type MemoryEntryReadResult =
+  | {
+      content: string;
+      index: number;
+      source: 'dynamic' | 'fixed';
+      truncated: boolean;
+    }
+  | { availableIndexes: number[]; error: 'not_found'; source: 'dynamic' | 'fixed' };
+
+/**
+ * Entry-scoped `readMemory`: return the complete text of one entry addressed
+ * by a `searchMemory` hit (`source` + `index`). This is the recall path for
+ * entries omitted by the injection budget — a whole-document read is capped by
+ * the request pipeline and cannot reach them (F7).
+ */
+export const readAssistantMemoryEntry = ({
+  dynamicMemory,
+  fixedMemory,
+  index,
+  source,
+}: {
+  dynamicMemory?: string | null;
+  fixedMemory?: string | null;
+  index: number;
+  source: 'dynamic' | 'fixed';
+}): MemoryEntryReadResult => {
+  if (source === 'fixed') {
+    const entries = parseFixedMemoryEntries(fixedMemory);
+    const entry = entries.find((item) => item.index === index);
+    if (!entry) {
+      return { availableIndexes: entries.map((item) => item.index), error: 'not_found', source };
+    }
+    const truncated = entry.content.length > MEMORY_ENTRY_READ_MAX_CHARS;
+    return {
+      content: truncated ? entry.content.slice(0, MEMORY_ENTRY_READ_MAX_CHARS) : entry.content,
+      index: entry.index,
+      source,
+      truncated,
+    };
+  }
+
+  const cards = parseDreamMemoryEntries(normalizeDreamMemoryDocument(dynamicMemory));
+  const card = cards.find((item) => item.index === index);
+  if (!card) {
+    return { availableIndexes: cards.map((item) => item.index), error: 'not_found', source };
+  }
+  // Raw body, matching what search indexes and the injection renders.
+  const truncated = card.body.length > MEMORY_ENTRY_READ_MAX_CHARS;
+  return {
+    content: truncated ? card.body.slice(0, MEMORY_ENTRY_READ_MAX_CHARS) : card.body,
+    index: card.index,
+    source,
+    truncated,
+  };
 };
 
 // --- Memory provenance (M2) ---
@@ -460,12 +610,24 @@ export const partitionMemoryByTrust = ({
     entryOrigins[memoryEntryOriginKey(content)] === 'untrusted';
 
   // Fixed tier: pull untrusted entry lines out; keep all other lines in place.
+  // Continuation lines inherit the preceding entry's trust (F3): entries are
+  // single-line by contract, but a legacy/pre-fix multiline entry must not
+  // leak its tail into the trusted block. Free-form lines before the first
+  // entry (owner preamble) stay trusted.
   const trustedFixedLines: string[] = [];
   const untrustedFixed: string[] = [];
+  let currentEntryUntrusted = false;
   for (const line of (fixed ?? '').split('\n')) {
     const match = FIXED_MEMORY_ENTRY_LINE.exec(line);
-    if (match && isUntrusted(match[2].trim())) untrustedFixed.push(`#${match[1]}: ${match[2].trim()}`);
-    else trustedFixedLines.push(line);
+    if (match) {
+      currentEntryUntrusted = isUntrusted(match[2].trim());
+      if (currentEntryUntrusted) untrustedFixed.push(`#${match[1]}: ${match[2].trim()}`);
+      else trustedFixedLines.push(line);
+    } else if (currentEntryUntrusted) {
+      untrustedFixed.push(line);
+    } else {
+      trustedFixedLines.push(line);
+    }
   }
 
   // Dynamic tier: split dream cards (normalize first so a legacy preamble is kept as a card).
@@ -690,20 +852,8 @@ export const resolveMemoryDreamMaxEntries = (
   return Math.min(MEMORY_DREAM_MAX_ENTRIES_MAX, Math.max(MEMORY_DREAM_MAX_ENTRIES_MIN, raw));
 };
 
-const DREAM_MEMORY_HEADER = /^#(\d+) \[([^\]]+)]:\s*(.*)$/;
-const DREAM_SINGLE_DAY_TAG = /^\d{4}-\d{2}-\d{2}$/;
-
-export interface DreamMemoryEntry {
-  body: string;
-  dateTag: string;
-  index: number;
-  /** True when `dateTag` is a single UTC day (`YYYY-MM-DD`). */
-  regenerable: boolean;
-}
-
 export type DreamMemoryMutationError = 'mismatch' | 'not_found';
 
-const isDreamSingleDayTag = (tag: string) => DREAM_SINGLE_DAY_TAG.test(tag);
 const DREAM_MERGED_TAG = /^\d{4}-\d{2}-\d{2}\.\.\d{4}-\d{2}-\d{2}$/;
 export const isDreamMergedTag = (tag: string) => DREAM_MERGED_TAG.test(tag);
 
@@ -782,55 +932,6 @@ const opaquePayloadBody = (entry: Pick<DreamMemoryEntry, 'body' | 'dateTag'>): s
 /** Non-scheduled tags such as `[legacy]` or pre-feature custom labels. */
 export const isDreamCustomTag = (tag: string) =>
   tag !== 'legacy' && !isDreamMergedTag(tag) && !isDreamSingleDayTag(tag);
-
-/** Numbered dream cards (`#N [date]:` blocks) in document order. */
-export const parseDreamMemoryEntries = (doc: string | null | undefined): DreamMemoryEntry[] => {
-  const text = (doc ?? '').trim();
-  if (!text) return [];
-
-  const entries: DreamMemoryEntry[] = [];
-  let current: DreamMemoryEntry | null = null;
-
-  for (const line of text.split('\n')) {
-    const match = DREAM_MEMORY_HEADER.exec(line);
-    if (match) {
-      if (current) entries.push(current);
-      const bodyStart = match[3].trim();
-      const dateTag = match[2].trim();
-      current = {
-        body: bodyStart,
-        dateTag,
-        index: Number(match[1]),
-        regenerable: isDreamSingleDayTag(dateTag),
-      };
-    } else if (current) {
-      current.body = current.body ? `${current.body}\n${line}` : line;
-    }
-  }
-  if (current) entries.push({ ...current, body: current.body.trim() });
-
-  return entries;
-};
-
-export const serializeDreamMemoryEntries = (entries: DreamMemoryEntry[]): string =>
-  entries
-    .map((entry) => {
-      const header = `#${entry.index} [${entry.dateTag}]:`;
-      return entry.body ? `${header}\n${entry.body}` : header;
-    })
-    .join('\n')
-    .trim();
-
-/**
- * Wrap a legacy free-text dynamic memory blob as `#1 [legacy]:` so dated cards can
- * append without losing prior content.
- */
-export const normalizeDreamMemoryDocument = (doc: string | null | undefined): string => {
-  const trimmed = (doc ?? '').trim();
-  if (!trimmed) return '';
-  if (parseDreamMemoryEntries(trimmed).length > 0) return trimmed;
-  return `#1 [legacy]:\n${trimmed}`;
-};
 
 const renumberDreamMemoryEntries = (entries: DreamMemoryEntry[]): DreamMemoryEntry[] =>
   entries.map((entry, i) => ({ ...entry, index: i + 1 }));

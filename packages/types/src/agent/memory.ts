@@ -47,6 +47,12 @@ export type MemoryEntryOrigin = 'agent' | 'dream' | 'owner' | 'untrusted';
  */
 export interface AssistantMemoryMeta {
   /**
+   * Provenance per memory entry, keyed by content hash (`hashText` of the
+   * fixed-entry text or dream-card body). Absent key = predates provenance,
+   * rendered trusted. See {@link MemoryEntryOrigin}.
+   */
+  entryOrigins?: Record<string, MemoryEntryOrigin>;
+  /**
    * ISO timestamp of the latest scheduled dream attempt that committed an
    * outcome. Dream-specific — the browser manual-rollup action never writes
    * it, so the settings UI can show dream status without misattributing
@@ -68,12 +74,6 @@ export interface AssistantMemoryMeta {
   lastError?: AssistantMemoryLastError | null;
   /** ISO timestamp of the last rollup that advanced the watermarks. */
   lastRollupAt?: string;
-  /**
-   * Provenance per memory entry, keyed by content hash (`hashText` of the
-   * fixed-entry text or dream-card body). Absent key = predates provenance,
-   * rendered trusted. See {@link MemoryEntryOrigin}.
-   */
-  entryOrigins?: Record<string, MemoryEntryOrigin>;
   /** One-slot undo backup; restore swaps it with the current memory, so restoring twice is a redo. */
   previousMemory?: { at: string; text: string } | null;
   topicWatermarks?: AssistantMemoryTopicWatermark[];

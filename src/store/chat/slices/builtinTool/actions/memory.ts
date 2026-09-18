@@ -8,6 +8,7 @@ import {
   MEMORY_TAINT_WINDOW,
   mergeNewEntryOrigins,
   readAssistantMemory,
+  readAssistantMemoryEntry,
   searchAssistantMemory,
   updateFixedMemoryEntry,
 } from '@/helpers/assistantMemory';
@@ -15,6 +16,7 @@ import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selector
 import { getAgentStoreState } from '@/store/agent/store';
 import { chatSelectors } from '@/store/chat/selectors';
 import { ChatStore } from '@/store/chat/store';
+import { findMessageInMessagesMap } from '@/store/chat/utils/messageMapKey';
 import { builtinTools } from '@/tools';
 
 const BUILTIN_TOOL_IDENTIFIERS = new Set(builtinTools.map((tool) => tool.identifier));
@@ -29,7 +31,7 @@ export interface MemoryAction {
   ) => Promise<boolean | undefined>;
   readMemory: (
     id: string,
-    params?: Record<string, never>,
+    params?: { index?: number; source?: 'dynamic' | 'fixed' },
     aiSummary?: boolean,
     diagnosticId?: string,
   ) => Promise<boolean | undefined>;
@@ -117,10 +119,19 @@ export const memorySlice: StateCreator<
         // M2 provenance: entries authored by this write are tagged `agent`,
         // downgraded to `untrusted` when the writing turn's recent history
         // contains external (MCP / web) tool output.
-        const tainted = isMemoryWriteTainted(
-          chatSelectors.mainDisplayChats(get()).slice(-MEMORY_TAINT_WINDOW),
-          isBuiltinToolIdentifier,
-        );
+        // F2: scan the INVOKING conversation's raw history (tool rows
+        // included) — `mainDisplayChats` strips tool messages, and the active
+        // conversation may have changed after navigation. The tool message id
+        // locates its own conversation; fall back to the active raw history
+        // only when the row is not in any loaded map.
+        const chatState = get();
+        const origin = findMessageInMessagesMap(chatState.messagesMap, id);
+        const taintWindow = (
+          origin
+            ? (chatState.messagesMap[origin.mapKey] ?? [])
+            : chatSelectors.mainAIChats(chatState)
+        ).slice(-MEMORY_TAINT_WINDOW);
+        const tainted = isMemoryWriteTainted(taintWindow, isBuiltinToolIdentifier);
         const newOrigins = mergeNewEntryOrigins(
           config.fixedMemory,
           outcome.doc,
@@ -215,6 +226,23 @@ export const memorySlice: StateCreator<
           result: { deleted: true, index, renumbered: true },
         };
       }),
+    readMemory: async (id, params, aiSummary = true) =>
+      runMemoryRead(id, aiSummary, (config) => {
+        const source = params?.source;
+        const index = Number(params?.index);
+        if ((source === 'fixed' || source === 'dynamic') && Number.isInteger(index)) {
+          return readAssistantMemoryEntry({
+            dynamicMemory: config.assistantMemory,
+            fixedMemory: config.fixedMemory,
+            index,
+            source,
+          });
+        }
+        return readAssistantMemory({
+          dynamicMemory: config.assistantMemory,
+          fixedMemory: config.fixedMemory,
+        });
+      }),
     saveMemory: async (id, params, aiSummary = true) =>
       runMemoryWrite(id, aiSummary, (currentDoc) => {
         const content = (params?.content ?? '').trim();
@@ -223,13 +251,6 @@ export const memorySlice: StateCreator<
         const { doc, index } = appendFixedMemoryEntry(currentDoc, content);
         return { doc, result: { content, index, saved: true } };
       }),
-    readMemory: async (id, _params, aiSummary = true) =>
-      runMemoryRead(id, aiSummary, (config) =>
-        readAssistantMemory({
-          dynamicMemory: config.assistantMemory,
-          fixedMemory: config.fixedMemory,
-        }),
-      ),
     searchMemory: async (id, params, aiSummary = true) =>
       runMemoryRead(id, aiSummary, (config) => {
         const query = (params?.query ?? '').trim();

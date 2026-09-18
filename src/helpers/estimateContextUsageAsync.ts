@@ -36,9 +36,11 @@ import {
 import { buildHistorySummaryForRequest } from './memoryArchivePrompt';
 import {
   applyReportedInputTokenFloor,
+  fingerprintAnchorPrefix,
   getEffectiveReportedInputTokenFloorAfterMessageId,
   getLatestReportedInputAnchor,
   getLatestReportedInputTokens,
+  resolveAnchorBaseline,
 } from './reportedContextTokens';
 
 interface EstimateContextUsageOverrides {
@@ -231,16 +233,28 @@ export const estimateContextUsageAsync = async ({
   // including the pending input row) needs tokenizing. This replaces the
   // whole-window tokenizer estimate, which undercounts CJK ~3x. Without an
   // anchor, fall back to the whole-window estimate floored by reported usage.
+  // F5: the anchor is only trusted against its retained baseline — fixed
+  // overhead changes (skills, instructions, memory, tools) are added as a
+  // delta, and a changed message prefix falls back to the whole window.
   const anchor = getLatestReportedInputAnchor(estimateMessages, usageLookupOptions);
+  const anchorIndex = anchor ? chats.findIndex(({ id }) => id === anchor.id) : -1;
 
   let chatsToken: number;
   let totalToken: number;
-  if (anchor) {
-    const anchorIndex = chats.findIndex(({ id }) => id === anchor.id);
+  const anchorBaseline =
+    anchor && anchorIndex >= 0
+      ? resolveAnchorBaseline({
+          anchorId: anchor.id,
+          currentFixedOverheadTokens: fixedTokens,
+          prefixFingerprint: fingerprintAnchorPrefix(chats.slice(0, anchorIndex)),
+          reportedInputTokens: anchor.totalInputTokens,
+        })
+      : undefined;
+  if (anchor && anchorBaseline) {
     const tailToken = await countTokens(
-      serializeMessagesForContextEstimate(chats.slice(Math.max(0, anchorIndex)), inputTemplate),
+      serializeMessagesForContextEstimate(chats.slice(anchorIndex), inputTemplate),
     );
-    totalToken = anchor.totalInputTokens + tailToken;
+    totalToken = anchor.totalInputTokens + tailToken + anchorBaseline.overheadDelta;
     chatsToken = Math.max(0, totalToken - fixedTokens);
   } else {
     const wholeWindowToken = await countTokens(

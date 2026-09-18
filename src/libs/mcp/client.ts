@@ -2,6 +2,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.d.ts';
 import type { Progress } from '@modelcontextprotocol/sdk/types.js';
+import { McpError as SdkMcpError } from '@modelcontextprotocol/sdk/types.js';
 import debug from 'debug';
 
 import {
@@ -22,6 +23,19 @@ import {
 import type { MCPTokenGetter } from './types';
 
 const log = debug('lobe-mcp:client');
+
+/**
+ * True only for a transport-level stale-session rejection. The SDK frames
+ * HTTP POST failures as plain `Error('Error POSTing to endpoint (HTTP 400):
+ * …')` (client/streamableHttp.js), while JSON-RPC application errors become
+ * `McpError` (shared/protocol.js). An application error containing the same
+ * phrase is not proof the call never reached the server, so it must never be
+ * mapped to the retry sentinel (never-replay rule for possibly-mutating calls).
+ */
+const isTransportSessionRejection = (error: unknown): boolean =>
+  !(error instanceof SdkMcpError) &&
+  error instanceof Error &&
+  error.message.includes('No valid session ID provided');
 // MCP tool call timeout (milliseconds), configurable via the environment variable MCP_TOOL_TIMEOUT, default is 60000
 // Parse MCP_TOOL_TIMEOUT, only use if it's a valid positive number, otherwise fallback to default 60000
 const MCP_TOOL_TIMEOUT = (() => {
@@ -234,7 +248,7 @@ export class MCPClient {
         error: describeToolsDebugError(e),
       });
 
-      if ((e as Error).message.includes('No valid session ID provided')) {
+      if (isTransportSessionRejection(e)) {
         throw new Error('NoValidSessionId');
       }
 
@@ -323,8 +337,11 @@ export class MCPClient {
         error: describeToolsDebugError(e),
       });
 
-      // Same stale-session mapping as listTools so MCPService can evict + retry.
-      if ((e as Error).message.includes('No valid session ID provided')) {
+      // Same stale-session mapping as listTools so MCPService can evict +
+      // retry — but only for positively identified transport rejections. An
+      // application-level McpError may contain the same phrase while the call
+      // already executed server-side; replaying it could repeat a mutation.
+      if (isTransportSessionRejection(e)) {
         throw new Error('NoValidSessionId');
       }
 

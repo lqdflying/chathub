@@ -14,9 +14,11 @@ import type { HistoryWindowDiagnostics } from '@/helpers/contextUsageEstimate';
 import { buildHistorySummaryForRequest } from '@/helpers/memoryArchivePrompt';
 import {
   applyReportedInputTokenFloor,
+  fingerprintAnchorPrefix,
   getEffectiveReportedInputTokenFloorAfterMessageId,
   getLatestReportedInputAnchor,
   getLatestReportedInputTokens,
+  resolveAnchorBaseline,
 } from '@/helpers/reportedContextTokens';
 import { createChatToolsEngine } from '@/helpers/toolEngineering';
 import { useModelContextWindowTokens } from '@/hooks/useModelContextWindowTokens';
@@ -240,6 +242,7 @@ export const useEstimatedContextUsage = (
     }) + knowledgeBaseToken;
 
   const {
+    anchorBaseline,
     anchorReportedInputTokens,
     chatsString,
     historyWindow,
@@ -279,12 +282,27 @@ export const useEstimatedContextUsage = (
       : undefined;
     // C2 usage anchor: with a provider-reported input count, only the tail
     // after that message needs tokenizing (mirrors estimateContextUsageAsync).
+    // F5: trust the anchor only against its retained baseline — fixed overhead
+    // changes (skills, instructions, memory, tools) are added as a delta, and
+    // a changed message prefix falls back to the whole-window estimate. The
+    // baseline excludes KB tokens: retrieval is re-fetched per request, so the
+    // anchor's reported input never covered it.
     const anchor = getLatestReportedInputAnchor(estimateMessages, usageLookupOptions);
     const anchorIndex = anchor ? sliced.findIndex(({ id }) => id === anchor.id) : -1;
+    const anchorBaseline =
+      anchor && anchorIndex >= 0
+        ? resolveAnchorBaseline({
+            anchorId: anchor.id,
+            currentFixedOverheadTokens: fixedOverheadTokens - knowledgeBaseToken,
+            prefixFingerprint: fingerprintAnchorPrefix(sliced.slice(0, anchorIndex)),
+            reportedInputTokens: anchor.totalInputTokens,
+          })
+        : undefined;
 
     return {
-      anchorReportedInputTokens: anchor?.totalInputTokens,
-      chatsString: anchor
+      anchorBaseline,
+      anchorReportedInputTokens: anchorBaseline ? anchor?.totalInputTokens : undefined,
+      chatsString: anchorBaseline
         ? ''
         : serializeMessagesForContextEstimate(sliced, inputTemplate),
       historyWindow: getHistoryWindowDiagnostics({
@@ -302,7 +320,7 @@ export const useEstimatedContextUsage = (
         pendingInput: input,
       }),
       reportedInputTokens: getLatestReportedInputTokens(estimateMessages, usageLookupOptions),
-      tailString: anchor
+      tailString: anchorBaseline
         ? serializeMessagesForContextEstimate(sliced.slice(Math.max(0, anchorIndex)), inputTemplate)
         : '',
       topicChatsString: serializeMessagesForContextEstimate(chats, inputTemplate, {
@@ -320,6 +338,7 @@ export const useEstimatedContextUsage = (
     input,
     inputTemplate,
     isRegularTopic,
+    knowledgeBaseToken,
     maxTokens,
     memorySummaryRaw,
     messageFingerprint,
@@ -335,10 +354,12 @@ export const useEstimatedContextUsage = (
 
   let chatsTokenDisplay: number;
   let totalToken: number;
-  if (anchorReportedInputTokens !== undefined) {
-    // Anchored: provider-reported input + tail (+ current KB retrieval, which
-    // the anchor's request could not include yet).
-    totalToken = anchorReportedInputTokens + tailToken + knowledgeBaseToken;
+  if (anchorReportedInputTokens !== undefined && anchorBaseline) {
+    // Anchored: provider-reported input + tail + fixed-overhead delta since
+    // the anchor's request (+ current KB retrieval, which the anchor's
+    // request could not include yet).
+    totalToken =
+      anchorReportedInputTokens + tailToken + anchorBaseline.overheadDelta + knowledgeBaseToken;
     chatsTokenDisplay = Math.max(0, totalToken - fixedTokens);
   } else {
     const floor = applyReportedInputTokenFloor(estimatedTotal, reportedInputTokens);

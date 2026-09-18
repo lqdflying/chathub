@@ -10,6 +10,7 @@ import {
   resolveEffectiveHistoryWindow,
   serializeMessagesForContextEstimate,
 } from '@/helpers/contextUsageEstimate';
+import { clearAnchorBaselines } from '@/helpers/reportedContextTokens';
 
 import { useEstimatedContextUsage } from './useEstimatedContextUsage';
 
@@ -184,6 +185,7 @@ vi.mock('@/services/chat/composeSystemRole', () => ({
 
 describe('useEstimatedContextUsage', () => {
   beforeEach(() => {
+    clearAnchorBaselines();
     mocks.chatState.inputMessage = '';
     mocks.maxTokens = 1000;
     mocks.setHasPendingFiles(false);

@@ -95,6 +95,9 @@ const generationDebugMocks = vi.hoisted(() => ({
 const compactionDebugMocks = vi.hoisted(() => ({
   logCompactionDebugSafe: vi.fn(),
 }));
+const userMocks = vi.hoisted(() => ({
+  getUserState: vi.fn(),
+}));
 
 vi.mock('@/libs/logger/generationDebug', () => ({
   hashGenerationDebugValue: generationDebugMocks.hashGenerationDebugValue,
@@ -167,7 +170,12 @@ vi.mock('@/database/models/topic', () => ({
     update = topicMocks.update;
   },
 }));
-vi.mock('@/database/models/user', () => ({ UserModel: { findById: vi.fn() } }));
+vi.mock('@/database/models/user', () => ({
+  UserModel: class {
+    static findById = vi.fn();
+    getUserState = userMocks.getUserState;
+  },
+}));
 vi.mock('@/database/models/chunk', () => ({ ChunkModel: class {} }));
 vi.mock('@/server/services/aiChat', () => ({
   AiChatService: class {
@@ -2823,6 +2831,104 @@ describe('executeConversationGeneration context overflow self-healing', () => {
       'context_overflow_retry',
       expect.objectContaining({ candidateCount: 2, lane: 'worker' }),
     );
+  });
+
+  it('retains tool results from the current send when overflow recovery rebuilds the payload', async () => {
+    const row = buildChatOperation();
+    // Live transcript that grows as the turn persists rows: the tool result
+    // lands AFTER the initial payload was built from the pre-send snapshot, so
+    // a recovery rebuild from that stale snapshot would drop it (F1).
+    const live = [
+      ...topicMessages.map((message) => ({ ...message })),
+      { ...assistant, parentId: 'u2', updatedAt: 1 },
+    ] as any[];
+    aiChatMocks.getMessagesAndTopics.mockImplementation(async () => ({
+      messages: live.map((message) => ({ ...message })),
+      topics: [],
+    }));
+    messageMocks.findById.mockImplementation(async (id) => live.find((m) => m.id === id));
+    messageMocks.update.mockImplementation(async (id, value) => {
+      Object.assign(
+        live.find((m) => m.id === id)!,
+        value,
+      );
+    });
+    messageMocks.updateMetadata.mockImplementation(async (id, value) => {
+      const message = live.find((m) => m.id === id)!;
+      message.metadata = { ...message.metadata, ...value };
+    });
+    messageMocks.create.mockImplementation(async (value: any, id?: string) => {
+      const record = { ...value, id: id || 'tool-result-1', updatedAt: 1 };
+      live.push(record);
+      return record;
+    });
+    messageMocks.findToolMessageByCall.mockResolvedValue(undefined);
+    vi.mocked(executeConversationToolStep).mockResolvedValue({
+      content: 'TRANSFER_ALREADY_COMPLETED',
+      shouldContinue: true,
+      success: true,
+    } as any);
+    vi.mocked(consumeProtocolResponse)
+      // 1. main model call requests a (possibly mutating) tool
+      .mockResolvedValueOnce({
+        content: '',
+        toolCalls: [
+          { function: { arguments: '{}', name: 'mcp-transfer____transfer' }, id: 'call-1' },
+        ],
+      } as any)
+      // 2. continuation call overflows
+      .mockResolvedValueOnce({
+        content: '',
+        error: { message: 'maximum context length exceeded', type: 'ProviderBizError' },
+      })
+      // 3. recovery summarizer succeeds
+      .mockResolvedValueOnce({ content: 'summary' })
+      // 4. retried main model call succeeds
+      .mockResolvedValueOnce({ content: 'done' });
+
+    await runOperation(row);
+
+    const payloadCalls = vi.mocked(buildConversationChatPayload).mock.calls;
+    // initial build + post-tool continuation + overflow recovery rebuild
+    expect(payloadCalls).toHaveLength(3);
+    // The continuation AND the recovery rebuild must both contain the executed
+    // tool result — dropping it could let the model repeat a completed mutation.
+    expect(
+      payloadCalls[1][0].messages.some((m: any) => m.content === 'TRANSFER_ALREADY_COMPLETED'),
+    ).toBe(true);
+    expect(
+      payloadCalls[2][0].messages.some((m: any) => m.content === 'TRANSFER_ALREADY_COMPLETED'),
+    ).toBe(true);
+  });
+
+  it('summarizes overflow recovery with the configured History Compress model', async () => {
+    userMocks.getUserState.mockResolvedValue({
+      settings: {
+        systemAgent: { historyCompress: { model: 'summary-model', provider: 'summary-provider' } },
+      },
+    });
+    const row = buildChatOperation();
+    vi.mocked(consumeProtocolResponse)
+      // 1. main model call overflows
+      .mockResolvedValueOnce({
+        content: '',
+        error: { message: 'maximum context length exceeded', type: 'ProviderBizError' },
+      })
+      // 2. recovery summarizer succeeds
+      .mockResolvedValueOnce({ content: 'summary' })
+      // 3. retried main model call succeeds
+      .mockResolvedValueOnce({ content: 'done' });
+
+    try {
+      await runOperation(row);
+
+      expect(runtimeMocks.chat).toHaveBeenCalledTimes(3);
+      // The middle call is the recovery summarizer — it must use the configured
+      // History Compress model, not the chat model ('test-model').
+      expect(runtimeMocks.chat.mock.calls[1][0].model).toBe('summary-model');
+    } finally {
+      userMocks.getUserState.mockReset();
+    }
   });
 
   it('finalizes failed when the retried call overflows again', async () => {

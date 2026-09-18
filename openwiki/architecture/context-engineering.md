@@ -222,7 +222,15 @@ to the whole-window estimate floored by the latest reported input
 (`applyReportedInputTokenFloor`), exactly as before. The anchor lookup
 (`getLatestReportedInputAnchor` in `src/helpers/reportedContextTokens.ts`) reuses the
 `reportedInputTokenFloorAfterMessageId` watermark, so a pre-compaction report can never anchor a
-post-compaction estimate.
+post-compaction estimate. The anchor is only trusted against a **retained request baseline**
+(`resolveAnchorBaseline`, a bounded in-process map keyed by anchor message id): the baseline
+records the fixed-overhead tokens and a cheap prefix fingerprint (pre-anchor message count,
+content chars, newest `updatedAt`) from the anchor's own request. Later estimates add the
+fixed-overhead delta (skill/instruction/memory/tool changes), and a prefix mismatch (pre-anchor
+edit, delete, or history-window shift) forces one whole-window fallback estimate and
+re-registers the baseline, so only one full estimate is paid per change. A change made while no
+estimator ran (another tab, pre-reload) is absorbed into the baseline on first sight and the next
+reply re-anchors exactly.
 
 Request assembly also applies a **deterministic tool-result cap**:
 `ToolResultTruncateProcessor` (`packages/context-engine`) rewrites any `tool` message body over
@@ -295,14 +303,24 @@ completion at the context ceiling) despite the gates above, the shared classifie
 `AgentRuntimeErrorType.ExceededContextWindow`, the empty-completion-at-ceiling shape, and
 provider overflow signatures (`context_length_exceeded`, `maximum context length`,
 `prompt is too long`, MiniMax `2013`, and similar message/body patterns). Both lanes then force
-one compaction and re-dispatch the send **once** per send. The browser lanes
+one compaction and re-dispatch the send **once** per send. This emergency recovery deliberately
+overrides the History Count / History Compress switches in both lanes (D1): those switches govern
+routine scheduled/manual compaction, not rescuing a send the provider already rejected — the
+browser lanes pass `allowWhenCompactionDisabled` to the manual compaction action, and the worker
+lane never consulted the switches. The browser lanes
 (`internal_coreProcessMessage`, V2 `internal_execAgentRuntime`) run the manual compaction action
 with a dedicated abort controller (forcing the inline, batch-capped path even when durable
 generation is on), remove the failed assistant row (V1) or clear its error (V2), and retry with
 `contextOverflowRetried` set. The durable worker (`execute.ts`
-`attemptContextOverflowRecovery`) runs `runCompactionPlan` inline and retries the generation step
+`attemptContextOverflowRecovery`) runs `runCompactionPlan` inline with the configured **History
+Compress** model/provider (`loadHistoryCompressModel`, the same selection the dream job and the
+browser compaction lane use — never the chat model) and retries the generation step
 with the same `conversationContext`, stamping `contextOverflowRetried` into the persisted config
-snapshot **before** compacting so a retried operation cannot loop. When compaction cannot reclaim
+snapshot **before** compacting so a retried operation cannot loop. The recovery rebuilds the
+payload from the **current persisted transcript** (`loadScopedMessages` plus a fresh agent-row
+read), mirroring the tool-continuation reload — never from the pre-send `workingMessages`
+snapshot — so tool results and memory writes produced by the failed attempt survive the retry
+and a completed mutation cannot be repeated. When compaction cannot reclaim
 history, the original `ExceededContextWindow` error bubble is kept.
 
 Durable enqueue returns status `enqueued` (not `ineligible`) so Compact now does not toast
@@ -357,7 +375,15 @@ Memory entries also carry **provenance** (M2, OpenClaw-style injection guard). O
 (memory-tool write whose recent turn history contained external MCP/web tool output — a
 prompt-injection persistence vector; `isMemoryWriteTainted` scans the last
 `MEMORY_TAINT_WINDOW` tool messages, treating any non-builtin identifier or
-`lobe-web-browsing` as external). Tagging happens at write time in all three paths
+`lobe-web-browsing` as external). The browser lane scans the **invoking conversation's raw
+history** — the tool message id locates its own `messagesMap` bucket via
+`findMessageInMessagesMap`, falling back to the active conversation's raw history
+(`mainAIChats`, which keeps tool rows) only when the row is in no loaded map; display selectors
+strip tool rows, so they are never used. Fixed entries are **single-line by contract**:
+`appendFixedMemoryEntry`/`updateFixedMemoryEntry` collapse all whitespace runs to single spaces
+at write time, because origin tags key on the entry's first line; for legacy pre-fix documents,
+`partitionMemoryByTrust` makes continuation lines inherit the preceding entry's trust so a
+stored multiline `untrusted` entry cannot leak its tail into the trusted block. Tagging happens at write time in all three paths
 (`mergeNewEntryOrigins` for owner/agent writes, `syncDreamEntryOrigins` for the dream, which
 also prunes origins whose content no longer exists); pre-existing content keeps its recorded
 origin, so re-saving a doc cannot launder an `untrusted` entry into `owner`. At injection time
@@ -376,7 +402,14 @@ The model can also maintain fixed memory through an implicit builtin tool (`lobe
 hidden from the plugin picker) with full CRUD plus recall: `saveMemory` appends, `updateMemory` rewrites
 one entry, `deleteMemory` removes one, `searchMemory` runs a deterministic lexical top-k over both
 tiers (CJK-aware bigram tokenizer shared with dream dedupe; query-token coverage ranking), and
-`readMemory` returns the full text of both tiers. The recall pair exists for the budgeted-injection
+`readMemory` returns the full text of both tiers. `searchMemory` snippets are **match-anchored**
+(`buildSearchSnippet`): a short snippet centers on the first query-token hit (leading `…` when
+the match sits deep in the entry) instead of always showing the entry head. `readMemory` also
+accepts an optional `{ source: 'fixed' | 'dream', index }` pair for **entry-scoped recall**
+(`readAssistantMemoryEntry`, both lanes): the model reads one complete entry/card body — never
+truncated mid-entry, capped only by a defensive 4,000-char ceiling — after a search hit, instead
+of re-paying the whole document; an unknown index returns `not_found` with the available
+indexes. The recall pair exists for the budgeted-injection
 case above: when the injected block carries the truncation marker, the model can pull the rest on
 demand instead of guessing. Request inclusion is explicit:
 `createChatToolsEngine` takes an `enableMemoryTool` option threaded from

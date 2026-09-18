@@ -82,6 +82,7 @@ import {
   getConversationVersion,
   withConversationWriteLockOrThrow,
 } from '@/server/services/conversationWriteLock';
+import { loadHistoryCompressModel } from '@/server/services/historyCompress';
 import { persistMemoryCompactionIfCurrent } from '@/server/services/memoryCompactionPersist';
 import { RagEmbeddingService, resolveRagEmbeddingConfig } from '@/server/services/rag/embedding';
 import { composeSystemRole } from '@/services/chat/composeSystemRole';
@@ -164,6 +165,21 @@ export const shouldGenerateConversationTitle = ({
   isWelcomeQuestion?: boolean;
   title?: string | null;
 }) => !isWelcomeQuestion && (Boolean(force) || !title?.trim());
+
+/**
+ * The compaction summarizer exceeded its deadline. Like
+ * EmptyCompactionSummaryError this fails the compaction once — a hung upstream
+ * completion must not burn Graphile retries on the same stuck request.
+ */
+export class CompactionSummarizerTimeoutError extends Error {
+  readonly timeoutMs: number;
+
+  constructor(timeoutMs: number) {
+    super(`Memory compaction summarizer timed out after ${timeoutMs}ms.`);
+    this.name = 'CompactionSummarizerTimeoutError';
+    this.timeoutMs = timeoutMs;
+  }
+}
 
 const toError = (error: unknown): ConversationGenerationError => {
   // Upstream completion failures carry the full structured stream error
@@ -291,21 +307,6 @@ export class CompactionPromptTooLargeError extends Error {  readonly budgetToken
     this.name = 'CompactionPromptTooLargeError';
     this.budgetTokens = budgetTokens;
     this.estimatedTokens = estimatedTokens;
-  }
-}
-
-/**
- * The compaction summarizer exceeded its deadline. Like
- * EmptyCompactionSummaryError this fails the compaction once — a hung upstream
- * completion must not burn Graphile retries on the same stuck request.
- */
-export class CompactionSummarizerTimeoutError extends Error {
-  readonly timeoutMs: number;
-
-  constructor(timeoutMs: number) {
-    super(`Memory compaction summarizer timed out after ${timeoutMs}ms.`);
-    this.name = 'CompactionSummarizerTimeoutError';
-    this.timeoutMs = timeoutMs;
   }
 }
 
@@ -831,6 +832,136 @@ const finishChatStop = async (
   return { ...outcomeFromStopReason(stopReason), assistantMessageId: assistantId };
 };
 
+/**
+ * Durable fallback for the inline title handoff: create a pending `topic_title`
+ * operation row with no worker job. The pending sweeper
+ * (`sweepPendingConversationGenerationJobs`) re-enqueues any pending operation
+ * missing a job, so the title survives a failed inline enqueue. Idempotent via
+ * the handoff idempotency key and the lane-active check.
+ */
+const persistPendingTitleMarker = async (
+  db: LobeChatDatabase,
+  operation: ConversationGenerationOperation,
+  topicId: string,
+  config: ConversationGenerationOperation['config'],
+) => {
+  const idempotencyKey = `${operation.id}:title-handoff`;
+  await withConversationWriteLockOrThrow(
+    db,
+    operation.userId,
+    async (transaction) => {
+      const model = new ConversationGenerationModel(transaction, operation.userId);
+      const existing = await model.findByIdempotencyKey(idempotencyKey);
+      if (existing) return; // already handed off
+      const lane = buildConversationGenerationLane({
+        kind: 'topic_title',
+        sessionId: operation.sessionId,
+        threadId: operation.threadId,
+        topicId,
+        userId: operation.userId,
+      });
+      const active = await model.findActiveByLane(lane);
+      if (active) return; // a title operation already owns the lane
+      const laneGeneration = (await model.findMaxLaneGeneration(lane)) + 1;
+      // `workerJobId` intentionally left null: the pending sweeper re-enqueues.
+      await model.create({
+        config,
+        conversationVersion: operation.conversationVersion ?? undefined,
+        idempotencyKey,
+        kind: 'topic_title',
+        lane,
+        laneGeneration,
+        sessionId: operation.sessionId,
+        threadId: operation.threadId,
+        topicId,
+      });
+    },
+    operation.conversationVersion ?? undefined,
+  );
+};
+
+/**
+ * The inline title pass inside a chat operation must never fail or retry the
+ * completed chat reply. When it cannot run (transcript race or provider error),
+ * hand the title off to a dedicated `topic_title` operation whose own bounded
+ * retry loop owns the title lifecycle.
+ *
+ * The handoff is durable, not best-effort: it enqueues through the public,
+ * version-locked path so a cleared conversation is rejected rather than titled,
+ * and if that enqueue fails it persists a pending `topic_title` operation row
+ * (no worker job) that the 15s pending sweeper re-enqueues. The only outcomes
+ * are therefore a live title operation or a legitimately cleared conversation —
+ * never a silently dropped title.
+ */
+const handoffInlineTitle = async (
+  db: LobeChatDatabase,
+  operation: ConversationGenerationOperation,
+  error: unknown,
+) => {
+  const topicId = operation.config.title?.topicId;
+  if (!topicId) return;
+
+  const titleConfig = {
+    isWelcomeQuestion: operation.config.isWelcomeQuestion,
+    locale: operation.config.locale,
+    model: operation.config.model,
+    provider: operation.config.provider,
+    title: { force: operation.config.title?.force, topicId },
+  };
+  const input: ConversationGenerationEnqueueInput = {
+    config: titleConfig,
+    conversationVersion: operation.conversationVersion ?? undefined,
+    expectedConversationVersion: operation.conversationVersion ?? undefined,
+    idempotencyKey: `${operation.id}:title-handoff`,
+    kind: 'topic_title',
+    sessionId: operation.sessionId ?? undefined,
+    threadId: operation.threadId ?? undefined,
+    topicId,
+  };
+
+  try {
+    // Public path: tool check + credential resolution + version-locked write.
+    await new ConversationGenerationService(db, operation.userId).enqueue(input);
+    return; // a durable topic_title operation now owns the title
+  } catch (enqueueError) {
+    // The conversation was cleared/advanced while the chat ran: the transcript
+    // this title would summarize no longer belongs to a live conversation.
+    if (enqueueError instanceof ConversationWriteRejectedError) return;
+
+    // A generation already owns the title lane. That covers the title only if
+    // it is itself a topic_title operation; verify before treating it as done.
+    if (enqueueError instanceof TRPCError && enqueueError.code === 'CONFLICT') {
+      const lane = buildConversationGenerationLane({
+        kind: 'topic_title',
+        sessionId: operation.sessionId,
+        threadId: operation.threadId,
+        topicId,
+        userId: operation.userId,
+      });
+      const active = await new ConversationGenerationModel(db, operation.userId).findActiveByLane(
+        lane,
+      );
+      if (active && active.kind === 'topic_title') return;
+    }
+
+    // Any other failure must not silently drop the guaranteed title. Persist a
+    // pending operation row without a worker job; the pending sweeper
+    // re-enqueues it, so the title survives this enqueue failure.
+    try {
+      await persistPendingTitleMarker(db, operation, topicId, titleConfig);
+    } catch (markerError) {
+      if (markerError instanceof ConversationWriteRejectedError) return;
+      console.error('[conversation-generation] inline title handoff could not be made durable', {
+        enqueueError: enqueueError instanceof Error ? enqueueError.message : String(enqueueError),
+        error: error instanceof Error ? error.message : String(error),
+        markerError: markerError instanceof Error ? markerError.message : String(markerError),
+        operationId: operation.id,
+        topicId,
+      });
+    }
+  }
+};
+
 const executeChat = async (
   db: LobeChatDatabase,
   operation: ConversationGenerationOperation,
@@ -988,6 +1119,11 @@ const executeChat = async (
       return undefined;
     }
 
+    // F6: summarize with the configured History Compress model (same selection
+    // the browser compaction lane uses), not the chat model. The resumed chat
+    // below keeps the original operation.config model/provider.
+    const { model: summarizerModel, provider: summarizerProvider } =
+      await loadHistoryCompressModel(db, operation.userId);
     const recoveryOperation: ConversationGenerationOperation = {
       ...operation,
       config: {
@@ -1004,11 +1140,17 @@ const executeChat = async (
           trigger: 'token_threshold',
         },
         historySummary: currentSummary,
+        model: summarizerModel,
+        provider: summarizerProvider,
       },
     };
 
     let result: Awaited<ReturnType<typeof runCompactionPlan>>;
     try {
+      // runCompactionPlan is module-level and defined below; this closure only
+      // runs after module evaluation, so the reference is TDZ-safe (same shape
+      // as the finalize/execute* closures above).
+      // eslint-disable-next-line @typescript-eslint/no-use-before-define
       result = await runCompactionPlan(db, recoveryOperation, { runSignal: abortController.signal });
     } catch (error) {
       logGenerationDebugSafe('context_overflow_recovery_skipped', {
@@ -1048,21 +1190,36 @@ const executeChat = async (
     content = '';
     reasoning = undefined;
 
+    // F1: rebuild from the CURRENT persisted transcript, not the pre-send
+    // `workingMessages` snapshot — the first model call may have executed
+    // tools whose results must survive the retry (a stale rebuild could drop
+    // a completed mutation and let the model repeat it). Mirrors the tool
+    // continuation reload below; the agent row is re-read too so a memory-tool
+    // write from this turn is reflected. Only the retry placeholder row is
+    // excluded.
+    const latest = await loadScopedMessages(db, operation, {
+      groupId: operation.groupId ?? undefined,
+      sessionId: operation.sessionId ?? undefined,
+      topicId: operation.topicId ?? undefined,
+    });
+    const recoveryAgent = operation.sessionId
+      ? await new AgentModel(db, operation.userId).findBySessionId(operation.sessionId)
+      : agent;
     const rebuilt = await buildConversationChatPayload({
       agentMemory: {
-        dynamicMemory: agent?.assistantMemory || undefined,
-        entryOrigins: agent?.assistantMemoryMeta?.entryOrigins ?? undefined,
-        fixedMemory: agent?.fixedMemory || undefined,
+        dynamicMemory: recoveryAgent?.assistantMemory || undefined,
+        entryOrigins: recoveryAgent?.assistantMemoryMeta?.entryOrigins ?? undefined,
+        fixedMemory: recoveryAgent?.fixedMemory || undefined,
       },
       config: {
         ...operation.config,
         activatedSkillIds,
-        plugins: operation.config.plugins || agent?.plugins || undefined,
-        systemRole: operation.config.systemRole || agent?.systemRole || undefined,
+        plugins: operation.config.plugins || recoveryAgent?.plugins || undefined,
+        systemRole: operation.config.systemRole || recoveryAgent?.systemRole || undefined,
       },
       db,
       generalInstruction,
-      messages: workingMessages,
+      messages: excludeOwnedAssistantMessages(latest, assistantId),
       profile: {
         email: user?.email,
         fullName: user?.fullName,
@@ -1661,136 +1818,6 @@ const runSimpleCompletion = async (
     content: result.content.trim(),
     reasoningChars: result.reasoning?.content?.length ?? 0,
   };
-};
-
-/**
- * The inline title pass inside a chat operation must never fail or retry the
- * completed chat reply. When it cannot run (transcript race or provider error),
- * hand the title off to a dedicated `topic_title` operation whose own bounded
- * retry loop owns the title lifecycle.
- *
- * The handoff is durable, not best-effort: it enqueues through the public,
- * version-locked path so a cleared conversation is rejected rather than titled,
- * and if that enqueue fails it persists a pending `topic_title` operation row
- * (no worker job) that the 15s pending sweeper re-enqueues. The only outcomes
- * are therefore a live title operation or a legitimately cleared conversation —
- * never a silently dropped title.
- */
-const handoffInlineTitle = async (
-  db: LobeChatDatabase,
-  operation: ConversationGenerationOperation,
-  error: unknown,
-) => {
-  const topicId = operation.config.title?.topicId;
-  if (!topicId) return;
-
-  const titleConfig = {
-    isWelcomeQuestion: operation.config.isWelcomeQuestion,
-    locale: operation.config.locale,
-    model: operation.config.model,
-    provider: operation.config.provider,
-    title: { force: operation.config.title?.force, topicId },
-  };
-  const input: ConversationGenerationEnqueueInput = {
-    config: titleConfig,
-    conversationVersion: operation.conversationVersion ?? undefined,
-    expectedConversationVersion: operation.conversationVersion ?? undefined,
-    idempotencyKey: `${operation.id}:title-handoff`,
-    kind: 'topic_title',
-    sessionId: operation.sessionId ?? undefined,
-    threadId: operation.threadId ?? undefined,
-    topicId,
-  };
-
-  try {
-    // Public path: tool check + credential resolution + version-locked write.
-    await new ConversationGenerationService(db, operation.userId).enqueue(input);
-    return; // a durable topic_title operation now owns the title
-  } catch (enqueueError) {
-    // The conversation was cleared/advanced while the chat ran: the transcript
-    // this title would summarize no longer belongs to a live conversation.
-    if (enqueueError instanceof ConversationWriteRejectedError) return;
-
-    // A generation already owns the title lane. That covers the title only if
-    // it is itself a topic_title operation; verify before treating it as done.
-    if (enqueueError instanceof TRPCError && enqueueError.code === 'CONFLICT') {
-      const lane = buildConversationGenerationLane({
-        kind: 'topic_title',
-        sessionId: operation.sessionId,
-        threadId: operation.threadId,
-        topicId,
-        userId: operation.userId,
-      });
-      const active = await new ConversationGenerationModel(db, operation.userId).findActiveByLane(
-        lane,
-      );
-      if (active && active.kind === 'topic_title') return;
-    }
-
-    // Any other failure must not silently drop the guaranteed title. Persist a
-    // pending operation row without a worker job; the pending sweeper
-    // re-enqueues it, so the title survives this enqueue failure.
-    try {
-      await persistPendingTitleMarker(db, operation, topicId, titleConfig);
-    } catch (markerError) {
-      if (markerError instanceof ConversationWriteRejectedError) return;
-      console.error('[conversation-generation] inline title handoff could not be made durable', {
-        enqueueError: enqueueError instanceof Error ? enqueueError.message : String(enqueueError),
-        error: error instanceof Error ? error.message : String(error),
-        markerError: markerError instanceof Error ? markerError.message : String(markerError),
-        operationId: operation.id,
-        topicId,
-      });
-    }
-  }
-};
-
-/**
- * Durable fallback for the inline title handoff: create a pending `topic_title`
- * operation row with no worker job. The pending sweeper
- * (`sweepPendingConversationGenerationJobs`) re-enqueues any pending operation
- * missing a job, so the title survives a failed inline enqueue. Idempotent via
- * the handoff idempotency key and the lane-active check.
- */
-const persistPendingTitleMarker = async (
-  db: LobeChatDatabase,
-  operation: ConversationGenerationOperation,
-  topicId: string,
-  config: ConversationGenerationOperation['config'],
-) => {
-  const idempotencyKey = `${operation.id}:title-handoff`;
-  await withConversationWriteLockOrThrow(
-    db,
-    operation.userId,
-    async (transaction) => {
-      const model = new ConversationGenerationModel(transaction, operation.userId);
-      const existing = await model.findByIdempotencyKey(idempotencyKey);
-      if (existing) return; // already handed off
-      const lane = buildConversationGenerationLane({
-        kind: 'topic_title',
-        sessionId: operation.sessionId,
-        threadId: operation.threadId,
-        topicId,
-        userId: operation.userId,
-      });
-      const active = await model.findActiveByLane(lane);
-      if (active) return; // a title operation already owns the lane
-      const laneGeneration = (await model.findMaxLaneGeneration(lane)) + 1;
-      // `workerJobId` intentionally left null: the pending sweeper re-enqueues.
-      await model.create({
-        config,
-        conversationVersion: operation.conversationVersion ?? undefined,
-        idempotencyKey,
-        kind: 'topic_title',
-        lane,
-        laneGeneration,
-        sessionId: operation.sessionId,
-        threadId: operation.threadId,
-        topicId,
-      });
-    },
-    operation.conversationVersion ?? undefined,
-  );
 };
 
 const executeTitle = async (

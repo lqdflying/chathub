@@ -212,6 +212,112 @@ export const applyReportedInputTokenFloor = (
   };
 };
 
+// --- C2 usage-anchor baseline (F5) ---
+
+const toEpochMs = (value: unknown): number => {
+  if (typeof value === 'number') return value;
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === 'string') {
+    const parsed = Date.parse(value);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  }
+  return 0;
+};
+
+/**
+ * Cheap fingerprint of the request prefix an anchor's reported input covered:
+ * message count + content chars + newest edit time of the rows before the
+ * anchor. No tokenization — any pre-anchor add/delete/edit or history-window
+ * shift changes the fingerprint and invalidates the baseline.
+ */
+export const fingerprintAnchorPrefix = (
+  messages: Array<{ content?: unknown; updatedAt?: unknown }>,
+): string => {
+  let chars = 0;
+  let maxUpdatedAt = 0;
+  for (const message of messages) {
+    chars += String(message.content ?? '').length;
+    const updatedAt = toEpochMs(message.updatedAt);
+    if (updatedAt > maxUpdatedAt) maxUpdatedAt = updatedAt;
+  }
+  return `${messages.length}:${chars}:${maxUpdatedAt}`;
+};
+
+interface AnchorBaseline {
+  fixedOverheadTokens: number;
+  prefixFingerprint: string;
+}
+
+/**
+ * Process-local retained request snapshots, keyed by anchor message id. The
+ * anchor's provider-reported input exactly covered the fixed overhead and
+ * history prefix of ITS request; to keep the anchored total correct, later
+ * estimates must add the fixed-overhead delta (skill/system/memory/tools
+ * changes) and fall back to the whole-window estimate when the prefix no
+ * longer corresponds (F5). First sight of an anchor re-baselines, so a change
+ * made while no estimator was running (e.g. another tab or before reload) is
+ * absorbed into the baseline — the next reply re-anchors exactly.
+ */
+const anchorBaselines = new Map<string, AnchorBaseline>();
+const ANCHOR_BASELINE_LIMIT = 500;
+
+const registerAnchorBaseline = (anchorId: string, baseline: AnchorBaseline) => {
+  if (anchorBaselines.size >= ANCHOR_BASELINE_LIMIT && !anchorBaselines.has(anchorId)) {
+    const oldest = anchorBaselines.keys().next().value;
+    if (oldest !== undefined) anchorBaselines.delete(oldest);
+  }
+  anchorBaselines.set(anchorId, baseline);
+};
+
+/** Test support: drop all retained baselines (module state survives across tests in a file). */
+export const clearAnchorBaselines = () => {
+  anchorBaselines.clear();
+};
+
+/**
+ * Resolve the anchor's retained baseline, or `undefined` when the prefix no
+ * longer corresponds and the caller must fall back to the whole-window
+ * estimate. First sight of an anchor registers the current state as the
+ * baseline (delta 0). On a prefix mismatch the baseline is re-registered to
+ * the current prefix, so only one fallback estimate is paid per change.
+ * The returned delta is floored so the anchored total can never drop below
+ * what the next request minimally contains (current overhead + tail).
+ */
+export const resolveAnchorBaseline = ({
+  anchorId,
+  currentFixedOverheadTokens,
+  prefixFingerprint,
+  reportedInputTokens,
+}: {
+  anchorId: string;
+  currentFixedOverheadTokens: number;
+  prefixFingerprint: string;
+  reportedInputTokens: number;
+}): { overheadDelta: number } | undefined => {
+  const cached = anchorBaselines.get(anchorId);
+  if (!cached) {
+    registerAnchorBaseline(anchorId, {
+      fixedOverheadTokens: currentFixedOverheadTokens,
+      prefixFingerprint,
+    });
+    return { overheadDelta: 0 };
+  }
+  if (cached.prefixFingerprint !== prefixFingerprint) {
+    registerAnchorBaseline(anchorId, {
+      fixedOverheadTokens: currentFixedOverheadTokens,
+      prefixFingerprint,
+    });
+    return undefined;
+  }
+  const overheadDelta = currentFixedOverheadTokens - cached.fixedOverheadTokens;
+  return {
+    overheadDelta:
+      overheadDelta < 0
+        ? Math.max(overheadDelta, currentFixedOverheadTokens - reportedInputTokens)
+        : overheadDelta,
+  };
+};
+
 /** Replace (or drop) the floor watermark from remaining post-cursor messages. */
 export const withReportedInputTokenFloorMetadata = (
   metadata: ChatTopicMetadata,
