@@ -118,9 +118,9 @@ export const contextEngineering = async ({
       // 1. History truncation (MUST be first, before any message injection)
       new HistoryTruncateProcessor({ enableHistoryCount, historyCount }),
 
-      // 1.5 Deterministic tool-result cap (pure per-message content function, so the
-      // capped bytes are stable per message id and never break the prompt-cache prefix).
-      // Wire-only view: stored messages keep full content; pairs stay atomic.
+      // 1.5 Deterministic tool-result cap for non-MCP dumps (pure per-message
+      // content function, so capped bytes are stable per message id). MCP
+      // tools/call bodies stay verbatim — the protocol has no result-size limit.
       new ToolResultTruncateProcessor(),
 
       // --------- Create system role injection providers

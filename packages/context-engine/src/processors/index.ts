@@ -8,6 +8,8 @@ export { PlaceholderVariablesProcessor } from './PlaceholderVariables';
 export { ToolCallProcessor } from './ToolCall';
 export { ToolMessageReorder } from './ToolMessageReorder';
 export {
+  applyToolResultWireContent,
+  isMcpToolResultMessage,
   TOOL_RESULT_CONTENT_MAX_CHARS,
   ToolResultTruncateProcessor,
   truncateToolResultContent,

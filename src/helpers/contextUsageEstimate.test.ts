@@ -250,6 +250,20 @@ ${'Review diffs carefully.'.repeat(10)}
       expect(serialized).toContain(content);
     });
 
+    it('does not cap MCP tool results on the wire estimate', () => {
+      const content = 't'.repeat(TOOL_RESULT_CONTENT_MAX_CHARS + 100);
+      const mcpTool = {
+        content,
+        id: 'tool1',
+        plugin: { apiName: 'fetch', identifier: 'notion', type: 'mcp' },
+        role: 'tool',
+        tool_call_id: 'tc1',
+      } as UIChatMessage;
+
+      expect(serializeMessageForContextEstimate(mcpTool)).toContain(content);
+      expect(estimateToolResultTruncationRecoveryTokens([mcpTool])).toBe(0);
+    });
+
     it('leaves user and assistant content uncapped', () => {
       const content = 'u'.repeat(TOOL_RESULT_CONTENT_MAX_CHARS + 100);
       expect(serializeMessageForContextEstimate(message('u1', 'user', content))).toContain(content);

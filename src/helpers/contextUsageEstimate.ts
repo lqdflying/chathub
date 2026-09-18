@@ -1,4 +1,8 @@
-import { applyUserInputTemplate, getSlicedMessages, truncateToolResultContent } from '@lobechat/context-engine';
+import {
+  applyToolResultWireContent,
+  applyUserInputTemplate,
+  getSlicedMessages,
+} from '@lobechat/context-engine';
 import { historySummaryPrompt } from '@lobechat/prompts';
 import type { UIChatMessage } from '@lobechat/types';
 
@@ -23,7 +27,7 @@ export {
 
 export type MessageLikeForContextEstimate = Pick<
   UIChatMessage,
-  'content' | 'role' | 'tool_call_id' | 'tools'
+  'content' | 'plugin' | 'role' | 'tool_call_id' | 'tools'
 >;
 
 export interface SerializeContextEstimateOptions {
@@ -47,7 +51,7 @@ export const serializeMessageForContextEstimate = (
       : (message.content ?? '');
   const content =
     message.role === 'tool' && options?.capToolResults !== false
-      ? truncateToolResultContent(rawContent)
+      ? applyToolResultWireContent(rawContent, message)
       : rawContent;
   const parts = [`${message.role ?? ''}:`, content];
   if (message.tool_call_id) parts.push(`tool_call_id:${message.tool_call_id}`);
@@ -71,17 +75,15 @@ export const serializeMessagesForContextEstimate = (
  * reaches the low watermark.
  */
 export const estimateToolResultTruncationRecoveryTokens = (
-  messages: Array<Pick<UIChatMessage, 'content' | 'role'>>,
+  messages: Array<Pick<UIChatMessage, 'content' | 'plugin' | 'role'>>,
 ): number => {
   let recoverableChars = 0;
   for (const message of messages) {
     if (message.role !== 'tool' || typeof message.content !== 'string') continue;
+    const wire = applyToolResultWireContent(message.content, message);
     // Per-message floor at 0: barely-over-cap content gets a marker longer than
-    // the omitted text, which is not a recovery.
-    recoverableChars += Math.max(
-      0,
-      message.content.length - truncateToolResultContent(message.content).length,
-    );
+    // the omitted text, which is not a recovery. MCP rows are never capped.
+    recoverableChars += Math.max(0, message.content.length - wire.length);
   }
   return Math.ceil(recoverableChars / CONTEXT_CHARS_PER_TOKEN_ESTIMATE);
 };

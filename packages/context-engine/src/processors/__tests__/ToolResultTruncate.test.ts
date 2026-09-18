@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  applyToolResultWireContent,
+  isMcpToolResultMessage,
   TOOL_RESULT_CONTENT_MAX_CHARS,
   ToolResultTruncateProcessor,
   truncateToolResultContent,
@@ -107,5 +109,41 @@ describe('ToolResultTruncateProcessor', () => {
     expect(Array.isArray(result.messages[0].content)).toBe(true);
     expect(result.messages[1].content).toHaveLength(TOOL_RESULT_CONTENT_MAX_CHARS + 500);
     expect(result.metadata.toolResultsTruncated).toBe(0);
+  });
+
+  it('does not rewrite MCP tool results', async () => {
+    const oversized = 'm'.repeat(TOOL_RESULT_CONTENT_MAX_CHARS + 11364);
+    const processor = new ToolResultTruncateProcessor();
+
+    const result = await processor.process(
+      buildContext([
+        {
+          id: 'tool1',
+          content: oversized,
+          plugin: { apiName: 'fetch', identifier: 'notion', type: 'mcp' },
+          role: 'tool',
+          tool_call_id: 'tc1',
+        },
+      ]),
+    );
+
+    expect(result.messages[0].content).toBe(oversized);
+    expect(result.metadata.toolResultsTruncated).toBe(0);
+  });
+});
+
+describe('isMcpToolResultMessage / applyToolResultWireContent', () => {
+  it('detects MCP plugin type only', () => {
+    expect(isMcpToolResultMessage({ plugin: { type: 'mcp' } })).toBe(true);
+    expect(isMcpToolResultMessage({ plugin: { type: 'builtin' } })).toBe(false);
+    expect(isMcpToolResultMessage({})).toBe(false);
+  });
+
+  it('leaves MCP content unchanged and caps other tool rows', () => {
+    const oversized = 'x'.repeat(TOOL_RESULT_CONTENT_MAX_CHARS + 20);
+    expect(applyToolResultWireContent(oversized, { plugin: { type: 'mcp' } })).toBe(oversized);
+    expect(applyToolResultWireContent(oversized, { plugin: { type: 'builtin' } })).toBe(
+      truncateToolResultContent(oversized),
+    );
   });
 });

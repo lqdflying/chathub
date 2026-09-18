@@ -6,12 +6,18 @@ import type { PipelineContext, ProcessorOptions } from '../types';
 const log = debug('context-engine:processor:ToolResultTruncateProcessor');
 
 /**
- * Hard cap for a single tool-result message on the wire. Normal search / MCP
- * results fit; only pathological dumps (file reads, code-interpreter logs) are
- * capped. Pure function of the message content, so the capped bytes are stable
- * per message id across turns and never invalidate the prompt-cache prefix.
+ * Hard cap for a single non-MCP tool-result message on the wire. Builtin dumps
+ * (file reads, code-interpreter logs) are capped. MCP `tools/call` results are
+ * never rewritten — the protocol has no result-size limit, and hosts must not
+ * invent one (https://modelcontextprotocol.io/specification/2025-11-25/server/tools).
+ * For capped rows the function is pure on content, so bytes stay stable per
+ * message id and never invalidate the prompt-cache prefix.
  */
 export const TOOL_RESULT_CONTENT_MAX_CHARS = 8000;
+
+export const isMcpToolResultMessage = (message: {
+  plugin?: { type?: string | null } | null;
+}): boolean => message.plugin?.type === 'mcp';
 
 /**
  * Deterministically cap a tool-result body. The same input always yields the
@@ -26,6 +32,16 @@ export const truncateToolResultContent = (
   if (content.length <= maxChars) return content;
   const omitted = content.length - maxChars;
   return `${content.slice(0, maxChars)}\n…[truncated ${omitted} chars]`;
+};
+
+/** Wire view for one tool row: MCP stays verbatim, everything else uses the cap. */
+export const applyToolResultWireContent = (
+  content: string,
+  message: { plugin?: { type?: string | null } | null },
+  maxChars: number = TOOL_RESULT_CONTENT_MAX_CHARS,
+): string => {
+  if (isMcpToolResultMessage(message)) return content;
+  return truncateToolResultContent(content, maxChars);
 };
 
 export interface ToolResultTruncateConfig {
@@ -56,7 +72,7 @@ export class ToolResultTruncateProcessor extends BaseProcessor {
 
     clonedContext.messages = clonedContext.messages.map((message: any) => {
       if (message?.role !== 'tool' || typeof message.content !== 'string') return message;
-      const nextContent = truncateToolResultContent(message.content, this.config.maxChars);
+      const nextContent = applyToolResultWireContent(message.content, message, this.config.maxChars);
       if (nextContent === message.content) return message;
       truncatedCount += 1;
       return { ...message, content: nextContent };

@@ -1,4 +1,4 @@
-import { truncateToolResultContent } from '@lobechat/context-engine';
+import { applyToolResultWireContent } from '@lobechat/context-engine';
 import { chainSummaryHistory } from '@lobechat/prompts';
 import {
   type ChatTopicMetadata,
@@ -174,11 +174,11 @@ const selectTokenTargetPrefix = async ({
   for (const prefix of prefixes) {
     const removableText = prefix
       .filter(({ id }) => contextMessageIds.has(id))
-      // Wire terms: the request pipeline caps oversized tool results, so
-      // removing one only removes its capped bytes.
+      // Wire terms: the request pipeline caps oversized non-MCP tool results.
+      // MCP rows stay full, so removing one removes the whole body.
       .map((message) =>
         message.role === 'tool' && typeof message.content === 'string'
-          ? truncateToolResultContent(message.content)
+          ? applyToolResultWireContent(message.content, message)
           : (message.content ?? ''),
       )
       .join('');
@@ -550,11 +550,12 @@ async function runCompactionFromStore(
     if (!maxTokens) {
       return finish('ineligible', { reason: 'unknown_context_window' });
     }
-    // C3 truncate-before-compact: the request pipeline deterministically caps
-    // oversized tool results (ToolResultTruncateProcessor) and beforeEstimate
-    // already reflects that wire view. The pre-truncation total preserves the
-    // high-watermark trigger semantics; when truncation alone reaches the low
-    // watermark, skip the LLM compaction call entirely.
+    // C3 truncate-before-compact: the request pipeline caps oversized non-MCP
+    // tool dumps (ToolResultTruncateProcessor) and beforeEstimate already
+    // reflects that wire view. MCP rows are never recovered this way. The
+    // pre-truncation total preserves the high-watermark trigger semantics;
+    // when truncation alone reaches the low watermark, skip the LLM
+    // compaction call entirely.
     // Note: with a legacy (pre-cap) usage anchor, the anchor's reported input
     // still contains uncapped tool dumps, so the recovery estimate may double
     // count those — conservative direction only, and self-corrects once a

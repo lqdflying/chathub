@@ -232,7 +232,7 @@ export const buildConversationChatPayload = async ({
         enableHistoryCount: effectiveHistory.enableHistoryCount,
         historyCount: effectiveHistory.historyCount,
       }),
-      // Deterministic tool-result cap (stable per message id; wire-only view).
+      // Deterministic non-MCP tool-result cap (stable per message id). MCP stays full.
       new ToolResultTruncateProcessor(),
       new SystemRoleInjector({ existingSystemRolePolicy: 'prepend', systemRole }),
       new AgentMemoryProvider({

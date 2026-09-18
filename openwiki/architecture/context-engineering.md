@@ -265,12 +265,17 @@ invalidates (the original report counted that template on every included user
 row; the tail-only serialize would omit added text on pre-anchor history). The
 mismatched baseline is never re-registered.
 
-Request assembly also applies a **deterministic tool-result cap**:
-`ToolResultTruncateProcessor` (`packages/context-engine`) rewrites any `tool` message body over
-8,000 chars to a fixed prefix plus a `…[truncated N chars]` marker. The cap is a pure function of
-the message content — never of position or time — so capped bytes are stable per message id and
+Request assembly also applies a **deterministic tool-result cap** for **non-MCP** dumps:
+`ToolResultTruncateProcessor` (`packages/context-engine`) rewrites a builtin `tool` message body over
+8,000 chars to a fixed prefix plus a `…[truncated N chars]` marker. MCP `tools/call` results
+(`plugin.type === 'mcp'`) are never rewritten — the MCP spec defines no result-size limit
+([2025-11-25 tools](https://modelcontextprotocol.io/specification/2025-11-25/server/tools)), and
+hosts must not invent one (same class of bug as [LobeHub #11946](https://github.com/lobehub/lobehub/issues/11946)
+and [Codex #14466](https://github.com/openai/codex/issues/14466)). For capped rows the function is
+pure on content — never of position or time — so bytes are stable per message id and
 the prompt-cache prefix survives across turns; stored messages keep full content and
-tool-call/tool-result pairs are never split. Both the browser (`contextEngineering.ts`) and
+tool-call/tool-result pairs are never split. Estimates and `truncation_sufficient` skip MCP
+bodies so the planner cannot pretend those bytes were dropped on the wire. Both the browser (`contextEngineering.ts`) and
 worker (`payload.ts`) pipelines run it right after `HistoryTruncateProcessor`, and the estimate
 serializers apply the same cap by default so planner and popover numbers match the wire (the
 popover's topic-wide growth signal opts out). In the `token_threshold` planner the high-watermark

@@ -1,4 +1,8 @@
-import { applyUserInputTemplate, getSlicedMessages, truncateToolResultContent } from '@lobechat/context-engine';
+import {
+  applyToolResultWireContent,
+  applyUserInputTemplate,
+  getSlicedMessages,
+} from '@lobechat/context-engine';
 import { chainSummaryHistory } from '@lobechat/prompts';
 import {
   type GPT5ReasoningEffort,
@@ -20,7 +24,7 @@ export const CONTEXT_CHARS_PER_TOKEN_ESTIMATE = 2;
 
 type MessageLikeForHistoryWindow = Pick<
   UIChatMessage,
-  'content' | 'role' | 'tools' | 'tool_call_id'
+  'content' | 'plugin' | 'role' | 'tools' | 'tool_call_id'
 >;
 
 /** Synthetic row id for the unsent editor draft in next-request window math. */
@@ -65,9 +69,9 @@ const serializeMessageForHistoryWindow = (
     message.role === 'user'
       ? applyUserInputTemplate(inputTemplate, message.content ?? '')
       : (message.content ?? '');
-  // Match the wire: ToolResultTruncateProcessor caps oversized tool results.
+  // Match the wire: non-MCP tool dumps are capped; MCP results stay full.
   const content =
-    message.role === 'tool' ? truncateToolResultContent(rawContent) : rawContent;
+    message.role === 'tool' ? applyToolResultWireContent(rawContent, message) : rawContent;
   const parts = [`${message.role ?? ''}:`, content];
   if (message.tool_call_id) parts.push(`tool_call_id:${message.tool_call_id}`);
   if (message.tools?.length) parts.push(JSON.stringify(message.tools));

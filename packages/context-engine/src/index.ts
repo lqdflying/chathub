@@ -30,6 +30,8 @@ export {
   MessageCleanupProcessor,
   MessageContentProcessor,
   PlaceholderVariablesProcessor,
+  applyToolResultWireContent,
+  isMcpToolResultMessage,
   TOOL_RESULT_CONTENT_MAX_CHARS,
   ToolCallProcessor,
   ToolMessageReorder,

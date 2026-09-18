@@ -690,6 +690,34 @@ describe('chat memory actions', () => {
     expect(chatService.fetchPresetTaskResult).not.toHaveBeenCalled();
   });
 
+  it('does not treat an oversized MCP tool result as truncation_sufficient', async () => {
+    const oversizedMcp = {
+      ...message('tool1', 'tool', 't'.repeat(9000)),
+      plugin: { apiName: 'fetch', identifier: 'notion', type: 'mcp' },
+      tool_call_id: 'tc1',
+    } as UIChatMessage;
+    vi.mocked(estimateContextUsageAsync).mockReset().mockResolvedValue({
+      chatsToken: 550,
+      contextMessages: [...messages, oversizedMcp],
+      historySummaryToken: 0,
+      inputToken: 0,
+      memoryToken: 0,
+      systemRoleToken: 0,
+      toolsToken: 0,
+      totalToken: 550,
+    });
+
+    const result = await useChatStore.getState().triggerTokenThresholdMemoryCompaction();
+
+    expect(result).toEqual({
+      estimatedTokensBefore: 550,
+      highWatermark: 0.8,
+      lowWatermark: 0.6,
+      reason: 'below_high_watermark',
+      status: 'not_needed',
+    });
+  });
+
   it('still reports below_high_watermark when truncation recovery cannot reach high', async () => {
     const barelyOversizedTool = {
       ...message('tool1', 'tool', 't'.repeat(8100)),
