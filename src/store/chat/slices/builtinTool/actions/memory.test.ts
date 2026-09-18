@@ -342,6 +342,40 @@ describe('saveMemory builtin tool executor', () => {
     updateContent.mockRestore();
   });
 
+  it('readMemory continues a paged entry through the typed offset param (S1)', async () => {
+    const content = 'abcdefghijklmnopqrstuvwxyz'.repeat(400); // 10_400 chars, non-periodic
+    agentStoreMock.fixedMemory = `#1: ${content}`;
+    const { result } = renderHook(() => useChatStore());
+    const updateContent = vi
+      .spyOn(result.current, 'internal_updateMessageContent')
+      .mockResolvedValue(undefined as any);
+
+    await act(async () => {
+      await result.current.readMemory('msg-1', { index: 1, source: 'fixed' });
+    });
+    const first = JSON.parse(updateContent.mock.calls.at(-1)![1] as string);
+    expect(first.truncated).toBe(true);
+    expect(first.offset).toBe(0);
+    expect(first.totalChars).toBe(content.length);
+
+    // S1: `offset` is declared on the action's argument type — this typed call
+    // must compile without an `as any` cast on the params object.
+    await act(async () => {
+      await result.current.readMemory('msg-1', {
+        index: 1,
+        offset: first.nextOffset as number,
+        source: 'fixed',
+      });
+    });
+    const second = JSON.parse(updateContent.mock.calls.at(-1)![1] as string);
+    expect(second.offset).toBe(first.nextOffset);
+    expect(first.content + second.content).toBe(
+      content.slice(0, first.content.length + second.content.length),
+    );
+
+    updateContent.mockRestore();
+  });
+
   it('tags memory-tool writes as agent origin', async () => {
     const { result } = renderHook(() => useChatStore());
     const updateContent = vi

@@ -31,7 +31,7 @@ export interface MemoryAction {
   ) => Promise<boolean | undefined>;
   readMemory: (
     id: string,
-    params?: { index?: number; source?: 'dynamic' | 'fixed' },
+    params?: { index?: number; offset?: number; source?: 'dynamic' | 'fixed' },
     aiSummary?: boolean,
     diagnosticId?: string,
   ) => Promise<boolean | undefined>;
@@ -65,7 +65,7 @@ let memoryWriteQueue: Promise<unknown> = Promise.resolve();
 type MemoryWriteOutcome =
   | { error: string }
   | { errorResult: object }
-  | { result: object; doc: string };
+  | { doc: string; result: object };
 
 export const memorySlice: StateCreator<
   ChatStore,

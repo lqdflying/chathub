@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { applyUserInputTemplate } from '@lobechat/context-engine';
 
+import { LOADING_FLAT } from '@/const/message';
 import {
   LARGE_CONTEXT_WINDOW_TOKENS,
   appendPendingUserInputForContextWindow,
@@ -354,6 +355,15 @@ describe('useEstimatedContextUsage', () => {
       0,
       mocks.mainChats.length,
       { content: 'hi', id: 'u1', role: 'user' } as never,
+      // D2: the row starts in flight so the first render records the request
+      // prefix snapshot; the report lands on rerender and promotes it.
+      { content: LOADING_FLAT, id: 'a1', role: 'assistant' } as never,
+    );
+
+    const { rerender, result } = renderHook(() => useEstimatedContextUsage('main'));
+    mocks.mainChats.splice(
+      1,
+      1,
       {
         content: 'ok',
         id: 'a1',
@@ -361,8 +371,7 @@ describe('useEstimatedContextUsage', () => {
         role: 'assistant',
       } as never,
     );
-
-    const { result } = renderHook(() => useEstimatedContextUsage('main'));
+    rerender();
 
     expect(result.current.totalToken).toBe(50_050);
   });
@@ -429,6 +438,18 @@ describe('useEstimatedContextUsage', () => {
         updatedAt: 9000,
       } as never,
       { content: 'next', id: 'u3', role: 'user' } as never,
+      // D2: in flight for the first render so the prefix snapshot is recorded.
+      { content: LOADING_FLAT, id: 'a3', role: 'assistant', updatedAt: 50 } as never,
+    );
+    mocks.setTopicMetadata({
+      historySummaryLastMessageId: 'a1',
+      reportedInputTokenFloorAfterMessageId: 'a2',
+    });
+
+    const { rerender, result } = renderHook(() => useEstimatedContextUsage('main'));
+    mocks.mainChats.splice(
+      5,
+      1,
       {
         content: 'fresh',
         id: 'a3',
@@ -437,12 +458,8 @@ describe('useEstimatedContextUsage', () => {
         updatedAt: 50,
       } as never,
     );
-    mocks.setTopicMetadata({
-      historySummaryLastMessageId: 'a1',
-      reportedInputTokenFloorAfterMessageId: 'a2',
-    });
+    rerender();
 
-    const { result } = renderHook(() => useEstimatedContextUsage('main'));
     expect(result.current.totalToken).toBe(453);
   });
 
@@ -579,6 +596,18 @@ describe('useEstimatedContextUsage', () => {
         role: 'assistant',
       } as never,
       { content: 'next', id: 'u3', role: 'user' } as never,
+      // D2: in flight for the first render so the prefix snapshot is recorded.
+      { content: LOADING_FLAT, id: 'a3', role: 'assistant' } as never,
+    );
+    mocks.setTopicMetadata({
+      historySummaryLastMessageId: 'a1',
+      reportedInputTokenFloorAfterMessageId: 'a2',
+    });
+
+    const { rerender, result } = renderHook(() => useEstimatedContextUsage('main'));
+    mocks.mainChats.splice(
+      5,
+      1,
       {
         content: 'fresh',
         id: 'a3',
@@ -586,12 +615,8 @@ describe('useEstimatedContextUsage', () => {
         role: 'assistant',
       } as never,
     );
-    mocks.setTopicMetadata({
-      historySummaryLastMessageId: 'a1',
-      reportedInputTokenFloorAfterMessageId: 'a2',
-    });
+    rerender();
 
-    const { result } = renderHook(() => useEstimatedContextUsage('main'));
     expect(result.current.totalToken).toBe(700_053);
   });
 
@@ -620,6 +645,18 @@ describe('useEstimatedContextUsage', () => {
         role: 'assistant',
       } as never,
       { content: 'next', id: 'u3', role: 'user' } as never,
+      // D2: in flight for the first render so the prefix snapshot is recorded.
+      { content: LOADING_FLAT, id: 'a3', role: 'assistant' } as never,
+    );
+    mocks.setTopicMetadata({
+      historySummaryLastMessageId: 'a1',
+      reportedInputTokenFloorAfterMessageId: 'a2',
+    });
+
+    const { rerender, result } = renderHook(() => useEstimatedContextUsage('main'));
+    mocks.mainChats.splice(
+      5,
+      1,
       {
         content: 'fresh',
         id: 'a3',
@@ -627,12 +664,8 @@ describe('useEstimatedContextUsage', () => {
         role: 'assistant',
       } as never,
     );
-    mocks.setTopicMetadata({
-      historySummaryLastMessageId: 'a1',
-      reportedInputTokenFloorAfterMessageId: 'a2',
-    });
+    rerender();
 
-    const { result } = renderHook(() => useEstimatedContextUsage('main'));
     expect(result.current.historyWindow.includedMessageCount).toBe(2);
     expect(result.current.totalToken).toBe(700_053);
   });
@@ -662,6 +695,18 @@ describe('useEstimatedContextUsage', () => {
         role: 'assistant',
       } as never,
       { content: 'later', id: 'u3', role: 'user' } as never,
+      // D2: in flight for the first render so the prefix snapshot is recorded.
+      { content: LOADING_FLAT, id: 'a4', role: 'assistant' } as never,
+    );
+    mocks.setTopicMetadata({
+      historySummaryLastMessageId: 'a1',
+      reportedInputTokenFloorAfterMessageId: 'a2',
+    });
+
+    const { rerender, result } = renderHook(() => useEstimatedContextUsage('main'));
+    mocks.mainChats.splice(
+      5,
+      1,
       {
         content: 'fresh',
         id: 'a4',
@@ -669,12 +714,8 @@ describe('useEstimatedContextUsage', () => {
         role: 'assistant',
       } as never,
     );
-    mocks.setTopicMetadata({
-      historySummaryLastMessageId: 'a1',
-      reportedInputTokenFloorAfterMessageId: 'a2',
-    });
+    rerender();
 
-    const { result } = renderHook(() => useEstimatedContextUsage('main'));
     expect(result.current.totalToken).toBe(700_053);
   });
 
@@ -696,6 +737,18 @@ describe('useEstimatedContextUsage', () => {
         role: 'assistant',
       } as never,
       { content: 'hi', id: 'u3', role: 'user' } as never,
+      // D2: in flight for the first render so the prefix snapshot is recorded.
+      { content: LOADING_FLAT, id: 'a3', role: 'assistant' } as never,
+    );
+    mocks.setTopicMetadata({
+      historySummaryLastMessageId: 'a1',
+      reportedInputTokenFloorAfterMessageId: 'u3',
+    });
+
+    const { rerender, result } = renderHook(() => useEstimatedContextUsage('main'));
+    mocks.mainChats.splice(
+      3,
+      1,
       {
         content: 'fresh',
         id: 'a3',
@@ -703,12 +756,8 @@ describe('useEstimatedContextUsage', () => {
         role: 'assistant',
       } as never,
     );
-    mocks.setTopicMetadata({
-      historySummaryLastMessageId: 'a1',
-      reportedInputTokenFloorAfterMessageId: 'u3',
-    });
+    rerender();
 
-    const { result } = renderHook(() => useEstimatedContextUsage('main'));
     expect(result.current.totalToken).toBe(700_053);
   });
 
@@ -730,6 +779,18 @@ describe('useEstimatedContextUsage', () => {
         role: 'assistant',
       } as never,
       { content: 'next', id: 'u4', role: 'user' } as never,
+      // D2: in flight for the first render so the prefix snapshot is recorded.
+      { content: LOADING_FLAT, id: 'a4', role: 'assistant' } as never,
+    );
+    mocks.setTopicMetadata({
+      historySummaryLastMessageId: 'a1',
+      reportedInputTokenFloorAfterMessageId: 'a1',
+    });
+
+    const { rerender, result } = renderHook(() => useEstimatedContextUsage('main'));
+    mocks.mainChats.splice(
+      3,
+      1,
       {
         content: 'fresh',
         id: 'a4',
@@ -737,12 +798,8 @@ describe('useEstimatedContextUsage', () => {
         role: 'assistant',
       } as never,
     );
-    mocks.setTopicMetadata({
-      historySummaryLastMessageId: 'a1',
-      reportedInputTokenFloorAfterMessageId: 'a1',
-    });
+    rerender();
 
-    const { result } = renderHook(() => useEstimatedContextUsage('main'));
     expect(result.current.totalToken).toBe(700_053);
   });
 });

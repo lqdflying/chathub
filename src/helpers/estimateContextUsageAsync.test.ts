@@ -2,9 +2,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { formatSkillInstructionsBlock } from '@lobechat/context-engine';
 
+import { LOADING_FLAT } from '@/const/message';
+
 import { estimateFixedContextOverheadTokens, wrapHistorySummaryForTokenEstimate } from './contextUsageEstimate';
 import { estimateContextUsageAsync } from './estimateContextUsageAsync';
-import { clearAnchorBaselines, fingerprintAnchorPrefix, resolveAnchorBaseline } from './reportedContextTokens';
+import { clearAnchorBaselines, fingerprintAnchorPrefix, recordAnchorPrefixSnapshot } from './reportedContextTokens';
 
 const mocks = vi.hoisted(() => ({
   chats: [{ content: 'chat-text', id: 'u1', role: 'user' }] as Array<{
@@ -138,6 +140,27 @@ describe('estimateContextUsageAsync', () => {
     mocks.chats = [{ content: 'chat-text', id: 'u1', role: 'user' }];
   });
 
+  const estimate = () =>
+    estimateContextUsageAsync({ agentState: {} as any, chatState: { inputMessage: '' } as any });
+
+  /**
+   * D2: a provider report is only trusted when this process observed the exact
+   * request prefix before the report arrived. Simulate the real send flow for
+   * the LAST row (an assistant): estimate once with the row in flight (records
+   * the prefix snapshot keyed by its parent), then settle the row and land the
+   * report so the next estimate can promote the snapshot to a baseline.
+   */
+  const landReport = async (totalInputTokens: number) => {
+    const last = mocks.chats.at(-1) as any;
+    const settled = last.content;
+    const metadata = last.metadata;
+    last.content = LOADING_FLAT;
+    delete last.metadata;
+    await estimate();
+    last.content = settled;
+    last.metadata = { ...metadata, totalInputTokens };
+  };
+
   it('returns systemRole, tools, and input token parts alongside the total', async () => {
     const result = await estimateContextUsageAsync({
       agentState: {} as any,
@@ -238,18 +261,12 @@ describe('estimateContextUsageAsync', () => {
   it('anchors the estimate on the latest provider-reported input tokens plus the tail', async () => {
     mocks.chats = [
       { content: 'hi', id: 'u1', role: 'user' },
-      {
-        content: 'ok',
-        id: 'a1',
-        metadata: { totalInputTokens: 50_000 },
-        role: 'assistant',
-      } as (typeof mocks.chats)[number],
+      { content: 'ok', id: 'a1', role: 'assistant' },
     ];
+    // D2: the report lands after the in-flight estimate observed the prefix.
+    await landReport(50_000);
 
-    const result = await estimateContextUsageAsync({
-      agentState: {} as any,
-      chatState: { inputMessage: '' } as any,
-    });
+    const result = await estimate();
 
     // 50_000 reported + tail 'assistant:\nok' (13) — the anchor's own reply was
     // output of that request, so it is tokenized as part of the tail.
@@ -260,20 +277,17 @@ describe('estimateContextUsageAsync', () => {
   it('anchors mid-window and does not tokenize messages covered by the report', async () => {
     mocks.chats = [
       { content: 'x'.repeat(5000), id: 'u1', role: 'user' },
-      {
-        content: 'y'.repeat(100),
-        id: 'a1',
-        metadata: { totalInputTokens: 5000 },
-        role: 'assistant',
-      } as (typeof mocks.chats)[number],
+      { content: 'y'.repeat(100), id: 'a1', role: 'assistant' },
+    ];
+    // D2: land a1's report while it is the newest row, then the conversation grows.
+    await landReport(5000);
+    mocks.chats = [
+      ...mocks.chats,
       { content: 'next', id: 'u2', role: 'user' },
       { content: 'fresh', id: 'a2', role: 'assistant' },
     ];
 
-    const result = await estimateContextUsageAsync({
-      agentState: {} as any,
-      chatState: { inputMessage: '' } as any,
-    });
+    const result = await estimate();
 
     // tail = a1 (111) + u2 ('user:\nnext' 10) + a2 ('assistant:\nfresh' 16) + 2 joins = 139
     expect(result.totalToken).toBe(5000 + 139);
@@ -284,19 +298,13 @@ describe('estimateContextUsageAsync', () => {
   it('adds the fixed-overhead delta when skills change after the anchor request', async () => {
     mocks.chats = [
       { content: 'hi', id: 'u1', role: 'user' },
-      {
-        content: 'ok',
-        id: 'a1',
-        metadata: { totalInputTokens: 50_000 },
-        role: 'assistant',
-      } as (typeof mocks.chats)[number],
+      { content: 'ok', id: 'a1', role: 'assistant' },
     ];
 
-    // First sight registers the anchor baseline (delta 0).
-    const first = await estimateContextUsageAsync({
-      agentState: {} as any,
-      chatState: { inputMessage: '' } as any,
-    });
+    // D2: the report lands after the in-flight estimate observed the prefix,
+    // promoting the snapshot to the anchor baseline (delta 0).
+    await landReport(50_000);
+    const first = await estimate();
     expect(first.totalToken).toBe(50_013);
 
     // Activating a skill grows the fixed overhead AFTER the anchor's request;
@@ -323,10 +331,7 @@ describe('estimateContextUsageAsync', () => {
       toolsString: 'plugin-system-role' + JSON.stringify({ function: { name: 'search' } }),
     });
 
-    const second = await estimateContextUsageAsync({
-      agentState: {} as any,
-      chatState: { inputMessage: '' } as any,
-    });
+    const second = await estimate();
     expect(overheadAfter).toBeGreaterThan(overheadBefore);
     expect(second.totalToken).toBe(50_013 + (overheadAfter - overheadBefore));
   });
@@ -341,46 +346,37 @@ describe('estimateContextUsageAsync', () => {
         role: 'assistant',
       } as (typeof mocks.chats)[number],
     ];
-    const estimate = () =>
-      estimateContextUsageAsync({ agentState: {} as any, chatState: { inputMessage: '' } as any });
-    const expected = await estimate();
 
-    // R4: prime the shared registry exactly as the token popover hook does —
-    // same anchor, same prefix, overhead measured with the shared chars/4
-    // helper. The send estimator must compute the same total afterwards;
-    // passing its tokenized fixedTokens instead would register as phantom
-    // context (or negative drift in the opposite order).
-    clearAnchorBaselines();
+    // R4/D2: prime the shared snapshot exactly as the token popover hook does
+    // while the reply is still in flight — same prefix (newest settled row u1),
+    // overhead measured with the shared chars/2 helper. The send estimator must
+    // promote that snapshot and compute the same anchored total; passing its
+    // tokenized fixedTokens instead would register as phantom context (or
+    // negative drift in the opposite order).
     const uiOverhead = estimateFixedContextOverheadTokens({
       historySummaryRaw: 'history-summary-text',
       systemRole: 'system-role-text',
       toolsString: 'plugin-system-role' + JSON.stringify({ function: { name: 'search' } }),
     });
-    resolveAnchorBaseline({
-      anchorId: 'a1',
-      currentFixedOverheadTokens: uiOverhead,
-      prefixFingerprint: fingerprintAnchorPrefix(mocks.chats.slice(0, 1) as any),
-      reportedInputTokens: 50_000,
+    recordAnchorPrefixSnapshot({
+      fixedOverheadTokens: uiOverhead,
+      messages: [mocks.chats[0]],
     });
 
-    expect((await estimate()).totalToken).toBe(expected.totalToken);
+    expect((await estimate()).totalToken).toBe(50_013);
+    // The promoted baseline keeps later estimates anchored and stable.
+    expect((await estimate()).totalToken).toBe(50_013);
   });
 
   it('keeps the anchor invalid after a prefix change until a fresh provider report', async () => {
     mocks.chats = [
       { content: 'hi', id: 'u1', role: 'user' },
-      {
-        content: 'ok',
-        id: 'a1',
-        metadata: { totalInputTokens: 50_000 },
-        role: 'assistant',
-      } as (typeof mocks.chats)[number],
+      { content: 'ok', id: 'a1', role: 'assistant' },
     ];
 
-    const first = await estimateContextUsageAsync({
-      agentState: {} as any,
-      chatState: { inputMessage: '' } as any,
-    });
+    // D2: land the report after the in-flight estimate observed the prefix.
+    await landReport(50_000);
+    const first = await estimate();
     expect(first.totalToken).toBe(50_013);
 
     // Editing a pre-anchor message invalidates what the reported input covered.
@@ -394,10 +390,7 @@ describe('estimateContextUsageAsync', () => {
       } as (typeof mocks.chats)[number],
     ];
 
-    const second = await estimateContextUsageAsync({
-      agentState: {} as any,
-      chatState: { inputMessage: '' } as any,
-    });
+    const second = await estimate();
     // Whole-window fallback: the edited 60k prefix is tokenized again, so the
     // total far exceeds anchor + tail.
     expect(second.totalToken).toBeGreaterThan(60_000);
@@ -405,29 +398,50 @@ describe('estimateContextUsageAsync', () => {
     // R3: the mismatch must NOT re-register the baseline — the old report never
     // counted the edited prefix, so the anchor stays invalid (fallback) until a
     // fresh provider report arrives under a new anchor id.
-    const third = await estimateContextUsageAsync({
-      agentState: {} as any,
-      chatState: { inputMessage: '' } as any,
-    });
+    const third = await estimate();
     expect(third.totalToken).toBe(second.totalToken);
 
-    // A fresh provider report under a new anchor re-enables anchoring.
+    // A fresh provider report under a new anchor re-enables anchoring — again
+    // only after this process observed the new request prefix in flight (D2).
     mocks.chats = [
       ...mocks.chats,
       { content: 'next', id: 'u2', role: 'user' },
+      { content: 'ok2', id: 'a2', role: 'assistant' },
+    ];
+    await landReport(70_000);
+    const fourth = await estimate();
+    // Anchored on a2: reported 70_000 + tail ('assistant:\nok2\n' = 14 chars).
+    expect(fourth.totalToken).toBe(70_014);
+  });
+
+  it('D2: an unverified report falls back to a fresh full estimate (reload)', async () => {
+    // A report whose request this process never observed (reload / new tab /
+    // evicted baseline) must NOT be anchored: first sight is not evidence the
+    // report measured the current prefix.
+    mocks.chats = [
+      { content: 'hi', id: 'reload-u1', role: 'user' },
       {
-        content: 'ok2',
-        id: 'a2',
-        metadata: { totalInputTokens: 70_000 },
+        content: 'ok',
+        id: 'reload-a1',
+        metadata: { totalInputTokens: 1000 },
         role: 'assistant',
       } as (typeof mocks.chats)[number],
     ];
-    const fourth = await estimateContextUsageAsync({
-      agentState: {} as any,
-      chatState: { inputMessage: '' } as any,
-    });
-    // Anchored on a2: reported 70_000 + tail ('assistant:\nok2\n' = 14 chars).
-    expect(fourth.totalToken).toBe(70_014);
+
+    const firstSight = await estimate();
+    // Whole-window fallback floored by the report — NOT anchor + tail (1013).
+    expect(firstSight.totalToken).toBe(1000);
+
+    mocks.skillRecords = [
+      { description: 'd', identifier: 'large-skill', instructions: 'x'.repeat(20_000), name: 'Skill' },
+    ];
+    const beforeReload = await estimate();
+    expect(beforeReload.totalToken).toBeGreaterThan(10_000);
+
+    clearAnchorBaselines(); // A page reload/another browser tab has an empty module cache.
+    const afterReload = await estimate();
+    expect(afterReload.totalToken).toBeGreaterThanOrEqual(10_000);
+    expect(afterReload.totalToken).toBeGreaterThanOrEqual(beforeReload.totalToken);
   });
 
   it('does not anchor on the protected assistant after an identity watermark, even if updatedAt is newer', async () => {
@@ -487,7 +501,6 @@ describe('estimateContextUsageAsync', () => {
       {
         content: 'fresh',
         id: 'a3',
-        metadata: { totalInputTokens: 400 },
         role: 'assistant',
         updatedAt: 50,
       },
@@ -499,10 +512,9 @@ describe('estimateContextUsageAsync', () => {
       },
     };
 
-    const result = await estimateContextUsageAsync({
-      agentState: {} as any,
-      chatState: { inputMessage: '' } as any,
-    });
+    // D2: land a3's report after the in-flight estimate observed the prefix.
+    await landReport(400);
+    const result = await estimate();
 
     // Anchor a3 (400) + tail 'assistant:\nfresh' (16) — u3 is inside the reported input.
     expect(result.totalToken).toBe(416);
@@ -631,7 +643,6 @@ describe('estimateContextUsageAsync', () => {
       {
         content: 'fresh',
         id: 'a3',
-        metadata: { totalInputTokens: 700_000 },
         role: 'assistant',
       },
     ];
@@ -642,10 +653,9 @@ describe('estimateContextUsageAsync', () => {
       },
     };
 
-    const result = await estimateContextUsageAsync({
-      agentState: {} as any,
-      chatState: { inputMessage: '' } as any,
-    });
+    // D2: land a3's report after the in-flight estimate observed the prefix.
+    await landReport(700_000);
+    const result = await estimate();
 
     // Anchor a3 (700_000) + tail 'assistant:\nfresh' (16).
     expect(result.totalToken).toBe(700_016);
@@ -672,7 +682,6 @@ describe('estimateContextUsageAsync', () => {
       {
         content: 'fresh',
         id: 'a3',
-        metadata: { totalInputTokens: 700_000 },
         role: 'assistant',
       },
     ];
@@ -683,10 +692,9 @@ describe('estimateContextUsageAsync', () => {
       },
     };
 
-    const result = await estimateContextUsageAsync({
-      agentState: {} as any,
-      chatState: { inputMessage: '' } as any,
-    });
+    // D2: land a3's report after the in-flight estimate observed the prefix.
+    await landReport(700_000);
+    const result = await estimate();
 
     expect(result.contextMessages.map(({ id }) => id)).toEqual(['u3', 'a3']);
     // Anchor a3 (700_000) + tail 'assistant:\nfresh' (16).
@@ -713,7 +721,6 @@ describe('estimateContextUsageAsync', () => {
       {
         content: 'fresh',
         id: 'a4',
-        metadata: { totalInputTokens: 700_000 },
         role: 'assistant',
       },
     ];
@@ -724,10 +731,9 @@ describe('estimateContextUsageAsync', () => {
       },
     };
 
-    const result = await estimateContextUsageAsync({
-      agentState: {} as any,
-      chatState: { inputMessage: '' } as any,
-    });
+    // D2: land a4's report after the in-flight estimate observed the prefix.
+    await landReport(700_000);
+    const result = await estimate();
 
     // Anchor a4 (700_000) + tail 'assistant:\nfresh' (16).
     expect(result.totalToken).toBe(700_016);
@@ -746,7 +752,6 @@ describe('estimateContextUsageAsync', () => {
       {
         content: 'fresh',
         id: 'a3',
-        metadata: { totalInputTokens: 700_000 },
         role: 'assistant',
       },
     ];
@@ -757,10 +762,9 @@ describe('estimateContextUsageAsync', () => {
       },
     };
 
-    const result = await estimateContextUsageAsync({
-      agentState: {} as any,
-      chatState: { inputMessage: '' } as any,
-    });
+    // D2: land a3's report after the in-flight estimate observed the prefix.
+    await landReport(700_000);
+    const result = await estimate();
 
     // Anchor a3 (700_000) + tail 'assistant:\nfresh' (16).
     expect(result.totalToken).toBe(700_016);
@@ -779,7 +783,6 @@ describe('estimateContextUsageAsync', () => {
       {
         content: 'fresh',
         id: 'a4',
-        metadata: { totalInputTokens: 700_000 },
         role: 'assistant',
       },
     ];
@@ -790,10 +793,9 @@ describe('estimateContextUsageAsync', () => {
       },
     };
 
-    const result = await estimateContextUsageAsync({
-      agentState: {} as any,
-      chatState: { inputMessage: '' } as any,
-    });
+    // D2: land a4's report after the in-flight estimate observed the prefix.
+    await landReport(700_000);
+    const result = await estimate();
 
     // Anchor a4 (700_000) + tail 'assistant:\nfresh' (16).
     expect(result.totalToken).toBe(700_016);

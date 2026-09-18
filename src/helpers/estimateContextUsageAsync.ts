@@ -40,6 +40,7 @@ import {
   getEffectiveReportedInputTokenFloorAfterMessageId,
   getLatestReportedInputAnchor,
   getLatestReportedInputTokens,
+  recordAnchorPrefixSnapshot,
   resolveAnchorBaseline,
 } from './reportedContextTokens';
 
@@ -231,15 +232,17 @@ export const estimateContextUsageAsync = async ({
   // totalInputTokens exactly covers fixed overhead plus history up to that
   // request, so only the tail (the anchor's own reply and later messages,
   // including the pending input row) needs tokenizing. This replaces the
-  // whole-window tokenizer estimate, which undercounts CJK ~3x. Without an
-  // anchor, fall back to the whole-window estimate floored by reported usage.
-  // F5: the anchor is only trusted against its retained baseline — fixed
-  // overhead changes (skills, instructions, memory, tools) are added as a
-  // delta, and a changed message prefix falls back to the whole window
-  // (permanently, until a fresh provider report — R3). R4: the baseline
-  // registry is shared with the token popover hook, so the delta MUST use the
-  // same chars/4 overhead measure (`fixedOverheadTokens`), not the tokenized
-  // `fixedTokens` used for the final chats math below.
+  // whole-window tokenizer estimate, which undercounts CJK ~3x. Without a
+  // VERIFIED anchor, fall back to the whole-window estimate floored by
+  // reported usage (applyReportedInputTokenFloor), exactly as before.
+  // F5/R3: a verified anchor adds the fixed-overhead delta (skills,
+  // instructions, memory, tools) and a changed message prefix invalidates the
+  // anchor permanently until a fresh report. R4: the baseline registry is
+  // shared with the token popover hook, so the delta MUST use the same
+  // chars/2 overhead measure (`fixedOverheadTokens`), not the tokenized
+  // `fixedTokens` used for the final chats math below. D2: an anchor is only
+  // verified when this process recorded the exact request prefix (snapshot)
+  // before the report arrived — first sight alone never trusts a report.
   const anchor = getLatestReportedInputAnchor(estimateMessages, usageLookupOptions);
   const anchorIndex = anchor ? chats.findIndex(({ id }) => id === anchor.id) : -1;
 
@@ -249,11 +252,20 @@ export const estimateContextUsageAsync = async ({
     anchor && anchorIndex >= 0
       ? resolveAnchorBaseline({
           anchorId: anchor.id,
+          anchorParentId: anchorIndex > 0 ? chats[anchorIndex - 1]?.id : undefined,
           currentFixedOverheadTokens: fixedOverheadTokens,
           prefixFingerprint: fingerprintAnchorPrefix(chats.slice(0, anchorIndex)),
           reportedInputTokens: anchor.totalInputTokens,
         })
       : undefined;
+  // D2: record this run's prefix snapshot AFTER resolving, so the first
+  // estimate that observes a newly landed report can still promote against the
+  // pre-arrival snapshot.
+  recordAnchorPrefixSnapshot({
+    fixedOverheadTokens,
+    loadingIds: chatState.chatLoadingIds,
+    messages: estimateMessages,
+  });
   if (anchor && anchorBaseline) {
     const tailToken = await countTokens(
       serializeMessagesForContextEstimate(chats.slice(anchorIndex), inputTemplate),

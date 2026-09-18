@@ -249,16 +249,17 @@ interface AnchorBaseline {
 }
 
 /**
- * Process-local retained request snapshots, keyed by anchor message id. The
- * anchor's provider-reported input exactly covered the fixed overhead and
- * history prefix of ITS request; to keep the anchored total correct, later
- * estimates must add the fixed-overhead delta (skill/system/memory/tools
- * changes) and fall back to the whole-window estimate when the prefix no
- * longer corresponds (F5). A prefix mismatch never re-baselines (R3): the
- * report covered the original prefix, so the anchor stays invalid until a
- * fresh provider report arrives under a new anchor id. Both callers must pass
- * the SAME overhead measure (`estimateFixedContextOverheadTokens`, chars/4) —
- * the map is shared, so mixed units would register as phantom context (R4).
+ * Process-local retained request snapshots, keyed by anchor message id. A
+ * baseline may only be registered by PROMOTING a prefix snapshot this process
+ * recorded before the anchor's provider report arrived (D2): first observation
+ * of a reported anchor is not evidence the report measured the current prefix
+ * (the edit may predate this process — reload, new tab, cache eviction), so an
+ * unverified anchor always falls back to the whole-window estimate. A prefix
+ * mismatch never re-baselines (R3): the report covered the original prefix, so
+ * the anchor stays invalid until a fresh provider report arrives under a new
+ * anchor id. Both callers must pass the SAME overhead measure
+ * (`estimateFixedContextOverheadTokens`, chars/2) — the map is shared, so mixed
+ * units would register as phantom context (R4).
  */
 const anchorBaselines = new Map<string, AnchorBaseline>();
 const ANCHOR_BASELINE_LIMIT = 500;
@@ -271,52 +272,133 @@ const registerAnchorBaseline = (anchorId: string, baseline: AnchorBaseline) => {
   anchorBaselines.set(anchorId, baseline);
 };
 
-/** Test support: drop all retained baselines (module state survives across tests in a file). */
-export const clearAnchorBaselines = () => {
-  anchorBaselines.clear();
-};
+interface AnchorPrefixSnapshot {
+  fixedOverheadTokens: number;
+  newestMessageId: string;
+  prefixFingerprint: string;
+}
 
 /**
- * Resolve the anchor's retained baseline, or `undefined` when the prefix no
- * longer corresponds and the caller must fall back to the whole-window
- * estimate. First sight of an anchor registers the current state as the
- * baseline (delta 0). On a prefix mismatch the baseline is **kept**, not
- * re-registered: the anchor's provider report covered the ORIGINAL prefix, so
- * re-baselining onto an edited prefix would re-trust a report that never
- * counted those messages (R3). The anchor therefore stays invalid — every
- * estimate falls back to the whole window — until a fresh provider report
- * arrives under a new anchor id.
+ * The most recent estimate's prefix snapshot (D2). Single process-local slot:
+ * cross-conversation overwrite only loses a promotion opportunity (a
+ * conservative whole-window fallback), it can never produce wrong trust,
+ * because promotion also requires an exact fingerprint match.
+ */
+let lastAnchorPrefixSnapshot: AnchorPrefixSnapshot | undefined;
+
+/**
+ * Record the current estimate's prefix snapshot on EVERY run (after resolving).
+ * The snapshot covers all rows through the newest settled message; in-flight
+ * assistant rows (loading ids or `LOADING_FLAT` placeholders) are excluded
+ * because their content still changes while streaming. When a provider report
+ * later lands on the row right after that newest settled message, the snapshot
+ * proves this process observed the exact request prefix beforehand — the only
+ * evidence that makes the report eligible for anchoring (D2).
+ */
+export const recordAnchorPrefixSnapshot = ({
+  fixedOverheadTokens,
+  loadingIds,
+  messages,
+}: {
+  fixedOverheadTokens: number;
+  loadingIds?: readonly string[];
+  messages: Array<{ content?: unknown; id?: string; updatedAt?: unknown }>;
+}) => {
+  let newestIndex = -1;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (!message.id) continue;
+    if (message.content === LOADING_FLAT) continue;
+    if (loadingIds?.includes(message.id)) continue;
+    newestIndex = index;
+    break;
+  }
+  if (newestIndex < 0) {
+    lastAnchorPrefixSnapshot = undefined;
+    return;
+  }
+  lastAnchorPrefixSnapshot = {
+    fixedOverheadTokens,
+    newestMessageId: messages[newestIndex].id!,
+    prefixFingerprint: fingerprintAnchorPrefix(messages.slice(0, newestIndex + 1)),
+  };
+};
+
+/** Test support: drop all retained baselines/snapshots (module state survives across tests in a file). */
+export const clearAnchorBaselines = () => {
+  anchorBaselines.clear();
+  lastAnchorPrefixSnapshot = undefined;
+};
+
+const floorOverheadDelta = (
+  overheadDelta: number,
+  currentFixedOverheadTokens: number,
+  reportedInputTokens: number,
+) =>
+  overheadDelta < 0
+    ? Math.max(overheadDelta, currentFixedOverheadTokens - reportedInputTokens)
+    : overheadDelta;
+
+/**
+ * Resolve the anchor's retained baseline, or `undefined` when the caller must
+ * fall back to the whole-window estimate. Three cases:
+ * - Known baseline, matching prefix: trust, adding the fixed-overhead delta.
+ * - Known baseline, mismatched prefix (R3): fall back permanently — the report
+ *   covered the ORIGINAL prefix, so re-baselining onto an edited prefix would
+ *   re-trust a report that never counted those messages. The anchor stays
+ *   invalid until a fresh provider report arrives under a new anchor id.
+ * - No baseline (D2): fall back unless the current prefix exactly matches the
+ *   snapshot this process recorded immediately before the report arrived
+ *   (snapshot keyed by the anchor's parent row). Only that proves the report
+ *   measured this prefix; the snapshot is then promoted to the baseline.
  * The returned delta is floored so the anchored total can never drop below
  * what the next request minimally contains (current overhead + tail).
  */
 export const resolveAnchorBaseline = ({
   anchorId,
+  anchorParentId,
   currentFixedOverheadTokens,
   prefixFingerprint,
   reportedInputTokens,
 }: {
   anchorId: string;
+  anchorParentId?: string;
   currentFixedOverheadTokens: number;
   prefixFingerprint: string;
   reportedInputTokens: number;
 }): { overheadDelta: number } | undefined => {
   const cached = anchorBaselines.get(anchorId);
-  if (!cached) {
-    registerAnchorBaseline(anchorId, {
-      fixedOverheadTokens: currentFixedOverheadTokens,
-      prefixFingerprint,
-    });
-    return { overheadDelta: 0 };
+  if (cached) {
+    if (cached.prefixFingerprint !== prefixFingerprint) {
+      return undefined;
+    }
+    return {
+      overheadDelta: floorOverheadDelta(
+        currentFixedOverheadTokens - cached.fixedOverheadTokens,
+        currentFixedOverheadTokens,
+        reportedInputTokens,
+      ),
+    };
   }
-  if (cached.prefixFingerprint !== prefixFingerprint) {
+
+  const snapshot = lastAnchorPrefixSnapshot;
+  if (
+    !snapshot ||
+    snapshot.newestMessageId !== anchorParentId ||
+    snapshot.prefixFingerprint !== prefixFingerprint
+  ) {
     return undefined;
   }
-  const overheadDelta = currentFixedOverheadTokens - cached.fixedOverheadTokens;
+  registerAnchorBaseline(anchorId, {
+    fixedOverheadTokens: snapshot.fixedOverheadTokens,
+    prefixFingerprint,
+  });
   return {
-    overheadDelta:
-      overheadDelta < 0
-        ? Math.max(overheadDelta, currentFixedOverheadTokens - reportedInputTokens)
-        : overheadDelta,
+    overheadDelta: floorOverheadDelta(
+      currentFixedOverheadTokens - snapshot.fixedOverheadTokens,
+      currentFixedOverheadTokens,
+      reportedInputTokens,
+    ),
   };
 };
 

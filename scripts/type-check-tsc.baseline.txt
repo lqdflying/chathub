@@ -1,0 +1,332 @@
+packages/database/src/models/drizzleMigration.ts	TS2305
+packages/database/src/models/file.ts	TS2345
+packages/database/src/models/session.ts	TS2790
+packages/database/src/models/session.ts	TS2790
+packages/database/src/models/session.ts	TS2790
+packages/fetch-sse/src/fetchSSE.ts	TS2367
+packages/fetch-sse/src/fetchSSE.ts	TS2367
+packages/model-bank/src/aiModels/anthropic.ts	TS2322
+packages/model-bank/src/aiModels/anthropic.ts	TS2322
+packages/model-bank/src/aiModels/anthropic.ts	TS2322
+packages/model-bank/src/aiModels/anthropic.ts	TS2322
+packages/model-bank/src/aiModels/anthropic.ts	TS2322
+packages/model-bank/src/aiModels/anthropic.ts	TS2322
+packages/model-bank/src/aiModels/anthropic.ts	TS2322
+packages/model-bank/src/aiModels/azure.ts	TS2322
+packages/model-bank/src/aiModels/azure.ts	TS2322
+packages/model-bank/src/aiModels/azure.ts	TS2322
+packages/model-bank/src/aiModels/azure.ts	TS2322
+packages/model-bank/src/aiModels/azure.ts	TS2322
+packages/model-bank/src/aiModels/azure.ts	TS2322
+packages/model-bank/src/aiModels/azure.ts	TS2322
+packages/model-bank/src/aiModels/azure.ts	TS2322
+packages/model-bank/src/aiModels/google.ts	TS2322
+packages/model-bank/src/aiModels/google.ts	TS2322
+packages/model-bank/src/aiModels/google.ts	TS2322
+packages/model-bank/src/aiModels/google.ts	TS2322
+packages/model-bank/src/aiModels/google.ts	TS2322
+packages/model-bank/src/aiModels/google.ts	TS2322
+packages/model-bank/src/aiModels/google.ts	TS2322
+packages/model-runtime/src/core/contextBuilders/anthropic.ts	TS2366
+packages/model-runtime/src/core/contextBuilders/openai.ts	TS2352
+packages/model-runtime/src/core/contextBuilders/openai.ts	TS2352
+packages/model-runtime/src/core/contextBuilders/openai.ts	TS2677
+packages/model-runtime/src/core/openaiCompatibleFactory/index.ts	TS2322
+packages/model-runtime/src/core/openaiCompatibleFactory/index.ts	TS2322
+packages/model-runtime/src/core/openaiCompatibleFactory/index.ts	TS2322
+packages/model-runtime/src/core/openaiCompatibleFactory/index.ts	TS2345
+packages/model-runtime/src/core/openaiCompatibleFactory/index.ts	TS2345
+packages/model-runtime/src/core/openaiCompatibleFactory/index.ts	TS2345
+packages/model-runtime/src/core/openaiCompatibleFactory/index.ts	TS2345
+packages/model-runtime/src/core/openaiCompatibleFactory/index.ts	TS2345
+packages/model-runtime/src/core/openaiCompatibleFactory/index.ts	TS2352
+packages/model-runtime/src/core/openaiCompatibleFactory/index.ts	TS2352
+packages/model-runtime/src/core/openaiCompatibleFactory/index.ts	TS2724
+packages/model-runtime/src/core/openaiCompatibleFactory/index.ts	TS2724
+packages/model-runtime/src/core/openaiCompatibleFactory/index.ts	TS2724
+packages/model-runtime/src/core/openaiCompatibleFactory/index.ts	TS2769
+packages/model-runtime/src/core/openaiCompatibleFactory/index.ts	TS2769
+packages/model-runtime/src/core/openaiCompatibleFactory/nonStreamToStream.ts	TS2352
+packages/model-runtime/src/core/streams/anthropic.ts	TS2322
+packages/model-runtime/src/core/streams/openai/responsesStream.ts	TS2790
+packages/model-runtime/src/core/streams/protocol.ts	TS2345
+packages/model-runtime/src/core/streams/protocol.ts	TS2722
+packages/model-runtime/src/core/usageConverters/anthropic.ts	TS2322
+packages/model-runtime/src/core/usageConverters/anthropic.ts	TS2322
+packages/model-runtime/src/providers/anthropic/index.ts	TS2322
+packages/model-runtime/src/providers/anthropic/index.ts	TS2322
+packages/model-runtime/src/providers/anthropic/index.ts	TS2345
+packages/model-runtime/src/providers/anthropic/index.ts	TS2345
+packages/model-runtime/src/providers/anthropic/index.ts	TS2352
+packages/model-runtime/src/providers/anthropic/index.ts	TS2352
+packages/model-runtime/src/providers/anthropic/index.ts	TS2352
+packages/model-runtime/src/providers/azureOpenai/index.ts	TS2345
+packages/model-runtime/src/providers/azureai/index.ts	TS2345
+packages/model-runtime/src/providers/mimo/index.ts	TS2322
+packages/model-runtime/src/providers/mimo/index.ts	TS2339
+packages/model-runtime/src/providers/moonshot/index.ts	TS2790
+packages/model-runtime/src/providers/moonshot/index.ts	TS2790
+src/app/(backend)/middleware/auth/utils.ts(130,29): error TS2749: 'ChatErrorType' refers to a value, but is being used as a type here. Did you mean 'typeof ChatErrorType'?
+src/app/(backend)/webapi/chat/[provider]/route.ts(102,7): error TS2322: Type 'string | undefined' is not assignable to type 'string'.
+src/app/(backend)/webapi/chat/[provider]/route.ts(142,7): error TS2345: Argument of type 'Promise<ContextExportRequestSnapshot | { metadata: { apiMode: any; model?: string | undefined; provider?: string | undefined; runtime?: string | undefined; }; ... 9 more ...; sequence?: number | undefined; }>' is not assignable to parameter of type 'Promise<ContextExportRequestSnapshot>'.
+src/app/(backend)/webapi/files/[...key]/route.ts(50,25): error TS2345: Argument of type 'Uint8Array<ArrayBufferLike>' is not assignable to parameter of type 'BodyInit | null | undefined'.
+src/app/(backend)/webapi/stt/openai/route.ts(44,33): error TS2749: 'ChatErrorType' refers to a value, but is being used as a type here. Did you mean 'typeof ChatErrorType'?
+src/app/(backend)/webapi/stt/openai/route.ts(60,5): error TS2739: Type 'OpenAI' is missing the following properties from type 'OpenAI': defaultHeaders, httpAgent, calculateContentLength, parseHeaders
+src/app/(backend)/webapi/tts/openai/route.ts(44,33): error TS2749: 'ChatErrorType' refers to a value, but is being used as a type here. Did you mean 'typeof ChatErrorType'?
+src/app/(backend)/webapi/tts/openai/route.ts(53,42): error TS2739: Type 'OpenAI' is missing the following properties from type 'OpenAI': defaultHeaders, httpAgent, calculateContentLength, parseHeaders
+src/app/[variants]/(main)/artifacts/_layout/Desktop/index.tsx(23,25): error TS2322: Type '{ children: ReactNode; gap: number; margin: string; maxWidth: number; padding: number; width: string; }' is not assignable to type 'IntrinsicAttributes & FlexBasicProps & CommonProps'.
+src/app/[variants]/(main)/changelog/features/Hero.tsx(34,20): error TS2345: Argument of type '["actions.viewOnGithub"]' is not assignable to parameter of type '[key: string | string[], options: TOptionsBase & $Dictionary & { defaultValue: string; }] | [key: string | string[], defaultValue: string, options?: (TOptionsBase & $Dictionary) | undefined] | [key: ...]'.
+src/app/[variants]/(main)/chat/(workspace)/_layout/Mobile/TopicModal.tsx(26,7): error TS2322: Type '{ children: ReactNode; allowFullscreen: true; footer: null; id: string; onCancel: () => void; open: boolean; styles: { body: { padding: number; }; }; title: string; }' is not assignable to type 'IntrinsicAttributes & Omit<ModalProps, "wrapClassName" | "okType"> & { allowFullscreen?: boolean | undefined; enableResponsive?: boolean | undefined; paddings?: { ...; } | undefined; }'.
+src/app/[variants]/(main)/image/@menu/components/SizeSelect/index.tsx(323,54): error TS2345: Argument of type '[`config.size.tiers.${string}`]' is not assignable to parameter of type '[key: string | string[], options: TOptionsBase & $Dictionary & { defaultValue: string; }] | [key: string | string[], defaultValue: string, options?: (TOptionsBase & $Dictionary) | undefined] | [key: ...]'.
+src/app/[variants]/(main)/image/@topic/features/Topics/HousekeepingDialog.tsx(191,58): error TS2322: Type 'string' is not assignable to type 'number'.
+src/app/[variants]/(main)/image/@topic/features/Topics/HousekeepingDialog.tsx(193,15): error TS2322: Type 'AgeSelection' is not assignable to type 'number | undefined'.
+src/app/[variants]/(main)/image/@topic/features/Topics/HousekeepingDialog.tsx(228,47): error TS2322: Type '{ children: Element; "aria-live": "polite"; gap: number; minHeight: number; }' is not assignable to type 'IntrinsicAttributes & FlexBasicProps & CommonProps'.
+src/app/[variants]/(main)/image/_layout/Mobile/index.tsx(69,11): error TS2322: Type '{ children: ReactNode; gap: number; minHeight: string; padding: number; style: { margin: string; maxWidth: number; }; width: string; }' is not assignable to type 'IntrinsicAttributes & FlexBasicProps & CommonProps'.
+src/app/[variants]/(main)/image/features/GenerationFeed/BatchItem.tsx(249,30): error TS2353: Object literal may only specify known properties, and 'size' does not exist in type 'Partial<Omit<ActionIconProps, "size" | "ref" | "icon">>'.
+src/app/[variants]/(main)/image/features/GenerationFeed/GenerationItem/ActionButtons.tsx(27,11): error TS2353: Object literal may only specify known properties, and 'size' does not exist in type 'Partial<Omit<ActionIconProps, "size" | "ref" | "icon">>'.
+src/app/[variants]/(main)/knowledge/_layout/Mobile/index.tsx(64,56): error TS2345: Argument of type '[`tab.${string}`]' is not assignable to parameter of type '[key: string | string[], options: TOptionsBase & $Dictionary & { defaultValue: never; }] | [key: string | string[], defaultValue: never, options?: (TOptionsBase & $Dictionary) | undefined] | [key: ...]'.
+src/app/[variants]/(main)/knowledge/_layout/Mobile/index.tsx(74,39): error TS2322: Type 'unknown' is not assignable to type 'ReactNode'.
+src/app/[variants]/(main)/knowledge/routes/KnowledgeHome/index.tsx(41,66): error TS2345: Argument of type '[`tab.${string}`]' is not assignable to parameter of type '[key: string | string[], options: TOptionsBase & $Dictionary & { defaultValue: string; }] | [key: string | string[], defaultValue: string, options?: (TOptionsBase & $Dictionary) | undefined] | [key: ...]'.
+src/app/[variants]/(main)/profile/(home)/features/SSOProvidersList/index.tsx(100,14): error TS2339: Property 'map' does not exist on type '{}'.
+src/app/[variants]/(main)/profile/(home)/features/SSOProvidersList/index.tsx(100,19): error TS7006: Parameter 'item' implicitly has an 'any' type.
+src/app/[variants]/(main)/profile/(home)/features/SSOProvidersList/index.tsx(100,25): error TS7006: Parameter 'index' implicitly has an 'any' type.
+src/app/[variants]/(main)/profile/(home)/features/SSOProvidersList/index.tsx(39,30): error TS2339: Property 'length' does not exist on type '{}'.
+src/app/[variants]/(main)/profile/(home)/features/SSOProvidersList/index.tsx(45,15): error TS2339: Property 'length' does not exist on type '{}'.
+src/app/[variants]/(main)/profile/stats/features/AiHeatmaps.tsx(26,24): error TS2339: Property 'filter' does not exist on type '{}'.
+src/app/[variants]/(main)/profile/stats/features/AiHeatmaps.tsx(26,32): error TS7006: Parameter 'item' implicitly has an 'any' type.
+src/app/[variants]/(main)/profile/stats/features/AiHeatmaps.tsx(27,27): error TS2339: Property 'filter' does not exist on type '{}'.
+src/app/[variants]/(main)/profile/stats/features/AiHeatmaps.tsx(27,35): error TS7006: Parameter 'item' implicitly has an 'any' type.
+src/app/[variants]/(main)/profile/stats/features/AiHeatmaps.tsx(34,9): error TS2740: Type '{}' is missing the following properties from type 'Activity[]': length, pop, push, concat, and 35 more.
+src/app/[variants]/(main)/profile/stats/features/AssistantsRank.tsx(107,25): error TS2339: Property 'map' does not exist on type '{}'.
+src/app/[variants]/(main)/profile/stats/features/AssistantsRank.tsx(107,30): error TS7006: Parameter 'item' implicitly has an 'any' type.
+src/app/[variants]/(main)/profile/stats/features/AssistantsRank.tsx(30,43): error TS2339: Property 'length' does not exist on type '{}'.
+src/app/[variants]/(main)/profile/stats/features/AssistantsRank.tsx(85,25): error TS2339: Property 'slice' does not exist on type '{}'.
+src/app/[variants]/(main)/profile/stats/features/AssistantsRank.tsx(85,42): error TS7006: Parameter 'item' implicitly has an 'any' type.
+src/app/[variants]/(main)/profile/stats/features/ModelsRank.tsx(25,43): error TS2339: Property 'length' does not exist on type '{}'.
+src/app/[variants]/(main)/profile/stats/features/ModelsRank.tsx(55,25): error TS2339: Property 'slice' does not exist on type '{}'.
+src/app/[variants]/(main)/profile/stats/features/ModelsRank.tsx(55,42): error TS7006: Parameter 'item' implicitly has an 'any' type.
+src/app/[variants]/(main)/profile/stats/features/ModelsRank.tsx(76,25): error TS2339: Property 'map' does not exist on type '{}'.
+src/app/[variants]/(main)/profile/stats/features/ModelsRank.tsx(76,30): error TS7006: Parameter 'item' implicitly has an 'any' type.
+src/app/[variants]/(main)/profile/stats/features/TopicsRank.tsx(31,43): error TS2339: Property 'length' does not exist on type '{}'.
+src/app/[variants]/(main)/profile/stats/features/TopicsRank.tsx(72,25): error TS2339: Property 'slice' does not exist on type '{}'.
+src/app/[variants]/(main)/profile/stats/features/TopicsRank.tsx(72,42): error TS7006: Parameter 'item' implicitly has an 'any' type.
+src/app/[variants]/(main)/profile/stats/features/TopicsRank.tsx(94,25): error TS2339: Property 'map' does not exist on type '{}'.
+src/app/[variants]/(main)/profile/stats/features/TopicsRank.tsx(94,30): error TS7006: Parameter 'item' implicitly has an 'any' type.
+src/app/[variants]/(main)/profile/stats/features/TotalAssistants.tsx(32,43): error TS2339: Property 'prevCount' does not exist on type '{}'.
+src/app/[variants]/(main)/profile/stats/features/TotalAssistants.tsx(45,47): error TS2339: Property 'prevCount' does not exist on type '{}'.
+src/app/[variants]/(main)/profile/stats/features/TotalAssistants.tsx(49,22): error TS2339: Property 'count' does not exist on type '{}'.
+src/app/[variants]/(main)/profile/stats/features/TotalAssistants.tsx(53,24): error TS2339: Property 'count' does not exist on type '{}'.
+src/app/[variants]/(main)/profile/stats/features/TotalAssistants.tsx(54,27): error TS2339: Property 'prevCount' does not exist on type '{}'.
+src/app/[variants]/(main)/profile/stats/features/TotalMessages.tsx(32,43): error TS2339: Property 'prevCount' does not exist on type '{}'.
+src/app/[variants]/(main)/profile/stats/features/TotalMessages.tsx(45,47): error TS2339: Property 'prevCount' does not exist on type '{}'.
+src/app/[variants]/(main)/profile/stats/features/TotalMessages.tsx(49,22): error TS2339: Property 'count' does not exist on type '{}'.
+src/app/[variants]/(main)/profile/stats/features/TotalMessages.tsx(53,24): error TS2339: Property 'count' does not exist on type '{}'.
+src/app/[variants]/(main)/profile/stats/features/TotalMessages.tsx(54,27): error TS2339: Property 'prevCount' does not exist on type '{}'.
+src/app/[variants]/(main)/profile/stats/features/TotalTopics.tsx(31,52): error TS2339: Property 'prevCount' does not exist on type '{}'.
+src/app/[variants]/(main)/profile/stats/features/TotalTopics.tsx(42,47): error TS2339: Property 'prevCount' does not exist on type '{}'.
+src/app/[variants]/(main)/profile/stats/features/TotalTopics.tsx(46,22): error TS2339: Property 'count' does not exist on type '{}'.
+src/app/[variants]/(main)/profile/stats/features/TotalTopics.tsx(50,24): error TS2339: Property 'count' does not exist on type '{}'.
+src/app/[variants]/(main)/profile/stats/features/TotalTopics.tsx(51,27): error TS2339: Property 'prevCount' does not exist on type '{}'.
+src/app/[variants]/(main)/profile/stats/features/TotalWords.tsx(30,51): error TS2339: Property 'prevCount' does not exist on type '{}'.
+src/app/[variants]/(main)/profile/stats/features/TotalWords.tsx(40,46): error TS2339: Property 'prevCount' does not exist on type '{}'.
+src/app/[variants]/(main)/profile/stats/features/TotalWords.tsx(47,42): error TS2339: Property 'count' does not exist on type '{}'.
+src/app/[variants]/(main)/profile/stats/features/TotalWords.tsx(51,24): error TS2339: Property 'count' does not exist on type '{}'.
+src/app/[variants]/(main)/profile/stats/features/TotalWords.tsx(52,27): error TS2339: Property 'prevCount' does not exist on type '{}'.
+src/app/[variants]/(main)/profile/stats/features/Welcome.tsx(66,54): error TS2339: Property 'duration' does not exist on type '{}'.
+src/app/[variants]/(main)/profile/stats/features/Welcome.tsx(67,55): error TS2339: Property 'duration' does not exist on type '{}'.
+src/app/[variants]/(main)/profile/stats/features/Welcome.tsx(82,32): error TS2339: Property 'createdAt' does not exist on type '{}'.
+src/app/[variants]/(main)/profile/stats/features/Welcome.tsx(83,32): error TS2339: Property 'updatedAt' does not exist on type '{}'.
+src/app/[variants]/(main)/settings/_layout/Desktop/Header.tsx(44,70): error TS2345: Argument of type '["tab.mcp" | "tab.agent" | "tab.skills" | "tab.tts" | "tab.about" | "tab.hotkey" | "tab.common" | "tab.storage" | "tab.chat-instruction" | "tab.rag-provider" | "tab.system-agent"]' is not assignable to parameter of type '[key: string | string[], options: TOptionsBase & $Dictionary & { defaultValue: never; }] | [key: string | string[], defaultValue: never, options?: (TOptionsBase & $Dictionary) | undefined] | [key: ...]'.
+src/app/[variants]/(main)/settings/_layout/Desktop/Header.tsx(60,17): error TS2322: Type 'unknown' is not assignable to type 'string | number | bigint | boolean | ReactElement<unknown, string | JSXElementConstructor<any>> | Iterable<ReactNode> | ... 11 more ... | undefined'.
+src/app/[variants]/(main)/settings/_layout/Mobile/Header.tsx(49,48): error TS2345: Argument of type '["tab.mcp" | "tab.agent" | "tab.provider" | "tab.skills" | "tab.tts" | "tab.about" | "tab.hotkey" | "tab.common" | "tab.storage" | "tab.chat-instruction" | "tab.rag-provider" | "tab.system-agent"]' is not assignable to parameter of type '[key: string | string[], options: TOptionsBase & $Dictionary & { defaultValue: string; }] | [key: string | string[], defaultValue: string, options?: (TOptionsBase & $Dictionary) | undefined] | [key: ...]'.
+src/app/[variants]/(main)/settings/about/index.tsx(37,42): error TS2345: Argument of type '["releaseLog"]' is not assignable to parameter of type '[key: string | string[], options: TOptionsBase & $Dictionary & { defaultValue: string; }] | [key: string | string[], defaultValue: string, options?: (TOptionsBase & $Dictionary) | undefined] | [key: ...]'.
+src/app/[variants]/(main)/settings/provider/detail/default/ClientMode.tsx(26,35): error TS2339: Property 'id' does not exist on type '{}'.
+src/app/[variants]/(main)/settings/provider/detail/default/ClientMode.tsx(30,52): error TS2339: Property 'name' does not exist on type '{}'.
+src/app/[variants]/(main)/settings/provider/detail/default/ClientMode.tsx(30,8): error TS2741: Property 'settings' is missing in type '{ id: string; name: any; }' but required in type 'ProviderConfigProps'.
+src/app/[variants]/(main)/settings/provider/features/ProviderConfig/Checker.tsx(264,55): error TS2339: Property 'message' does not exist on type '{}'.
+src/app/[variants]/(main)/settings/provider/features/ProviderConfig/index.tsx(401,26): error TS2339: Property 'config' does not exist on type 'AiProviderDetailItem'.
+src/app/[variants]/(main)/settings/provider/features/ProviderConfig/index.tsx(402,75): error TS2339: Property 'config' does not exist on type 'AiProviderDetailItem'.
+src/app/[variants]/(main)/settings/provider/features/ProviderConfig/index.tsx(404,25): error TS2339: Property 'config' does not exist on type 'AiProviderDetailItem'.
+src/app/[variants]/(main)/settings/provider/features/ProviderConfig/index.tsx(434,85): error TS2339: Property 'config' does not exist on type 'AiProviderDetailItem'.
+src/app/[variants]/(main)/settings/provider/features/ProviderConfig/index.tsx(451,9): error TS2345: Argument of type '[`providerModels.config.openAICompatCache.preset.options.${string}`]' is not assignable to parameter of type '[key: string | string[], options: TOptionsBase & $Dictionary & { defaultValue: never; }] | [key: string | string[], defaultValue: never, options?: (TOptionsBase & $Dictionary) | undefined] | [key: ...]'.
+src/app/[variants]/(main)/settings/skills/index.tsx(256,29): error TS2339: Property 'PRESENTED_IMAGE_SIMPLE' does not exist on type 'NamedExoticComponent<EmptyProps>'.
+src/app/[variants]/(main)/settings/skills/index.tsx(305,65): error TS2339: Property 'PRESENTED_IMAGE_SIMPLE' does not exist on type 'NamedExoticComponent<EmptyProps>'.
+src/app/[variants]/(main)/tools/apitest/features/ApitestWorkspace/curl.ts(204,77): error TS2339: Property 'slice' does not exist on type 'never'.
+src/app/[variants]/(main)/tools/apitest/features/ApitestWorkspace/history.ts(79,30): error TS2345: Argument of type 'unknown' is not assignable to parameter of type 'string | undefined'.
+src/app/[variants]/@modal/_layout/SettingModalLayout.tsx	TS2741
+src/app/[variants]/oauth/callback/error/page.tsx	TS2345
+src/components/Loading/BrandTextLoading/index.tsx	TS2322
+src/features/AgentSetting/AgentMemory/index.tsx	TS2345
+src/features/ChatInput/ActionBar/Model/GPT5ReasoningEffortSlider.tsx	TS2353
+src/features/ChatInput/ActionBar/Model/ReasoningEffortSlider.tsx	TS2353
+src/features/ChatInput/ActionBar/Model/TextVerbositySlider.tsx	TS2353
+src/features/ChatInput/ActionBar/Token/TokenTag.tsx	TS2345
+src/features/ChatInput/ActionBar/Token/TokenTagForGroupChat.tsx	TS2345
+src/features/ChatInput/ActionBar/Token/getPromptCacheHitRate.ts	TS18048
+src/features/ChatInput/ActionBar/Token/getPromptCacheHitRate.ts	TS18048
+src/features/ChatInput/ActionBar/Token/getPromptCacheHitRate.ts	TS2339
+src/features/ChatInput/ActionBar/Token/getPromptCacheHitRate.ts	TS2339
+src/features/ChatInput/ActionBar/components/mobileOverlayWidth.ts	TS2353
+src/features/Conversation/components/CodeBlockActions/index.tsx	TS2322
+src/features/Conversation/components/MermaidZoom/MermaidDrawer.tsx	TS2339
+src/features/DataImporter/ImportDetail.tsx	TS2345
+src/features/DataImporter/ImportDetail.tsx	TS2345
+src/features/DataImporter/ImportDetail.tsx	TS2345
+src/features/DataImporter/ImportDetail.tsx	TS2345
+src/features/DataImporter/ImportDetail.tsx	TS2345
+src/features/DataImporter/ImportDetail.tsx	TS2345
+src/features/DataImporter/ImportDetail.tsx	TS2345
+src/features/DataImporter/ImportDetail.tsx	TS2345
+src/features/DataImporter/ImportDetail.tsx	TS2345
+src/features/DataImporter/ImportDetail.tsx	TS2345
+src/features/DataImporter/ImportDetail.tsx	TS2345
+src/features/DataImporter/ImportDetail.tsx	TS2345
+src/features/DataImporter/ImportDetail.tsx	TS2345
+src/features/DataImporter/ImportDetail.tsx	TS2769
+src/features/FileManager/ChunkDrawer/ChunkList/index.tsx	TS2339
+src/features/FileManager/FileList/FileListItem/DropdownMenu.tsx	TS7031
+src/features/MCPPluginDetail/Deployment/index.tsx	TS2554
+src/features/MCPPluginDetail/Nav.tsx	TS2322
+src/features/PluginDevModal/MCPManifestForm/OAuthConfig.tsx	TS2345
+src/features/PluginDevModal/MCPManifestForm/OAuthConfig.tsx	TS2345
+src/features/PluginStore/AddPluginButton.tsx	TS2322
+src/features/User/DataStatistics.tsx	TS2339
+src/features/User/DataStatistics.tsx	TS2339
+src/helpers/contextCompaction.ts	TS2339
+src/helpers/estimateContextUsageAsync.ts	TS2339
+src/hooks/useDiscoverTab.ts	TS2339
+src/hooks/useFetchAiImageConfig.ts	TS2339
+src/libs/langchain/loaders/markdown/index.ts	TS2307
+src/libs/langchain/loaders/markdown/index.ts	TS7006
+src/libs/langchain/loaders/markdown/index.ts	TS7006
+src/libs/langchain/loaders/markdown/tables.ts	TS2307
+src/libs/logger/modelCacheDebug.ts	TS2305
+src/libs/logger/toolsDebug.ts	TS2322
+src/libs/logger/toolsDebug.ts	TS2367
+src/libs/swr/index.ts	TS2724
+src/libs/swr/useOnlyFetchOnceSWR.ts	TS2724
+src/libs/trpc/async/imageDiagnosticFetch.ts	TS2345
+src/libs/trpc/async/imageDiagnosticFetch.ts	TS2345
+src/libs/trpc/async/imageDiagnosticFetch.ts	TS2345
+src/libs/trpc/client/toolsResponse.ts	TS2345
+src/libs/trpc/client/toolsResponse.ts	TS2345
+src/libs/trpc/client/toolsResponse.ts	TS2345
+src/libs/trpc/client/toolsResponse.ts	TS2345
+src/server/modules/AssistantStore/index.ts	TS2339
+src/server/modules/AssistantStore/index.ts	TS2339
+src/server/modules/AssistantStore/index.ts	TS2339
+src/server/modules/AssistantStore/index.ts	TS2339
+src/server/modules/ModelRuntime/trace.ts	TS2322
+src/server/routers/lambda/group.ts	TS2345
+src/server/routers/lambda/session.ts	TS2345
+src/server/routers/lambda/skill.ts	TS18048
+src/server/routers/lambda/skill.ts	TS2345
+src/server/routers/lambda/user.ts	TS2339
+src/server/routers/lambda/user.ts	TS2339
+src/server/routers/lambda/user.ts	TS7006
+src/server/routers/lambda/user.ts	TS7006
+src/server/services/assistantMemoryDream/worker.ts	TS2307
+src/server/services/assistantMemoryDream/worker.ts	TS7006
+src/server/services/conversationGeneration/assistantPlaceholders.ts	TS2322
+src/server/services/conversationGeneration/assistantPlaceholders.ts	TS2322
+src/server/services/conversationGeneration/compaction.ts	TS2345
+src/server/services/conversationGeneration/execute.ts	TS2322
+src/server/services/conversationGeneration/execute.ts	TS2322
+src/server/services/conversationGeneration/execute.ts	TS2322
+src/server/services/conversationGeneration/execute.ts	TS2322
+src/server/services/conversationGeneration/execute.ts	TS2322
+src/server/services/conversationGeneration/execute.ts	TS2322
+src/server/services/conversationGeneration/execute.ts	TS2322
+src/server/services/conversationGeneration/execute.ts	TS2339
+src/server/services/conversationGeneration/execute.ts	TS2339
+src/server/services/conversationGeneration/execute.ts	TS2339
+src/server/services/conversationGeneration/execute.ts	TS2345
+src/server/services/conversationGeneration/execute.ts	TS2345
+src/server/services/conversationGeneration/execute.ts	TS2345
+src/server/services/conversationGeneration/execute.ts	TS2345
+src/server/services/conversationGeneration/execute.ts	TS2345
+src/server/services/conversationGeneration/execute.ts	TS2345
+src/server/services/conversationGeneration/service.ts	TS2307
+src/server/services/conversationGeneration/service.ts	TS2322
+src/server/services/conversationGeneration/tools.ts	TS2322
+src/server/services/conversationGeneration/tools.ts	TS2322
+src/server/services/conversationGeneration/worker.ts	TS2307
+src/server/services/conversationGeneration/worker.ts	TS7006
+src/server/services/conversationGeneration/worker.ts	TS7006
+src/server/services/file/index.ts	TS2345
+src/server/services/mcp/index.ts	TS18048
+src/server/services/mcp/index.ts	TS2339
+src/server/services/mcp/index.ts	TS2345
+src/server/services/mcp/index.ts	TS2345
+src/server/services/mcp/index.ts	TS2345
+src/server/services/mcp/oauthDiscovery.ts	TS2322
+src/server/services/mcp/oauthDiscovery.ts	TS2724
+src/server/services/mcp/oauthDiscovery.ts	TS2724
+src/server/services/memoryCompactionPersist.ts	TS2345
+src/server/services/topicReportedInputTokenFloor.ts	TS2322
+src/services/aiChat.ts	TS2322
+src/services/chat/index.ts	TS2339
+src/services/chat/index.ts	TS2345
+src/services/chatGroup/server.ts	TS2322
+src/services/chatGroup/server.ts	TS2345
+src/services/conversationGeneration.ts	TS2322
+src/services/conversationGeneration.ts	TS2339
+src/services/conversationGeneration.ts	TS2345
+src/services/file/server.ts	TS2345
+src/services/import/server.ts	TS2322
+src/services/import/server.ts	TS2322
+src/services/message/server.ts	TS2322
+src/services/session/server.ts	TS2345
+src/services/skill/server.ts	TS2322
+src/services/textToImage.ts	TS2304
+src/services/upload.ts	TS2322
+src/services/user/server.ts	TS2345
+src/services/user/server.ts	TS2345
+src/store/agent/slices/chat/action.ts	TS2345
+src/store/agent/slices/chat/action.ts	TS2345
+src/store/agent/slices/chat/action.ts	TS2345
+src/store/agent/slices/chat/action.ts	TS2345
+src/store/agent/slices/chat/action.ts	TS2345
+src/store/agent/slices/chat/action.ts	TS2345
+src/store/aiInfra/slices/aiModel/action.ts	TS18048
+src/store/aiInfra/slices/aiModel/action.ts	TS18048
+src/store/aiInfra/slices/aiProvider/action.ts	TS2769
+src/store/chat/slices/aiChat/actions/generateAIChat.ts	TS2345
+src/store/chat/slices/aiChat/actions/generateAIChatV2.ts	TS2322
+src/store/chat/slices/aiChat/actions/generateAIChatV2.ts	TS2322
+src/store/chat/slices/aiChat/actions/generateAIChatV2.ts	TS2322
+src/store/chat/slices/aiChat/actions/generateAIChatV2.ts	TS2345
+src/store/chat/slices/aiChat/actions/generateAIChatV2.ts	TS2345
+src/store/chat/slices/aiChat/actions/generateAIGroupChat.ts	TS2345
+src/store/chat/slices/aiChat/actions/memory.ts	TS2345
+src/store/chat/slices/aiChat/actions/rag.ts	TS2339
+src/store/chat/slices/builtinTool/actions/dalle.ts	TS18048
+src/store/chat/slices/builtinTool/actions/dalle.ts	TS18048
+src/store/chat/slices/builtinTool/actions/dalle.ts	TS2677
+src/store/chat/slices/message/action.ts	TS2322
+src/store/chat/slices/message/action.ts	TS2322
+src/store/chat/slices/plugin/action.ts	TS2322
+src/store/chat/slices/plugin/action.ts	TS2322
+src/store/chat/slices/plugin/action.ts	TS2322
+src/store/chat/slices/plugin/action.ts	TS2345
+src/store/chat/slices/plugin/action.ts	TS2345
+src/store/chat/slices/plugin/action.ts	TS2345
+src/store/chat/slices/plugin/action.ts	TS2345
+src/store/chat/slices/plugin/action.ts	TS2345
+src/store/chat/slices/plugin/action.ts	TS2367
+src/store/chat/slices/thread/action.ts	TS2322
+src/store/chat/slices/thread/action.ts	TS2345
+src/store/chat/slices/thread/action.ts	TS2345
+src/store/chat/slices/topic/action.ts	TS2589
+src/store/chatGroup/action.ts	TS7006
+src/store/file/slices/fileManager/action.ts	TS2345
+src/store/image/slices/generationConfig/action.ts	TS18048
+src/store/image/slices/generationConfig/action.ts	TS18048
+src/store/image/slices/generationConfig/action.ts	TS18048
+src/store/image/slices/generationConfig/action.ts	TS18048
+src/store/image/slices/generationConfig/action.ts	TS2345
+src/store/user/slices/common/action.ts	TS2322
+src/store/user/slices/common/action.ts	TS2769
+src/store/user/slices/common/action.ts	TS2769
+src/store/user/slices/modelList/action.ts	TS2536
+src/store/user/slices/modelList/selectors/keyVaults.ts	TS7053

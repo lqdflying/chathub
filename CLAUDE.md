@@ -136,9 +136,14 @@ lands so a stale patch cannot be applied twice.
   the override.
 - **Tests**: run targeted suites with `npx vitest run <paths>`. Database model and
   repository tests use the PostgreSQL test configuration and require `DATABASE_TEST_URL`.
-- **Type-check**: `npm run type-check` currently reports a large number of **pre-existing**
-  errors on `main` (~248 in the cloud sandbox). The acceptance bar is **no new errors**:
-  capture a baseline (stash → run → restore) and diff by file+error-code; note that
-  TS2589 relocates between files and union orderings in messages are unstable.
+- **Type-check**: `npm run type-check` runs `scripts/type-check-tsc.sh`, which compares
+  diagnostics against the checked-in baseline `scripts/type-check-tsc.baseline.txt`
+  (file+error-code pairs; ~332 pre-existing on the fork). The acceptance bar is **no new
+  errors**: the wrapper fails on any diagnostic pair not in the baseline and on any compiler
+  crash (non-1/2 exit, e.g. heap OOM, or a diagnostic exit with no `error TS` lines). The
+  wrapper defaults `NODE_OPTIONS` to a 4GB heap — the project graph OOMs the default ~2GB.
+  If the cloud sandbox count differs from the baseline, re-verify with a stash → run →
+  restore diff before regenerating; note that TS2589 relocates between files and union
+  orderings in messages are unstable.
 - **i18n**: edit `src/locales/default/<ns>.ts` plus `locales/zh-CN` and `locales/en-US`
   JSON by hand only; never run `pnpm i18n` (CI fills the other locales).

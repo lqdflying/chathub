@@ -18,6 +18,7 @@ import {
   getEffectiveReportedInputTokenFloorAfterMessageId,
   getLatestReportedInputAnchor,
   getLatestReportedInputTokens,
+  recordAnchorPrefixSnapshot,
   resolveAnchorBaseline,
 } from '@/helpers/reportedContextTokens';
 import { createChatToolsEngine } from '@/helpers/toolEngineering';
@@ -282,22 +283,33 @@ export const useEstimatedContextUsage = (
       : undefined;
     // C2 usage anchor: with a provider-reported input count, only the tail
     // after that message needs tokenizing (mirrors estimateContextUsageAsync).
-    // F5: trust the anchor only against its retained baseline — fixed overhead
-    // changes (skills, instructions, memory, tools) are added as a delta, and
-    // a changed message prefix falls back to the whole-window estimate. The
-    // baseline excludes KB tokens: retrieval is re-fetched per request, so the
-    // anchor's reported input never covered it.
+    // F5/R3: trust the anchor only against its retained baseline — fixed
+    // overhead changes (skills, instructions, memory, tools) are added as a
+    // delta, and a changed message prefix falls back to the whole-window
+    // estimate permanently. D2: a baseline exists only when this process
+    // recorded the exact request prefix (snapshot) before the report arrived;
+    // first sight alone never trusts a report. The baseline excludes KB
+    // tokens: retrieval is re-fetched per request, so the anchor's reported
+    // input never covered it.
     const anchor = getLatestReportedInputAnchor(estimateMessages, usageLookupOptions);
     const anchorIndex = anchor ? sliced.findIndex(({ id }) => id === anchor.id) : -1;
     const anchorBaseline =
       anchor && anchorIndex >= 0
         ? resolveAnchorBaseline({
             anchorId: anchor.id,
+            anchorParentId: anchorIndex > 0 ? sliced[anchorIndex - 1]?.id : undefined,
             currentFixedOverheadTokens: fixedOverheadTokens - knowledgeBaseToken,
             prefixFingerprint: fingerprintAnchorPrefix(sliced.slice(0, anchorIndex)),
             reportedInputTokens: anchor.totalInputTokens,
           })
         : undefined;
+    // D2: record AFTER resolving so the first post-arrival estimate can still
+    // promote against the pre-arrival snapshot (same KB-exclusive measure).
+    recordAnchorPrefixSnapshot({
+      fixedOverheadTokens: fixedOverheadTokens - knowledgeBaseToken,
+      loadingIds: state.chatLoadingIds,
+      messages: estimateMessages,
+    });
 
     return {
       anchorBaseline,

@@ -222,20 +222,33 @@ to the whole-window estimate floored by the latest reported input
 (`applyReportedInputTokenFloor`), exactly as before. The anchor lookup
 (`getLatestReportedInputAnchor` in `src/helpers/reportedContextTokens.ts`) reuses the
 `reportedInputTokenFloorAfterMessageId` watermark, so a pre-compaction report can never anchor a
-post-compaction estimate. The anchor is only trusted against a **retained request baseline**
+post-compaction estimate. The anchor is only trusted against a **verified request baseline**
 (`resolveAnchorBaseline`, a bounded in-process map keyed by anchor message id): the baseline
 records the fixed-overhead tokens and a cheap prefix fingerprint (pre-anchor message count,
-content chars, newest `updatedAt`) from the anchor's own request. Both registrants — the async
+content chars, newest `updatedAt`) from the anchor's own request. Both callers — the async
 estimator and the token popover hook — share that one map, so both record overhead with the
 SAME sync measure (`estimateFixedContextOverheadTokens`, chars/2 via
 `CONTEXT_CHARS_PER_TOKEN_ESTIMATE`); the estimator's tokenized fixed count feeds only its own
 final math and is never registered, otherwise a UI mount would shift the send estimate by the
 unit gap. Later estimates add the fixed-overhead delta (skill/instruction/memory/tool changes)
-in those shared units. A prefix mismatch (pre-anchor edit, delete, or history-window shift)
-invalidates the anchor **until a fresh provider report arrives under a new anchor id**: the
-report covered the original prefix, so the estimator falls back to the whole window on every
-call and the mismatched baseline is never re-registered — an edited prefix cannot quietly
-become trusted again.
+in those shared units.
+
+A baseline is never registered on first sight of a report. Every estimate run also records a
+single-slot **prefix snapshot** (`recordAnchorPrefixSnapshot`): the shared-units fixed overhead
+plus the prefix fingerprint up to the newest *settled* message (in-flight `LOADING_FLAT` /
+`chatLoadingIds` rows are excluded, so streaming cannot rekey the snapshot). When a report is
+first observed, the anchor is trusted only if that snapshot's newest message id matches the
+anchor's parent and the fingerprints match — i.e. this same process estimated the exact prefix
+immediately before the report landed — in which case the snapshot is **promoted** to a verified
+baseline. Otherwise the estimator falls back to a fresh whole-window estimate (floored by the
+report). After a reload, new tab, or baseline eviction the module state is empty, so stale
+reports from a previous session are never trusted: the same prompt that once anchored at its
+reported ~1,013 tokens is estimated in full again until this process observes the request and
+the report itself. A prefix mismatch (pre-anchor edit, delete, or history-window shift) on an
+established baseline invalidates the anchor **until a fresh provider report arrives under a new
+anchor id**: the report covered the original prefix, so the estimator falls back to the whole
+window on every call and the mismatched baseline is never re-registered — an edited prefix
+cannot quietly become trusted again.
 
 Request assembly also applies a **deterministic tool-result cap**:
 `ToolResultTruncateProcessor` (`packages/context-engine`) rewrites any `tool` message body over

@@ -21,14 +21,26 @@ cd packages/database && bunx vitest run --silent='passed-only' '[file]'
 bun run type-check      # Strict tsc via scripts/type-check-tsc.sh (filters known Drizzle noise)
 bun run type-check:tsgo # tsgo (fast)
 
-# Type-check pitfall — the script calls bare `tsc`; run it via `bun run type-check`
-# (bun prepends node_modules/.bin to PATH, so tsc resolves). Direct
-# `bash scripts/type-check-tsc.sh` outside bun now exits 1 with a clear message
-# (guard added after a false-pass incident: `|| true` used to swallow
-# "command not found" and report "Type check passed." in <1s — a real run takes
-# ~90s+). If you must invoke the script directly:
+# Type-check wrapper contract (V2) — scripts/type-check-tsc.sh:
+# - Preserves the tsc exit status: 0 passes; 1/2 are diagnostic exits; anything
+#   else (134 heap OOM, 137 SIGKILL, …) or a 1/2 with no "error TS" line is a
+#   CRASH and fails loudly — a crashed compiler never reads as a pass.
+# - Defaults NODE_OPTIONS to --max-old-space-size=4096: the project graph
+#   exhausts the default ~2GB V8 heap before completing (that OOM used to
+#   false-pass). Override via NODE_OPTIONS on bigger checkouts.
+# - Filters the known duplicate-drizzle-orm schema files, then compares the
+#   remaining diagnostics against scripts/type-check-tsc.baseline.txt
+#   (multiset of file<TAB>TScode pairs — line numbers and message text are
+#   unstable). New pairs fail the run; resolved pairs only print a note.
+# - Regenerate the baseline ONLY after reviewing every current diagnostic:
+#     bash scripts/type-check-tsc.sh --write-baseline
+# - Wrapper semantics are covered by scripts/type-check-tsc.test.sh (stub-tsc
+#   self-test; run it after editing the wrapper).
+# - The script calls bare `tsc`; run it via `bun run type-check` (bun prepends
+#   node_modules/.bin to PATH, so tsc resolves). Direct bash invocation without
+#   tsc on PATH exits 1 with a clear message. If you must invoke it directly:
 #   PATH="$PWD/node_modules/.bin:$PATH" bash scripts/type-check-tsc.sh
-# Treat any sub-second "Type check passed." as suspect.
+# A real run takes ~60-90s; treat any sub-second "Type check passed." as suspect.
 
 # Linting
 bun run lint       # ts + style + type-check + circular deps
