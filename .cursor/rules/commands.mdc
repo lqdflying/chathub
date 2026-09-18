@@ -32,15 +32,23 @@ bun run type-check:tsgo # tsgo (fast)
 #   remaining diagnostics against scripts/type-check-tsc.baseline.txt
 #   (multiset of file<TAB>TScode pairs — line numbers and message text are
 #   unstable). New pairs fail the run; resolved pairs only print a note.
+#   Parsing splits at the first `): error TS…:` marker, so Next.js route-group
+#   paths containing parentheses normalize correctly.
+# - This is a BASELINE COMPARISON, not a clean strict compile: a green run
+#   means "no new diagnostics versus the baseline", never "zero errors". The
+#   baseline was captured on the fork branch and holds pre-existing
+#   upstream/fork diagnostics; branch-introduced errors must be FIXED, not
+#   baselined (review each candidate against the branch base first).
 # - Regenerate the baseline ONLY after reviewing every current diagnostic:
 #     bash scripts/type-check-tsc.sh --write-baseline
 # - Wrapper semantics are covered by scripts/type-check-tsc.test.sh (stub-tsc
-#   self-test; run it after editing the wrapper).
+#   self-test incl. parenthesized paths; run it after editing the wrapper).
 # - The script calls bare `tsc`; run it via `bun run type-check` (bun prepends
 #   node_modules/.bin to PATH, so tsc resolves). Direct bash invocation without
 #   tsc on PATH exits 1 with a clear message. If you must invoke it directly:
 #   PATH="$PWD/node_modules/.bin:$PATH" bash scripts/type-check-tsc.sh
-# A real run takes ~60-90s; treat any sub-second "Type check passed." as suspect.
+# A real cold run takes ~60-90s (warm incremental cache is faster); treat any
+# sub-second "Type check passed." as suspect.
 
 # Linting
 bun run lint       # ts + style + type-check + circular deps

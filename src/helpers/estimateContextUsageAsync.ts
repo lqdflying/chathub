@@ -258,9 +258,10 @@ export const estimateContextUsageAsync = async ({
           reportedInputTokens: anchor.totalInputTokens,
         })
       : undefined;
-  // D2: record this run's prefix snapshot AFTER resolving, so the first
+  // D2/T1: record this run's prefix snapshot AFTER resolving, so the first
   // estimate that observes a newly landed report can still promote against the
-  // pre-arrival snapshot.
+  // witness frozen when that request was dispatched. While a reply is pending
+  // the frozen witness is never overwritten by later estimates.
   recordAnchorPrefixSnapshot({
     fixedOverheadTokens,
     loadingIds: chatState.chatLoadingIds,

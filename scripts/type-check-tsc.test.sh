@@ -93,6 +93,36 @@ else
   FAILURES=$((FAILURES + 1))
 fi
 
+# 8. Parenthesized Next.js path: same file+code at a NEW line still passes
+# (T3 — the parser must split at the `): error TS` marker, not the first "(").
+PAREN_FILE='src/app/[variants]/(main)/settings/page.tsx'
+printf '%s\tTS2304\n' "$PAREN_FILE" > "$BASELINE"
+OUT=$(run_wrapper 2 "$PAREN_FILE(99,7): error TS2304: reworded message text."); S=$?
+check "parenthesized path relocated/reworded passes" 0 "$S" "$OUT" "pre-existing baselined"
+
+# 9. Parenthesized path with a genuinely new code fails and prints the line.
+OUT=$(run_wrapper 2 "$PAREN_FILE(99,7): error TS9999: brand new breakage."); S=$?
+check "parenthesized path new code fails" 1 "$S" "$OUT" "brand new breakage."
+
+# 10. Multiset counts: pair baselined once but reported twice fails.
+OUT=$(run_wrapper 2 "$PAREN_FILE(1,1): error TS2304: one.
+$PAREN_FILE(2,2): error TS2304: two."); S=$?
+check "duplicate count beyond baseline fails" 1 "$S" "$OUT" "TS2304"
+
+# 11. Baseline generated through the wrapper normalizes parenthesized paths.
+: > "$BASELINE"
+cd "$REPO_ROOT" && env -i PATH="$TMP/bin:/usr/bin:/bin" HOME="$HOME" \
+  TSC_BASELINE_FILE="$BASELINE" STUB_STATUS=2 \
+  STUB_OUTPUT="$PAREN_FILE(3,1): error TS2304: Cannot find name foo." \
+  bash "$WRAPPER" --write-baseline >/dev/null 2>&1
+if grep -qF "$PAREN_FILE"$'\tTS2304' "$BASELINE"; then
+  echo "PASS: --write-baseline normalizes parenthesized paths"
+else
+  echo "FAIL: --write-baseline kept a raw parenthesized diagnostic"
+  cat "$BASELINE"
+  FAILURES=$((FAILURES + 1))
+fi
+
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES self-test(s) failed"
   exit 1

@@ -303,8 +303,10 @@ export const useEstimatedContextUsage = (
             reportedInputTokens: anchor.totalInputTokens,
           })
         : undefined;
-    // D2: record AFTER resolving so the first post-arrival estimate can still
-    // promote against the pre-arrival snapshot (same KB-exclusive measure).
+    // D2/T1: record AFTER resolving so the first post-arrival estimate can
+    // still promote against the witness frozen at dispatch (same KB-exclusive
+    // measure). While a reply is pending the frozen witness is never
+    // overwritten by later estimates.
     recordAnchorPrefixSnapshot({
       fixedOverheadTokens: fixedOverheadTokens - knowledgeBaseToken,
       loadingIds: state.chatLoadingIds,

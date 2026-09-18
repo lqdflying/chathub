@@ -251,7 +251,7 @@ interface AnchorBaseline {
 /**
  * Process-local retained request snapshots, keyed by anchor message id. A
  * baseline may only be registered by PROMOTING a prefix snapshot this process
- * recorded before the anchor's provider report arrived (D2): first observation
+ * froze when the anchor's request was dispatched (D2/T1): first observation
  * of a reported anchor is not evidence the report measured the current prefix
  * (the edit may predate this process — reload, new tab, cache eviction), so an
  * unverified anchor always falls back to the whole-window estimate. A prefix
@@ -274,26 +274,48 @@ const registerAnchorBaseline = (anchorId: string, baseline: AnchorBaseline) => {
 
 interface AnchorPrefixSnapshot {
   fixedOverheadTokens: number;
+  /**
+   * Set while the request this snapshot certifies is still in flight: the id of
+   * the pending row the snapshot was frozen for. A frozen snapshot is never
+   * overwritten by later estimates (T1) — settings or prefix edits made while
+   * the reply is pending must not be certified as covered by its report.
+   */
+  frozenForPendingId?: string;
   newestMessageId: string;
   prefixFingerprint: string;
 }
 
 /**
- * The most recent estimate's prefix snapshot (D2). Single process-local slot:
- * cross-conversation overwrite only loses a promotion opportunity (a
- * conservative whole-window fallback), it can never produce wrong trust,
- * because promotion also requires an exact fingerprint match.
+ * The request snapshot (D2/T1). Single process-local slot: cross-conversation
+ * overwrite only loses a promotion opportunity (a conservative whole-window
+ * fallback), it can never produce wrong trust, because promotion also requires
+ * an exact fingerprint match.
  */
 let lastAnchorPrefixSnapshot: AnchorPrefixSnapshot | undefined;
 
 /**
- * Record the current estimate's prefix snapshot on EVERY run (after resolving).
- * The snapshot covers all rows through the newest settled message; in-flight
- * assistant rows (loading ids or `LOADING_FLAT` placeholders) are excluded
- * because their content still changes while streaming. When a provider report
- * later lands on the row right after that newest settled message, the snapshot
- * proves this process observed the exact request prefix beforehand — the only
- * evidence that makes the report eligible for anchoring (D2).
+ * Record the current estimate's prefix snapshot (after resolving). The snapshot
+ * covers all rows through the newest settled message; in-flight rows (loading
+ * ids or `LOADING_FLAT` placeholders) are excluded because their content still
+ * changes while streaming.
+ *
+ * T1 — the snapshot must stay bound to the request actually sent, not to the
+ * latest estimate while its reply is pending:
+ * - With no pending row, the estimate reflects a settled conversation, so the
+ *   snapshot is (re)recorded. Its existence also proves this process observed
+ *   the conversation before the next request is dispatched.
+ * - With a pending row, an existing frozen snapshot for THAT pending row is
+ *   kept untouched — a skill/instruction change or a prefix edit made while
+ *   the reply is in flight must not replace the overhead/fingerprint the
+ *   request was sent with.
+ * - A pending row with NO prior snapshot means this process never observed the
+ *   pre-request state (reload / new tab into an already-running request):
+ *   nothing is recorded, so the arriving report cannot be promoted and the
+ *   estimator keeps the fresh whole-window fallback.
+ * When a provider report later lands on the row right after the snapshot's
+ * newest settled message, the snapshot proves this process observed the exact
+ * request prefix beforehand — the only evidence that makes the report eligible
+ * for anchoring (D2).
  */
 export const recordAnchorPrefixSnapshot = ({
   fixedOverheadTokens,
@@ -304,23 +326,47 @@ export const recordAnchorPrefixSnapshot = ({
   loadingIds?: readonly string[];
   messages: Array<{ content?: unknown; id?: string; updatedAt?: unknown }>;
 }) => {
-  let newestIndex = -1;
+  let newestSettledIndex = -1;
+  let pendingId: string | undefined;
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
     if (!message.id) continue;
-    if (message.content === LOADING_FLAT) continue;
-    if (loadingIds?.includes(message.id)) continue;
-    newestIndex = index;
+    if (message.content === LOADING_FLAT || loadingIds?.includes(message.id)) {
+      if (!pendingId) pendingId = message.id;
+      continue;
+    }
+    newestSettledIndex = index;
     break;
   }
-  if (newestIndex < 0) {
-    lastAnchorPrefixSnapshot = undefined;
+
+  if (newestSettledIndex < 0) {
+    // No settled row to key a snapshot to. Keep a frozen witness (the request
+    // is still in flight); otherwise the conversation is empty — clear.
+    if (!pendingId) lastAnchorPrefixSnapshot = undefined;
     return;
   }
+
+  const newestMessageId = messages[newestSettledIndex].id!;
+
+  if (pendingId) {
+    if (lastAnchorPrefixSnapshot?.frozenForPendingId === pendingId) return;
+    if (!lastAnchorPrefixSnapshot) return;
+    // First estimate of this pending window: freeze the request witness. The
+    // pre-existing snapshot proves this process observed the conversation
+    // before dispatch, so the state captured now is the state sent.
+    lastAnchorPrefixSnapshot = {
+      fixedOverheadTokens,
+      frozenForPendingId: pendingId,
+      newestMessageId,
+      prefixFingerprint: fingerprintAnchorPrefix(messages.slice(0, newestSettledIndex + 1)),
+    };
+    return;
+  }
+
   lastAnchorPrefixSnapshot = {
     fixedOverheadTokens,
-    newestMessageId: messages[newestIndex].id!,
-    prefixFingerprint: fingerprintAnchorPrefix(messages.slice(0, newestIndex + 1)),
+    newestMessageId,
+    prefixFingerprint: fingerprintAnchorPrefix(messages.slice(0, newestSettledIndex + 1)),
   };
 };
 
@@ -347,10 +393,11 @@ const floorOverheadDelta = (
  *   covered the ORIGINAL prefix, so re-baselining onto an edited prefix would
  *   re-trust a report that never counted those messages. The anchor stays
  *   invalid until a fresh provider report arrives under a new anchor id.
- * - No baseline (D2): fall back unless the current prefix exactly matches the
- *   snapshot this process recorded immediately before the report arrived
- *   (snapshot keyed by the anchor's parent row). Only that proves the report
- *   measured this prefix; the snapshot is then promoted to the baseline.
+ * - No baseline (D2/T1): fall back unless the current prefix exactly matches
+ *   the snapshot this process froze when the anchor's request was dispatched
+ *   (snapshot keyed by the anchor's parent row, never overwritten while the
+ *   reply is pending). Only that proves the report measured this prefix; the
+ *   snapshot is then promoted to the baseline.
  * The returned delta is floored so the anchored total can never drop below
  * what the next request minimally contains (current overhead + tail).
  */

@@ -233,18 +233,24 @@ final math and is never registered, otherwise a UI mount would shift the send es
 unit gap. Later estimates add the fixed-overhead delta (skill/instruction/memory/tool changes)
 in those shared units.
 
-A baseline is never registered on first sight of a report. Every estimate run also records a
+A baseline is never registered on first sight of a report. Every estimate run also maintains a
 single-slot **prefix snapshot** (`recordAnchorPrefixSnapshot`): the shared-units fixed overhead
 plus the prefix fingerprint up to the newest *settled* message (in-flight `LOADING_FLAT` /
-`chatLoadingIds` rows are excluded, so streaming cannot rekey the snapshot). When a report is
-first observed, the anchor is trusted only if that snapshot's newest message id matches the
-anchor's parent and the fingerprints match — i.e. this same process estimated the exact prefix
-immediately before the report landed — in which case the snapshot is **promoted** to a verified
-baseline. Otherwise the estimator falls back to a fresh whole-window estimate (floored by the
-report). After a reload, new tab, or baseline eviction the module state is empty, so stale
-reports from a previous session are never trusted: the same prompt that once anchored at its
-reported ~1,013 tokens is estimated in full again until this process observes the request and
-the report itself. A prefix mismatch (pre-anchor edit, delete, or history-window shift) on an
+`chatLoadingIds` rows are excluded, so streaming cannot rekey the snapshot). The snapshot is
+**frozen for the in-flight request**: while a reply is pending, later estimates never overwrite
+it, so a skill/instruction change or a prefix edit made mid-generation cannot be certified as
+covered by that request's report (T1). A pending window with no prior snapshot — a reload or
+new tab into an already-running request — records nothing, so the arriving report cannot be
+promoted. When a report is first observed, the anchor is trusted only if the frozen snapshot's
+newest message id matches the anchor's parent and the fingerprints match — i.e. this same
+process observed the exact prefix when the request was dispatched — in which case the snapshot
+is **promoted** to a verified baseline. Otherwise the estimator falls back to a fresh
+whole-window estimate (floored by the report). After a reload, new tab, or baseline eviction
+the module state is empty, so stale reports from a previous session are never trusted: a prompt
+whose pre-reload local estimate was over 11,000 tokens is estimated in full again (the old
+contract showed 1,013 — a 1,000-token report plus a 13-token tail) until this process observes
+the request and the report itself. A prefix mismatch (pre-anchor edit, delete, or
+history-window shift) on an
 established baseline invalidates the anchor **until a fresh provider report arrives under a new
 anchor id**: the report covered the original prefix, so the estimator falls back to the whole
 window on every call and the mismatched baseline is never re-registered — an edited prefix

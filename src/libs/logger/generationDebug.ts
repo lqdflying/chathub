@@ -74,6 +74,8 @@ export type GenerationDebugEvent =
   | 'browser_tool_stubbed'
   | 'chat_image_task_created'
   | 'chat_image_task_rejected'
+  | 'context_overflow_recovery_skipped'
+  | 'context_overflow_retry'
   | 'enqueue_persisted'
   | 'enqueue_received'
   | 'enqueue_rejected'

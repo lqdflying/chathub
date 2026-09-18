@@ -144,19 +144,24 @@ describe('estimateContextUsageAsync', () => {
     estimateContextUsageAsync({ agentState: {} as any, chatState: { inputMessage: '' } as any });
 
   /**
-   * D2: a provider report is only trusted when this process observed the exact
-   * request prefix before the report arrived. Simulate the real send flow for
-   * the LAST row (an assistant): estimate once with the row in flight (records
-   * the prefix snapshot keyed by its parent), then settle the row and land the
-   * report so the next estimate can promote the snapshot to a baseline.
+   * D2/T1: a provider report is only trusted when this process observed the
+   * exact request prefix before the report arrived. Simulate the real send
+   * flow for the LAST row (an assistant): estimate the settled conversation
+   * before dispatch (records the pre-request witness), estimate once with the
+   * row in flight (freezes the request witness keyed by its parent), then
+   * settle the row and land the report so the next estimate can promote the
+   * witness to a baseline.
    */
   const landReport = async (totalInputTokens: number) => {
     const last = mocks.chats.at(-1) as any;
     const settled = last.content;
     const metadata = last.metadata;
-    last.content = LOADING_FLAT;
     delete last.metadata;
-    await estimate();
+    last.content = LOADING_FLAT;
+    mocks.chats = mocks.chats.slice(0, -1);
+    await estimate(); // pre-send settled estimate (witness of pre-dispatch state)
+    mocks.chats = [...mocks.chats, last];
+    await estimate(); // first in-flight estimate freezes the request witness
     last.content = settled;
     last.metadata = { ...metadata, totalInputTokens };
   };
@@ -442,6 +447,77 @@ describe('estimateContextUsageAsync', () => {
     const afterReload = await estimate();
     expect(afterReload.totalToken).toBeGreaterThanOrEqual(10_000);
     expect(afterReload.totalToken).toBeGreaterThanOrEqual(beforeReload.totalToken);
+  });
+
+  it('T1: keeps the sent request baseline when a skill changes while its reply is pending', async () => {
+    mocks.chats = [{ content: 'hi', id: 'inflight-u1', role: 'user' }];
+    await estimate(); // pre-send settled estimate (witness of pre-dispatch state)
+    mocks.chats = [
+      ...mocks.chats,
+      { content: LOADING_FLAT, id: 'inflight-a1', role: 'assistant' },
+    ];
+    await estimate(); // first in-flight estimate freezes the request witness
+
+    // Selecting a 20k-char skill mid-generation must NOT be certified as
+    // covered by the pending request's report.
+    mocks.skillRecords = [
+      { description: 'd', identifier: 'large-skill', instructions: 'x'.repeat(20_000), name: 'Skill' },
+    ];
+    const whilePending = await estimate();
+    expect(whilePending.totalToken).toBeGreaterThan(10_000);
+
+    mocks.chats = [
+      mocks.chats[0],
+      { content: 'ok', id: 'inflight-a1', metadata: { totalInputTokens: 1000 }, role: 'assistant' },
+    ];
+    const afterReport = await estimate();
+    // Anchored on the frozen witness: 1000 report + skill-overhead delta + tail
+    // — never the 1,013 undercount from certifying the new skill.
+    expect(afterReport.totalToken).toBeGreaterThanOrEqual(10_000);
+  });
+
+  it('T1: does not certify a prefix edited while the original reply is pending', async () => {
+    mocks.chats = [{ content: 'hi', id: 'edit-u1', role: 'user', updatedAt: 1 }];
+    await estimate(); // settled witness
+    mocks.chats = [
+      ...mocks.chats,
+      { content: LOADING_FLAT, id: 'edit-a1', role: 'assistant' },
+    ];
+    await estimate(); // frozen witness with the ORIGINAL prefix fingerprint
+
+    mocks.chats[0] = { content: 'x'.repeat(60_000), id: 'edit-u1', role: 'user', updatedAt: 2 };
+    const whilePending = await estimate();
+    expect(whilePending.totalToken).toBeGreaterThan(60_000);
+
+    mocks.chats = [
+      mocks.chats[0],
+      { content: 'ok', id: 'edit-a1', metadata: { totalInputTokens: 1000 }, role: 'assistant' },
+    ];
+    const afterReport = await estimate();
+    // The frozen fingerprint no longer matches — whole-window fallback.
+    expect(afterReport.totalToken).toBeGreaterThanOrEqual(60_000);
+  });
+
+  it('T1: reload into an already-running request falls back to the whole window', async () => {
+    // The FIRST estimate of this process already sees the in-flight row: no
+    // pre-request witness exists, so nothing may be recorded and the arriving
+    // report can never be promoted.
+    mocks.chats = [
+      { content: 'hi', id: 'reloaded-u1', role: 'user' },
+      { content: LOADING_FLAT, id: 'reloaded-a1', role: 'assistant' },
+    ];
+    mocks.skillRecords = [
+      { description: 'd', identifier: 'large-skill', instructions: 'x'.repeat(20_000), name: 'Skill' },
+    ];
+    const whilePending = await estimate();
+    expect(whilePending.totalToken).toBeGreaterThan(10_000);
+
+    mocks.chats = [
+      mocks.chats[0],
+      { content: 'ok', id: 'reloaded-a1', metadata: { totalInputTokens: 1000 }, role: 'assistant' },
+    ];
+    const afterReport = await estimate();
+    expect(afterReport.totalToken).toBeGreaterThanOrEqual(10_000);
   });
 
   it('does not anchor on the protected assistant after an identity watermark, even if updatedAt is newer', async () => {

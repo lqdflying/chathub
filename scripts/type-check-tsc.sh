@@ -83,8 +83,18 @@ fi
 FILTERED=$(printf '%s\n' "$ERROR_LINES" | grep -v -E "$FILTER_PATTERN" || true)
 
 # Normalize to stable "file<TAB>TSCODE" pairs (line/col/message are unstable).
+# Paths may contain parentheses (Next.js route groups like `(main)`), so split
+# at the FIRST `): error TS…:` marker and strip the trailing `(line,col)` from
+# the head — never at the first `(`.
 if [ -n "$FILTERED" ]; then
-  CURRENT_PAIRS=$(printf '%s\n' "$FILTERED" | sed -E 's/^([^(]+)\([0-9]+,[0-9]+\): error (TS[0-9]+).*/\1\t\2/' | sort)
+  CURRENT_PAIRS=$(printf '%s\n' "$FILTERED" | awk '
+    match($0, /\): error TS[0-9]+:/) {
+      head = substr($0, 1, RSTART - 1)
+      code = substr($0, RSTART + 9, RLENGTH - 10)
+      sub(/\([0-9]+,[0-9]+$/, "", head)
+      print head "\t" code
+    }
+  ' | sort)
 else
   CURRENT_PAIRS=""
 fi
@@ -110,9 +120,10 @@ if [ -n "$NEW_PAIRS" ]; then
   echo "Type errors found (new versus baseline, excluding known Drizzle ORM issues):"
   while IFS=$'\t' read -r file code; do
     [ -z "$file" ] && continue
-    # Literal file + code match (paths contain regex characters like []).
+    # Literal match: the line starts with "file(" and carries "error TSxxxx:".
+    # (Paths may contain parentheses/brackets — never split at the first "(".)
     printf '%s\n' "$FILTERED" | awk -v f="$file" -v c="$code" '
-      { p = index($0, "("); if (p > 1 && substr($0, 1, p - 1) == f && index($0, "error " c ":") > 0) print }
+      index($0, f "(") == 1 && index($0, "error " c ":") > 0 { print }
     ' | head -3
   done <<< "$NEW_PAIRS" | sort -u
   exit 1

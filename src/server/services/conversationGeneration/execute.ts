@@ -13,6 +13,7 @@ import {
   knowledgeBaseQAPrompts,
 } from '@lobechat/prompts';
 import type {
+  AssistantMemoryMeta,
   ChatToolPayload,
   ChatTopicMetadata,
   ConversationGenerationEnqueueInput,
@@ -1051,7 +1052,9 @@ const executeChat = async (
   const built = await buildConversationChatPayload({
     agentMemory: {
       dynamicMemory: agent?.assistantMemory || undefined,
-      entryOrigins: agent?.assistantMemoryMeta?.entryOrigins ?? undefined,
+      entryOrigins:
+        (agent?.assistantMemoryMeta as AssistantMemoryMeta | undefined)?.entryOrigins ??
+        undefined,
       fixedMemory: agent?.fixedMemory || undefined,
     },
     config: {
@@ -1243,7 +1246,9 @@ const executeChat = async (
     const rebuilt = await buildConversationChatPayload({
       agentMemory: {
         dynamicMemory: recoveryAgent?.assistantMemory || undefined,
-        entryOrigins: recoveryAgent?.assistantMemoryMeta?.entryOrigins ?? undefined,
+        entryOrigins:
+          (recoveryAgent?.assistantMemoryMeta as AssistantMemoryMeta | undefined)
+            ?.entryOrigins ?? undefined,
         fixedMemory: recoveryAgent?.fixedMemory || undefined,
       },
       config: {
@@ -1661,7 +1666,9 @@ const executeChat = async (
       const continued = await buildConversationChatPayload({
         agentMemory: {
           dynamicMemory: continuedAgent?.assistantMemory || undefined,
-          entryOrigins: continuedAgent?.assistantMemoryMeta?.entryOrigins ?? undefined,
+          entryOrigins:
+            (continuedAgent?.assistantMemoryMeta as AssistantMemoryMeta | undefined)
+              ?.entryOrigins ?? undefined,
           fixedMemory: continuedAgent?.fixedMemory || undefined,
         },
         config: {
