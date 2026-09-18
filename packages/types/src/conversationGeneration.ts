@@ -39,6 +39,7 @@ export const ConversationGenerationActiveStatuses = [
 
 export const ConversationGenerationPhases = [
   'queued',
+  'planning',
   'compacting',
   'retrieving',
   'model',

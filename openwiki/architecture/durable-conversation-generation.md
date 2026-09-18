@@ -447,6 +447,18 @@ a transcript-binding race.
 The tool continuation budget is checked before creating another assistant
 placeholder. Creating that placeholder and recording its id happen in one
 database transaction (Drizzle nested transactions use PostgreSQL savepoints).
+
+Before each model HTTP call the worker sets operation `phase` to `planning`
+and emits a snapshot with `phaseEnteredAt`. The client stores those fields on
+the attached operation (not on message metadata) and shows a labeled
+“Planning next step” row on the empty assistant. After about 20 seconds the
+same phase switches copy to “Still working…”. First streamed tokens flip
+`phase` to `model`. Exhausting the tool-turn budget writes
+`conversationGenerationStopReason: tool_cap` on the last assistant and logs
+`stopReason` on `execute_settled`. A finished model reply with no tools is
+`model_stop` and is not auto-continued. `shouldContinue: false` is
+`tool_shouldContinue_false` (debug only). Search-workflow intent copy stays
+separate.
 Supervisor child ids are appended with a single JSONB `UPDATE`
 (`jsonb_exists` / `jsonb_set` / `jsonb_build_array`) so PostgreSQL’s row lock
 and READ COMMITTED re-evaluation keep parallel member continuations from

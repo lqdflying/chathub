@@ -275,6 +275,11 @@ Copy-paste APL: **`.cursor/rules/debug-log-checks.mdc`**.
 3. **Loading flags must match the UI row.** RAG on the user id with a
    `LOADING_FLAT` assistant that is not in `chatLoadingIds` looks like a dead
    producer. Put the assistant on chat loading for retrieve + fetch.
+   Between tool rounds, unlabeled dots (or a blank text slot when
+   `isToolCallGenerating`) look like a silent stop after SSE drop. The
+   worker owns a `planning` phase on the next assistant; the UI must render
+   that labeled wait while the operation is attached, not hide the row after
+   8s.
 4. **Deferral is a successful RPC.** Do not throw for expected browser-only
    tools. Mark the lane as soon as `assistantMessageId` exists (send-RPC race
    before the marker is still a known gap).

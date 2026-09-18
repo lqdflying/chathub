@@ -226,6 +226,11 @@
   "intentUnderstanding": {
     "title": "Understanding and analyzing your intent..."
   },
+  "planningNextStep": {
+    "slow": "Still working…",
+    "title": "Planning next step",
+    "toolCap": "Reached the tool-round limit"
+  },
   "inviteMembers": "Invite members",
   "knowledgeBase": {
     "all": "All Content",

@@ -391,6 +391,7 @@ Generation-debug semantics:
   `contentChars` / `reasoningChars` on `execute_settled`. Built-in model-bank
   IDs stay readable under `model`; custom/unlisted model IDs are fingerprinted.
 - `execute_settled` is terminal only; retries do not emit it.
+  Successful chat turns include `stopReason=model_stop|tool_cap|tool_shouldContinue_false`.
   `execute_started` / `execute_retrying` / `execute_settled` keep `provider`
   readable. `model` is readable only when it matches a built-in model-bank id.
   Session/topic ids stay hashed.

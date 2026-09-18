@@ -239,6 +239,11 @@ export default {
   intentUnderstanding: {
     title: '正在理解并分析您的意图...',
   },
+  planningNextStep: {
+    slow: '仍在处理',
+    title: '正在规划下一步',
+    toolCap: '已达工具轮次上限',
+  },
   // Group chat related translations
   inviteMembers: '邀请成员',
   knowledgeBase: {

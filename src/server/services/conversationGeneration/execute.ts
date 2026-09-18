@@ -134,6 +134,20 @@ export const shouldCreateToolContinuation = (remainingTurns: number, shouldConti
   shouldContinue && remainingTurns > 0;
 
 export const CONVERSATION_GENERATION_TURN_COMPLETE = 'conversationGenerationTurnComplete';
+export const CONVERSATION_GENERATION_STOP_REASON = 'conversationGenerationStopReason';
+
+export type ConversationGenerationChatStopReason =
+  | 'model_stop'
+  | 'tool_cap'
+  | 'tool_shouldContinue_false';
+
+export const resolveToolLoopStopReason = (
+  remainingTurns: number,
+  shouldContinue: boolean,
+): ConversationGenerationChatStopReason | undefined => {
+  if (shouldCreateToolContinuation(remainingTurns, shouldContinue)) return undefined;
+  return remainingTurns === 0 ? 'tool_cap' : 'tool_shouldContinue_false';
+};
 
 export const excludeOwnedAssistantMessages = (
   messages: UIChatMessage[],
@@ -562,6 +576,21 @@ const updateOperation = async (
   return updated;
 };
 
+const emitPlanningPhase = async (
+  model: ConversationGenerationModel,
+  operation: ConversationGenerationOperation,
+  assistantMessageId: string,
+) => {
+  const phaseEnteredAt = new Date().toISOString();
+  await updateOperation(model, operation, { phase: 'planning' });
+  operation.phase = 'planning';
+  await emit(model, operation, 'snapshot', {
+    assistantMessageId,
+    phase: 'planning',
+    phaseEnteredAt,
+  });
+};
+
 const finalize = async (
   model: ConversationGenerationModel,
   operation: ConversationGenerationOperation,
@@ -570,6 +599,7 @@ const finalize = async (
   db?: LobeChatDatabase,
   annotateMessageId?: string | null,
   extraMessageIds?: Array<string | null | undefined>,
+  extras?: { stopReason?: ConversationGenerationChatStopReason },
 ) => {
   logGenerationDebugSafe('execute_settled', {
     attempt: operation.attempt,
@@ -582,6 +612,7 @@ const finalize = async (
     outcome: status,
     provider: operation.config?.provider,
     reasoningChars: readErrorBodyNumber(error, 'reasoningChars'),
+    ...(extras?.stopReason ? { stopReason: extras.stopReason } : {}),
   });
   if (operation.kind === 'memory_compaction') {
     logCompactionDebugSafe('worker_settled', {
@@ -997,9 +1028,6 @@ const executeChat = async (
     };
   }
 
-  await updateOperation(model, operation, { phase: 'model' });
-  await emit(model, operation, 'status', { phase: 'model', status: 'processing' });
-
   const messages = await loadScopedMessages(db, operation, {
     groupId: operation.groupId ?? undefined,
     sessionId: operation.sessionId ?? undefined,
@@ -1295,6 +1323,10 @@ const executeChat = async (
     }
     lastFlush = Date.now();
     lastChars = content.length;
+    if ((content || reasoning) && operation.phase !== 'model') {
+      await updateOperation(model, operation, { phase: 'model' });
+      operation.phase = 'model';
+    }
     await messageModel.update(assistantId, {
       content: content || LOADING_FLAT,
       reasoning: reasoning ?? undefined,
@@ -1326,6 +1358,7 @@ const executeChat = async (
     let currentPayload = built.payload;
     let nextToolCache: ToolCacheDebugMetadata | undefined;
     let toolDiagnosticSequence = 0;
+    let chatStopReason: ConversationGenerationChatStopReason | undefined;
 
     for (;;) {
       const stopReason = await shouldStopGeneration(db, model, operation, abortController.signal);
@@ -1343,6 +1376,9 @@ const executeChat = async (
         : [];
 
       if (resumeAction === 'generate') {
+        if (operation.phase !== 'planning') {
+          await emitPlanningPhase(model, operation, assistantId);
+        }
         if (currentAssistant?.content && currentAssistant.content !== LOADING_FLAT) {
           content = '';
           reasoning = undefined;
@@ -1466,6 +1502,7 @@ const executeChat = async (
           await messageModel.updateMetadata(assistantId, {
             [CONVERSATION_GENERATION_TURN_COMPLETE]: true,
           });
+          chatStopReason = 'model_stop';
           break;
         }
 
@@ -1483,7 +1520,10 @@ const executeChat = async (
         });
       }
 
-      if (!tools.length) break;
+      if (!tools.length) {
+        chatStopReason = 'model_stop';
+        break;
+      }
 
       await updateOperation(model, operation, { phase: 'tools' });
       await emit(model, operation, 'snapshot', {
@@ -1595,7 +1635,21 @@ const executeChat = async (
         nextToolCache = toConversationToolCacheMetadata(settledBatch);
       }
 
-      if (!shouldCreateToolContinuation(remainingTurns, shouldContinue)) break;
+      const loopStopReason = resolveToolLoopStopReason(remainingTurns, shouldContinue);
+      if (loopStopReason) {
+        chatStopReason = loopStopReason;
+        if (loopStopReason === 'tool_cap') {
+          await messageModel.updateMetadata(assistantId, {
+            [CONVERSATION_GENERATION_STOP_REASON]: 'tool_cap',
+          });
+          await emit(model, operation, 'snapshot', {
+            assistantMessageId: assistantId,
+            phase: 'tools',
+            stopReason: 'tool_cap',
+          });
+        }
+        break;
+      }
       remainingTurns -= 1;
 
       const previousAssistantId = assistantId;
@@ -1637,11 +1691,7 @@ const executeChat = async (
         }
         throw error;
       }
-      await emit(model, operation, 'snapshot', {
-        assistantMessageId: assistantId,
-        content: '',
-        phase: 'model',
-      });
+      await emitPlanningPhase(model, operation, assistantId);
 
       const latest = await loadScopedMessages(db, operation, {
         groupId: operation.groupId ?? undefined,
@@ -1739,7 +1789,10 @@ const executeChat = async (
       );
     }
 
-    if (!options?.skipFinalize) await finalize(model, operation, 'succeeded', undefined, db);
+    if (!options?.skipFinalize)
+      await finalize(model, operation, 'succeeded', undefined, db, undefined, undefined, {
+        stopReason: chatStopReason,
+      });
     return { assistantMessageId: assistantId, status: 'succeeded' };
   } finally {
     clearInterval(cancelWatcher);

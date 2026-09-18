@@ -13,12 +13,14 @@ import {
 
 import { titleTranscriptRetryDelayMs } from './constants';
 import {
+  CONVERSATION_GENERATION_STOP_REASON,
   CONVERSATION_GENERATION_TURN_COMPLETE,
   excludeOwnedAssistantMessages,
   executeConversationGeneration,
   getSupervisorTerminalOutcome,
   isContextLengthOverflowError,
   resolveChatResumeAction,
+  resolveToolLoopStopReason,
   shouldCreateToolContinuation,
   shouldGenerateConversationTitle,
   UpstreamCompletionError,
@@ -243,6 +245,10 @@ describe('conversation generation workflow guards', () => {
     expect(shouldCreateToolContinuation(0, true)).toBe(false);
     expect(shouldCreateToolContinuation(1, true)).toBe(true);
     expect(shouldCreateToolContinuation(8, false)).toBe(false);
+    expect(resolveToolLoopStopReason(0, true)).toBe('tool_cap');
+    expect(resolveToolLoopStopReason(1, false)).toBe('tool_shouldContinue_false');
+    expect(resolveToolLoopStopReason(0, false)).toBe('tool_cap');
+    expect(resolveToolLoopStopReason(1, true)).toBeUndefined();
   });
 
   it('only generates titles for explicit, welcome-safe new or untitled topics', () => {
@@ -1062,6 +1068,37 @@ describe('executeConversationGeneration chat resume', () => {
       }),
     );
     expect(assistant.metadata).not.toHaveProperty('usage');
+  });
+
+  it('emits planning before the first model call and logs model_stop on success', async () => {
+    vi.mocked(consumeProtocolResponse).mockResolvedValue({ content: 'hello' });
+
+    await runOperation(buildOperation({ id: 'cgo_planning' }));
+
+    expect(modelMocks.update).toHaveBeenCalledWith(
+      'cgo_planning',
+      expect.objectContaining({ phase: 'planning' }),
+      expect.anything(),
+    );
+    expect(modelMocks.insertEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          assistantMessageId: assistant.id,
+          phase: 'planning',
+          phaseEnteredAt: expect.any(String),
+        }),
+        type: 'snapshot',
+      }),
+    );
+    const settled = generationDebugMocks.logGenerationDebugSafe.mock.calls.find(
+      (call: unknown[]) => call[0] === 'execute_settled',
+    );
+    expect(settled?.[1]).toEqual(
+      expect.objectContaining({
+        outcome: 'succeeded',
+        stopReason: 'model_stop',
+      }),
+    );
   });
 
   it('logs Xiaomi error.param on execute_settled when chat fails with a nested provider body', async () => {
@@ -1968,6 +2005,116 @@ describe('executeConversationGeneration tool continuation ids', () => {
     expect(order[0]).toMatch(/^create:/);
     expect(order[1]).toMatch(/^persist:/);
     expect(order[0]?.slice('create:'.length)).toBe(order[1]?.slice('persist:'.length));
+
+    const planningEvents = modelMocks.insertEvent.mock.calls.filter(
+      (call) => (call[0] as { payload?: { phase?: string } })?.payload?.phase === 'planning',
+    );
+    expect(planningEvents.length).toBeGreaterThanOrEqual(2);
+    expect(
+      (planningEvents.at(-1)?.[0] as { payload?: { assistantMessageId?: string } })?.payload
+        ?.assistantMessageId,
+    ).not.toBe(assistant.id);
+  });
+
+  it('writes tool_cap when the continuation budget is exhausted', async () => {
+    const created: Array<{ content: string; id: string; metadata: Record<string, unknown> }> = [];
+    const row = {
+      assistantMessageId: assistant.id,
+      attempt: 0,
+      config: { model: 'test-model', provider: 'test-provider' },
+      id: 'cgo_tool_cap',
+      kind: 'chat',
+      lane: 'lane-1',
+      laneGeneration: 1,
+      revision: 0,
+      status: 'pending',
+      userId: 'user-1',
+    };
+    modelMocks.update.mockImplementation(async (_id, value) => {
+      Object.assign(row, value);
+      return { ...row, revision: 2, status: 'processing' };
+    });
+    messageMocks.create.mockImplementation(async (params, id) => {
+      const next = { content: params.content, id, metadata: {} as Record<string, unknown> };
+      created.push(next);
+      messageMocks.findById.mockImplementation(async (messageId) => {
+        if (messageId === assistant.id) return { ...assistant, metadata: { ...assistant.metadata } };
+        return created.find((item) => item.id === messageId);
+      });
+      messageMocks.updateMetadata.mockImplementation(async (messageId, value) => {
+        if (messageId === assistant.id) assistant.metadata = { ...assistant.metadata, ...value };
+        const found = created.find((item) => item.id === messageId);
+        if (found) found.metadata = { ...found.metadata, ...value };
+      });
+      return next;
+    });
+    let round = 0;
+    vi.mocked(consumeProtocolResponse).mockImplementation(async () => {
+      round += 1;
+      return {
+        content: `round ${round}`,
+        toolCalls: [
+          { function: { arguments: '{}', name: 'plugin____search' }, id: `call-${round}` },
+        ],
+      };
+    });
+
+    await runOperation(row, { preserveUpdate: true });
+
+    expect(created).toHaveLength(8);
+    const last = created.at(-1);
+    expect(last?.metadata).toEqual(
+      expect.objectContaining({ [CONVERSATION_GENERATION_STOP_REASON]: 'tool_cap' }),
+    );
+    const settled = generationDebugMocks.logGenerationDebugSafe.mock.calls.find(
+      (call: unknown[]) => call[0] === 'execute_settled',
+    );
+    expect(settled?.[1]).toEqual(
+      expect.objectContaining({
+        outcome: 'succeeded',
+        stopReason: 'tool_cap',
+      }),
+    );
+  });
+
+  it('does not write tool_cap when a tool stops the loop', async () => {
+    vi.mocked(executeConversationToolStep).mockResolvedValue({
+      content: 'tool result',
+      inputHash: 'hash-stop',
+      messageId: 'tool-stop',
+      shouldContinue: false,
+      success: true,
+    });
+    const row = {
+      assistantMessageId: assistant.id,
+      attempt: 0,
+      config: { model: 'test-model', provider: 'test-provider' },
+      id: 'cgo_tool_stop',
+      kind: 'chat',
+      lane: 'lane-1',
+      laneGeneration: 1,
+      revision: 0,
+      status: 'pending',
+      userId: 'user-1',
+    };
+    vi.mocked(consumeProtocolResponse).mockResolvedValueOnce({
+      content: 'calling tool',
+      toolCalls: [{ function: { arguments: '{}', name: 'plugin____search' }, id: 'call-stop' }],
+    });
+
+    await runOperation(row, { preserveUpdate: true });
+
+    expect(assistant.metadata).not.toHaveProperty(CONVERSATION_GENERATION_STOP_REASON);
+    expect(messageMocks.create).not.toHaveBeenCalled();
+    const settled = generationDebugMocks.logGenerationDebugSafe.mock.calls.find(
+      (call: unknown[]) => call[0] === 'execute_settled',
+    );
+    expect(settled?.[1]).toEqual(
+      expect.objectContaining({
+        outcome: 'succeeded',
+        stopReason: 'tool_shouldContinue_false',
+      }),
+    );
   });
 
   it('reports HTTP MCP tool completions with runtimeType mcp', async () => {

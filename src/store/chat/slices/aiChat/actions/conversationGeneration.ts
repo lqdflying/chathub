@@ -5,6 +5,7 @@ import {
   type ConversationGenerationEvent,
   type ConversationGenerationKind,
   type ConversationGenerationOperation,
+  type ConversationGenerationPhase,
 } from '@lobechat/types';
 import { StateCreator } from 'zustand/vanilla';
 
@@ -288,6 +289,12 @@ export const conversationGeneration: StateCreator<
       return;
     }
 
+    const payload = event.payload || {};
+    const nextPhase =
+      typeof payload.phase === 'string' ? (payload.phase as ConversationGenerationPhase) : undefined;
+    const nextPhaseEnteredAt =
+      typeof payload.phaseEnteredAt === 'string' ? payload.phaseEnteredAt : undefined;
+
     set(
       (current) => ({
         serverGenerationOperations: Object.fromEntries(
@@ -299,6 +306,12 @@ export const conversationGeneration: StateCreator<
                   [event.operationId]: {
                     ...operations[event.operationId],
                     revision: event.revision,
+                    ...(nextPhase !== undefined ? { phase: nextPhase } : {}),
+                    ...(nextPhaseEnteredAt !== undefined
+                      ? { phaseEnteredAt: nextPhaseEnteredAt }
+                      : nextPhase && nextPhase !== 'planning'
+                        ? { phaseEnteredAt: undefined }
+                        : {}),
                   },
                 }
               : operations,
@@ -312,7 +325,6 @@ export const conversationGeneration: StateCreator<
     const dispatchContext = attached
       ? { sessionId: attached.sessionId, topicId: attached.topicId }
       : undefined;
-    const payload = event.payload || {};
     let assistantMessageId = attached?.assistantMessageId;
 
     if (event.type === 'snapshot') {
@@ -341,7 +353,11 @@ export const conversationGeneration: StateCreator<
         assistantMessageId = payload.assistantMessageId as string;
       }
       const shouldRefreshMessages =
-        Boolean(payload.assistantMessageId) || payload.phase === 'tools' || Boolean(payload.tools);
+        Boolean(payload.assistantMessageId) ||
+        payload.phase === 'tools' ||
+        payload.phase === 'planning' ||
+        payload.stopReason === 'tool_cap' ||
+        Boolean(payload.tools);
       if (shouldRefreshMessages) {
         void refreshAttachedConversation(get, attached);
       }
@@ -914,6 +930,11 @@ export const conversationGeneration: StateCreator<
           lane: operation.lane,
           laneGeneration: operation.laneGeneration,
           operationId: operation.id,
+          phase: operation.phase ?? undefined,
+          phaseEnteredAt:
+            operation.phase === 'planning' && operation.updatedAt
+              ? new Date(operation.updatedAt).toISOString()
+              : undefined,
           revision: operation.revision,
           sessionId: operationSessionId,
           threadId: operation.threadId || undefined,

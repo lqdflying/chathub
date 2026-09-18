@@ -91,6 +91,60 @@ describe('conversationGeneration store actions', () => {
     expect(useChatStore.getState().refreshMessages).toHaveBeenCalled();
   });
 
+  it('persists planning phase from snapshot and status events', () => {
+    const { result } = renderHook(() => useChatStore());
+    const key = messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID);
+
+    act(() => {
+      result.current.attachConversationGeneration({
+        assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        clearGeneration: 0,
+        generation: 0,
+        kind: 'chat',
+        lane: 'lane-main',
+        operationId: 'cgo_one',
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
+        userScope: 'current',
+      });
+      result.current.applyConversationGenerationEvent({
+        createdAt: new Date().toISOString(),
+        id: 1,
+        operationId: 'cgo_one',
+        payload: {
+          assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+          phase: 'planning',
+          phaseEnteredAt: '2026-09-18T08:00:00.000Z',
+        },
+        revision: 2,
+        type: 'snapshot',
+        userId: 'user-1',
+      });
+    });
+
+    expect(useChatStore.getState().serverGenerationOperations[key]['cgo_one']).toMatchObject({
+      phase: 'planning',
+      phaseEnteredAt: '2026-09-18T08:00:00.000Z',
+    });
+
+    act(() => {
+      result.current.applyConversationGenerationEvent({
+        createdAt: new Date().toISOString(),
+        id: 2,
+        operationId: 'cgo_one',
+        payload: { phase: 'model', status: 'processing' },
+        revision: 3,
+        type: 'status',
+        userId: 'user-1',
+      });
+    });
+
+    expect(useChatStore.getState().serverGenerationOperations[key]['cgo_one']).toMatchObject({
+      phase: 'model',
+      phaseEnteredAt: undefined,
+    });
+  });
+
   it('applies snapshots to an attached operation after switching topics', () => {
     const { result } = renderHook(() => useChatStore());
     const dispatch = vi.fn();
@@ -648,6 +702,37 @@ describe('conversationGeneration store actions', () => {
       threadId: 'thread-1',
     });
     expect(operations.cgo_hidden).toBeUndefined();
+  });
+
+  it('keeps planning phase when syncing listActive rows', async () => {
+    vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValue([
+      {
+        assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        id: 'cgo_planning_sync',
+        kind: 'chat',
+        lane: 'lane-main',
+        laneGeneration: 1,
+        phase: 'planning',
+        revision: 4,
+        sessionId: TEST_IDS.SESSION_ID,
+        status: 'processing',
+        topicId: TEST_IDS.TOPIC_ID,
+        updatedAt: '2026-09-18T08:01:00.000Z',
+      },
+    ] as any);
+
+    await act(async () => {
+      await useChatStore.getState().syncActiveConversationGenerations();
+    });
+
+    expect(
+      useChatStore.getState().serverGenerationOperations[
+        messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)
+      ].cgo_planning_sync,
+    ).toMatchObject({
+      phase: 'planning',
+      phaseEnteredAt: '2026-09-18T08:01:00.000Z',
+    });
   });
 
   it('re-cancels and skips attach when the lane is marked stopped', async () => {

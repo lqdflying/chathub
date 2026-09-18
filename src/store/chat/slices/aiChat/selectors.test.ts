@@ -90,3 +90,136 @@ describe('aiChatSelectors.isActiveTopicMemoryCompacting', () => {
     expect(aiChatSelectors.isActiveTopicMemoryCompacting(state)).toBe(false);
   });
 });
+
+describe('aiChatSelectors.isMessagePlanningNextStep', () => {
+  const assistantId = 'asst-planning';
+
+  it('is true for an attached planning operation', () => {
+    const state = merge(initialStore, {
+      chatLoadingIds: [],
+      messageRAGLoadingIds: [],
+      messagesMap: {
+        [mapKey]: [{ content: '...', id: assistantId, role: 'assistant' }],
+      },
+      searchWorkflowLoadingIds: [],
+      serverGenerationOperations: {
+        [mapKey]: {
+          cgo_plan: {
+            assistantMessageId: assistantId,
+            clearGeneration: 0,
+            generation: 0,
+            kind: 'chat',
+            lane: 'lane-chat',
+            operationId: 'cgo_plan',
+            phase: 'planning',
+            sessionId,
+            topicId,
+            userScope: 'current',
+          },
+        },
+      },
+    });
+
+    expect(aiChatSelectors.isMessagePlanningNextStep(assistantId)(state)).toBe(true);
+  });
+
+  it('treats older workers with phase model and empty content as planning', () => {
+    const state = merge(initialStore, {
+      chatLoadingIds: [],
+      messageRAGLoadingIds: [],
+      messagesMap: {
+        [mapKey]: [{ content: '', id: assistantId, role: 'assistant' }],
+      },
+      searchWorkflowLoadingIds: [],
+      serverGenerationOperations: {
+        [mapKey]: {
+          cgo_plan: {
+            assistantMessageId: assistantId,
+            clearGeneration: 0,
+            generation: 0,
+            kind: 'chat',
+            lane: 'lane-chat',
+            operationId: 'cgo_plan',
+            phase: 'model',
+            sessionId,
+            topicId,
+            userScope: 'current',
+          },
+        },
+      },
+    });
+
+    expect(aiChatSelectors.isMessagePlanningNextStep(assistantId)(state)).toBe(true);
+  });
+
+  it('is false during search workflow or RAG retrieve', () => {
+    const base = {
+      chatLoadingIds: [assistantId],
+      messagesMap: {
+        [mapKey]: [{ content: '...', id: assistantId, role: 'assistant' }],
+      },
+      serverGenerationOperations: {
+        [mapKey]: {
+          cgo_plan: {
+            assistantMessageId: assistantId,
+            clearGeneration: 0,
+            generation: 0,
+            kind: 'chat',
+            lane: 'lane-chat',
+            operationId: 'cgo_plan',
+            phase: 'planning',
+            sessionId,
+            topicId,
+            userScope: 'current',
+          },
+        },
+      },
+    };
+
+    expect(
+      aiChatSelectors.isMessagePlanningNextStep(assistantId)(
+        merge(initialStore, { ...base, messageRAGLoadingIds: [], searchWorkflowLoadingIds: [assistantId] }),
+      ),
+    ).toBe(false);
+    expect(
+      aiChatSelectors.isMessagePlanningNextStep(assistantId)(
+        merge(initialStore, { ...base, messageRAGLoadingIds: [assistantId], searchWorkflowLoadingIds: [] }),
+      ),
+    ).toBe(false);
+  });
+
+  it('is true for a browser-fallback empty loading row', () => {
+    const state = merge(initialStore, {
+      chatLoadingIds: [assistantId],
+      messageRAGLoadingIds: [],
+      messagesMap: {
+        [mapKey]: [{ content: '...', id: assistantId, role: 'assistant' }],
+      },
+      searchWorkflowLoadingIds: [],
+      serverGenerationOperations: {},
+    });
+
+    expect(aiChatSelectors.isMessagePlanningNextStep(assistantId)(state)).toBe(true);
+  });
+});
+
+describe('aiChatSelectors.isMessageToolCap', () => {
+  it('reads conversationGenerationStopReason from message metadata', () => {
+    const assistantId = 'asst-cap';
+    const state = merge(initialStore, {
+      messagesMap: {
+        [mapKey]: [
+          {
+            content: 'done',
+            id: assistantId,
+            metadata: { conversationGenerationStopReason: 'tool_cap' },
+            role: 'assistant',
+          },
+        ],
+      },
+    });
+
+    expect(aiChatSelectors.isMessageToolCap(assistantId)(state)).toBe(true);
+    expect(aiChatSelectors.isMessageToolCap('other')(state)).toBe(false);
+  });
+});

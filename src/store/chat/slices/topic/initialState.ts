@@ -1,4 +1,4 @@
-import type { ConversationGenerationKind } from '@lobechat/types';
+import type { ConversationGenerationKind, ConversationGenerationPhase } from '@lobechat/types';
 
 import { ChatTopic } from '@/types/topic';
 
@@ -13,6 +13,8 @@ export interface ServerGenerationOperation {
   lane: string;
   laneGeneration?: number;
   operationId: string;
+  phase?: ConversationGenerationPhase;
+  phaseEnteredAt?: string;
   revision?: number;
   sessionId: string;
   threadId?: string;

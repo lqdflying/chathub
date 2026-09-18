@@ -1,6 +1,7 @@
 import { LOADING_FLAT } from '@lobechat/const';
 import { UIChatMessage } from '@lobechat/types';
 import { ReactNode, memo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
 import { useChatStore } from '@/store/chat';
@@ -8,8 +9,10 @@ import { aiChatSelectors, chatSelectors } from '@/store/chat/selectors';
 
 import { DefaultMessage } from '../Default';
 import ImageFileListViewer from '../User/ImageFileListViewer';
+import AssistantStatusRow from './AssistantStatusRow';
 import FileChunks from './FileChunks';
 import IntentUnderstanding from './IntentUnderstanding';
+import PlanningNextStep from './PlanningNextStep';
 import Reasoning from './Reasoning';
 import SearchGrounding from './SearchGrounding';
 import Tool from './Tool';
@@ -27,6 +30,10 @@ export const AssistantMessageContent = memo<
   const isReasoning = useChatStore(aiChatSelectors.isMessageInReasoning(id));
 
   const isIntentUnderstanding = useChatStore(aiChatSelectors.isIntentUnderstanding(id));
+  const isPlanningNextStep = useChatStore(aiChatSelectors.isMessagePlanningNextStep(id));
+  const isToolCap = useChatStore(aiChatSelectors.isMessageToolCap(id));
+  const planningEnteredAt = useChatStore(aiChatSelectors.getPlanningNextStepEnteredAt(id));
+  const { t } = useTranslation('chat');
 
   const showSearch = !!search && !!search.citations?.length;
   const showImageItems = !!imageList && imageList.length > 0;
@@ -55,6 +62,10 @@ export const AssistantMessageContent = memo<
       {showReasoning && <Reasoning {...props.reasoning} id={id} />}
       {isIntentUnderstanding ? (
         <IntentUnderstanding />
+      ) : isToolCap ? (
+        <AssistantStatusRow animated={false} title={t('planningNextStep.toolCap')} />
+      ) : isPlanningNextStep ? (
+        <PlanningNextStep phaseEnteredAt={planningEnteredAt} />
       ) : (
         (content || generating) && (
           <DefaultMessage
