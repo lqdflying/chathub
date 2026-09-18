@@ -7,11 +7,16 @@ import { LOADING_FLAT } from '@/const/message';
 import {
   LARGE_CONTEXT_WINDOW_TOKENS,
   appendPendingUserInputForContextWindow,
+  estimateFixedContextOverheadTokens,
   getHistoryWindowDiagnostics,
   resolveEffectiveHistoryWindow,
   serializeMessagesForContextEstimate,
 } from '@/helpers/contextUsageEstimate';
-import { clearAnchorBaselines } from '@/helpers/reportedContextTokens';
+import {
+  clearAnchorBaselines,
+  recordAnchorRequestWitness,
+} from '@/helpers/reportedContextTokens';
+import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 
 import { useEstimatedContextUsage } from './useEstimatedContextUsage';
 
@@ -190,6 +195,7 @@ describe('useEstimatedContextUsage', () => {
     clearAnchorBaselines();
     mocks.systemRole = 'system role';
     mocks.chatState.inputMessage = '';
+    mocks.chatState.activeTopicId = 'topic-1';
     mocks.maxTokens = 1000;
     mocks.setHasPendingFiles(false);
     mocks.mainChats.splice(0, mocks.mainChats.length, {
@@ -207,23 +213,45 @@ describe('useEstimatedContextUsage', () => {
   });
 
   /**
-   * D2/T1: land a report on a final assistant row the way the real flow does —
-   * render the settled pre-send conversation (records the pre-request witness),
-   * rerender with the row in flight (freezes the request witness keyed by its
-   * parent), then rerender with the report so the estimate can promote the
-   * witness to a baseline.
+   * D2/T1 (round 5): a report is only trusted when the SEND PATH recorded a
+   * dispatch-time witness for that exact request — the hook never records
+   * witnesses. Simulate dispatch for `settledLastRow` (an assistant): record
+   * the witness with the current hook-equivalent overhead (KB-exclusive, same
+   * chars/2 helper) and the full prefix through its parent, then render with
+   * the report landed so the estimate can promote the witness to a baseline.
    */
+  const dispatchWitness = (assistantId: string, parentId?: string, topicId = 'topic-1') => {
+    recordAnchorRequestWitness({
+      assistantMessageId: assistantId,
+      conversationKey: messageMapKey('session-1', topicId),
+      fixedOverheadTokens: estimateFixedContextOverheadTokens({
+        agentMemory: '',
+        historySummaryRaw: '',
+        skillInstructions: '',
+        systemRole: `chat instruction${mocks.systemRole}`,
+        toolsString: '',
+      }),
+      messages: mocks.mainChats,
+      parentMessageId: parentId,
+    });
+  };
+
   const renderReportLanding = (
     settledPrefix: Array<Record<string, unknown>>,
     settledLastRow: Record<string, unknown>,
   ) => {
-    mocks.mainChats.splice(0, mocks.mainChats.length, ...(settledPrefix as never[]));
-    const view = renderHook(() => useEstimatedContextUsage('main'));
-    mocks.mainChats.push({ ...settledLastRow, content: LOADING_FLAT, metadata: undefined } as never);
-    view.rerender();
+    mocks.mainChats.splice(
+      0,
+      mocks.mainChats.length,
+      ...(settledPrefix as never[]),
+      { ...settledLastRow, content: LOADING_FLAT, metadata: undefined } as never,
+    );
+    dispatchWitness(
+      settledLastRow.id as string,
+      (settledPrefix.at(-1) as { id?: string } | undefined)?.id,
+    );
     mocks.mainChats.splice(mocks.mainChats.length - 1, 1, settledLastRow as never);
-    view.rerender();
-    return view;
+    return renderHook(() => useEstimatedContextUsage('main'));
   };
   it('includes the active Knowledge Base request bucket in total usage', () => {
     const { result } = renderHook(() => useEstimatedContextUsage('main'));
@@ -691,18 +719,19 @@ describe('useEstimatedContextUsage', () => {
   });
 
   it('T1: does not register instructions changed while the reply is pending as its baseline', () => {
-    // Pre-send settled render (witness), then the in-flight render freezes it.
-    mocks.mainChats.splice(0, mocks.mainChats.length, {
-      content: 'hi',
-      id: 'hook-u1',
-      role: 'user',
-    } as never);
+    // The send path records the witness at dispatch — with the ORIGINAL
+    // instructions — while the reply row is still in flight.
+    mocks.mainChats.splice(
+      0,
+      mocks.mainChats.length,
+      { content: 'hi', id: 'hook-u1', role: 'user' } as never,
+      { content: LOADING_FLAT, id: 'hook-a1', role: 'assistant' } as never,
+    );
+    dispatchWitness('hook-a1', 'hook-u1');
     const { rerender, result } = renderHook(() => useEstimatedContextUsage('main'));
-    mocks.mainChats.push({ content: LOADING_FLAT, id: 'hook-a1', role: 'assistant' } as never);
-    rerender();
 
     // Editing instructions mid-generation must not be certified by the pending
-    // request's report.
+    // request's report: the hook never touches witnesses.
     mocks.systemRole = 'x'.repeat(20_000);
     rerender();
     expect(result.current.totalToken).toBeGreaterThan(20_000);
@@ -715,14 +744,15 @@ describe('useEstimatedContextUsage', () => {
     } as never);
     rerender();
 
-    // Anchored on the frozen witness: 1000 report + instruction-overhead delta
-    // + tail — never the ~1,050 undercount from certifying the new instructions.
+    // Anchored on the dispatch witness: 1000 report + instruction-overhead
+    // delta + tail — never the ~1,050 undercount from certifying the new
+    // instructions.
     expect(result.current.totalToken).toBeGreaterThanOrEqual(10_000);
   });
 
   it('T1: reload into an already-running request falls back to the whole window', () => {
     // The FIRST render of this process already sees the in-flight row: no
-    // pre-request witness exists, so the arriving report can never promote.
+    // dispatch witness exists, so the arriving report can never promote.
     mocks.systemRole = 'x'.repeat(20_000);
     mocks.mainChats.splice(
       0,
@@ -741,6 +771,88 @@ describe('useEstimatedContextUsage', () => {
     } as never);
     rerender();
 
+    expect(result.current.totalToken).toBeGreaterThanOrEqual(10_000);
+  });
+
+  it('T1: switching to another topic and back never certifies the running request', () => {
+    // Topic B's request is running with a 20k-char instruction set that was
+    // NOT part of its dispatched request. The user views settled topic A
+    // first, then returns to B — no witness for B's row exists in this
+    // process, so the report must fall back to the whole window.
+    mocks.systemRole = 'x'.repeat(20_000);
+    mocks.mainChats.splice(0, mocks.mainChats.length, {
+      content: 'settled',
+      id: 'a-u1',
+      role: 'user',
+    } as never);
+    const { rerender, result } = renderHook(() => useEstimatedContextUsage('main'));
+
+    mocks.chatState.activeTopicId = 'topic-2';
+    mocks.mainChats.splice(
+      0,
+      mocks.mainChats.length,
+      { content: 'hi', id: 'b-u1', role: 'user' } as never,
+      { content: LOADING_FLAT, id: 'b-a1', role: 'assistant' } as never,
+    );
+    rerender();
+    expect(result.current.totalToken).toBeGreaterThan(20_000);
+
+    mocks.mainChats.splice(1, 1, {
+      content: 'ok',
+      id: 'b-a1',
+      metadata: { totalInputTokens: 1000 },
+      role: 'assistant',
+    } as never);
+    rerender();
+
+    // Whole-window fallback — never the 1,013 undercount.
+    expect(result.current.totalToken).toBeGreaterThanOrEqual(10_000);
+  });
+
+  it('T1: navigating away and back keeps the original dispatch witness', () => {
+    // Topic B's request is dispatched (witness recorded with the ORIGINAL
+    // instructions)…
+    mocks.mainChats.splice(
+      0,
+      mocks.mainChats.length,
+      { content: 'hi', id: 'nav-u1', role: 'user' } as never,
+      { content: LOADING_FLAT, id: 'nav-a1', role: 'assistant' } as never,
+    );
+    mocks.chatState.activeTopicId = 'topic-2';
+    dispatchWitness('nav-a1', 'nav-u1', 'topic-2');
+    const { rerender, result } = renderHook(() => useEstimatedContextUsage('main'));
+
+    // …the user views settled topic A…
+    mocks.chatState.activeTopicId = 'topic-1';
+    mocks.mainChats.splice(0, mocks.mainChats.length, {
+      content: 'settled',
+      id: 'a-u1',
+      role: 'user',
+    } as never);
+    rerender();
+
+    // …enlarges the instructions, and returns to still-running topic B.
+    mocks.systemRole = 'x'.repeat(20_000);
+    mocks.chatState.activeTopicId = 'topic-2';
+    mocks.mainChats.splice(
+      0,
+      mocks.mainChats.length,
+      { content: 'hi', id: 'nav-u1', role: 'user' } as never,
+      { content: LOADING_FLAT, id: 'nav-a1', role: 'assistant' } as never,
+    );
+    rerender();
+    expect(result.current.totalToken).toBeGreaterThan(20_000);
+
+    mocks.mainChats.splice(1, 1, {
+      content: 'ok',
+      id: 'nav-a1',
+      metadata: { totalInputTokens: 1000 },
+      role: 'assistant',
+    } as never);
+    rerender();
+
+    // The ORIGINAL dispatch witness promotes: report + instruction delta +
+    // tail — never the 1,013 undercount.
     expect(result.current.totalToken).toBeGreaterThanOrEqual(10_000);
   });
 });

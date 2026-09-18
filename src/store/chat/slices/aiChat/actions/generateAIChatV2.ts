@@ -60,6 +60,7 @@ import {
   createKnowledgeBaseSummary,
   getKnowledgeDiagnosticIdFromError,
 } from '@/store/chat/helpers/knowledgeBaseContext';
+import { recordAnchorDispatchWitness } from '@/store/chat/helpers/recordAnchorDispatchWitness';
 import { resolveConversationAgentRuntime } from '@/store/chat/helpers/resolveConversationAgentRuntime';
 import { MainSendMessageOperation } from '@/store/chat/slices/aiChat/initialState';
 import type { ChatStore } from '@/store/chat/store';
@@ -823,6 +824,24 @@ export const generateAIChatV2: StateCreator<
           }
         }
       }
+
+      // D2/T1: record the dispatch-time anchor witness for this send — the
+      // only evidence that lets the provider report promote to an anchor
+      // baseline later. Covers both lanes: the durable worker executes the
+      // config frozen above, and the browser path below assembles the same
+      // request. Estimators never record witnesses.
+      if (isSameAccount() && data.assistantMessageId) {
+        await recordAnchorDispatchWitness({
+          assistantMessageId: data.assistantMessageId,
+          chatState: get(),
+          conversation: {
+            sessionId: conversationContext.sessionId,
+            threadId: conversationContext.threadId,
+            topicId: conversationContext.topicId,
+          },
+          parentMessageId: data.userMessageId,
+        });
+      }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       const isAbort = errorMessage.includes('aborted') || (error as Error)?.name === 'AbortError';
@@ -1485,6 +1504,21 @@ export const generateAIChatV2: StateCreator<
 
     const agentRuntime = resolveConversationAgentRuntime(conversationContext.sessionId);
     const { model, provider } = agentRuntime.agentConfig;
+
+    // D2/T1: (re)record the dispatch-time anchor witness for this exact
+    // request. Initial browser sends already recorded one after the send RPC;
+    // overflow retries and tool-loop continuations reach this path with a new
+    // prefix (compacted history / tool results), so the witness must be
+    // replaced with the request actually being dispatched now.
+    await recordAnchorDispatchWitness({
+      assistantMessageId: assistantId,
+      chatState: get(),
+      conversation: {
+        sessionId: conversationContext.sessionId,
+        threadId: conversationContext.threadId,
+        topicId: conversationContext.topicId,
+      },
+    });
 
     let fileChunks: MessageSemanticSearchChunk[] | undefined;
     let ragQueryId;

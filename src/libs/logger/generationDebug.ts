@@ -32,6 +32,7 @@ export const GENERATION_DEBUG_CLIENT_EVENTS = [
   'chat_image_item_settled',
   'chat_image_run_settled',
   'chat_image_run_started',
+  'context_overflow_retry',
   'deferred_lane_aborted',
   'deferred_lane_left',
   'deferred_lane_marked',

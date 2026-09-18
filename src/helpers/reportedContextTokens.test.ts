@@ -4,6 +4,8 @@ import { LOADING_FLAT } from '@/const/message';
 
 import {
   applyReportedInputTokenFloor,
+  clearAnchorBaselines,
+  fingerprintAnchorPrefix,
   getEffectiveReportedInputTokenFloorAfterMessageId,
   getLatestReportedInputAnchor,
   getLatestReportedInputTokenSourceId,
@@ -11,6 +13,8 @@ import {
   getReportedInputTokenFloorBoundaryId,
   messagesAfterId,
   nextReportedInputTokenFloorAfterMessageId,
+  recordAnchorRequestWitness,
+  resolveAnchorBaseline,
   withReportedInputTokenFloorMetadata,
 } from './reportedContextTokens';
 
@@ -423,6 +427,110 @@ describe('reported context token floor', () => {
           { afterMessageId: 'deleted' },
         ),
       ).toBeUndefined();
+    });
+  });
+
+  describe('anchor request witnesses (D2/T1)', () => {
+    const CONVERSATION = '[1,"session-1","topic-1"]';
+    const OTHER_CONVERSATION = '[1,"session-1","topic-2"]';
+    const messages = [
+      { content: 'hi', id: 'u1', role: 'user' },
+      { content: 'hello', id: 'a1', role: 'assistant' },
+      { content: 'next', id: 'u2', role: 'user' },
+    ];
+
+    const recordWitness = (overrides: Partial<Parameters<typeof recordAnchorRequestWitness>[0]> = {}) =>
+      recordAnchorRequestWitness({
+        assistantMessageId: 'a2',
+        conversationKey: CONVERSATION,
+        fixedOverheadTokens: 100,
+        messages,
+        parentMessageId: 'u2',
+        ...overrides,
+      });
+
+    const resolve = (overrides: Partial<Parameters<typeof resolveAnchorBaseline>[0]> = {}) =>
+      resolveAnchorBaseline({
+        anchorId: 'a2',
+        anchorParentId: 'u2',
+        conversationKey: CONVERSATION,
+        currentFixedOverheadTokens: 100,
+        prefixFingerprint: fingerprintAnchorPrefix(messages),
+        reportedInputTokens: 1000,
+        ...overrides,
+      });
+
+    it('promotes a matching dispatch witness exactly once', () => {
+      clearAnchorBaselines();
+      recordWitness();
+      expect(resolve()?.overheadDelta).toBe(0);
+      // Promoted to a baseline: the second resolve still trusts the anchor
+      // (cached path), and a later overhead change lands as a delta.
+      expect(resolve({ currentFixedOverheadTokens: 140 })?.overheadDelta).toBe(40);
+    });
+
+    it('never promotes without a dispatch witness (reload / cross-topic state)', () => {
+      clearAnchorBaselines();
+      expect(resolve()).toBeUndefined();
+    });
+
+    it('rejects a witness from another conversation', () => {
+      clearAnchorBaselines();
+      recordWitness();
+      expect(resolve({ conversationKey: OTHER_CONVERSATION })).toBeUndefined();
+      // …and the witness survives the foreign lookup, so returning to the
+      // dispatch conversation can still promote it.
+      expect(resolve()?.overheadDelta).toBe(0);
+    });
+
+    it('rejects a witness whose parent row differs', () => {
+      clearAnchorBaselines();
+      recordWitness();
+      expect(resolve({ anchorParentId: 'u1' })).toBeUndefined();
+    });
+
+    it('rejects a witness when the prefix changed after dispatch', () => {
+      clearAnchorBaselines();
+      recordWitness();
+      const edited = [
+        messages[0],
+        { ...messages[1], content: 'edited' },
+        messages[2],
+      ];
+      expect(
+        resolve({ prefixFingerprint: fingerprintAnchorPrefix(edited) }),
+      ).toBeUndefined();
+    });
+
+    it('skips recording when the parent row is not visible', () => {
+      clearAnchorBaselines();
+      recordWitness({ parentMessageId: 'missing-parent' });
+      expect(resolve()).toBeUndefined();
+    });
+
+    it('a re-dispatch of the same row replaces the witness', () => {
+      clearAnchorBaselines();
+      recordWitness();
+      const continued = [
+        ...messages,
+        { content: '...', id: 'a2', role: 'assistant' },
+        { content: 'tool result', id: 't1', role: 'tool' },
+      ];
+      recordWitness({
+        fixedOverheadTokens: 120,
+        messages: continued,
+        parentMessageId: 't1',
+      });
+      // The original request's witness is gone…
+      expect(resolve()).toBeUndefined();
+      // …and the continuation's witness promotes instead.
+      expect(
+        resolve({
+          anchorParentId: 't1',
+          currentFixedOverheadTokens: 120,
+          prefixFingerprint: fingerprintAnchorPrefix(continued),
+        })?.overheadDelta,
+      ).toBe(0);
     });
   });
 });

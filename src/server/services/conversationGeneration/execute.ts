@@ -2145,7 +2145,10 @@ const runCompactionPlan = async (
       const messageModel = new MessageModel(transaction, operation.userId);
       const topic = await topicModel.findById(operation.topicId!);
       const metadata = (topic?.metadata || {}) as ChatTopicMetadata;
-      const status =
+      // Keep the literal union through the transaction callback's inferred
+      // return type — an unannotated ternary widens to `string` once it is
+      // placed on the returned object literal.
+      const status: 'compacted' | 'target_unreachable' =
         compaction.trigger === 'token_threshold' && compaction.targetReachable === false
           ? 'target_unreachable'
           : 'compacted';

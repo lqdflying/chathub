@@ -193,7 +193,6 @@ src/features/PluginStore/AddPluginButton.tsx	TS2322
 src/features/User/DataStatistics.tsx	TS2339
 src/features/User/DataStatistics.tsx	TS2339
 src/helpers/contextCompaction.ts	TS2339
-src/helpers/estimateContextUsageAsync.ts	TS2339
 src/hooks/useDiscoverTab.ts	TS2339
 src/hooks/useFetchAiImageConfig.ts	TS2339
 src/libs/langchain/loaders/markdown/index.ts	TS2307
@@ -236,7 +235,6 @@ src/server/services/conversationGeneration/execute.ts	TS2322
 src/server/services/conversationGeneration/execute.ts	TS2322
 src/server/services/conversationGeneration/execute.ts	TS2322
 src/server/services/conversationGeneration/execute.ts	TS2322
-src/server/services/conversationGeneration/execute.ts	TS2322
 src/server/services/conversationGeneration/execute.ts	TS2345
 src/server/services/conversationGeneration/execute.ts	TS2345
 src/server/services/conversationGeneration/service.ts	TS2307
@@ -249,9 +247,6 @@ src/server/services/conversationGeneration/worker.ts	TS7006
 src/server/services/file/index.ts	TS2345
 src/server/services/mcp/index.ts	TS18048
 src/server/services/mcp/index.ts	TS2339
-src/server/services/mcp/index.ts	TS2345
-src/server/services/mcp/index.ts	TS2345
-src/server/services/mcp/index.ts	TS2345
 src/server/services/mcp/oauthDiscovery.ts	TS2322
 src/server/services/mcp/oauthDiscovery.ts	TS2724
 src/server/services/mcp/oauthDiscovery.ts	TS2724
@@ -284,11 +279,9 @@ src/store/agent/slices/chat/action.ts	TS2345
 src/store/aiInfra/slices/aiModel/action.ts	TS18048
 src/store/aiInfra/slices/aiModel/action.ts	TS18048
 src/store/aiInfra/slices/aiProvider/action.ts	TS2769
-src/store/chat/slices/aiChat/actions/generateAIChat.ts	TS2345
 src/store/chat/slices/aiChat/actions/generateAIChatV2.ts	TS2322
 src/store/chat/slices/aiChat/actions/generateAIChatV2.ts	TS2322
 src/store/chat/slices/aiChat/actions/generateAIChatV2.ts	TS2322
-src/store/chat/slices/aiChat/actions/generateAIChatV2.ts	TS2345
 src/store/chat/slices/aiChat/actions/generateAIChatV2.ts	TS2345
 src/store/chat/slices/aiChat/actions/generateAIGroupChat.ts	TS2345
 src/store/chat/slices/aiChat/actions/memory.ts	TS2345

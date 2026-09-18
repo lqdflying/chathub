@@ -123,6 +123,32 @@ else
   FAILURES=$((FAILURES + 1))
 fi
 
+# 12. U1: a non-file diagnostic (no `file(line,col)` prefix) must fail loudly,
+# not vanish from the pair set into a false pass.
+: > "$BASELINE"
+GLOBAL_LINE="error TS5058: The specified path does not exist: 'missing'."
+OUT=$(run_wrapper 1 "$GLOBAL_LINE"); S=$?
+check "non-file diagnostic fails" 1 "$S" "$OUT" "TS5058"
+
+# 13. U1: a non-file diagnostic mixed with a baselined file diagnostic fails.
+printf 'src/app/page.ts\tTS2304\n' > "$BASELINE"
+OUT=$(run_wrapper 1 "$NEW_LINE
+$GLOBAL_LINE"); S=$?
+check "non-file diagnostic mixed with baselined fails" 1 "$S" "$OUT" "without a file location"
+
+# 14. U1: --write-baseline refuses on non-file diagnostics and keeps the file.
+printf 'src/app/page.ts\tTS2304\n' > "$BASELINE"
+cd "$REPO_ROOT" && env -i PATH="$TMP/bin:/usr/bin:/bin" HOME="$HOME" \
+  TSC_BASELINE_FILE="$BASELINE" STUB_STATUS=1 STUB_OUTPUT="$GLOBAL_LINE" \
+  bash "$WRAPPER" --write-baseline >/dev/null 2>&1
+if grep -qF $'src/app/page.ts\tTS2304' "$BASELINE" && [ "$(grep -c . "$BASELINE")" -eq 1 ]; then
+  echo "PASS: --write-baseline preserves the baseline on non-file diagnostics"
+else
+  echo "FAIL: --write-baseline overwrote the baseline on a non-file diagnostic"
+  cat "$BASELINE"
+  FAILURES=$((FAILURES + 1))
+fi
+
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES self-test(s) failed"
   exit 1

@@ -83,6 +83,7 @@ describe('CHATHUB_GENERATION_DEBUG emitter', () => {
           'chat_image_item_settled',
           'chat_image_run_settled',
           'chat_image_run_started',
+          'context_overflow_retry',
           'deferred_lane_aborted',
           'deferred_lane_left',
           'deferred_lane_resumed',

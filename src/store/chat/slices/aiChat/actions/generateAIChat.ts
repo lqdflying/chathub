@@ -70,6 +70,7 @@ import {
   createKnowledgeBaseSummary,
   getKnowledgeDiagnosticIdFromError,
 } from '@/store/chat/helpers/knowledgeBaseContext';
+import { recordAnchorDispatchWitness } from '@/store/chat/helpers/recordAnchorDispatchWitness';
 import { resolveConversationAgentRuntime } from '@/store/chat/helpers/resolveConversationAgentRuntime';
 import { ChatStore } from '@/store/chat/store';
 import type { ConversationContext } from '@/store/chat/types';
@@ -622,6 +623,23 @@ export const generateAIChat: StateCreator<
       }
       const operation = asConversationGenerationOperation(enqueueResult);
       if (operation && isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot)) {
+        // D2/T1: dispatch-time anchor witness for the durable lane. The worker
+        // executes the enqueued config; the witness lets its report promote to
+        // an anchor baseline later. Best effort — when the parent row is not
+        // in the store yet (fresh send before refresh), no witness is
+        // recorded and the report falls back to the whole-window estimate.
+        if (operation.assistantMessageId) {
+          await recordAnchorDispatchWitness({
+            assistantMessageId: operation.assistantMessageId,
+            chatState: get(),
+            conversation: {
+              sessionId: conversationContext.sessionId,
+              threadId: conversationContext.threadId,
+              topicId: conversationContext.topicId,
+            },
+            parentMessageId: userMessageId,
+          });
+        }
         get().attachConversationGeneration({
           assistantMessageId: operation.assistantMessageId || undefined,
           clearGeneration: conversationContext.clearGeneration,
@@ -790,6 +808,20 @@ export const generateAIChat: StateCreator<
     });
 
     if (!assistantId) return;
+
+    // D2/T1: dispatch-time anchor witness for the browser lane (initial send,
+    // overflow retry, tool continuation). Re-dispatches replace the witness
+    // with the request actually being sent now.
+    await recordAnchorDispatchWitness({
+      assistantMessageId: assistantId,
+      chatState: get(),
+      conversation: {
+        sessionId: conversationContext.sessionId,
+        threadId: conversationContext.threadId,
+        topicId: conversationContext.topicId,
+      },
+      parentMessageId: userMessageId,
+    });
     if (pendingDeferral) {
       get().internal_markDurableLaneDeferred({
         assistantMessageId: assistantId,

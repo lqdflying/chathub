@@ -249,11 +249,11 @@ interface AnchorBaseline {
 }
 
 /**
- * Process-local retained request snapshots, keyed by anchor message id. A
- * baseline may only be registered by PROMOTING a prefix snapshot this process
- * froze when the anchor's request was dispatched (D2/T1): first observation
- * of a reported anchor is not evidence the report measured the current prefix
- * (the edit may predate this process — reload, new tab, cache eviction), so an
+ * Process-local retained request baselines, keyed by anchor message id. A
+ * baseline may only be registered by PROMOTING the dispatch-time witness this
+ * process recorded for that exact request (D2/T1): first observation of a
+ * reported anchor is not evidence the report measured the current prefix (the
+ * edit may predate this process — reload, new tab, cache eviction), so an
  * unverified anchor always falls back to the whole-window estimate. A prefix
  * mismatch never re-baselines (R3): the report covered the original prefix, so
  * the anchor stays invalid until a fresh provider report arrives under a new
@@ -272,108 +272,82 @@ const registerAnchorBaseline = (anchorId: string, baseline: AnchorBaseline) => {
   anchorBaselines.set(anchorId, baseline);
 };
 
-interface AnchorPrefixSnapshot {
+interface AnchorRequestWitness {
+  /** Conversation the request was dispatched in (`messageMapKey`). */
+  conversationKey: string;
   fixedOverheadTokens: number;
-  /**
-   * Set while the request this snapshot certifies is still in flight: the id of
-   * the pending row the snapshot was frozen for. A frozen snapshot is never
-   * overwritten by later estimates (T1) — settings or prefix edits made while
-   * the reply is pending must not be certified as covered by its report.
-   */
-  frozenForPendingId?: string;
-  newestMessageId: string;
+  /** Row the pending assistant was parented to at dispatch. */
+  parentMessageId?: string;
   prefixFingerprint: string;
 }
 
 /**
- * The request snapshot (D2/T1). Single process-local slot: cross-conversation
- * overwrite only loses a promotion opportunity (a conservative whole-window
- * fallback), it can never produce wrong trust, because promotion also requires
- * an exact fingerprint match.
+ * Request witnesses (D2/T1 round 5): one immutable entry per dispatched
+ * request, keyed by the pending assistant message id. A witness is recorded
+ * ONLY by the dispatch path (send / retry / tool continuation) at the moment
+ * the request is assembled — never by the estimators. Estimate-time recording
+ * cannot distinguish "first sight of a pending row at dispatch" from "first
+ * sight after reload / navigation", so a snapshot inferred from estimate
+ * ordering can certify settings the request never contained (cross-topic
+ * overwrite dropped an estimate to the report + tail). A witness is never
+ * overwritten while its request is in flight except by a re-dispatch of the
+ * SAME assistant row (overflow retry / continuation), which replaces it with
+ * the new request's state. Bounded map; oldest evicted.
  */
-let lastAnchorPrefixSnapshot: AnchorPrefixSnapshot | undefined;
+const anchorRequestWitnesses = new Map<string, AnchorRequestWitness>();
+const ANCHOR_REQUEST_WITNESS_LIMIT = 100;
 
 /**
- * Record the current estimate's prefix snapshot (after resolving). The snapshot
- * covers all rows through the newest settled message; in-flight rows (loading
- * ids or `LOADING_FLAT` placeholders) are excluded because their content still
- * changes while streaming.
- *
- * T1 — the snapshot must stay bound to the request actually sent, not to the
- * latest estimate while its reply is pending:
- * - With no pending row, the estimate reflects a settled conversation, so the
- *   snapshot is (re)recorded. Its existence also proves this process observed
- *   the conversation before the next request is dispatched.
- * - With a pending row, an existing frozen snapshot for THAT pending row is
- *   kept untouched — a skill/instruction change or a prefix edit made while
- *   the reply is in flight must not replace the overhead/fingerprint the
- *   request was sent with.
- * - A pending row with NO prior snapshot means this process never observed the
- *   pre-request state (reload / new tab into an already-running request):
- *   nothing is recorded, so the arriving report cannot be promoted and the
- *   estimator keeps the fresh whole-window fallback.
- * When a provider report later lands on the row right after the snapshot's
- * newest settled message, the snapshot proves this process observed the exact
- * request prefix beforehand — the only evidence that makes the report eligible
- * for anchoring (D2).
+ * Record the dispatch-time witness for a request. Called by the send/retry/
+ * continuation paths with the exact state the request was assembled from:
+ * the pending assistant id, its parent row, the conversation key, the fixed
+ * overhead (chars/2, `estimateFixedContextOverheadTokens`) and the full
+ * conversation message list. The fingerprint covers all rows through the
+ * parent. When the parent row is not visible in `messages` (store not yet
+ * refreshed), no witness is recorded — the report then falls back to the
+ * whole-window estimate, which is the safe default for an unverifiable
+ * association.
  */
-export const recordAnchorPrefixSnapshot = ({
+export const recordAnchorRequestWitness = ({
+  assistantMessageId,
+  conversationKey,
   fixedOverheadTokens,
-  loadingIds,
   messages,
+  parentMessageId,
 }: {
+  assistantMessageId: string;
+  conversationKey: string;
   fixedOverheadTokens: number;
-  loadingIds?: readonly string[];
   messages: Array<{ content?: unknown; id?: string; updatedAt?: unknown }>;
+  parentMessageId?: string;
 }) => {
-  let newestSettledIndex = -1;
-  let pendingId: string | undefined;
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (!message.id) continue;
-    if (message.content === LOADING_FLAT || loadingIds?.includes(message.id)) {
-      if (!pendingId) pendingId = message.id;
-      continue;
-    }
-    newestSettledIndex = index;
-    break;
-  }
+  if (!assistantMessageId) return;
+  const parentIndex = parentMessageId
+    ? messages.findIndex(({ id }) => id === parentMessageId)
+    : -1;
+  if (parentMessageId && parentIndex < 0) return;
+  const prefix = parentIndex >= 0 ? messages.slice(0, parentIndex + 1) : [];
 
-  if (newestSettledIndex < 0) {
-    // No settled row to key a snapshot to. Keep a frozen witness (the request
-    // is still in flight); otherwise the conversation is empty — clear.
-    if (!pendingId) lastAnchorPrefixSnapshot = undefined;
-    return;
-  }
-
-  const newestMessageId = messages[newestSettledIndex].id!;
-
-  if (pendingId) {
-    if (lastAnchorPrefixSnapshot?.frozenForPendingId === pendingId) return;
-    if (!lastAnchorPrefixSnapshot) return;
-    // First estimate of this pending window: freeze the request witness. The
-    // pre-existing snapshot proves this process observed the conversation
-    // before dispatch, so the state captured now is the state sent.
-    lastAnchorPrefixSnapshot = {
-      fixedOverheadTokens,
-      frozenForPendingId: pendingId,
-      newestMessageId,
-      prefixFingerprint: fingerprintAnchorPrefix(messages.slice(0, newestSettledIndex + 1)),
-    };
-    return;
-  }
-
-  lastAnchorPrefixSnapshot = {
+  // Re-dispatch of the same row (overflow retry / continuation) replaces the
+  // witness: the next report answers the LATEST request, not the original.
+  anchorRequestWitnesses.delete(assistantMessageId);
+  anchorRequestWitnesses.set(assistantMessageId, {
+    conversationKey,
     fixedOverheadTokens,
-    newestMessageId,
-    prefixFingerprint: fingerprintAnchorPrefix(messages.slice(0, newestSettledIndex + 1)),
-  };
+    parentMessageId,
+    prefixFingerprint: fingerprintAnchorPrefix(prefix),
+  });
+  while (anchorRequestWitnesses.size > ANCHOR_REQUEST_WITNESS_LIMIT) {
+    const oldest = anchorRequestWitnesses.keys().next().value;
+    if (oldest === undefined) break;
+    anchorRequestWitnesses.delete(oldest);
+  }
 };
 
-/** Test support: drop all retained baselines/snapshots (module state survives across tests in a file). */
+/** Test support: drop all retained baselines/witnesses (module state survives across tests in a file). */
 export const clearAnchorBaselines = () => {
   anchorBaselines.clear();
-  lastAnchorPrefixSnapshot = undefined;
+  anchorRequestWitnesses.clear();
 };
 
 const floorOverheadDelta = (
@@ -393,23 +367,25 @@ const floorOverheadDelta = (
  *   covered the ORIGINAL prefix, so re-baselining onto an edited prefix would
  *   re-trust a report that never counted those messages. The anchor stays
  *   invalid until a fresh provider report arrives under a new anchor id.
- * - No baseline (D2/T1): fall back unless the current prefix exactly matches
- *   the snapshot this process froze when the anchor's request was dispatched
- *   (snapshot keyed by the anchor's parent row, never overwritten while the
- *   reply is pending). Only that proves the report measured this prefix; the
- *   snapshot is then promoted to the baseline.
+ * - No baseline (D2/T1): fall back unless a dispatch-time witness exists for
+ *   THIS anchor id in THIS conversation whose parent row and prefix
+ *   fingerprint still match exactly. The witness proves the report answers
+ *   the request this process dispatched with that exact prefix and overhead;
+ *   on promotion the witness is consumed and becomes the baseline.
  * The returned delta is floored so the anchored total can never drop below
  * what the next request minimally contains (current overhead + tail).
  */
 export const resolveAnchorBaseline = ({
   anchorId,
   anchorParentId,
+  conversationKey,
   currentFixedOverheadTokens,
   prefixFingerprint,
   reportedInputTokens,
 }: {
   anchorId: string;
   anchorParentId?: string;
+  conversationKey: string;
   currentFixedOverheadTokens: number;
   prefixFingerprint: string;
   reportedInputTokens: number;
@@ -428,21 +404,24 @@ export const resolveAnchorBaseline = ({
     };
   }
 
-  const snapshot = lastAnchorPrefixSnapshot;
+  const witness = anchorRequestWitnesses.get(anchorId);
   if (
-    !snapshot ||
-    snapshot.newestMessageId !== anchorParentId ||
-    snapshot.prefixFingerprint !== prefixFingerprint
+    !witness ||
+    witness.conversationKey !== conversationKey ||
+    witness.parentMessageId !== anchorParentId ||
+    witness.prefixFingerprint !== prefixFingerprint
   ) {
     return undefined;
   }
+  // One-shot: the baseline registry owns the anchor from here on.
+  anchorRequestWitnesses.delete(anchorId);
   registerAnchorBaseline(anchorId, {
-    fixedOverheadTokens: snapshot.fixedOverheadTokens,
+    fixedOverheadTokens: witness.fixedOverheadTokens,
     prefixFingerprint,
   });
   return {
     overheadDelta: floorOverheadDelta(
-      currentFixedOverheadTokens - snapshot.fixedOverheadTokens,
+      currentFixedOverheadTokens - witness.fixedOverheadTokens,
       currentFixedOverheadTokens,
       reportedInputTokens,
     ),

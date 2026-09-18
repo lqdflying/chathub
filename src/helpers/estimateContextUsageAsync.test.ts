@@ -3,10 +3,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { formatSkillInstructionsBlock } from '@lobechat/context-engine';
 
 import { LOADING_FLAT } from '@/const/message';
+import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 
 import { estimateFixedContextOverheadTokens, wrapHistorySummaryForTokenEstimate } from './contextUsageEstimate';
-import { estimateContextUsageAsync } from './estimateContextUsageAsync';
-import { clearAnchorBaselines, fingerprintAnchorPrefix, recordAnchorPrefixSnapshot } from './reportedContextTokens';
+import { computeFixedContextOverheadInput, estimateContextUsageAsync } from './estimateContextUsageAsync';
+import { clearAnchorBaselines, fingerprintAnchorPrefix, recordAnchorRequestWitness } from './reportedContextTokens';
 
 const mocks = vi.hoisted(() => ({
   chats: [{ content: 'chat-text', id: 'u1', role: 'user' }] as Array<{
@@ -70,7 +71,7 @@ vi.mock('@/store/agent/selectors', () => ({
     historyCount: () => mocks.historyCount,
   },
   agentSelectors: {
-    currentAgentConfig: () => ({}),
+    currentAgentConfig: () => ({ chatConfig: { enableAssistantMemory: false } }),
     currentAgentModel: () => 'gpt-5-mini',
     currentAgentModelProvider: () => 'openai',
     currentAgentPlugins: () => [],
@@ -106,6 +107,7 @@ vi.mock('@/store/chat/selectors', () => ({
   topicSelectors: {
     currentActiveTopic: () => mocks.topic,
     currentActiveTopicSummary: () => ({ content: 'summary' }),
+    getTopicInContainer: () => () => mocks.topic,
   },
 }));
 
@@ -140,29 +142,48 @@ describe('estimateContextUsageAsync', () => {
     mocks.chats = [{ content: 'chat-text', id: 'u1', role: 'user' }];
   });
 
-  const estimate = () =>
-    estimateContextUsageAsync({ agentState: {} as any, chatState: { inputMessage: '' } as any });
+  const estimate = (topicId: string | undefined = 'topic-1') =>
+    estimateContextUsageAsync({
+      agentState: {} as any,
+      chatState: { activeId: 'session-1', activeTopicId: topicId, inputMessage: '' } as any,
+    });
 
   /**
-   * D2/T1: a provider report is only trusted when this process observed the
-   * exact request prefix before the report arrived. Simulate the real send
-   * flow for the LAST row (an assistant): estimate the settled conversation
-   * before dispatch (records the pre-request witness), estimate once with the
-   * row in flight (freezes the request witness keyed by its parent), then
-   * settle the row and land the report so the next estimate can promote the
-   * witness to a baseline.
+   * D2/T1 (round 5): a provider report is only trusted when the SEND PATH
+   * recorded a dispatch-time witness for that exact request — estimators
+   * never record witnesses. Simulate dispatch for the LAST row (an
+   * assistant): record the witness with the current overhead and the full
+   * prefix through its parent, exactly as the send path does, then settle the
+   * row and land the report so the next estimate can promote the witness to
+   * a baseline.
    */
+  const dispatchWitness = async (
+    assistantId: string,
+    parentId: string | undefined,
+    topicId: string | undefined = 'topic-1',
+  ) => {
+    const overhead = await computeFixedContextOverheadInput({
+      agentConfig: { chatConfig: { enableAssistantMemory: false } } as any,
+      chatState: { activeId: 'session-1', activeTopicId: topicId } as any,
+      enableHistoryCount: true,
+      isGroupSession: false,
+      sessionId: 'session-1',
+      topicId,
+    });
+    recordAnchorRequestWitness({
+      assistantMessageId: assistantId,
+      conversationKey: messageMapKey('session-1', topicId),
+      fixedOverheadTokens: overhead.fixedOverheadTokens,
+      messages: mocks.chats,
+      parentMessageId: parentId,
+    });
+  };
+
   const landReport = async (totalInputTokens: number) => {
     const last = mocks.chats.at(-1) as any;
-    const settled = last.content;
     const metadata = last.metadata;
     delete last.metadata;
-    last.content = LOADING_FLAT;
-    mocks.chats = mocks.chats.slice(0, -1);
-    await estimate(); // pre-send settled estimate (witness of pre-dispatch state)
-    mocks.chats = [...mocks.chats, last];
-    await estimate(); // first in-flight estimate freezes the request witness
-    last.content = settled;
+    await dispatchWitness(last.id, mocks.chats[mocks.chats.length - 2]?.id);
     last.metadata = { ...metadata, totalInputTokens };
   };
 
@@ -306,8 +327,8 @@ describe('estimateContextUsageAsync', () => {
       { content: 'ok', id: 'a1', role: 'assistant' },
     ];
 
-    // D2: the report lands after the in-flight estimate observed the prefix,
-    // promoting the snapshot to the anchor baseline (delta 0).
+    // D2: the report lands after the dispatch witness was recorded, promoting
+    // it to the anchor baseline (delta 0).
     await landReport(50_000);
     const first = await estimate();
     expect(first.totalToken).toBe(50_013);
@@ -352,20 +373,23 @@ describe('estimateContextUsageAsync', () => {
       } as (typeof mocks.chats)[number],
     ];
 
-    // R4/D2: prime the shared snapshot exactly as the token popover hook does
-    // while the reply is still in flight — same prefix (newest settled row u1),
-    // overhead measured with the shared chars/2 helper. The send estimator must
-    // promote that snapshot and compute the same anchored total; passing its
-    // tokenized fixedTokens instead would register as phantom context (or
-    // negative drift in the opposite order).
+    // R4/D2: prime the shared witness exactly as the send path does at
+    // dispatch — same prefix (through parent u1), overhead measured with the
+    // shared chars/2 helper. The estimator must promote that witness and
+    // compute the same anchored total; passing its tokenized fixedTokens
+    // instead would register as phantom context (or negative drift in the
+    // opposite order).
     const uiOverhead = estimateFixedContextOverheadTokens({
       historySummaryRaw: 'history-summary-text',
       systemRole: 'system-role-text',
       toolsString: 'plugin-system-role' + JSON.stringify({ function: { name: 'search' } }),
     });
-    recordAnchorPrefixSnapshot({
+    recordAnchorRequestWitness({
+      assistantMessageId: 'a1',
+      conversationKey: messageMapKey('session-1', 'topic-1'),
       fixedOverheadTokens: uiOverhead,
-      messages: [mocks.chats[0]],
+      messages: mocks.chats,
+      parentMessageId: 'u1',
     });
 
     expect((await estimate()).totalToken).toBe(50_013);
@@ -450,16 +474,16 @@ describe('estimateContextUsageAsync', () => {
   });
 
   it('T1: keeps the sent request baseline when a skill changes while its reply is pending', async () => {
-    mocks.chats = [{ content: 'hi', id: 'inflight-u1', role: 'user' }];
-    await estimate(); // pre-send settled estimate (witness of pre-dispatch state)
     mocks.chats = [
-      ...mocks.chats,
+      { content: 'hi', id: 'inflight-u1', role: 'user' },
       { content: LOADING_FLAT, id: 'inflight-a1', role: 'assistant' },
     ];
-    await estimate(); // first in-flight estimate freezes the request witness
+    // The send path records the witness at dispatch — before any skill change.
+    await dispatchWitness('inflight-a1', 'inflight-u1');
 
     // Selecting a 20k-char skill mid-generation must NOT be certified as
-    // covered by the pending request's report.
+    // covered by the pending request's report: estimators never touch
+    // witnesses, so the pending estimate keeps the whole-window total.
     mocks.skillRecords = [
       { description: 'd', identifier: 'large-skill', instructions: 'x'.repeat(20_000), name: 'Skill' },
     ];
@@ -471,19 +495,17 @@ describe('estimateContextUsageAsync', () => {
       { content: 'ok', id: 'inflight-a1', metadata: { totalInputTokens: 1000 }, role: 'assistant' },
     ];
     const afterReport = await estimate();
-    // Anchored on the frozen witness: 1000 report + skill-overhead delta + tail
-    // — never the 1,013 undercount from certifying the new skill.
+    // Anchored on the dispatch witness: 1000 report + skill-overhead delta +
+    // tail — never the 1,013 undercount from certifying the new skill.
     expect(afterReport.totalToken).toBeGreaterThanOrEqual(10_000);
   });
 
   it('T1: does not certify a prefix edited while the original reply is pending', async () => {
-    mocks.chats = [{ content: 'hi', id: 'edit-u1', role: 'user', updatedAt: 1 }];
-    await estimate(); // settled witness
     mocks.chats = [
-      ...mocks.chats,
+      { content: 'hi', id: 'edit-u1', role: 'user', updatedAt: 1 },
       { content: LOADING_FLAT, id: 'edit-a1', role: 'assistant' },
     ];
-    await estimate(); // frozen witness with the ORIGINAL prefix fingerprint
+    await dispatchWitness('edit-a1', 'edit-u1');
 
     mocks.chats[0] = { content: 'x'.repeat(60_000), id: 'edit-u1', role: 'user', updatedAt: 2 };
     const whilePending = await estimate();
@@ -494,14 +516,13 @@ describe('estimateContextUsageAsync', () => {
       { content: 'ok', id: 'edit-a1', metadata: { totalInputTokens: 1000 }, role: 'assistant' },
     ];
     const afterReport = await estimate();
-    // The frozen fingerprint no longer matches — whole-window fallback.
+    // The dispatch fingerprint no longer matches — whole-window fallback.
     expect(afterReport.totalToken).toBeGreaterThanOrEqual(60_000);
   });
 
   it('T1: reload into an already-running request falls back to the whole window', async () => {
-    // The FIRST estimate of this process already sees the in-flight row: no
-    // pre-request witness exists, so nothing may be recorded and the arriving
-    // report can never be promoted.
+    // No dispatch witness exists in this process (reload / other tab): the
+    // arriving report can never be promoted.
     mocks.chats = [
       { content: 'hi', id: 'reloaded-u1', role: 'user' },
       { content: LOADING_FLAT, id: 'reloaded-a1', role: 'assistant' },
@@ -517,6 +538,65 @@ describe('estimateContextUsageAsync', () => {
       { content: 'ok', id: 'reloaded-a1', metadata: { totalInputTokens: 1000 }, role: 'assistant' },
     ];
     const afterReport = await estimate();
+    expect(afterReport.totalToken).toBeGreaterThanOrEqual(10_000);
+  });
+
+  it('T1: estimates of another topic never certify a running request (cross-topic)', async () => {
+    // Topic A is settled and estimated first…
+    mocks.chats = [{ content: 'settled', id: 'a-u1', role: 'user' }];
+    await estimate('topic-1');
+
+    // …then the user opens already-running topic B, whose 20k-char skill was
+    // NOT part of B's dispatched request (selected in another tab). No
+    // witness for B's row exists in this process.
+    mocks.skillRecords = [
+      { description: 'd', identifier: 'large-skill', instructions: 'x'.repeat(20_000), name: 'Skill' },
+    ];
+    mocks.chats = [
+      { content: 'hi', id: 'b-u1', role: 'user' },
+      { content: LOADING_FLAT, id: 'b-a1', role: 'assistant' },
+    ];
+    const whilePending = await estimate('topic-2');
+    expect(whilePending.totalToken).toBeGreaterThan(10_000);
+
+    mocks.chats = [
+      mocks.chats[0],
+      { content: 'ok', id: 'b-a1', metadata: { totalInputTokens: 1000 }, role: 'assistant' },
+    ];
+    const afterReport = await estimate('topic-2');
+    // Whole-window fallback — never the 1,013 undercount.
+    expect(afterReport.totalToken).toBeGreaterThanOrEqual(10_000);
+  });
+
+  it('T1: navigating away and back keeps the original dispatch witness', async () => {
+    // Topic B's request is dispatched (witness recorded without the skill)…
+    mocks.chats = [
+      { content: 'hi', id: 'nav-u1', role: 'user' },
+      { content: LOADING_FLAT, id: 'nav-a1', role: 'assistant' },
+    ];
+    await dispatchWitness('nav-a1', 'nav-u1', 'topic-2');
+
+    // …the user views settled topic A (estimates run there)…
+    mocks.chats = [{ content: 'settled', id: 'a-u1', role: 'user' }];
+    await estimate('topic-1');
+
+    // …selects a 20k-char skill, and returns to still-running topic B.
+    mocks.skillRecords = [
+      { description: 'd', identifier: 'large-skill', instructions: 'x'.repeat(20_000), name: 'Skill' },
+    ];
+    mocks.chats = [
+      { content: 'hi', id: 'nav-u1', role: 'user' },
+      { content: LOADING_FLAT, id: 'nav-a1', role: 'assistant' },
+    ];
+    const whilePending = await estimate('topic-2');
+    expect(whilePending.totalToken).toBeGreaterThan(10_000);
+
+    mocks.chats = [
+      mocks.chats[0],
+      { content: 'ok', id: 'nav-a1', metadata: { totalInputTokens: 1000 }, role: 'assistant' },
+    ];
+    const afterReport = await estimate('topic-2');
+    // The ORIGINAL dispatch witness promotes: report + skill delta + tail.
     expect(afterReport.totalToken).toBeGreaterThanOrEqual(10_000);
   });
 

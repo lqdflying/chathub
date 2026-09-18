@@ -1,5 +1,7 @@
 import { applyUserInputTemplate, formatSkillInstructionsBlock } from '@lobechat/context-engine';
+import { DEFAULT_AGENT_CHAT_CONFIG, DEFAULT_MODEL, DEFAULT_PROVIDER } from '@lobechat/const';
 import { agentMemoryPrompt } from '@lobechat/prompts';
+import { ChatTopicMetadata, LobeAgentConfig } from '@lobechat/types';
 
 import { getModelContextWindowTokens } from '@/helpers/modelContextWindowTokens';
 import { createChatToolsEngine } from '@/helpers/toolEngineering';
@@ -10,6 +12,7 @@ import { getAgentStoreState } from '@/store/agent/store';
 import { aiModelSelectors, getAiInfraStoreState } from '@/store/aiInfra';
 import { ChatStoreState } from '@/store/chat/initialState';
 import { chatSelectors, topicSelectors } from '@/store/chat/selectors';
+import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { getSkillSelectionKey, getSkillStoreState, skillSelectors } from '@/store/skill';
 import { toolSelectors } from '@/store/tool/selectors';
 import { getToolStoreState } from '@/store/tool/store';
@@ -40,16 +43,13 @@ import {
   getEffectiveReportedInputTokenFloorAfterMessageId,
   getLatestReportedInputAnchor,
   getLatestReportedInputTokens,
-  recordAnchorPrefixSnapshot,
   resolveAnchorBaseline,
 } from './reportedContextTokens';
 
 interface EstimateContextUsageOverrides {
   historySummary?: string;
   historySummaryLastMessageId?: string | null;
-  memoryArchives?: NonNullable<
-    ReturnType<typeof topicSelectors.currentActiveTopic>
-  >['metadata']['memoryArchives'];
+  memoryArchives?: ChatTopicMetadata['memoryArchives'];
   reportedInputTokenFloorAfterMessageId?: string | null;
 }
 
@@ -65,6 +65,127 @@ const countTokens = async (value: string) => {
   } catch {
     return value.length;
   }
+};
+
+export interface FixedContextOverheadInput {
+  agentMemory: string;
+  /** Shared-unit (chars/2) fixed overhead via `estimateFixedContextOverheadTokens`. */
+  fixedOverheadTokens: number;
+  historySummaryRaw: string;
+  skillInstructions: string;
+  systemRole: string;
+  toolsString: string;
+}
+
+/**
+ * Assemble the fixed-overhead inputs for ONE conversation — composed system
+ * role, agent memory block, history summary, tool schemas/system roles and
+ * activated-skill instructions — plus the shared-unit estimate. Both the
+ * estimator (active conversation) and the send path's dispatch witness call
+ * this, so the anchor baseline and the current estimate can never drift into
+ * different overhead assemblies (R4) and a witness always reflects the
+ * dispatched request's own conversation (T1 round 5).
+ *
+ * `agentConfig` must be the default-merged config of the CONVERSATION's agent
+ * (`agentSelectors.getAgentConfigById(sessionId)` /
+ * `resolveConversationAgentRuntime`), not necessarily the visible active one.
+ */
+export const computeFixedContextOverheadInput = async ({
+  agentConfig,
+  chatState,
+  enableHistoryCount,
+  isGroupSession,
+  sessionId,
+  threadId,
+  skipSkills,
+  topicId,
+  topicOverride,
+}: {
+  agentConfig: LobeAgentConfig;
+  chatState: ChatStoreState;
+  enableHistoryCount: boolean;
+  isGroupSession: boolean;
+  sessionId: string;
+  /** Skip the tRPC skill resolve. Dispatch witnesses must never block send. */
+  skipSkills?: boolean;
+  threadId?: string | null;
+  topicId?: string | null;
+  /** Post-compaction what-if estimates pass explicit topic state. */
+  topicOverride?: {
+    historySummary?: string;
+    memoryArchives?: ChatTopicMetadata['memoryArchives'];
+  };
+}): Promise<FixedContextOverheadInput> => {
+  const chatConfig = agentConfig.chatConfig || {};
+  const topic = topicId ? topicSelectors.getTopicInContainer(sessionId, topicId)(chatState) : undefined;
+  const historySummary = topicOverride ? topicOverride.historySummary : topic?.historySummary;
+  const memoryArchives = topicOverride ? topicOverride.memoryArchives : topic?.metadata?.memoryArchives;
+  const historySummaryRaw =
+    buildHistorySummaryForRequest({
+      archives: memoryArchives,
+      enableCompressHistory: !!enableHistoryCount && !!chatConfig.enableCompressHistory,
+      enableUserMemoryArchive: chatConfig.enableUserMemoryArchive,
+      topicSummary: historySummary,
+    }) || '';
+  const enableAssistantMemory =
+    chatConfig.enableAssistantMemory ?? DEFAULT_AGENT_CHAT_CONFIG.enableAssistantMemory!;
+  const agentMemory = enableAssistantMemory
+    ? agentMemoryPrompt({
+        dynamicMemory: normalizeAssistantMemoryText(agentConfig.assistantMemory) || undefined,
+        fixedMemory: (agentConfig.fixedMemory ?? '').trim() || undefined,
+      })
+    : '';
+  const generalInstruction = userGeneralSettingsSelectors.generalInstruction(getUserStoreState());
+  const systemRole = composeSystemRole(generalInstruction, agentConfig.systemRole);
+  const model = agentConfig.model || DEFAULT_MODEL;
+  const provider = agentConfig.provider || DEFAULT_PROVIDER;
+  const canUseTool = aiModelSelectors.isModelSupportToolUse(model, provider)(
+    getAiInfraStoreState(),
+  );
+  const toolsEngine = createChatToolsEngine(
+    { model, provider },
+    { enableMemoryTool: enableAssistantMemory && !isGroupSession },
+  );
+  const { tools, enabledToolIds } = toolsEngine.generateToolsDetailed({
+    model,
+    provider,
+    toolIds: agentConfig.plugins || [],
+  });
+  const schemaNumber = tools?.map((i) => JSON.stringify(i)).join('') || '';
+  const pluginSystemRoles = toolSelectors.enabledSystemRoles(enabledToolIds)(getToolStoreState());
+  const toolsString = canUseTool ? pluginSystemRoles + schemaNumber : '';
+  const skillIds = skillSelectors.selectedSkillIds(
+    getSkillSelectionKey({
+      sessionId,
+      threadId,
+      topicId,
+    }),
+  )(getSkillStoreState());
+  const skillRecords =
+    !skipSkills && skillIds.length ? await skillService.resolveSkills(skillIds) : [];
+  const skillInstructions = formatSkillInstructionsBlock({
+    activated: skillRecords.map((skill) => ({
+      description: skill.description,
+      identifier: skill.identifier,
+      instructions: skill.instructions,
+      name: skill.name,
+    })),
+  });
+
+  return {
+    agentMemory,
+    fixedOverheadTokens: estimateFixedContextOverheadTokens({
+      agentMemory,
+      historySummaryRaw,
+      skillInstructions,
+      systemRole,
+      toolsString,
+    }),
+    historySummaryRaw,
+    skillInstructions,
+    systemRole: systemRole ?? '',
+    toolsString,
+  };
 };
 
 /** Non-debounced estimate for automation (token threshold, compaction metadata). */
@@ -88,16 +209,10 @@ export const estimateContextUsageAsync = async ({
   const input = chatState.inputMessage || '';
   const pendingHasFiles = fileChatSelectors.chatUploadFileListHasItem(getFileStoreState());
   const activeTopic = topicSelectors.currentActiveTopic(chatState);
-  const historySummary = overrides
-    ? overrides.historySummary
-    : topicSelectors.currentActiveTopicSummary(chatState)?.content;
   const historySummaryLastMessageId =
     overrides?.historySummaryLastMessageId === undefined
       ? activeTopic?.metadata?.historySummaryLastMessageId
       : overrides.historySummaryLastMessageId || undefined;
-  const memoryArchives = overrides
-    ? overrides.memoryArchives
-    : activeTopic?.metadata?.memoryArchives;
   const reportedInputTokenFloorAfterMessageId =
     overrides?.reportedInputTokenFloorAfterMessageId === undefined
       ? activeTopic?.metadata?.reportedInputTokenFloorAfterMessageId
@@ -107,68 +222,32 @@ export const estimateContextUsageAsync = async ({
   const enableHistoryCount = agentChatConfigSelectors.enableHistoryCount(agentState);
   const configuredHistoryCount = agentChatConfigSelectors.historyCount(agentState);
   const enableHistoryCompaction = !!enableHistoryCount && !!chatConfig.enableCompressHistory;
-  const historySummaryForRequest =
-    buildHistorySummaryForRequest({
-      archives: memoryArchives,
-      enableCompressHistory: enableHistoryCompaction,
-      enableUserMemoryArchive: chatConfig.enableUserMemoryArchive,
-      topicSummary: historySummary,
-    }) || '';
+  // The overhead assembly is shared with the send path's dispatch witness so
+  // the anchor delta can never drift between call sites (R4/T1).
+  const {
+    agentMemory: agentMemoryForRequest,
+    fixedOverheadTokens,
+    historySummaryRaw: historySummaryForRequest,
+    skillInstructions,
+    systemRole,
+    toolsString,
+  } = await computeFixedContextOverheadInput({
+    agentConfig,
+    chatState,
+    enableHistoryCount: !!enableHistoryCount,
+    isGroupSession: chatState.activeSessionType === 'group',
+    sessionId: chatState.activeId,
+    threadId: chatState.activeThreadId,
+    topicId: chatState.activeTopicId,
+    topicOverride: overrides
+      ? { historySummary: overrides.historySummary, memoryArchives: overrides.memoryArchives }
+      : undefined,
+  });
   const historySummaryWrapped = wrapHistorySummaryForTokenEstimate(historySummaryForRequest);
-  const agentMemoryForRequest = agentChatConfigSelectors.enableAssistantMemory(agentState)
-    ? agentMemoryPrompt({
-        dynamicMemory: normalizeAssistantMemoryText(agentConfig.assistantMemory) || undefined,
-        fixedMemory: (agentConfig.fixedMemory ?? '').trim() || undefined,
-      })
-    : '';
-
-  const generalInstruction = userGeneralSettingsSelectors.generalInstruction(getUserStoreState());
-  const systemRole = composeSystemRole(
-    generalInstruction,
-    agentSelectors.currentAgentSystemRole(agentState),
-  );
   const model = agentSelectors.currentAgentModel(agentState) as string;
   const provider = agentSelectors.currentAgentModelProvider(agentState) as string;
   const maxTokens = getModelContextWindowTokens(model, provider);
-
-  const aiState = getAiInfraStoreState();
-  const canUseTool = aiModelSelectors.isModelSupportToolUse(model, provider)(aiState);
-  const pluginIds = agentSelectors.currentAgentPlugins(agentState);
-
-  const toolState = getToolStoreState();
-  const toolsEngine = createChatToolsEngine(
-    { model, provider },
-    {
-      enableMemoryTool:
-        agentChatConfigSelectors.enableAssistantMemory(agentState) &&
-        chatState.activeSessionType !== 'group',
-    },
-  );
-  const { tools, enabledToolIds } = toolsEngine.generateToolsDetailed({
-    model,
-    provider,
-    toolIds: pluginIds,
-  });
-  const schemaNumber = tools?.map((i) => JSON.stringify(i)).join('') || '';
-  const pluginSystemRoles = toolSelectors.enabledSystemRoles(enabledToolIds)(toolState);
-  const toolsString = canUseTool ? pluginSystemRoles + schemaNumber : '';
   const inputTemplate = chatConfig.inputTemplate?.trim() || '';
-  const skillIds = skillSelectors.selectedSkillIds(
-    getSkillSelectionKey({
-      sessionId: chatState.activeId,
-      threadId: chatState.activeThreadId,
-      topicId: chatState.activeTopicId,
-    }),
-  )(getSkillStoreState());
-  const skillRecords = skillIds.length ? await skillService.resolveSkills(skillIds) : [];
-  const skillInstructions = formatSkillInstructionsBlock({
-    activated: skillRecords.map((skill) => ({
-      description: skill.description,
-      identifier: skill.identifier,
-      instructions: skill.instructions,
-      name: skill.name,
-    })),
-  });
 
   const templatedInput = applyUserInputTemplate(inputTemplate, input);
   const [systemRoleToken, memoryToken, historySummaryToken, toolsToken, inputToken, skillToken] =
@@ -182,14 +261,6 @@ export const estimateContextUsageAsync = async ({
         skillInstructions,
       ].map((value) => countTokens(value || '')),
     );
-
-  const fixedOverheadTokens = estimateFixedContextOverheadTokens({
-    agentMemory: agentMemoryForRequest,
-    historySummaryRaw: historySummaryForRequest,
-    skillInstructions,
-    systemRole,
-    toolsString,
-  });
 
   const rawMessages = chatSelectors.mainAIChats(chatState);
   const afterCursor = getMessagesAfterHistorySummaryCursor(
@@ -240,33 +311,30 @@ export const estimateContextUsageAsync = async ({
   // anchor permanently until a fresh report. R4: the baseline registry is
   // shared with the token popover hook, so the delta MUST use the same
   // chars/2 overhead measure (`fixedOverheadTokens`), not the tokenized
-  // `fixedTokens` used for the final chats math below. D2: an anchor is only
-  // verified when this process recorded the exact request prefix (snapshot)
-  // before the report arrived — first sight alone never trusts a report.
+  // `fixedTokens` used for the final chats math below. D2/T1: an anchor is
+  // only verified when a dispatch-time witness recorded by the send path for
+  // THIS assistant row still matches — estimators never record witnesses, so
+  // a report from a request this process never dispatched (reload, other
+  // topic's snapshot) always falls back. Parent and fingerprint are computed
+  // over the FULL conversation list (not the windowed `chats`) so window
+  // sliding between turns cannot break the match.
   const anchor = getLatestReportedInputAnchor(estimateMessages, usageLookupOptions);
   const anchorIndex = anchor ? chats.findIndex(({ id }) => id === anchor.id) : -1;
+  const rawAnchorIndex = anchor ? rawMessages.findIndex(({ id }) => id === anchor.id) : -1;
 
   let chatsToken: number;
   let totalToken: number;
   const anchorBaseline =
-    anchor && anchorIndex >= 0
+    anchor && anchorIndex >= 0 && rawAnchorIndex >= 0
       ? resolveAnchorBaseline({
           anchorId: anchor.id,
-          anchorParentId: anchorIndex > 0 ? chats[anchorIndex - 1]?.id : undefined,
+          anchorParentId: rawAnchorIndex > 0 ? rawMessages[rawAnchorIndex - 1]?.id : undefined,
+          conversationKey: messageMapKey(chatState.activeId, chatState.activeTopicId),
           currentFixedOverheadTokens: fixedOverheadTokens,
-          prefixFingerprint: fingerprintAnchorPrefix(chats.slice(0, anchorIndex)),
+          prefixFingerprint: fingerprintAnchorPrefix(rawMessages.slice(0, rawAnchorIndex)),
           reportedInputTokens: anchor.totalInputTokens,
         })
       : undefined;
-  // D2/T1: record this run's prefix snapshot AFTER resolving, so the first
-  // estimate that observes a newly landed report can still promote against the
-  // witness frozen when that request was dispatched. While a reply is pending
-  // the frozen witness is never overwritten by later estimates.
-  recordAnchorPrefixSnapshot({
-    fixedOverheadTokens,
-    loadingIds: chatState.chatLoadingIds,
-    messages: estimateMessages,
-  });
   if (anchor && anchorBaseline) {
     const tailToken = await countTokens(
       serializeMessagesForContextEstimate(chats.slice(anchorIndex), inputTemplate),

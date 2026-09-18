@@ -18,7 +18,6 @@ import {
   getEffectiveReportedInputTokenFloorAfterMessageId,
   getLatestReportedInputAnchor,
   getLatestReportedInputTokens,
-  recordAnchorPrefixSnapshot,
   resolveAnchorBaseline,
 } from '@/helpers/reportedContextTokens';
 import { createChatToolsEngine } from '@/helpers/toolEngineering';
@@ -286,32 +285,28 @@ export const useEstimatedContextUsage = (
     // F5/R3: trust the anchor only against its retained baseline — fixed
     // overhead changes (skills, instructions, memory, tools) are added as a
     // delta, and a changed message prefix falls back to the whole-window
-    // estimate permanently. D2: a baseline exists only when this process
-    // recorded the exact request prefix (snapshot) before the report arrived;
-    // first sight alone never trusts a report. The baseline excludes KB
-    // tokens: retrieval is re-fetched per request, so the anchor's reported
-    // input never covered it.
+    // estimate permanently. D2/T1: a baseline exists only when a dispatch-time
+    // witness recorded by the send path for THIS assistant row still matches —
+    // estimators never record witnesses, so a report from a request this
+    // process never dispatched (reload, another topic's state) always falls
+    // back. Parent and fingerprint use the FULL conversation list so window
+    // sliding cannot break the match. The baseline excludes KB tokens:
+    // retrieval is re-fetched per request, so the anchor's reported input
+    // never covered it.
     const anchor = getLatestReportedInputAnchor(estimateMessages, usageLookupOptions);
     const anchorIndex = anchor ? sliced.findIndex(({ id }) => id === anchor.id) : -1;
+    const rawAnchorIndex = anchor ? chats.findIndex(({ id }) => id === anchor.id) : -1;
     const anchorBaseline =
-      anchor && anchorIndex >= 0
+      anchor && anchorIndex >= 0 && rawAnchorIndex >= 0
         ? resolveAnchorBaseline({
             anchorId: anchor.id,
-            anchorParentId: anchorIndex > 0 ? sliced[anchorIndex - 1]?.id : undefined,
+            anchorParentId: rawAnchorIndex > 0 ? chats[rawAnchorIndex - 1]?.id : undefined,
+            conversationKey: messageMapKey(state.activeId, state.activeTopicId),
             currentFixedOverheadTokens: fixedOverheadTokens - knowledgeBaseToken,
-            prefixFingerprint: fingerprintAnchorPrefix(sliced.slice(0, anchorIndex)),
+            prefixFingerprint: fingerprintAnchorPrefix(chats.slice(0, rawAnchorIndex)),
             reportedInputTokens: anchor.totalInputTokens,
           })
         : undefined;
-    // D2/T1: record AFTER resolving so the first post-arrival estimate can
-    // still promote against the witness frozen at dispatch (same KB-exclusive
-    // measure). While a reply is pending the frozen witness is never
-    // overwritten by later estimates.
-    recordAnchorPrefixSnapshot({
-      fixedOverheadTokens: fixedOverheadTokens - knowledgeBaseToken,
-      loadingIds: state.chatLoadingIds,
-      messages: estimateMessages,
-    });
 
     return {
       anchorBaseline,

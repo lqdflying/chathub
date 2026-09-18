@@ -95,8 +95,20 @@ if [ -n "$FILTERED" ]; then
       print head "\t" code
     }
   ' | sort)
+  # Diagnostics WITHOUT a file location (e.g. `error TS5058: The specified
+  # path does not exist ...`) never match the pair pattern above. They must
+  # fail loudly — dropping them here would turn a real diagnostic exit into a
+  # false pass (and an empty --write-baseline).
+  UNPARSED=$(printf '%s\n' "$FILTERED" | grep -v -E '\): error TS[0-9]+:' || true)
 else
   CURRENT_PAIRS=""
+  UNPARSED=""
+fi
+
+if [ -n "$UNPARSED" ]; then
+  echo "error: tsc reported diagnostics without a file location; refusing to baseline or pass:" >&2
+  printf '%s\n' "$UNPARSED" >&2
+  exit 1
 fi
 
 if [ "${1:-}" = "--write-baseline" ]; then

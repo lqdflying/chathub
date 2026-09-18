@@ -138,12 +138,13 @@ lands so a stale patch cannot be applied twice.
   repository tests use the PostgreSQL test configuration and require `DATABASE_TEST_URL`.
 - **Type-check**: `npm run type-check` runs `scripts/type-check-tsc.sh`, which compares
   diagnostics against the checked-in baseline `scripts/type-check-tsc.baseline.txt`
-  (file+error-code pairs; ~325 pre-existing upstream/fork diagnostics on the fork). The
+  (file+error-code pairs; ~318 remaining after removing this branch's attributed errors). The
   acceptance bar is **no new errors**: the wrapper fails on any diagnostic pair not in the
   baseline and on any compiler crash (non-1/2 exit, e.g. heap OOM, or a diagnostic exit with
-  no `error TS` lines). A green run is a **baseline comparison, not a clean strict compile** —
-  and the baseline must never grandfather branch-introduced errors: fix those, then
-  regenerate. The wrapper defaults `NODE_OPTIONS` to a 4GB heap — the project graph OOMs the
+  no `error TS` lines). Diagnostics without a file location (e.g. missing project
+  `error TS5058`) also fail — they must not vanish into an empty pair set. A green run is a
+  **baseline comparison, not a clean strict compile** — and the baseline must never
+  grandfather branch-introduced errors: fix those, then regenerate. The wrapper defaults `NODE_OPTIONS` to a 4GB heap — the project graph OOMs the
   default ~2GB. If the cloud sandbox count differs from the baseline, re-verify with a
   stash → run → restore diff before regenerating; note that TS2589 relocates between files
   and union orderings in messages are unstable.
