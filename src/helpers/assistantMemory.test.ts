@@ -1558,8 +1558,8 @@ describe('readAssistantMemoryEntry (F7)', () => {
   });
 
   /**
-   * Read every page of an entry, asserting each serialized page passes through
-   * the real wire tool-result cap untouched (R6), and return the reconstruction.
+   * Read every page of an entry, asserting each serialized page stays within
+   * the historical 8k page helper (R6), and return the reconstruction.
    */
   const readAllPages = (memory: string, index: number): string => {
     const pages: string[] = [];
@@ -1589,9 +1589,9 @@ describe('readAssistantMemoryEntry (F7)', () => {
     expect(first).toMatchObject({ offset: 0, totalChars: content.length, truncated: true });
   });
 
-  it('pages quote-heavy entries so JSON escaping cannot break the wire cap', () => {
+  it('pages quote-heavy entries so JSON escaping cannot overflow one page', () => {
     // 4,500 quotes double in JSON — a single-read result would exceed the
-    // 8,000-char wire cap even though the raw entry is only ~4.5k chars (R6).
+    // serialized page budget even though the raw entry is only ~4.5k chars (R6).
     const content = `quotation: ${'"'.repeat(4500)} SENTINEL_END`;
     expect(readAllPages(`#1: ${content}`, 1)).toBe(content);
   });

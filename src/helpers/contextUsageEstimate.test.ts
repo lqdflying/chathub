@@ -1,8 +1,8 @@
 import type { UIChatMessage } from '@lobechat/types';
-import { TOOL_RESULT_CONTENT_MAX_CHARS, truncateToolResultContent } from '@lobechat/context-engine';
+import { TOOL_RESULT_CONTENT_MAX_CHARS } from '@lobechat/context-engine';
 import { describe, expect, it } from 'vitest';
 
-import { CONTEXT_CHARS_PER_TOKEN_ESTIMATE, LARGE_CONTEXT_WINDOW_TOKENS } from './contextCompaction';
+import { LARGE_CONTEXT_WINDOW_TOKENS } from './contextCompaction';
 import {
   estimateFixedContextOverheadTokens,
   estimateToolResultTruncationRecoveryTokens,
@@ -232,13 +232,12 @@ ${'Review diffs carefully.'.repeat(10)}
     const oversizedTool = (content: string): UIChatMessage =>
       ({ content, id: 'tool1', role: 'tool', tool_call_id: 'tc1' }) as UIChatMessage;
 
-    it('caps oversized tool results by default so estimates match the wire', () => {
+    it('keeps full tool results on the wire estimate', () => {
       const content = 't'.repeat(TOOL_RESULT_CONTENT_MAX_CHARS + 100);
       const serialized = serializeMessageForContextEstimate(oversizedTool(content));
 
-      expect(serialized).toBe(
-        `tool:\n${'t'.repeat(TOOL_RESULT_CONTENT_MAX_CHARS)}\n…[truncated 100 chars]\ntool_call_id:tc1`,
-      );
+      expect(serialized).toContain(content);
+      expect(serialized).not.toContain('truncated');
     });
 
     it('keeps full tool content when capToolResults is false (growth signal)', () => {
@@ -272,7 +271,7 @@ ${'Review diffs carefully.'.repeat(10)}
       );
     });
 
-    it('estimates recoverable tokens from the deterministic cap', () => {
+    it('reports no recoverable tokens because the wire is not capped', () => {
       const content = 't'.repeat(TOOL_RESULT_CONTENT_MAX_CHARS + 1000);
       const messages = [
         message('u1', 'user'),
@@ -280,11 +279,7 @@ ${'Review diffs carefully.'.repeat(10)}
         message('a1', 'assistant'),
       ];
 
-      const recoverableChars =
-        content.length - truncateToolResultContent(content).length;
-      expect(estimateToolResultTruncationRecoveryTokens(messages)).toBe(
-        Math.ceil(recoverableChars / CONTEXT_CHARS_PER_TOKEN_ESTIMATE),
-      );
+      expect(estimateToolResultTruncationRecoveryTokens(messages)).toBe(0);
       // Non-tool roles never contribute.
       expect(
         estimateToolResultTruncationRecoveryTokens([message('u1', 'user', 'x'.repeat(20_000))]),

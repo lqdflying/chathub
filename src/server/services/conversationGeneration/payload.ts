@@ -14,7 +14,6 @@ import {
   ToolCallProcessor,
   ToolMessageReorder,
   ToolNameResolver,
-  ToolResultTruncateProcessor,
   ToolSystemRoleProvider,
   ToolsEngine,
   formatSkillInstructionsBlock,
@@ -232,8 +231,6 @@ export const buildConversationChatPayload = async ({
         enableHistoryCount: effectiveHistory.enableHistoryCount,
         historyCount: effectiveHistory.historyCount,
       }),
-      // Deterministic non-MCP tool-result cap (stable per message id). MCP stays full.
-      new ToolResultTruncateProcessor(),
       new SystemRoleInjector({ existingSystemRolePolicy: 'prepend', systemRole }),
       new AgentMemoryProvider({
         // Provenance partition (M2): untrusted entries render in a separate

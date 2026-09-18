@@ -32,9 +32,9 @@ export type MessageLikeForContextEstimate = Pick<
 
 export interface SerializeContextEstimateOptions {
   /**
-   * Cap tool-result content like the request-assembly pipeline does
-   * (ToolResultTruncateProcessor). Default true so estimates match the wire;
-   * pass false for growth signals that should see the full stored content.
+   * Historical flag: the chat request no longer rewrites tool bodies.
+   * `applyToolResultWireContent` is identity, so true/false serialize the
+   * same stored content. Kept so existing callers compile.
    */
   capToolResults?: boolean;
 }
@@ -69,10 +69,8 @@ export const serializeMessagesForContextEstimate = (
     .join('\n');
 
 /**
- * Chars recoverable on the wire by the deterministic tool-result cap, expressed
- * in tokens with the CJK-safe ratio used by the other window math. Used by the
- * token-threshold planner to skip an LLM compaction when truncation alone
- * reaches the low watermark.
+ * Tokens that a wire rewrite would drop. Always 0: ChatHub sends stored tool
+ * bodies to the model unchanged (MCP spec has no result-size limit).
  */
 export const estimateToolResultTruncationRecoveryTokens = (
   messages: Array<Pick<UIChatMessage, 'content' | 'plugin' | 'role'>>,
@@ -81,8 +79,6 @@ export const estimateToolResultTruncationRecoveryTokens = (
   for (const message of messages) {
     if (message.role !== 'tool' || typeof message.content !== 'string') continue;
     const wire = applyToolResultWireContent(message.content, message);
-    // Per-message floor at 0: barely-over-cap content gets a marker longer than
-    // the omitted text, which is not a recovery. MCP rows are never capped.
     recoverableChars += Math.max(0, message.content.length - wire.length);
   }
   return Math.ceil(recoverableChars / CONTEXT_CHARS_PER_TOKEN_ESTIMATE);

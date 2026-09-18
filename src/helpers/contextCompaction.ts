@@ -69,7 +69,7 @@ const serializeMessageForHistoryWindow = (
     message.role === 'user'
       ? applyUserInputTemplate(inputTemplate, message.content ?? '')
       : (message.content ?? '');
-  // Match the wire: non-MCP tool dumps are capped; MCP results stay full.
+  // Match the wire: stored tool bodies are sent in full.
   const content =
     message.role === 'tool' ? applyToolResultWireContent(rawContent, message) : rawContent;
   const parts = [`${message.role ?? ''}:`, content];

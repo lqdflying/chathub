@@ -265,26 +265,19 @@ invalidates (the original report counted that template on every included user
 row; the tail-only serialize would omit added text on pre-anchor history). The
 mismatched baseline is never re-registered.
 
-Request assembly also applies a **deterministic tool-result cap** for **non-MCP** dumps:
-`ToolResultTruncateProcessor` (`packages/context-engine`) rewrites a builtin `tool` message body over
-8,000 chars to a fixed prefix plus a `…[truncated N chars]` marker. MCP `tools/call` results
-(`plugin.type === 'mcp'`) are never rewritten — the MCP spec defines no result-size limit
-([2025-11-25 tools](https://modelcontextprotocol.io/specification/2025-11-25/server/tools)), and
-hosts must not invent one (same class of bug as [LobeHub #11946](https://github.com/lobehub/lobehub/issues/11946)
-and [Codex #14466](https://github.com/openai/codex/issues/14466)). For capped rows the function is
-pure on content — never of position or time — so bytes are stable per message id and
-the prompt-cache prefix survives across turns; stored messages keep full content and
-tool-call/tool-result pairs are never split. Estimates and `truncation_sufficient` skip MCP
-bodies so the planner cannot pretend those bytes were dropped on the wire. Both the browser (`contextEngineering.ts`) and
-worker (`payload.ts`) pipelines run it right after `HistoryTruncateProcessor`, and the estimate
-serializers apply the same cap by default so planner and popover numbers match the wire (the
-popover's topic-wide growth signal opts out). In the `token_threshold` planner the high-watermark
-gate still evaluates the **untruncated** total (estimate plus the chars/2 recovery estimate from
-`estimateToolResultTruncationRecoveryTokens`, logged as `truncationRecoveryTokens`), preserving
-trigger semantics; when truncation alone brings the wire estimate to or below the low watermark
-the run settles as `not_needed` / `truncation_sufficient` and no summarizer call is made.
-Otherwise compaction proceeds as before, with prefix selection also measured in capped (wire)
-terms.
+Request assembly **does not rewrite tool-result bodies**. Stored `tool` content — including MCP
+`tools/call` results — is what the model receives. The MCP spec defines no result-size limit
+([2025-11-25 tools](https://modelcontextprotocol.io/specification/2025-11-25/server/tools));
+hosts must not invent an 8,000-character `…[truncated N chars]` send cap (same class of bug as
+[LobeHub #11946](https://github.com/lobehub/lobehub/issues/11946) and
+[Codex #14466](https://github.com/openai/codex/issues/14466)). `ToolResultTruncateProcessor`
+remains in `@lobechat/context-engine` as a no-op for older imports; browser
+(`contextEngineering.ts`) and worker (`payload.ts`) pipelines do not install it.
+`applyToolResultWireContent` is identity, so estimates and
+`estimateToolResultTruncationRecoveryTokens` match the full stored body
+(`truncationRecoveryTokens` is 0; `truncation_sufficient` does not fire).
+`readMemory` still pages long entries on a serialized budget so one tool result
+does not dump an entire memory document.
 Token compaction chooses the oldest complete turns needed to reach the low watermark. It never
 summarizes the latest user turn or an unresolved assistant/tool tail. If fixed prompt content and the
 protected turn already exceed the target, the action reports `target_unreachable` instead of retrying
@@ -459,9 +452,9 @@ tiers (CJK-aware bigram tokenizer shared with dream dedupe; query-token coverage
 **entry-scoped recall** (`readAssistantMemoryEntry`, both lanes): after a search hit the model
 reads one entry/card body instead of re-paying the whole document; an unknown index returns
 `not_found` with the available indexes. Long entries come back in **pages**: each page is cut
-against a 7,800-char serialized budget (`MEMORY_ENTRY_READ_SERIALIZED_BUDGET`) sized so the
-JSON tool result — escapes included — stays under the 8,000-char `ToolResultTruncateProcessor`
-wire cap, and the cut never splits a surrogate pair. A truncated page carries `nextOffset`; the
+against a 7,800-char serialized budget (`MEMORY_ENTRY_READ_SERIALIZED_BUDGET`) so one
+`readMemory` result stays a bounded page (escapes included), and the cut never splits a
+surrogate pair. This is paging, not a chat/MCP send cap. A truncated page carries `nextOffset`; the
 model passes it back as `offset` to continue until `truncated` is false, so complete recall is
 always reachable. The recall pair exists for the budgeted-injection
 case above: when the injected block carries the truncation marker, the model can pull the rest on

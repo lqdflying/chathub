@@ -14,7 +14,6 @@ import {
   ToolCallProcessor,
   ToolMessageReorder,
   ToolNameResolver,
-  ToolResultTruncateProcessor,
   ToolSystemRoleProvider,
 } from '@lobechat/context-engine';
 import { agentMemoryPrompt, historySummaryPrompt } from '@lobechat/prompts';
@@ -117,11 +116,6 @@ export const contextEngineering = async ({
     pipeline: [
       // 1. History truncation (MUST be first, before any message injection)
       new HistoryTruncateProcessor({ enableHistoryCount, historyCount }),
-
-      // 1.5 Deterministic tool-result cap for non-MCP dumps (pure per-message
-      // content function, so capped bytes are stable per message id). MCP
-      // tools/call bodies stay verbatim — the protocol has no result-size limit.
-      new ToolResultTruncateProcessor(),
 
       // --------- Create system role injection providers
 

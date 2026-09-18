@@ -487,12 +487,11 @@ export const readAssistantMemory = ({
 };
 
 /**
- * Serialized budget for one entry-read page. The read result travels as a JSON
- * tool-result body that the request pipeline caps at 8,000 chars
- * (`TOOL_RESULT_CONTENT_MAX_CHARS`), and JSON escaping can double
- * quote/backslash-heavy content — so pages are sized by their SERIALIZED
- * length, keeping the whole result envelope under the wire cap with margin
- * (R6). Entries larger than one page are continued with `offset`.
+ * Serialized budget for one `readMemory` page. Paging keeps a single tool
+ * result from dumping an entire long entry in one shot. Size is measured on
+ * serialized JSON so quote/backslash-heavy pages stay bounded (R6). Entries
+ * larger than one page continue with `offset`. This is not a chat/MCP send
+ * cap — request assembly does not rewrite tool bodies.
  */
 export const MEMORY_ENTRY_READ_SERIALIZED_BUDGET = 7800;
 
@@ -580,11 +579,10 @@ const cutEntryReadPage = ({
 
 /**
  * Entry-scoped `readMemory`: return the text of one entry addressed by a
- * `searchMemory` hit (`source` + `index`), paged so every serialized page
- * survives the wire tool-result cap including JSON escaping (R6). This is the
- * recall path for entries omitted by the injection budget — a whole-document
- * read is capped by the request pipeline and cannot reach them (F7). When the
- * result is `truncated`, continue with `offset: nextOffset`.
+ * `searchMemory` hit (`source` + `index`), paged so one result does not dump
+ * the whole entry (serialized JSON budget, R6). This is the recall path for
+ * entries omitted by the injection budget (F7). When the result is
+ * `truncated`, continue with `offset: nextOffset`.
  */
 export const readAssistantMemoryEntry = ({
   dynamicMemory,

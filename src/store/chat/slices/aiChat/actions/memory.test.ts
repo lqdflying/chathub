@@ -660,7 +660,7 @@ describe('chat memory actions', () => {
     );
   });
 
-  it('skips the LLM compaction when deterministic tool-result truncation reaches the low watermark', async () => {
+  it('does not treat an oversized tool result as truncation_sufficient', async () => {
     const oversizedTool = {
       ...message('tool1', 'tool', 't'.repeat(9000)),
       tool_call_id: 'tc1',
@@ -678,13 +678,12 @@ describe('chat memory actions', () => {
 
     const result = await useChatStore.getState().triggerTokenThresholdMemoryCompaction();
 
-    // Post-truncation 550 <= low (600) while the untruncated 550 + 488 recovery
-    // would have crossed high (800): truncation alone is sufficient.
+    // Wire bodies are uncapped, so recovery is 0 and 550 stays below high (800).
     expect(result).toEqual({
       estimatedTokensBefore: 550,
       highWatermark: 0.8,
       lowWatermark: 0.6,
-      reason: 'truncation_sufficient',
+      reason: 'below_high_watermark',
       status: 'not_needed',
     });
     expect(chatService.fetchPresetTaskResult).not.toHaveBeenCalled();
