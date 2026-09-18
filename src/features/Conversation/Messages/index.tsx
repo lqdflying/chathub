@@ -1,8 +1,7 @@
 'use client';
 
 import { createStyles } from 'antd-style';
-import isEqual from 'fast-deep-equal';
-import { ReactNode, memo, useCallback, useEffect, useMemo, useRef } from 'react';
+import { ReactNode, memo, useEffect, useMemo, useRef } from 'react';
 import { Flexbox } from 'react-layout-kit';
 
 import {
@@ -54,7 +53,11 @@ const Item = memo<ChatListItemProps>(
     const { styles, cx } = useStyles();
     const containerRef = useRef<HTMLDivElement | null>(null);
 
-    const item = useChatStore(chatSelectors.getMessageById(id), isEqual);
+    const raw = useChatStore(chatSelectors.getRawMessageById(id));
+    const item = useMemo(
+      () => (raw ? { ...raw, meta: chatSelectors.getMessageMeta(raw) } : undefined),
+      [raw],
+    );
 
     const [isMessageLoading] = useChatStore((s) => [chatSelectors.isMessageLoading(id)(s)]);
 

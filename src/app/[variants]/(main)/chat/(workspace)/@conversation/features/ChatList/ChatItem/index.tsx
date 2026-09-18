@@ -43,24 +43,22 @@ const useStyles = createStyles(({ css, token, isDarkMode }) => {
 });
 
 export interface ThreadChatItemProps {
+  historyLength: number;
   id: string;
   index: number;
 }
 
-const MainChatItem = memo<ThreadChatItemProps>(({ id, index }) => {
+const MainChatItem = memo<ThreadChatItemProps>(({ historyLength, id, index }) => {
   const { styles, cx } = useStyles();
 
-  const [showThread, historyLength] = useChatStore((s) => [
-    threadSelectors.hasThreadBySourceMsgId(id)(s),
-    chatSelectors.mainDisplayChatIDs(s).length,
-  ]);
+  const showThread = useChatStore(threadSelectors.hasThreadBySourceMsgId(id));
 
   const [displayMode, enableHistoryDivider] = useAgentStore((s) => [
     agentChatConfigSelectors.displayMode(s),
     agentChatConfigSelectors.enableHistoryDivider(historyLength, index)(s),
   ]);
 
-  const userRole = useChatStore((s) => chatSelectors.getMessageById(id)(s)?.role);
+  const userRole = useChatStore((s) => chatSelectors.getRawMessageById(id)(s)?.role);
 
   const placement = displayMode === 'chat' && userRole === 'user' ? 'end' : 'start';
 

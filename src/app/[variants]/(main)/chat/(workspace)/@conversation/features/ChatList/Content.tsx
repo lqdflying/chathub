@@ -1,5 +1,6 @@
 'use client';
 
+import isEqual from 'fast-deep-equal';
 import React, { memo, useCallback } from 'react';
 
 import { SkeletonList, VirtualizedList } from '@/features/Conversation';
@@ -17,15 +18,17 @@ interface ListProps {
 }
 
 const Content = memo<ListProps>(({ mobile }) => {
-  const [isCurrentChatLoaded] = useChatStore((s) => [chatSelectors.isCurrentChatLoaded(s)]);
+  const isCurrentChatLoaded = useChatStore(chatSelectors.isCurrentChatLoaded);
 
   useFetchMessages();
   useConversationGenerationSync();
-  const data = useChatStore(chatSelectors.mainDisplayChatIDs);
+  const data = useChatStore(chatSelectors.mainDisplayChatIDs, isEqual);
 
   const itemContent = useCallback(
-    (index: number, id: string) => <MainChatItem id={id} index={index} />,
-    [mobile],
+    (index: number, id: string) => (
+      <MainChatItem historyLength={data.length} id={id} index={index} />
+    ),
+    [data.length, mobile],
   );
 
   if (!isCurrentChatLoaded) return <SkeletonList mobile={mobile} />;

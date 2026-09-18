@@ -15,6 +15,8 @@ import { userProfileSelectors } from '@/store/user/selectors';
 import { chatHelpers } from '../../helpers';
 import type { ChatStoreState } from '../../initialState';
 
+const EMPTY_CHATS: UIChatMessage[] = [];
+
 const getMeta = (message: UIChatMessage) => {
   switch (message.role) {
     case 'user': {
@@ -44,12 +46,18 @@ const getMeta = (message: UIChatMessage) => {
 const getBaseChatsByKey =
   (key: string) =>
   (s: ChatStoreState): UIChatMessage[] => {
-    const messages = s.messagesMap[key] || [];
+    const messages = s.messagesMap[key] || EMPTY_CHATS;
 
     return messages.map((i) => ({ ...i, meta: getMeta(i) }));
   };
 
 const currentChatKey = (s: ChatStoreState) => messageMapKey(s.activeId, s.activeTopicId);
+
+const activeRawChats = (s: ChatStoreState): UIChatMessage[] => {
+  if (!s.activeId) return EMPTY_CHATS;
+
+  return s.messagesMap[currentChatKey(s)] || EMPTY_CHATS;
+};
 
 /**
  * Current active raw message list, include thread messages
@@ -91,7 +99,14 @@ const mainDisplayChats = (s: ChatStoreState): UIChatMessage[] => {
   return getChatsWithThread(s, displayChats);
 };
 
-const mainDisplayChatIDs = (s: ChatStoreState) => mainDisplayChats(s).map((s) => s.id);
+const mainDisplayChatIDs = (s: ChatStoreState) => {
+  const displayChats = getChatsWithThread(
+    s,
+    activeRawChats(s).filter((message) => message.role !== 'tool'),
+  );
+
+  return displayChats.map((message) => message.id);
+};
 
 const mainAIChats = (s: ChatStoreState): UIChatMessage[] => {
   const messages = activeBaseChats(s);
@@ -175,19 +190,21 @@ const showInboxWelcome = (s: ChatStoreState): boolean => {
   return data.length === 0;
 };
 
-const getMessageById = (id: string) => (s: ChatStoreState) =>
-  chatHelpers.getMessageById(activeBaseChats(s), id);
+const getRawMessageById = (id: string) => (s: ChatStoreState) =>
+  chatHelpers.getMessageById(activeRawChats(s), id);
 
-const countMessagesByThreadId = (id: string) => (s: ChatStoreState) => {
-  const messages = activeBaseChats(s).filter((m) => m.threadId === id);
+const getMessageById = (id: string) => (s: ChatStoreState) => {
+  const raw = getRawMessageById(id)(s);
+  if (!raw) return undefined;
 
-  return messages.length;
+  return { ...raw, meta: getMeta(raw) };
 };
 
-const getMessageByToolCallId = (id: string) => (s: ChatStoreState) => {
-  const messages = activeBaseChats(s);
-  return messages.find((m) => m.tool_call_id === id);
-};
+const countMessagesByThreadId = (id: string) => (s: ChatStoreState) =>
+  activeRawChats(s).filter((m) => m.threadId === id).length;
+
+const getMessageByToolCallId = (id: string) => (s: ChatStoreState) =>
+  activeRawChats(s).find((m) => m.tool_call_id === id);
 const getTraceIdByMessageId = (id: string) => (s: ChatStoreState) => getMessageById(id)(s)?.traceId;
 
 const latestMessage = (s: ChatStoreState) => activeBaseChats(s).at(-1);
@@ -326,7 +343,9 @@ export const chatSelectors = {
   currentUserFiles,
   getBaseChatsByKey,
   getMessageById,
+  getMessageMeta: getMeta,
   getMessageByToolCallId,
+  getRawMessageById,
   getSupervisorTodos,
   getThreadMessageIDs,
   getThreadMessages,

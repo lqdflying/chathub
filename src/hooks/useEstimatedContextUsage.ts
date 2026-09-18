@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { normalizeAssistantMemoryText } from '@/helpers/assistantMemory';
 import { PENDING_CONTEXT_INPUT_MESSAGE_ID, selectMessagesForContext } from '@/helpers/contextCompaction';
+import { createConversationMessageRevision } from '@/helpers/conversationMessageRevision';
 import {
   estimateFixedContextOverheadTokens,
   getHistoryWindowDiagnostics,
@@ -22,6 +23,7 @@ import {
   resolveSelectedPreAnchorIds,
 } from '@/helpers/reportedContextTokens';
 import { createChatToolsEngine } from '@/helpers/toolEngineering';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { useModelContextWindowTokens } from '@/hooks/useModelContextWindowTokens';
 import { useModelSupportToolUse } from '@/hooks/useModelSupportToolUse';
 import { useTokenCount } from '@/hooks/useTokenCount';
@@ -60,6 +62,9 @@ export interface EstimatedContextUsage {
 }
 
 export type EstimatedContextConversationSource = 'main' | 'portal';
+
+/** Draft-driven window serialize / tokenizer work waits this long after the last keystroke. */
+export const CONTEXT_ESTIMATE_INPUT_DEBOUNCE_MS = 300;
 
 /** Same token accounting as the chat input token popover (debounced via useTokenCount). */
 export const useEstimatedContextUsage = (
@@ -175,18 +180,22 @@ export const useEstimatedContextUsage = (
   const templatedPendingInput =
     input || hasPendingFiles ? applyUserInputTemplate(inputTemplate, input) : '';
   const inputTokenCount = useTokenCount(templatedPendingInput);
-  const messageFingerprint = useChatStore((state) => {
-    const chats =
-      conversationSource === 'portal'
-        ? threadSelectors.portalAIChats(state)
-        : chatSelectors.mainAIChats(state);
+  const estimateInput = useDebouncedValue(input, CONTEXT_ESTIMATE_INPUT_DEBOUNCE_MS);
+  const estimateHasPendingFiles = useDebouncedValue(
+    hasPendingFiles,
+    CONTEXT_ESTIMATE_INPUT_DEBOUNCE_MS,
+  );
+  const messageRevision = useChatStore((state) => {
+    if (conversationSource === 'portal') {
+      return createConversationMessageRevision(threadSelectors.portalAIChats(state));
+    }
+    if (!state.activeId) return '0';
 
-    return chats
-      .map(
-        (chat) =>
-          `${chat.id}\u0000${chat.role}\u0000${chat.content}\u0000${chat.tool_call_id ?? ''}\u0000${JSON.stringify(chat.tools ?? [])}`,
-      )
-      .join('\u0001');
+    const raw = state.messagesMap?.[messageMapKey(state.activeId, state.activeTopicId)];
+    if (raw) return createConversationMessageRevision(raw);
+
+    // Test / unloaded-map fallback. Production topics always have a map entry.
+    return createConversationMessageRevision(chatSelectors.mainAIChats(state));
   });
 
   const memorySummaryRaw = useMemo(
@@ -249,7 +258,6 @@ export const useEstimatedContextUsage = (
     historyWindow,
     reportedInputTokens,
     tailString,
-    topicChatsString,
   } = useMemo(() => {
     const state = useChatStore.getState();
     const chats =
@@ -268,8 +276,8 @@ export const useEstimatedContextUsage = (
       inputTemplate,
       maxTokens,
       messages: chats,
-      pendingHasFiles: hasPendingFiles,
-      pendingInput: input,
+      pendingHasFiles: estimateHasPendingFiles,
+      pendingInput: estimateInput,
     });
     const estimateMessages = sliced.filter(({ id }) => id !== PENDING_CONTEXT_INPUT_MESSAGE_ID);
     const floorAfterMessageId = getEffectiveReportedInputTokenFloorAfterMessageId({
@@ -335,34 +343,43 @@ export const useEstimatedContextUsage = (
         inputTemplate,
         maxTokens,
         messages: chats,
-        pendingHasFiles: hasPendingFiles,
-        pendingInput: input,
+        pendingHasFiles: estimateHasPendingFiles,
+        pendingInput: estimateInput,
       }),
       reportedInputTokens: getLatestReportedInputTokens(estimateMessages, usageLookupOptions),
       tailString: anchorBaseline
         ? serializeMessagesForContextEstimate(sliced.slice(Math.max(0, anchorIndex)), inputTemplate)
         : '',
-      topicChatsString: serializeMessagesForContextEstimate(chats, inputTemplate, {
-        capToolResults: false,
-      }),
     };
   }, [
     conversationSource,
     enableCompressHistory,
     enableHistoryCount,
+    estimateHasPendingFiles,
+    estimateInput,
     fixedOverheadTokens,
-    hasPendingFiles,
     historyCount,
     historySummaryLastMessageId,
-    input,
     inputTemplate,
     isRegularTopic,
     knowledgeBaseToken,
     maxTokens,
     memorySummaryRaw,
-    messageFingerprint,
+    messageRevision,
     reportedInputTokenFloorAfterMessageId,
   ]);
+
+  const topicChatsString = useMemo(() => {
+    const state = useChatStore.getState();
+    const chats =
+      conversationSource === 'portal'
+        ? threadSelectors.portalAIChats(state)
+        : chatSelectors.mainAIChats(state);
+
+    return serializeMessagesForContextEstimate(chats, inputTemplate, {
+      capToolResults: false,
+    });
+  }, [conversationSource, inputTemplate, messageRevision]);
 
   const chatsToken = useTokenCount(chatsString);
   const tailToken = useTokenCount(tailString);

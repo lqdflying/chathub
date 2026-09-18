@@ -71,8 +71,11 @@ const VirtualizedList = memo<VirtualizedListProps>(({ mobile, dataSource, itemCo
     };
   }, []);
 
-  // overscan should be 3 times the height of the window
-  const overscan = typeof window !== 'undefined' ? window.innerHeight * 3 : 0;
+  // One extra viewport. 3× mounted every ChatItem on each store update and
+  // made large-topic scroll CPU-heavy. Virtuoso: increaseViewportBy is extra
+  // pixels outside the visible area — keep it modest.
+  // https://virtuoso.dev/react-virtuoso/
+  const overscan = typeof window !== 'undefined' ? window.innerHeight : 0;
 
   // first time loading or not loaded
   if (isFirstLoading || !isCurrentChatLoaded) return <SkeletonList mobile={mobile} />;

@@ -152,6 +152,11 @@ describe('chatSelectors', () => {
       const message = chatSelectors.getMessageById('nonexistent')(mockChatStore);
       expect(message).toBeUndefined();
     });
+
+    it('returns the store message object without cloning the topic', () => {
+      const found = chatSelectors.getRawMessageById('msg1')(mockChatStore);
+      expect(found).toBe(mockMessages[0]);
+    });
   });
 
   describe('getMessageByToolCallId', () => {

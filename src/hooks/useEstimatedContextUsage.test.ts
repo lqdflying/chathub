@@ -5,6 +5,7 @@ import { applyUserInputTemplate } from '@lobechat/context-engine';
 
 import { LOADING_FLAT } from '@/const/message';
 import { selectMessagesForContext } from '@/helpers/contextCompaction';
+import * as contextUsageEstimate from '@/helpers/contextUsageEstimate';
 import {
   LARGE_CONTEXT_WINDOW_TOKENS,
   appendPendingUserInputForContextWindow,
@@ -20,7 +21,10 @@ import {
 } from '@/helpers/reportedContextTokens';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 
-import { useEstimatedContextUsage } from './useEstimatedContextUsage';
+import {
+  CONTEXT_ESTIMATE_INPUT_DEBOUNCE_MS,
+  useEstimatedContextUsage,
+} from './useEstimatedContextUsage';
 
 const mocks = vi.hoisted(() => {
   const mainChats = [{ content: 'main-chat-context', id: 'main-message', role: 'user' }];
@@ -922,7 +926,7 @@ describe('useEstimatedContextUsage', () => {
     expect(result.current.totalToken).toBeGreaterThan(20_000);
   });
 
-  it('U3: a pending template change plus draft cannot hide historical expansion', () => {
+  it('U3: a pending template change plus draft cannot hide historical expansion', async () => {
     act(() => mocks.setAgentState({ historyCount: 20 }));
     mocks.mainChats.splice(
       0,
@@ -938,8 +942,16 @@ describe('useEstimatedContextUsage', () => {
     expect(result.current.inputTokenCount).toBe(0);
     expect(result.current.totalToken).toBeGreaterThan(20_000);
 
-    mocks.chatState.inputMessage = 'd';
-    rerender();
+    vi.useFakeTimers();
+    try {
+      mocks.chatState.inputMessage = 'd';
+      rerender();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(CONTEXT_ESTIMATE_INPUT_DEBOUNCE_MS);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
     // Draft "d" expands to 10k — below the 20k historical "hi" expansion.
     expect(result.current.inputTokenCount).toBe(10_000);
     expect(result.current.totalToken - result.current.inputTokenCount).toBeGreaterThan(20_000);
@@ -954,5 +966,19 @@ describe('useEstimatedContextUsage', () => {
     rerender();
     expect(result.current.inputTokenCount).toBe(0);
     expect(result.current.totalToken).toBeGreaterThan(20_000);
+  });
+
+  it('does not reserialize the full topic while only the draft changes', () => {
+    const serialize = vi.spyOn(contextUsageEstimate, 'serializeMessagesForContextEstimate');
+    const { rerender } = renderHook(() => useEstimatedContextUsage('main'));
+    const topicSerializes = () =>
+      serialize.mock.calls.filter(([, , options]) => options?.capToolResults === false).length;
+    const afterMount = topicSerializes();
+
+    mocks.chatState.inputMessage = 'more draft';
+    rerender();
+
+    expect(topicSerializes()).toBe(afterMount);
+    serialize.mockRestore();
   });
 });
