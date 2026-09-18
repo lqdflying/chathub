@@ -117,6 +117,15 @@ const portalAIChats = (s: ChatStoreState) => {
   return [...parentMessages, ...afterMessages].filter(Boolean) as UIChatMessage[];
 };
 
+/** Same membership as `portalAIChats`, without cloning `meta`. */
+const portalAIChatsRaw = (s: ChatStoreState) => {
+  const data = chatSelectors.activeRawChats(s);
+  const parentMessages = getTheadParentMessages(s, data);
+  const afterMessages = data.filter((message) => !!s.portalThreadId && message.threadId === s.portalThreadId);
+
+  return [...parentMessages, ...afterMessages].filter(Boolean) as UIChatMessage[];
+};
+
 const portalAIChatsWithHistoryConfig = (s: ChatStoreState) => {
   const parentMessages = portalAIParentMessages(s);
   const afterMessages = portalAIChildChatsByThreadId(s.portalThreadId)(s);
@@ -194,6 +203,7 @@ export const threadSelectors = {
   isSendButtonDisabledByMessage,
   isThreadAIGenerating,
   portalAIChats,
+  portalAIChatsRaw,
   portalAIChatsWithHistoryConfig,
   portalDisplayChatIDs,
   portalDisplayChats,

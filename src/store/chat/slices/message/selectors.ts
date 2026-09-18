@@ -115,6 +115,10 @@ const mainAIChats = (s: ChatStoreState): UIChatMessage[] => {
   return getChatsWithThread(s, messages);
 };
 
+/** Same membership as `mainAIChats`, without cloning `meta`. */
+const mainAIChatsRaw = (s: ChatStoreState): UIChatMessage[] =>
+  getChatsWithThread(s, activeRawChats(s));
+
 const mainTopicAIChats = (s: ChatStoreState): UIChatMessage[] =>
   activeBaseChats(s).filter((message) => !message.threadId);
 
@@ -392,8 +396,10 @@ export const chatSelectors = {
   isToolApiNameShining,
   isToolCallStreaming,
   latestMessage,
+  activeRawChats,
   conversationAIChats,
   mainAIChats,
+  mainAIChatsRaw,
   mainAIChatsMessageString,
   mainAIChatsWithHistoryConfig,
   mainAIFollowOutputRevision,

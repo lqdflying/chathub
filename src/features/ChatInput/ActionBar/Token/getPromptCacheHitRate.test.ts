@@ -1,4 +1,10 @@
+import { ThreadType } from '@lobechat/types';
 import { LOADING_FLAT } from '@/const/message';
+import { ChatStore } from '@/store/chat';
+import { initialState } from '@/store/chat/initialState';
+import { chatSelectors, threadSelectors } from '@/store/chat/selectors';
+import { messageMapKey } from '@/store/chat/utils/messageMapKey';
+import { merge } from '@/utils/merge';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -287,5 +293,85 @@ describe('resolveStoredMessageUsage', () => {
       conversationGenerationTurnComplete: true,
       ...nested,
     });
+  });
+});
+
+describe('prompt-cache conversation scope', () => {
+  const topicKey = messageMapKey('session-1', 'topic-1');
+  const rootCache = { inputCachedTokens: 10, totalInputTokens: 100 };
+  const laterRootCache = { inputCachedTokens: 40, totalInputTokens: 100 };
+  const otherThreadCache = { inputCachedTokens: 99, totalInputTokens: 100 };
+  const afterSourceRootCache = { inputCachedTokens: 80, totalInputTokens: 100 };
+  const portalChildCache = { inputCachedTokens: 5, totalInputTokens: 50 };
+
+  const branchedState = merge(initialState as ChatStore, {
+    activeId: 'session-1',
+    activeTopicId: 'topic-1',
+    messagesMap: {
+      [topicKey]: [
+        { content: 'q', id: 'user-1', role: 'user' },
+        {
+          content: 'root',
+          extra: { fromModel: 'root-model' },
+          id: 'source',
+          metadata: rootCache,
+          role: 'assistant',
+        },
+        {
+          content: 'later root',
+          extra: { fromModel: 'later-root' },
+          id: 'later-root',
+          metadata: laterRootCache,
+          role: 'assistant',
+        },
+        {
+          content: 'portal child',
+          extra: { fromModel: 'portal-child' },
+          id: 'portal-child',
+          metadata: portalChildCache,
+          role: 'assistant',
+          threadId: 'thread-portal',
+        },
+        {
+          content: 'after source root',
+          extra: { fromModel: 'after-source' },
+          id: 'after-source',
+          metadata: afterSourceRootCache,
+          role: 'assistant',
+        },
+        {
+          content: 'other thread',
+          extra: { fromModel: 'other-thread' },
+          id: 'other-thread',
+          metadata: otherThreadCache,
+          role: 'assistant',
+          threadId: 'thread-other',
+        },
+      ],
+    },
+    portalThreadId: 'thread-portal',
+    threadMaps: {
+      'topic-1': [
+        {
+          id: 'thread-portal',
+          sourceMessageId: 'source',
+          type: ThreadType.Continuation,
+        },
+      ],
+    },
+  });
+
+  it('uses the latest cache from the main branch, not another thread', () => {
+    const source = findLatestPromptCacheUsage(chatSelectors.mainAIChatsRaw(branchedState));
+
+    expect(source?.fromModel).toBe('after-source');
+    expect(source?.usage).toEqual(afterSourceRootCache);
+  });
+
+  it('stops the portal parent at the thread source and ignores later roots', () => {
+    const source = findLatestPromptCacheUsage(threadSelectors.portalAIChatsRaw(branchedState));
+
+    expect(source?.fromModel).toBe('portal-child');
+    expect(source?.usage).toEqual(portalChildCache);
   });
 });

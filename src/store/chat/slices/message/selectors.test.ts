@@ -431,6 +431,32 @@ describe('chatSelectors', () => {
     });
   });
 
+  describe('mainAIChatsRaw', () => {
+    it('matches mainAIChats membership without cloning meta', () => {
+      const spy = vi.spyOn(userProfileSelectors, 'userAvatar');
+      const state = merge(initialStore, {
+        activeId: 'active-session',
+        messagesMap: {
+          [messageMapKey('active-session')]: [
+            ...mockMessages,
+            {
+              content: 'thread reply',
+              id: 'thread-1',
+              role: 'assistant',
+              threadId: 'other-thread',
+            },
+          ],
+        },
+      });
+
+      const rawIds = chatSelectors.mainAIChatsRaw(state).map((message) => message.id);
+      expect(spy).not.toHaveBeenCalled();
+      expect(rawIds).toEqual(chatSelectors.mainAIChats(state).map((message) => message.id));
+      expect(rawIds).not.toContain('thread-1');
+      spy.mockRestore();
+    });
+  });
+
   describe('showInboxWelcome', () => {
     it('should return false if the active session is not the inbox session', () => {
       const state = merge(initialStore, { activeId: 'someActiveId' });

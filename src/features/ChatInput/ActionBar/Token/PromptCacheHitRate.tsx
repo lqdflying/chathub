@@ -8,7 +8,7 @@ import { Flexbox } from 'react-layout-kit';
 import InfoTooltip from '@/components/InfoTooltip';
 import { EstimatedContextConversationSource } from '@/hooks/useEstimatedContextUsage';
 import { useChatStore } from '@/store/chat';
-import { messageMapKey } from '@/store/chat/utils/messageMapKey';
+import { chatSelectors, threadSelectors } from '@/store/chat/selectors';
 
 import TokenProgress from './TokenProgress';
 import { findLatestPromptCacheUsage, getPromptCacheHitRate } from './getPromptCacheHitRate';
@@ -23,14 +23,10 @@ const PromptCacheHitRate = memo<PromptCacheHitRateProps>(({ conversationSource =
   const { t } = useTranslation('chat');
   const theme = useTheme();
   const source = useChatStore((s) => {
-    const raw =
-      s.activeId && s.messagesMap
-        ? (s.messagesMap[messageMapKey(s.activeId, s.activeTopicId)] ?? [])
-        : [];
     const chats =
-      conversationSource === 'portal' && s.portalThreadId
-        ? raw.filter((message) => message.threadId === s.portalThreadId || !message.threadId)
-        : raw;
+      conversationSource === 'portal'
+        ? threadSelectors.portalAIChatsRaw(s)
+        : chatSelectors.mainAIChatsRaw(s);
 
     return findLatestPromptCacheUsage(chats);
   }, isEqual);

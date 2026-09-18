@@ -1,5 +1,4 @@
 import { MarkdownProps } from '@lobehub/ui';
-import { type ReactNode } from 'react';
 
 const LightCode = ({ content }: { content?: string }) => <pre>{content}</pre>;
 
@@ -19,7 +18,10 @@ export const applyLightScrollMarkdownProps = (
         bodyRender: ({ content }: { content?: string }) => <LightCode content={content} />,
       },
       mermaid: {
-        bodyRender: ({ originalNode }: { originalNode?: ReactNode }) => originalNode ?? null,
+        // @lobehub/ui Mermaid always builds `originalNode` as <SyntaxMermaid>
+        // (useMermaid + SVG). Returning it still mounts the expensive renderer.
+        // https://ui.lobehub.com/components/mermaid
+        bodyRender: ({ content }: { content?: string }) => <LightCode content={content} />,
         enablePanZoom: false,
       },
     },
