@@ -3,15 +3,19 @@ import { ChatErrorType } from '@lobechat/types';
 import { NextResponse } from 'next/server';
 
 import { checkAuth } from '@/app/(backend)/middleware/auth';
+import { getServerDB } from '@/database/server';
 import { initModelRuntimeWithUserPayload } from '@/server/modules/ModelRuntime';
+import { resolveOpenAICodexChatPayload } from '@/server/services/openaiCodex/resolve';
 import { createErrorResponse } from '@/utils/errorResponse';
 
 export const GET = checkAuth(async (req, { params, jwtPayload }) => {
   const { provider } = await params;
 
   try {
+    const db = await getServerDB();
+    const resolvedPayload = await resolveOpenAICodexChatPayload(db, provider, jwtPayload);
     const agentRuntime = await initModelRuntimeWithUserPayload(provider, {
-      ...jwtPayload,
+      ...resolvedPayload,
     });
 
     const list = await agentRuntime.models();

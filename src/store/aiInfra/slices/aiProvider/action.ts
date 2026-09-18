@@ -214,6 +214,7 @@ export interface AiProviderAction {
   refreshAiProviderRuntimeState: () => Promise<void>;
   removeAiProvider: (id: string) => Promise<void>;
   toggleProviderEnabled: (id: string, enabled: boolean) => Promise<void>;
+  updateOpenAICodexConnected: (connected: boolean) => void;
   updateAiProvider: (id: string, value: UpdateAiProviderParams) => Promise<void>;
   updateAiProviderConfig: (id: string, value: UpdateAiProviderConfigParams) => Promise<void>;
   updateAiProviderSort: (items: AiProviderSortMap[]) => Promise<void>;
@@ -447,6 +448,11 @@ export const createAiProviderSlice: StateCreator<
     await get().refreshAiProviderList();
     if (!isAiProviderMutationCurrent(get, checkpoint)) return;
   },
+
+  updateOpenAICodexConnected: (connected) => {
+    set({ openaiCodexConnected: connected }, false, 'updateOpenAICodexConnected');
+  },
+
   useFetchAiProviderItem: (id) => {
     const requestedScope = useUserStore(authSelectors.currentUserScope);
     const hasOwnerMismatch = useUserStore(authSelectors.hasActiveUserStateOwnerMismatch);
@@ -517,6 +523,7 @@ export const createAiProviderSlice: StateCreator<
           initAiProviderList: false,
           isAiModelListInit: false,
           isInitAiProviderRuntimeState: false,
+          openaiCodexConnected: false,
           runtimeStateInitializationFailure: undefined,
           runtimeStateRequestScope: requestedScope,
           runtimeStateScope: undefined,

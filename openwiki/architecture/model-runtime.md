@@ -322,3 +322,7 @@ For changes tied to the OpenAI SDK upgrade path, pay special attention to error-
 
 Durable chat generation reuses this runtime from Graphile Worker. See
 [Durable conversation generation](durable-conversation-generation.md).
+
+Per-user ChatGPT / Codex subscription tokens and the unofficial
+`chatgpt.com/backend-api/codex/responses` path are documented in
+[OpenAI Codex OAuth](openai-codex-oauth.md).

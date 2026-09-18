@@ -30,6 +30,17 @@ export interface ClientSecretPayload {
   vertexAIRegion?: string;
 
   /**
+   * ChatGPT account id for Codex subscription requests.
+   */
+  accountId?: string;
+
+  /**
+   * Provider auth mode. OpenAI chat uses `codex-oauth` when a live Codex
+   * session is resolved server-side. Never persist this in keyVaults.
+   */
+  authMode?: string;
+
+  /**
    * ComfyUI specific authentication fields
    */
   authType?: string;

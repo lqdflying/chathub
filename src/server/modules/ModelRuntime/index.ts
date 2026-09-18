@@ -78,6 +78,8 @@ export const getModelRuntimeParamsFromPayload = (
         ...(payload?.cloudflareBaseURLOrAccountID
           ? { baseURLOrAccountID: payload.cloudflareBaseURLOrAccountID }
           : {}),
+        ...(payload?.accountId ? { accountId: payload.accountId } : {}),
+        ...(payload?.authMode ? { authMode: payload.authMode } : {}),
       };
     }
   }

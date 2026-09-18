@@ -30,6 +30,7 @@ export interface AIProviderState {
   enabledImageModelList?: EnabledProviderWithModels[];
   initAiProviderList: boolean;
   isInitAiProviderRuntimeState: boolean;
+  openaiCodexConnected: boolean;
   providerSearchKeyword: string;
   runtimeStateInitializationFailure?: AiProviderRuntimeInitializationFailure;
   runtimeStateRequestScope?: string;
@@ -44,6 +45,7 @@ export const initialAIProviderState: AIProviderState = {
   aiProviderRuntimeConfig: {},
   initAiProviderList: false,
   isInitAiProviderRuntimeState: false,
+  openaiCodexConnected: false,
   providerSearchKeyword: '',
   runtimeStateInitializationFailure: undefined,
   runtimeStateRequestScope: undefined,

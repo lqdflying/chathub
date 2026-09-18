@@ -38,7 +38,12 @@ vi.mock('@/server/modules/KeyVaultsEncrypt', () => ({
   },
 }));
 
+vi.mock('@/server/services/openaiCodex/resolve', () => ({
+  resolveOpenAICodexChatPayload: vi.fn(async (_db: unknown, _provider: string, payload: unknown) => payload),
+}));
+
 import { UserModel } from '@/database/models/user';
+import { resolveOpenAICodexChatPayload } from '@/server/services/openaiCodex/resolve';
 
 describe('resolveConversationRuntimePayload', () => {
   const originalOpenAiKey = process.env.OPENAI_API_KEY;
@@ -168,6 +173,38 @@ describe('resolveConversationRuntimePayload', () => {
         awsAccessKeyId: 'AKIAEXAMPLE',
         awsRegion: 'us-east-1',
         awsSecretAccessKey: 'secret-example',
+        userId: 'user-1',
+      }),
+    );
+  });
+
+  it('treats a live Codex session as a credential without an API key or env key', async () => {
+    runtimeState.getAiProviderRuntimeState.mockResolvedValue({
+      runtimeConfig: {
+        openai: { fetchOnClient: false, keyVaults: {} },
+      },
+    });
+    vi.mocked(resolveOpenAICodexChatPayload).mockResolvedValueOnce({
+      accountId: 'acct_1',
+      apiKey: 'codex-access',
+      authMode: 'codex-oauth',
+      baseURL: 'https://chatgpt.com/backend-api/codex',
+      runtimeProvider: 'openai',
+      userId: 'user-1',
+    });
+
+    await expect(
+      resolveConversationRuntimePayload({
+        db: {} as any,
+        provider: 'openai',
+        userId: 'user-1',
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        accountId: 'acct_1',
+        apiKey: 'codex-access',
+        authMode: 'codex-oauth',
+        baseURL: 'https://chatgpt.com/backend-api/codex',
         userId: 'user-1',
       }),
     );

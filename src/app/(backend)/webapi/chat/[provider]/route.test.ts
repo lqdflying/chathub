@@ -23,6 +23,14 @@ vi.mock('./trustedCatalogModel', () => ({
   resolveTrustedCatalogModel: vi.fn(),
 }));
 
+vi.mock('@/database/server', () => ({
+  getServerDB: vi.fn().mockResolvedValue({}),
+}));
+
+vi.mock('@/server/services/openaiCodex/resolve', () => ({
+  resolveOpenAICodexChatPayload: vi.fn(async (_db: unknown, _provider: string, payload: unknown) => payload),
+}));
+
 // 定义一个变量来存储 enableAuth 的值
 let enableClerk = false;
 

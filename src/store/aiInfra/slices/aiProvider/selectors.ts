@@ -65,6 +65,10 @@ const isProviderFetchOnClient =
   (provider: GlobalLLMProviderKey | string) => (s: AIProviderStoreState) => {
     const config = providerConfigById(provider)(s);
 
+    // Codex tokens are server-only. Never send OpenAI chat from the browser
+    // while a ChatGPT subscription session is connected.
+    if (provider === 'openai' && s.openaiCodexConnected) return false;
+
     // If the provider already disable browser request in model config, force on Server.
     if (isProviderDisableBrowserRequest(provider)) return false;
 
@@ -150,6 +154,7 @@ export const aiProviderSelectors = {
   isProviderFetchOnClient,
   isProviderHasBuiltinSearch,
   isProviderHasBuiltinSearchConfig,
+  isOpenAICodexConnected: (s: AIProviderStoreState) => !!s.openaiCodexConnected,
   isProviderLoading,
   isProviderResponseStateEnabled,
   providerConfigById,

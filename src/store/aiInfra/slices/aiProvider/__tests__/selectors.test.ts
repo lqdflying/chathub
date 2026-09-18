@@ -50,6 +50,7 @@ describe('aiProviderSelectors', () => {
     modelFetchingStatus: {},
     modelRuntimeConfig: {},
     modelSearchKeyword: '',
+    openaiCodexConnected: false,
   };
 
   describe('enabledAiProviderList', () => {
@@ -204,6 +205,22 @@ describe('aiProviderSelectors', () => {
 
     it('should follow user settings if both endpoint and api key exist', () => {
       expect(aiProviderSelectors.isProviderFetchOnClient('provider1')(mockState)).toBe(true);
+    });
+
+    it('forces OpenAI onto the server when a Codex session is connected', () => {
+      const state = {
+        ...mockState,
+        openaiCodexConnected: true,
+        aiProviderRuntimeConfig: {
+          openai: {
+            fetchOnClient: true,
+            keyVaults: { apiKey: 'sk-test', baseURL: 'https://api.openai.com/v1' },
+            settings: {},
+          },
+        },
+      };
+
+      expect(aiProviderSelectors.isProviderFetchOnClient('openai')(state)).toBe(false);
     });
   });
 

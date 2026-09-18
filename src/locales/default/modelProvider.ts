@@ -267,6 +267,21 @@ export default {
       title: '下载指定的 Ollama 模型',
     },
   },
+  openaiCodex: {
+    connected: '已连接：{{email}}',
+    connectedAnonymous: '已连接 ChatGPT / Codex 订阅',
+    connectedPlan: '{{plan}} 套餐',
+    denied: '授权被拒绝或失败，请重新登录。',
+    expired: '设备码已过期，请重新登录。',
+    expires: '会话将于 {{time}} 过期',
+    hint: '登录后，OpenAI 聊天将使用你的 ChatGPT Plus/Pro Codex 额度，而不是 Platform API 计费。图像、语音和嵌入仍使用上方的 API Key。',
+    openChatGPT: '打开 ChatGPT',
+    signIn: '使用 ChatGPT 登录',
+    signOut: '退出登录',
+    title: 'ChatGPT / Codex 订阅',
+    unofficial: '这是非官方 Codex 客户端路径，OpenAI 变更端点或客户端后可能失效。',
+    waiting: '在 ChatGPT 设备页输入此代码以完成授权。',
+  },
   providerModels: {
     batchSelect: {
       selected: '已选择 {{count}} 个模型',

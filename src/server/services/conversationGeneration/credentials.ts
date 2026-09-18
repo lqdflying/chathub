@@ -7,6 +7,7 @@ import { AiInfraRepos } from '@/database/repositories/aiInfra';
 import { getServerGlobalConfig } from '@/server/globalConfig';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
 import { getModelRuntimeParamsFromPayload } from '@/server/modules/ModelRuntime';
+import { resolveOpenAICodexChatPayload } from '@/server/services/openaiCodex/resolve';
 import type { LobeChatDatabase } from '@lobechat/database';
 import type { ProviderConfig } from '@/types/user/settings';
 
@@ -111,11 +112,12 @@ export const resolveConversationRuntimePayload = async ({
     ...userVaults,
     ...(providerRuntime?.keyVaults || {}),
   };
-  const payload = {
+  const vaultPayload = {
     runtimeProvider,
     userId,
     ...providerPayloadFromVault(runtimeProvider, vault),
   } as ClientSecretPayload;
+  const payload = await resolveOpenAICodexChatPayload(db, provider, vaultPayload);
 
   const runtimeParams = getModelRuntimeParamsFromPayload(runtimeProvider, payload);
   const hasCredential = payloadHasUserCredential(payload) || Boolean(runtimeParams.apiKey || runtimeParams.baseURL);

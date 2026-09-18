@@ -16,7 +16,9 @@ import {
   isModelCacheDebugEnabled,
   resolveModelCacheRuntimeFamily,
 } from '@/libs/logger/modelCacheDebug';
+import { getServerDB } from '@/database/server';
 import { createTraceOptions, initModelRuntimeWithUserPayload } from '@/server/modules/ModelRuntime';
+import { resolveOpenAICodexChatPayload } from '@/server/services/openaiCodex/resolve';
 import { ChatStreamPayload } from '@/types/openai/chat';
 import { createErrorResponse } from '@/utils/errorResponse';
 import { stripLegacyProviderParams } from '@/utils/stripLegacyProviderParams';
@@ -49,7 +51,9 @@ export const POST = checkAuth(async (req: Request, { params, jwtPayload, createR
     if (createRuntime) {
       modelRuntime = createRuntime(jwtPayload);
     } else {
-      modelRuntime = await initModelRuntimeWithUserPayload(provider, jwtPayload);
+      const db = await getServerDB();
+      const resolvedPayload = await resolveOpenAICodexChatPayload(db, provider, jwtPayload);
+      modelRuntime = await initModelRuntimeWithUserPayload(provider, resolvedPayload);
     }
 
     // ============  2. create chat completion   ============ //

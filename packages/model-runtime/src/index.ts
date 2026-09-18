@@ -22,7 +22,21 @@ export { LobeAzureOpenAI } from './providers/azureOpenai';
 export { LobeGoogleAI } from './providers/google';
 export { isMimoTokenPlanBaseURL } from './providers/mimo';
 export { LobeMoonshotAI } from './providers/moonshot';
-export { LobeOpenAI } from './providers/openai';
+export {
+  LobeOpenAI,
+  OPENAI_AUTH_BASE_URL,
+  OPENAI_CODEX_AUTH_MODE,
+  OPENAI_CODEX_BASE_URL,
+  OPENAI_CODEX_CLIENT_ID,
+  OPENAI_CODEX_CLIENT_VERSION,
+  OPENAI_CODEX_DEVICE_CALLBACK_URL,
+  OPENAI_CODEX_DEVICE_TIMEOUT_MS,
+  OPENAI_CODEX_DEVICE_VERIFICATION_URL,
+  OPENAI_CODEX_HANDOFF_CLIENT,
+  OPENAI_CODEX_ORIGINATOR,
+  OPENAI_CODEX_REFRESH_SKEW_MS,
+  OPENAI_CODEX_USER_AGENT,
+} from './providers/openai';
 export * from './types';
 export * from './types/error';
 export { consumeStreamUntilDone } from './utils/consumeStream';

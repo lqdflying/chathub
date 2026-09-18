@@ -406,6 +406,13 @@
       "when": 1787090000000,
       "tag": "0057_conversation_generation_placeholder_cleanup",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1787210000000,
+      "tag": "0058_openai_codex_oauth_tokens",
+      "breakpoints": true
     }
   ],
   "version": "6"

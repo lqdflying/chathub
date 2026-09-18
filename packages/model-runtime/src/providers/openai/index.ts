@@ -6,8 +6,20 @@ import {
   OpenAICompatibleFactoryOptions,
   createOpenAICompatibleRuntime,
 } from '../../core/openaiCompatibleFactory';
-import { ChatStreamPayload } from '../../types';
+import {
+  ChatMethodOptions,
+  ChatStreamPayload,
+  GenerateObjectOptions,
+  GenerateObjectPayload,
+} from '../../types';
+import { CreateImagePayload } from '../../types/image';
+import { AgentRuntimeError } from '../../utils/createError';
 import { processMultiProviderModelList } from '../../utils/modelParse';
+import {
+  OPENAI_CODEX_AUTH_MODE,
+} from './codexConstants';
+import { fetchOpenAICodexModels } from './codexModels';
+import { chatWithCodexResponses } from './codexResponses';
 
 export interface OpenAIModelCard {
   id: string;
@@ -194,4 +206,85 @@ export const params = {
   },
 } satisfies OpenAICompatibleFactoryOptions;
 
-export const LobeOpenAI = createOpenAICompatibleRuntime(params);
+const LobeOpenAIPlatform = createOpenAICompatibleRuntime(params);
+
+export class LobeOpenAI extends LobeOpenAIPlatform {
+  private readonly accountId?: string;
+  private readonly authMode?: string;
+
+  constructor(options: Record<string, any> = {}) {
+    super(options);
+    this.accountId = typeof options.accountId === 'string' ? options.accountId : undefined;
+    this.authMode = typeof options.authMode === 'string' ? options.authMode : undefined;
+  }
+
+  private isCodexOAuth() {
+    return this.authMode === OPENAI_CODEX_AUTH_MODE;
+  }
+
+  private requireCodexAccountId() {
+    if (this.accountId) return this.accountId;
+    throw AgentRuntimeError.createError('InvalidProviderAPIKey', {
+      message: 'Codex subscription is missing chatgpt-account-id.',
+    });
+  }
+
+  private requireCodexAccessToken() {
+    const accessToken = this.client.apiKey;
+    if (accessToken) return accessToken;
+    throw AgentRuntimeError.createError('InvalidProviderAPIKey', {
+      message: 'Codex subscription is missing an access token.',
+    });
+  }
+
+  override async chat(payload: ChatStreamPayload, options?: ChatMethodOptions) {
+    if (!this.isCodexOAuth()) return super.chat(payload, options);
+
+    return chatWithCodexResponses({
+      accessToken: this.requireCodexAccessToken(),
+      accountId: this.requireCodexAccountId(),
+      options,
+      payload,
+    });
+  }
+
+  override async models() {
+    if (!this.isCodexOAuth()) return super.models();
+
+    return fetchOpenAICodexModels({
+      accessToken: this.requireCodexAccessToken(),
+      accountId: this.requireCodexAccountId(),
+    });
+  }
+
+  override async generateObject(payload: GenerateObjectPayload, options?: GenerateObjectOptions) {
+    if (!this.isCodexOAuth()) return super.generateObject(payload, options);
+
+    throw AgentRuntimeError.createError('ProviderBizError', {
+      message: 'ChatGPT / Codex subscription is chat-only and does not support structured object generation.',
+    });
+  }
+
+  override async createImage(payload: CreateImagePayload) {
+    if (!this.isCodexOAuth()) return super.createImage(payload);
+
+    throw AgentRuntimeError.createError('ProviderBizError', {
+      message: 'ChatGPT / Codex subscription is chat-only. Use an OpenAI API key for images.',
+    });
+  }
+}
+
+export {
+  OPENAI_AUTH_BASE_URL,
+  OPENAI_CODEX_AUTH_MODE,
+  OPENAI_CODEX_BASE_URL,
+  OPENAI_CODEX_CLIENT_ID,
+  OPENAI_CODEX_CLIENT_VERSION,
+  OPENAI_CODEX_DEVICE_CALLBACK_URL,
+  OPENAI_CODEX_DEVICE_TIMEOUT_MS,
+  OPENAI_CODEX_DEVICE_VERIFICATION_URL,
+  OPENAI_CODEX_HANDOFF_CLIENT,
+  OPENAI_CODEX_ORIGINATOR,
+  OPENAI_CODEX_REFRESH_SKEW_MS,
+  OPENAI_CODEX_USER_AGENT,
+} from './codexConstants';

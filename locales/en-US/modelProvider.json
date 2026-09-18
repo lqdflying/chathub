@@ -264,6 +264,21 @@
       "title": "Download specified Ollama model"
     }
   },
+  "openaiCodex": {
+    "connected": "Connected as {{email}}",
+    "connectedAnonymous": "Connected to ChatGPT / Codex subscription",
+    "connectedPlan": "{{plan}} plan",
+    "denied": "Authorization was denied or failed. Sign in again.",
+    "expired": "The device code expired. Sign in again.",
+    "expires": "Session expires {{time}}",
+    "hint": "After you sign in, OpenAI chat uses your ChatGPT Plus/Pro Codex quota instead of Platform API billing. Images, speech, and embeddings still use the API key above.",
+    "openChatGPT": "Open ChatGPT",
+    "signIn": "Sign in with ChatGPT",
+    "signOut": "Sign out",
+    "title": "ChatGPT / Codex subscription",
+    "unofficial": "This is an unofficial Codex client path and can break if OpenAI changes the client or endpoints.",
+    "waiting": "Enter this code on the ChatGPT device page to finish authorization."
+  },
   "providerModels": {
     "batchSelect": {
       "selected": "{{count}} models selected",

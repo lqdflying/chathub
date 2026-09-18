@@ -859,8 +859,6 @@ const ProviderConfig = memo<ProviderConfigProps>(
 
       extra: (
         <Flexbox align={'center'} gap={8} horizontal>
-          {extra}
-
           {isCustom && <UpdateProviderInfo />}
           <EnableSwitch id={id} />
         </Flexbox>
@@ -910,27 +908,30 @@ const ProviderConfig = memo<ProviderConfigProps>(
     };
 
     return (
-      <Form
-        {...FORM_STYLE}
-        className={cx(styles.form, className)}
-        form={form}
-        itemMinWidth={undefined}
-        items={[model]}
-        onValuesChange={(changedValues, values) => {
-          const resolvedValues = supportOpenAICompatCache
-            ? resolveOpenAICompatValues(changedValues, values)
-            : values;
-          const nextValues = normalizeProviderConfigValues(resolvedValues);
+      <Flexbox gap={16} style={{ maxWidth: '100%', minWidth: 0, width: '100%' }}>
+        <Form
+          {...FORM_STYLE}
+          className={cx(styles.form, className)}
+          form={form}
+          itemMinWidth={undefined}
+          items={[model]}
+          onValuesChange={(changedValues, values) => {
+            const resolvedValues = supportOpenAICompatCache
+              ? resolveOpenAICompatValues(changedValues, values)
+              : values;
+            const nextValues = normalizeProviderConfigValues(resolvedValues);
 
-          if (nextValues !== resolvedValues || nextValues !== values) {
-            form.setFieldsValue(nextValues);
-          }
+            if (nextValues !== resolvedValues || nextValues !== values) {
+              form.setFieldsValue(nextValues);
+            }
 
-          debouncedHandleValueChange(id, nextValues);
-        }}
-        style={{ ...FORM_STYLE.style, maxWidth: '100%', minWidth: 0, width: '100%' }}
-        variant={'borderless'}
-      />
+            debouncedHandleValueChange(id, nextValues);
+          }}
+          style={{ ...FORM_STYLE.style, maxWidth: '100%', minWidth: 0, width: '100%' }}
+          variant={'borderless'}
+        />
+        {extra}
+      </Flexbox>
     );
   },
 );

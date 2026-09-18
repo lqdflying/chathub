@@ -2,6 +2,7 @@ import { OpenAIProviderCard } from '@/config/modelProviders';
 
 import { useSettingsContext } from '../../../_layout/ContextProvider';
 import ProviderDetail from '../default';
+import OpenAICodexSignIn from './OpenAICodexSignIn';
 
 const Page = () => {
   const { showOpenAIProxyUrl, showOpenAIApiKey } = useSettingsContext();
@@ -9,6 +10,7 @@ const Page = () => {
   return (
     <ProviderDetail
       {...OpenAIProviderCard}
+      extra={<OpenAICodexSignIn />}
       settings={{
         ...OpenAIProviderCard.settings,
         proxyUrl: showOpenAIProxyUrl && {
