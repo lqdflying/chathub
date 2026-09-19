@@ -117,5 +117,8 @@ describe('provider settings detail shell', () => {
     expect(form).toContain('.${prefixCls}-row > .${prefixCls}-form-item-control');
     expect(form).toContain('.${prefixCls}-form-item-row > .${prefixCls}-form-item-control');
     expect(form).toContain("style={{ maxWidth: '100%', minWidth: 0, width: '100%' }}>{extra}</Flexbox>");
+    expect(form).toContain('.${prefixCls}-collapse-header-text');
+    expect(form).toContain('flex: 1 1 0 !important');
+    expect(form).toContain('.${prefixCls}-collapse-extra');
   });
 });

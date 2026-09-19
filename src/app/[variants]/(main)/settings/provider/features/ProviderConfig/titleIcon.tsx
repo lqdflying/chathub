@@ -7,8 +7,10 @@ import React, { CSSProperties, memo } from 'react';
 export const PROVIDER_CONFIG_TITLE_ICON_SIZE = 24;
 
 export const providerConfigTitleRowStyle = (enabled: boolean): CSSProperties => ({
+  flex: 1,
   height: PROVIDER_CONFIG_TITLE_ICON_SIZE,
   maxHeight: PROVIDER_CONFIG_TITLE_ICON_SIZE,
+  maxWidth: '100%',
   minWidth: 0,
   overflow: 'hidden',
   ...(enabled ? {} : { filter: 'grayscale(100%)', maxHeight: PROVIDER_CONFIG_TITLE_ICON_SIZE, opacity: 0.66 }),

@@ -34,6 +34,9 @@ describe('ProviderConfig title custom logo', () => {
     expect(row.style.height).toBe('24px');
     expect(row.style.maxHeight).toBe('24px');
     expect(row.style.overflow).toBe('hidden');
+    expect(['0', '0px']).toContain(row.style.minWidth);
+    expect(row.style.maxWidth).toBe('100%');
+    expect(['1', '1 1 0%', '1 1 0']).toContain(row.style.flex);
 
     const avatar = container.querySelector('.ant-avatar') as HTMLElement | null;
     expect(avatar).toBeTruthy();

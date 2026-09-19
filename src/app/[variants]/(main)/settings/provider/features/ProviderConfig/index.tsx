@@ -210,6 +210,31 @@ const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
     .${prefixCls}-select-selection-overflow-item {
       font-size: 12px;
     }
+
+    /* Collapse header is flex; header-text is flex:auto with min-width:auto,
+       so the provider title keeps min-content and overflow:hidden clips the
+       enable switch at 768–800px (R12-1). Shrink the title; keep extra fixed.
+       @see https://www.w3.org/TR/css-flexbox-1/#min-size-auto
+       @see https://github.com/ant-design/ant-design/blob/a549842b/components/collapse/style/index.ts
+       @see https://github.com/ant-design/ant-design/issues/54890 */
+    .${prefixCls}-collapse-header {
+      min-width: 0;
+    }
+
+    .${prefixCls}-collapse-header-text {
+      flex: 1 1 0 !important;
+      min-width: 0 !important;
+      overflow: hidden;
+    }
+
+    .${prefixCls}-collapse-header-text > * {
+      max-width: 100%;
+      min-width: 0;
+    }
+
+    .${prefixCls}-collapse-extra {
+      flex: none;
+    }
   `,
   help: css`
     border-radius: 50%;
