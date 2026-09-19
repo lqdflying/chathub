@@ -53,6 +53,14 @@ describe('provider settings detail shell', () => {
 
   it('keeps the detail pane shrinkable so Check and Fetch cannot be clipped', () => {
     const root = process.cwd();
+    const settingsLayout = readFileSync(
+      join(root, 'src/app/[variants]/(main)/settings/_layout/Desktop/index.tsx'),
+      'utf8',
+    );
+    expect(settingsLayout).toContain('DESKTOP_SETTINGS_LAYOUT_STYLE');
+    expect(settingsLayout).toContain('flex={1}');
+    expect(settingsLayout).toContain('minWidth: 0');
+
     const layout = readFileSync(
       join(root, 'src/app/[variants]/(main)/settings/provider/_layout/Desktop/index.tsx'),
       'utf8',

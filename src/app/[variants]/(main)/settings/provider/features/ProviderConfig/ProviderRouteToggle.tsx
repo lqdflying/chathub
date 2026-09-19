@@ -12,10 +12,9 @@ import React, { type CSSProperties, useRef } from 'react';
  * label is clipped by SettingContainer overflow-x hidden.
  *
  * Layout is inline so LobeHub Form's late `flex: 0` / `width: auto` on
- * `.ant-form-item-control` cannot collapse `minmax(0, 1fr)` to a single
- * Chat Completions pill. Native OpenAI hits that shrink-wrap (no cache
- * Select after the field). Compatible kept both pills because later
- * 100%-width Selects gave that pane a definite used width.
+ * `.ant-form-item-control` cannot collapse `minmax(0, 1fr)` inside the
+ * field. Equal pills still overflow the viewport when an ancestor flex
+ * item keeps `min-width: auto` — DesktopSettingsLayout must set 0.
  *
  * Keyboard follows the WAI-ARIA radio group pattern (roving tabindex,
  * arrows move and check, wrap). Roles alone do not add that behavior.

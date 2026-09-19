@@ -11,6 +11,7 @@ import { SettingsTabs } from '@/store/global/initialState';
 import CategoryContent from '../CategoryContent';
 import SettingsContent from '../SettingsContent';
 import { LayoutProps } from '../type';
+import { DESKTOP_SETTINGS_LAYOUT_STYLE } from './desktopSettingsLayoutStyle';
 import Header from './Header';
 import SideBar from './SideBar';
 
@@ -29,10 +30,11 @@ const Layout = memo<LayoutProps>((props) => {
 
   return (
     <Flexbox
+      data-testid="desktop-settings-layout"
       height={'100%'}
       horizontal={md}
       ref={ref}
-      style={{ background: theme.colorBgContainer, flex: '1', position: 'relative' }}
+      style={{ background: theme.colorBgContainer, ...DESKTOP_SETTINGS_LAYOUT_STYLE }}
     >
       {md ? (
         <SideBar>{category}</SideBar>
@@ -41,7 +43,7 @@ const Layout = memo<LayoutProps>((props) => {
           {category}
         </Header>
       )}
-      <SettingContainer maxWidth={'none'}>
+      <SettingContainer flex={1} maxWidth={'none'} style={{ minWidth: 0 }}>
         <SettingsContent activeTab={activeTab} mobile={false} showLLM={showLLM} />
       </SettingContainer>
     </Flexbox>

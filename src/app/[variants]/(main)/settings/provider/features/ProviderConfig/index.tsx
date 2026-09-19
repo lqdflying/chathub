@@ -114,10 +114,9 @@ const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
        LobeHub Form still sets .ant-form-item-control { flex: 0 } and
        .ant-row { justify-content: space-between } even when Ant Form
        layout is vertical (item verticalLayout only stretches align-items).
-       width:auto on that control shrink-wraps ProviderRouteToggle so
-       minmax(0, 1fr) drops the Responses column — native OpenAI screenshot.
-       Compatible kept both pills because later 100% Selects gave a definite
-       used width. Keep controls at width 100% inside this 1-column grid.
+       width:auto on that control shrink-wraps the field. Keep controls at
+       width 100% inside this 1-column grid. Pane overflow is a separate
+       ancestor issue: DesktopSettingsLayout must set min-width: 0.
        @see https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Flexible_box_layout/Basic_concepts
        @see https://ant.design/components/form
        @see https://ant.design/components/segmented
@@ -212,9 +211,23 @@ const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
       font-size: 12px;
     }
   `,
+  help: css`
+    border-radius: 50%;
+
+    font-size: 12px;
+    font-weight: 500;
+    color: ${token.colorTextDescription};
+
+    background: ${token.colorFillTertiary};
+
+    &:hover {
+      color: ${token.colorText};
+      background: ${token.colorFill};
+    }
+  `,
   /* Scoped to the API-route field. If LobeHub/antd re-assert display:flex on
      the item row, stay in one column so Chat Completions | Responses API
-     cannot sit at 2x pane width (OpenAI screenshot vs Compatible).
+     cannot sit at 2x pane width.
      @see https://ant.design/components/form#formitem */
   routeItem: css`
     &.${prefixCls}-form-item .${prefixCls}-row,
@@ -237,20 +250,6 @@ const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
       width: 100% !important;
       max-width: 100% !important;
       min-width: 0 !important;
-    }
-  `,
-  help: css`
-    border-radius: 50%;
-
-    font-size: 12px;
-    font-weight: 500;
-    color: ${token.colorTextDescription};
-
-    background: ${token.colorFillTertiary};
-
-    &:hover {
-      color: ${token.colorText};
-      background: ${token.colorFill};
     }
   `,
   switchLoading: css`
