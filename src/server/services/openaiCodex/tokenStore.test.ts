@@ -40,4 +40,28 @@ describe('createMemoryOpenAICodexTokenStore', () => {
     await expect(store.deleteIfRefreshMatches('user-1', 'enc:new-refresh')).resolves.toBe(true);
     expect(store.rows.size).toBe(0);
   });
+
+  it('acquires a refresh lease only when none is held', async () => {
+    const store = createMemoryOpenAICodexTokenStore();
+    await store.upsert(row('user-1', 'enc:old-refresh'));
+
+    await expect(store.tryAcquireRefreshLock('user-1', 'lock-a', 30_000)).resolves.toBe(true);
+    await expect(store.tryAcquireRefreshLock('user-1', 'lock-b', 30_000)).resolves.toBe(false);
+    expect(store.rows.get('user-1')?.refreshLockId).toBe('lock-a');
+
+    await store.releaseRefreshLock('user-1', 'lock-b');
+    expect(store.rows.get('user-1')?.refreshLockId).toBe('lock-a');
+
+    await store.releaseRefreshLock('user-1', 'lock-a');
+    expect(store.rows.get('user-1')?.refreshLockId).toBeNull();
+    await expect(store.tryAcquireRefreshLock('user-1', 'lock-b', 30_000)).resolves.toBe(true);
+  });
+
+  it('lets an expired refresh lease be taken by another worker', async () => {
+    const store = createMemoryOpenAICodexTokenStore();
+    await store.upsert(row('user-1', 'enc:old-refresh'));
+    await expect(store.tryAcquireRefreshLock('user-1', 'lock-a', 0)).resolves.toBe(true);
+    await expect(store.tryAcquireRefreshLock('user-1', 'lock-b', 30_000)).resolves.toBe(true);
+    expect(store.rows.get('user-1')?.refreshLockId).toBe('lock-b');
+  });
 });

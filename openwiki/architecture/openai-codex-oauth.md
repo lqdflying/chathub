@@ -13,10 +13,11 @@ decrypted into the browser.
 
 | Store | Contents |
 | --- | --- |
-| `openai_codex_oauth_tokens` | One row per `userId`. AES-GCM `KeyVaultsGateKeeper` ciphertext for access + refresh. `expiresAt`, `accountId`, optional email / plan, public `clientId`. |
+| `openai_codex_oauth_tokens` | One row per `userId`. AES-GCM `KeyVaultsGateKeeper` ciphertext for access + refresh. `expiresAt`, `accountId`, optional email / plan, public `clientId`. Nullable `refreshLockId` / `refreshLockUntil` lease so only one worker redeems a given refresh token. |
 | `oauth_handoffs` (`client: openai-codex-device`) | In-flight device-code state: `deviceAuthId`, `userCode`, `userId`, expiry. No tokens. |
 
-Migration `0058_openai_codex_oauth_tokens` plus
+Migrations `0058_openai_codex_oauth_tokens` and
+`0059_openai_codex_oauth_refresh_lock`, plus
 `scripts/migrateServerDB/ensureOpenAICodexOAuthTokens.cjs`.
 
 ## Login
@@ -33,14 +34,19 @@ tRPC `openaiCodex` (lambda, authed):
 6. `logout` deletes the token row; API key vaults are untouched
 
 Refresh uses `grant_type=refresh_token` about five minutes before expiry.
-Rotation is versioned on the stored refresh ciphertext: `UPDATE`/`DELETE`
+Before any vendor redeem, the worker must take the row's refresh lease
+(`refresh_lock_id` / `refresh_lock_until`) and re-read the ciphertext.
+Same-process resolvers also take an in-memory per-user lock; that map is
+not shared across Node workers, so the database lease is the exclusion
+that prevents two processes from redeeming the same refresh token.
+Rotation is then versioned on the stored refresh ciphertext: `UPDATE`/`DELETE`
 only when that ciphertext still matches. A stale refresh cannot recreate a
-logged-out row or overwrite a newer login. Same-process resolvers also take
-a per-user lock. Confirmed `invalid_grant` / reused refresh deletes only the
-matching version. HTTP 429/5xx, transport failures, and malformed 2xx
-responses keep the row; if the access token is already expired, resolve
-throws `OpenAICodexTransientRefreshError` so chat cannot silently use the
-Platform key.
+logged-out row or overwrite a newer login. Confirmed `invalid_grant` /
+reused refresh deletes only the matching version. HTTP 429/5xx, transport
+failures, and malformed 2xx responses keep the row; if the access token is
+still valid, chat continues on Codex, and if it has expired, resolve throws
+`OpenAICodexTransientRefreshError` so chat cannot silently use the Platform
+key.
 
 ## Server-only credential resolve
 

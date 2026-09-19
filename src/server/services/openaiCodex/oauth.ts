@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import { LobeChatDatabase } from '@lobechat/database';
 import {
   OPENAI_AUTH_BASE_URL,
@@ -51,9 +53,14 @@ type RefreshOutcome =
   | { type: 'invalid' }
   | { status: number; type: 'transient' };
 
+const OPENAI_CODEX_REFRESH_LOCK_TTL_MS = 30_000;
+
 const userLocks = new Map<string, Promise<unknown>>();
 
-const withUserLock = async <T>(userId: string, fn: () => Promise<T>): Promise<T> => {
+export const withOpenAICodexUserLock = async <T>(
+  userId: string,
+  fn: () => Promise<T>,
+): Promise<T> => {
   const previous = userLocks.get(userId) ?? Promise.resolve();
   let release!: () => void;
   const current = new Promise<void>((resolve) => {
@@ -156,6 +163,7 @@ const toLiveSession = (
 export class OpenAICodexOAuthService {
   private readonly db: LobeChatDatabase;
   private readonly fetchFn: FetchFn;
+  private readonly lockUser: <T>(userId: string, fn: () => Promise<T>) => Promise<T>;
   private readonly tokenStore: OpenAICodexTokenStore;
   private crypto?: TokenCrypto;
 
@@ -164,11 +172,13 @@ export class OpenAICodexOAuthService {
     options?: {
       crypto?: TokenCrypto;
       fetchFn?: FetchFn;
+      lockUser?: <T>(userId: string, fn: () => Promise<T>) => Promise<T>;
       tokenStore?: OpenAICodexTokenStore;
     },
   ) {
     this.db = db;
     this.fetchFn = options?.fetchFn ?? fetch;
+    this.lockUser = options?.lockUser ?? withOpenAICodexUserLock;
     this.crypto = options?.crypto;
     this.tokenStore = options?.tokenStore ?? createDrizzleOpenAICodexTokenStore(db);
   }
@@ -298,13 +308,13 @@ export class OpenAICodexOAuthService {
   }
 
   async logout(userId: string): Promise<void> {
-    await withUserLock(userId, async () => {
+    await this.lockUser(userId, async () => {
       await this.tokenStore.deleteByUserId(userId);
     });
   }
 
   async resolveLiveSession(userId: string): Promise<OpenAICodexLiveSession | null> {
-    return withUserLock(userId, async () => {
+    return this.lockUser(userId, async () => {
       const record = await this.tokenStore.findByUserId(userId);
       if (!record) return null;
 
@@ -319,32 +329,95 @@ export class OpenAICodexOAuthService {
       const needsRefresh = record.expiresAt.getTime() - Date.now() <= OPENAI_CODEX_REFRESH_SKEW_MS;
       if (!needsRefresh) return toLiveSession(access.plaintext, record);
 
-      const refreshed = await this.refreshAccessToken(refresh.plaintext);
-      if (refreshed.type === 'transient') {
-        if (record.expiresAt.getTime() > Date.now()) {
-          return toLiveSession(access.plaintext, record);
+      const lockId = randomUUID();
+      const acquired = await this.tokenStore.tryAcquireRefreshLock(
+        userId,
+        lockId,
+        OPENAI_CODEX_REFRESH_LOCK_TTL_MS,
+      );
+      if (!acquired) {
+        return this.loadRefreshedOrTransientSession(userId, access.plaintext, record.expiresAt);
+      }
+
+      try {
+        const latest = await this.tokenStore.findByUserId(userId);
+        if (!latest) return null;
+
+        const latestAccess = await crypto.decrypt(latest.accessToken);
+        const latestRefresh = await crypto.decrypt(latest.refreshToken);
+        if (
+          !latestAccess.wasAuthentic ||
+          !latestRefresh.wasAuthentic ||
+          !latestAccess.plaintext ||
+          !latestRefresh.plaintext
+        ) {
+          await this.tokenStore.deleteIfRefreshMatches(userId, latest.refreshToken);
+          return null;
         }
-        throw new OpenAICodexTransientRefreshError(
-          'ChatGPT subscription refresh is temporarily unavailable.',
-          refreshed.status,
-        );
-      }
 
-      if (refreshed.type === 'invalid') {
-        const deleted = await this.tokenStore.deleteIfRefreshMatches(
-          userId,
-          record.refreshToken,
-        );
-        if (deleted) return null;
+        if (latest.expiresAt.getTime() - Date.now() > OPENAI_CODEX_REFRESH_SKEW_MS) {
+          return toLiveSession(latestAccess.plaintext, latest);
+        }
+
+        const refreshed = await this.refreshAccessToken(latestRefresh.plaintext);
+        if (refreshed.type === 'transient') {
+          if (latest.expiresAt.getTime() > Date.now()) {
+            return toLiveSession(latestAccess.plaintext, latest);
+          }
+          throw new OpenAICodexTransientRefreshError(
+            'ChatGPT subscription refresh is temporarily unavailable.',
+            refreshed.status,
+          );
+        }
+
+        if (refreshed.type === 'invalid') {
+          const deleted = await this.tokenStore.deleteIfRefreshMatches(
+            userId,
+            latest.refreshToken,
+          );
+          if (deleted) return null;
+          return this.loadCurrentSession(userId);
+        }
+
+        const rotated = await this.rotateTokens(userId, latest.refreshToken, refreshed.tokens);
+        if (rotated) return toLiveSession(refreshed.tokens.accessToken, rotated);
+
         return this.loadCurrentSession(userId);
+      } finally {
+        await this.tokenStore.releaseRefreshLock(userId, lockId);
       }
-
-      const rotated = await this.rotateTokens(userId, record.refreshToken, refreshed.tokens);
-      if (rotated) return toLiveSession(refreshed.tokens.accessToken, rotated);
-
-      const current = await this.loadCurrentSession(userId);
-      return current;
     });
+  }
+
+  private async loadRefreshedOrTransientSession(
+    userId: string,
+    fallbackAccessToken: string,
+    fallbackExpiresAt: Date,
+  ): Promise<OpenAICodexLiveSession | null> {
+    const latest = await this.tokenStore.findByUserId(userId);
+    if (!latest) return null;
+
+    if (latest.expiresAt.getTime() - Date.now() > OPENAI_CODEX_REFRESH_SKEW_MS) {
+      return this.loadCurrentSession(userId);
+    }
+
+    if (latest.expiresAt.getTime() > Date.now()) {
+      const crypto = await this.getCrypto();
+      const latestAccess = await crypto.decrypt(latest.accessToken);
+      if (latestAccess.wasAuthentic && latestAccess.plaintext) {
+        return toLiveSession(latestAccess.plaintext, latest);
+      }
+      return toLiveSession(fallbackAccessToken, latest);
+    }
+
+    if (fallbackExpiresAt.getTime() > Date.now()) {
+      return toLiveSession(fallbackAccessToken, latest);
+    }
+
+    throw new OpenAICodexTransientRefreshError(
+      'ChatGPT subscription refresh is temporarily unavailable.',
+      0,
+    );
   }
 
   private async loadCurrentSession(userId: string): Promise<OpenAICodexLiveSession | null> {
@@ -470,7 +543,7 @@ export class OpenAICodexOAuthService {
     userId: string,
     tokens: { accessToken: string; expiresAt: Date; refreshToken: string },
   ) {
-    return withUserLock(userId, async () => {
+    return this.lockUser(userId, async () => {
       const insert = await this.encryptTokenRow(userId, tokens);
       await this.tokenStore.upsert(insert);
       return {

@@ -24,6 +24,12 @@ describe('ensureOpenAICodexOAuthTokensTable', () => {
       'RENAME CONSTRAINT "openai_codex_oauth_tokens_user_id_fkey"',
     );
     expect(OPENAI_CODEX_OAUTH_TOKENS_SQL).toContain('REFERENCES "public"."users"("id")');
+    expect(OPENAI_CODEX_OAUTH_TOKENS_SQL).toContain(
+      'ADD COLUMN IF NOT EXISTS "refresh_lock_id"',
+    );
+    expect(OPENAI_CODEX_OAUTH_TOKENS_SQL).toContain(
+      'ADD COLUMN IF NOT EXISTS "refresh_lock_until"',
+    );
   });
 
   it('runs the repair as one PostgreSQL statement', async () => {

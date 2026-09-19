@@ -61,8 +61,13 @@ describe('OpenAICodexOAuthService', () => {
     })),
   };
 
-  const service = () =>
-    new OpenAICodexOAuthService(db as any, { crypto, fetchFn: fetchFn as any, tokenStore });
+  const service = (overrides?: ConstructorParameters<typeof OpenAICodexOAuthService>[1]) =>
+    new OpenAICodexOAuthService(db as any, {
+      crypto,
+      fetchFn: fetchFn as any,
+      tokenStore,
+      ...overrides,
+    });
 
   const seedExpiringSession = async (refreshToken = 'old-refresh') => {
     await tokenStore.upsert({
@@ -214,6 +219,55 @@ describe('OpenAICodexOAuthService', () => {
     expect(tokenStore.rows.get('user-1')).toMatchObject({
       refreshToken: 'enc:new-refresh',
     });
+  });
+
+  it('does not double-redeem across workers when process locks are disabled', async () => {
+    await seedExpiringSession();
+    const disableProcessLock = async <T>(_userId: string, fn: () => Promise<T>) => fn();
+    let releaseFirst!: (value: unknown) => void;
+    const firstRefresh = new Promise((resolve) => {
+      releaseFirst = resolve;
+    });
+    let calls = 0;
+    fetchFn.mockImplementation(async (_url, init) => {
+      calls += 1;
+      const body = typeof init?.body === 'string' ? init.body : String(init?.body ?? '');
+      expect(new URLSearchParams(body).get('refresh_token')).toBe('old-refresh');
+      if (calls === 1) await firstRefresh;
+      return {
+        ok: calls === 1,
+        status: calls === 1 ? 200 : 400,
+        text: async () =>
+          calls === 1
+            ? JSON.stringify({
+                access_token: accessToken,
+                expires_in: 3600,
+                refresh_token: 'new-refresh',
+              })
+            : JSON.stringify({ error: 'refresh_token_reused' }),
+      };
+    });
+
+    const first = service({ lockUser: disableProcessLock });
+    const second = service({ lockUser: disableProcessLock });
+    const pendingA = first.resolveLiveSession('user-1');
+    const pendingB = second.resolveLiveSession('user-1');
+    await vi.waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(1));
+    releaseFirst(undefined);
+
+    const results = await Promise.allSettled([pendingA, pendingB]);
+    expect(results.every((result) => result.status === 'fulfilled')).toBe(true);
+    expect(results.map((result) => (result as PromiseFulfilledResult<any>).value)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ accountId: 'acct_1' }),
+      ]),
+    );
+    expect(results.some((result) => result.status === 'fulfilled' && result.value === null)).toBe(
+      false,
+    );
+    expect(tokenStore.rows.size).toBe(1);
+    expect(tokenStore.rows.get('user-1')?.refreshToken).toBe('enc:new-refresh');
+    expect(fetchFn).toHaveBeenCalledTimes(1);
   });
 
   it('serializes concurrent refresh so one valid row remains', async () => {

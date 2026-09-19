@@ -1,6 +1,6 @@
 /**
  * Idempotent repair for per-user ChatGPT / Codex subscription tokens.
- * Safe to run after every migration (matches migration 0058).
+ * Safe to run after every migration (matches migrations 0058 and 0059).
  */
 const OPENAI_CODEX_OAUTH_TOKENS_SQL = `
 CREATE TABLE IF NOT EXISTS "openai_codex_oauth_tokens" (
@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS "openai_codex_oauth_tokens" (
   "email" varchar(256),
   "chatgpt_plan_type" varchar(64),
   "client_id" varchar(256) NOT NULL,
+  "refresh_lock_id" varchar(256),
+  "refresh_lock_until" timestamp with time zone,
   "accessed_at" timestamp with time zone DEFAULT now() NOT NULL,
   "created_at" timestamp with time zone DEFAULT now() NOT NULL,
   "updated_at" timestamp with time zone DEFAULT now() NOT NULL
@@ -44,6 +46,11 @@ DO $$ BEGIN
 EXCEPTION
   WHEN duplicate_object THEN null;
 END $$;
+
+ALTER TABLE "openai_codex_oauth_tokens"
+  ADD COLUMN IF NOT EXISTS "refresh_lock_id" varchar(256);
+ALTER TABLE "openai_codex_oauth_tokens"
+  ADD COLUMN IF NOT EXISTS "refresh_lock_until" timestamp with time zone;
 `;
 
 const ensureOpenAICodexOAuthTokensTable = async (client) => {

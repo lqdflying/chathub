@@ -22,6 +22,8 @@ export const openaiCodexOAuthTokens = pgTable('openai_codex_oauth_tokens', {
   email: varchar('email', { length: 256 }),
   chatgptPlanType: varchar('chatgpt_plan_type', { length: 64 }),
   clientId: varchar('client_id', { length: 256 }).notNull(),
+  refreshLockId: varchar('refresh_lock_id', { length: 256 }),
+  refreshLockUntil: timestamptz('refresh_lock_until'),
 
   ...timestamps,
 });

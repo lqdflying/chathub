@@ -413,6 +413,13 @@
       "when": 1787210000000,
       "tag": "0058_openai_codex_oauth_tokens",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1787220000000,
+      "tag": "0059_openai_codex_oauth_refresh_lock",
+      "breakpoints": true
     }
   ],
   "version": "6"

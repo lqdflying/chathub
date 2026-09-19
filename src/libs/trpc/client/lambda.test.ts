@@ -46,6 +46,29 @@ describe('lambda tRPC client links', () => {
     await expect(client.picbed.list.query()).rejects.toMatchObject({
       message: ownershipError.message,
     });
+    await expect(
+      client.openaiCodex.status.query({ accountScope: 'user:account-a' }),
+    ).rejects.toMatchObject({
+      message: ownershipError.message,
+    });
+    await expect(
+      client.openaiCodex.startDeviceLogin.mutate({ accountScope: 'user:account-a' }),
+    ).rejects.toMatchObject({
+      message: ownershipError.message,
+    });
+    await expect(
+      client.openaiCodex.pollDeviceLogin.mutate({
+        accountScope: 'user:account-a',
+        handoffId: 'handoff-1',
+      }),
+    ).rejects.toMatchObject({
+      message: ownershipError.message,
+    });
+    await expect(
+      client.openaiCodex.logout.mutate({ accountScope: 'user:account-a' }),
+    ).rejects.toMatchObject({
+      message: ownershipError.message,
+    });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -70,8 +93,22 @@ describe('lambda tRPC client links', () => {
 
     await client.apiKey.getApiKeys.query();
     await client.picbed.list.query();
+    await client.openaiCodex.status.query({ accountScope: 'user:account-a' });
+    await client.openaiCodex.startDeviceLogin.mutate({ accountScope: 'user:account-a' });
+    await client.openaiCodex.pollDeviceLogin.mutate({
+      accountScope: 'user:account-a',
+      handoffId: 'handoff-1',
+    });
+    await client.openaiCodex.logout.mutate({ accountScope: 'user:account-a' });
 
-    expect(accountScopes).toEqual(['user:account-a', 'user:account-a']);
+    expect(accountScopes).toEqual([
+      'user:account-a',
+      'user:account-a',
+      'user:account-a',
+      'user:account-a',
+      'user:account-a',
+      'user:account-a',
+    ]);
   });
 
   it('allows user-state ownership bootstrap without prior verification', async () => {
