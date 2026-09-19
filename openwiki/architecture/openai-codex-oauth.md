@@ -34,10 +34,21 @@ tRPC `openaiCodex` (lambda, authed):
    `POST https://auth.openai.com/oauth/token` (`authorization_code`,
    `redirect_uri=https://auth.openai.com/deviceauth/callback`, `code_verifier`)
 4. JWT claim `https://api.openai.com/auth` → `chatgpt_account_id` (required)
-5. `status` returns email / plan / expiry, then fail-soft `GET https://chatgpt.com/backend-api/wham/usage` (official Codex ChatGPT path) and attaches 5-hour / weekly remaining when those windows exist. Usage HTTP errors do not disconnect.
+5. `status` live-resolves the session. If resolve returns no session, status
+   re-reads the store: a deleted row reports `connected: false` so Settings
+   shows signed-out. A remaining row stays connected without usage. Then
+   fail-soft `GET https://chatgpt.com/backend-api/wham/usage` (official Codex
+   ChatGPT path) attaches 5-hour / weekly remaining when those windows exist.
+   Usage HTTP errors do not disconnect.
 6. `logout` deletes the token row; API key vaults are untouched
 
 Refresh uses `grant_type=refresh_token` about five minutes before expiry.
+The token POST is bounded with `AbortSignal.timeout` (8s, same budget as
+usage). Timeout or transport failure is transient: keep the row, use a
+still-valid access token, or throw `OpenAICodexTransientRefreshError` if
+access already expired. That bound also releases the in-process user lock
+so Settings status and same-process sign-out cannot wait on a hung vendor
+refresh.
 Before any vendor redeem, the worker must take a free refresh lease
 (`refresh_lock_id` is null), then re-read the ciphertext. A held lease
 stays exclusive through the token request, response-body read, and

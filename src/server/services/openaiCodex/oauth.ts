@@ -12,6 +12,7 @@ import {
   OPENAI_CODEX_HANDOFF_CLIENT,
   OPENAI_CODEX_ORIGINATOR,
   OPENAI_CODEX_REFRESH_SKEW_MS,
+  OPENAI_CODEX_REFRESH_TIMEOUT_MS,
   OPENAI_CODEX_USAGE_TIMEOUT_MS,
   OPENAI_CODEX_USAGE_URL,
   OPENAI_CODEX_USER_AGENT,
@@ -168,10 +169,43 @@ const toLiveSession = (
   expiresAt: record.expiresAt,
 });
 
+const isTimeoutError = (error: unknown): boolean =>
+  error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError');
+
+const rejectWhenAborted = (signal: AbortSignal): Promise<never> =>
+  new Promise((_, reject) => {
+    const fail = () => {
+      reject(
+        signal.reason ??
+          Object.assign(new Error('The operation was aborted'), { name: 'TimeoutError' }),
+      );
+    };
+    if (signal.aborted) {
+      fail();
+      return;
+    }
+    signal.addEventListener('abort', fail, { once: true });
+  });
+
+const fetchWithTimeout = async (
+  fetchFn: FetchFn,
+  url: string,
+  init: NonNullable<Parameters<FetchFn>[1]>,
+  timeoutMs: number,
+): Promise<Response> => {
+  const signal = AbortSignal.timeout(timeoutMs);
+  const request = Promise.resolve(fetchFn(url, { ...init, signal }));
+  const aborted = rejectWhenAborted(signal);
+  void request.catch(() => undefined);
+  void aborted.catch(() => undefined);
+  return Promise.race([request, aborted]);
+};
+
 export class OpenAICodexOAuthService {
   private readonly db: LobeChatDatabase;
   private readonly fetchFn: FetchFn;
   private readonly lockUser: <T>(userId: string, fn: () => Promise<T>) => Promise<T>;
+  private readonly refreshTimeoutMs: number;
   private readonly tokenStore: OpenAICodexTokenStore;
   private crypto?: TokenCrypto;
 
@@ -181,12 +215,14 @@ export class OpenAICodexOAuthService {
       crypto?: TokenCrypto;
       fetchFn?: FetchFn;
       lockUser?: <T>(userId: string, fn: () => Promise<T>) => Promise<T>;
+      refreshTimeoutMs?: number;
       tokenStore?: OpenAICodexTokenStore;
     },
   ) {
     this.db = db;
     this.fetchFn = options?.fetchFn ?? fetch;
     this.lockUser = options?.lockUser ?? withOpenAICodexUserLock;
+    this.refreshTimeoutMs = options?.refreshTimeoutMs ?? OPENAI_CODEX_REFRESH_TIMEOUT_MS;
     this.crypto = options?.crypto;
     this.tokenStore = options?.tokenStore ?? createDrizzleOpenAICodexTokenStore(db);
   }
@@ -355,7 +391,10 @@ export class OpenAICodexOAuthService {
     const status = sanitizeStatus(record);
     try {
       const session = await this.resolveLiveSession(userId);
-      if (!session) return status;
+      if (!session) {
+        const latest = await this.tokenStore.findByUserId(userId);
+        return latest ? sanitizeStatus(latest) : { connected: false };
+      }
       return { ...sanitizeStatus(session), ...(await this.fetchUsageWindows(session)) };
     } catch {
       return status;
@@ -602,17 +641,26 @@ export class OpenAICodexOAuthService {
   private async refreshAccessToken(refreshToken: string): Promise<RefreshOutcome> {
     let response: Response;
     try {
-      response = await this.fetchFn(`${OPENAI_AUTH_BASE_URL}/oauth/token`, {
-        body: new URLSearchParams({
-          client_id: OPENAI_CODEX_CLIENT_ID,
-          grant_type: 'refresh_token',
-          refresh_token: refreshToken,
-        }),
-        headers: formHeaders,
-        method: 'POST',
+      response = await fetchWithTimeout(
+        this.fetchFn,
+        `${OPENAI_AUTH_BASE_URL}/oauth/token`,
+        {
+          body: new URLSearchParams({
+            client_id: OPENAI_CODEX_CLIENT_ID,
+            grant_type: 'refresh_token',
+            refresh_token: refreshToken,
+          }),
+          headers: formHeaders,
+          method: 'POST',
+        },
+        this.refreshTimeoutMs,
+      );
+    } catch (error) {
+      logOpenAICodexDebugSafe('refresh_settled', {
+        httpStatus: 0,
+        outcome: 'transient',
+        reason: isTimeoutError(error) ? 'timeout' : 'refresh_fetch_failed',
       });
-    } catch {
-      logOpenAICodexDebugSafe('refresh_settled', { httpStatus: 0, outcome: 'transient' });
       return { status: 0, type: 'transient' };
     }
 

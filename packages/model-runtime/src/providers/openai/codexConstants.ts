@@ -18,6 +18,14 @@ export const OPENAI_CODEX_USAGE_URL = 'https://chatgpt.com/backend-api/wham/usag
 
 export const OPENAI_CODEX_USAGE_TIMEOUT_MS = 8000;
 
+/**
+ * Bound for `POST https://auth.openai.com/oauth/token` refresh.
+ * Matches the Settings usage lookup so a hung token endpoint cannot stall
+ * status or same-process sign-out. Timeout is transient (keep the row).
+ * @see https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal/timeout_static
+ */
+export const OPENAI_CODEX_REFRESH_TIMEOUT_MS = 8000;
+
 /** Pinned to a current Codex CLI version for `GET /models?client_version=`. */
 export const OPENAI_CODEX_CLIENT_VERSION = '0.154.0';
 

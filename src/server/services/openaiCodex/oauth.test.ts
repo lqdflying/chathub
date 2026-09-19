@@ -541,6 +541,105 @@ describe('OpenAICodexOAuthService', () => {
     expect(status.weekly).toBeUndefined();
   });
 
+  it('reports disconnected after invalid_grant deletes the stored session', async () => {
+    await seedExpiringSession();
+    fetchFn.mockResolvedValueOnce({
+      ok: false,
+      text: async () => JSON.stringify({ error: 'invalid_grant' }),
+    });
+
+    await expect(service().getStatus('user-1')).resolves.toEqual({ connected: false });
+    expect(tokenStore.rows.size).toBe(0);
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports disconnected after unauthentic ciphertext is deleted', async () => {
+    await seedExpiringSession();
+    crypto.decrypt.mockResolvedValue({ plaintext: '', wasAuthentic: false });
+
+    try {
+      await expect(service().getStatus('user-1')).resolves.toEqual({ connected: false });
+      expect(tokenStore.rows.size).toBe(0);
+      expect(fetchFn).not.toHaveBeenCalled();
+    } finally {
+      crypto.decrypt.mockImplementation(async (value: string) => ({
+        plaintext: value.replace(/^enc:/, ''),
+        wasAuthentic: true,
+      }));
+    }
+  });
+
+  it('returns status within the refresh budget when token refresh hangs', async () => {
+    await seedExpiringSession();
+    fetchFn.mockImplementation(async (url, init) => {
+      if (String(url).includes('/oauth/token')) {
+        const signal = init?.signal as AbortSignal | undefined;
+        return new Promise((_resolve, reject) => {
+          const abort = () =>
+            reject(Object.assign(new Error('The operation was aborted'), { name: 'TimeoutError' }));
+          if (signal?.aborted) {
+            abort();
+            return;
+          }
+          signal?.addEventListener('abort', abort, { once: true });
+        });
+      }
+      return {
+        ok: false,
+        status: 403,
+        text: async () => 'forbidden',
+      };
+    });
+
+    const startedAt = Date.now();
+    const status = await service({ refreshTimeoutMs: 25 }).getStatus('user-1');
+
+    expect(Date.now() - startedAt).toBeLessThan(1000);
+    expect(status).toEqual(
+      expect.objectContaining({
+        connected: true,
+        email: 'plus@example.com',
+      }),
+    );
+    expect(status.fiveHour).toBeUndefined();
+    expect(status.weekly).toBeUndefined();
+    expect(tokenStore.rows.size).toBe(1);
+    expect(fetchFn.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ signal: expect.any(AbortSignal) }));
+  });
+
+  it('lets same-process sign-out finish after a hung refresh times out', async () => {
+    await seedExpiringSession();
+    fetchFn.mockImplementation(async (url, init) => {
+      if (String(url).includes('/oauth/token')) {
+        const signal = init?.signal as AbortSignal | undefined;
+        return new Promise((_resolve, reject) => {
+          const abort = () =>
+            reject(Object.assign(new Error('The operation was aborted'), { name: 'TimeoutError' }));
+          if (signal?.aborted) {
+            abort();
+            return;
+          }
+          signal?.addEventListener('abort', abort, { once: true });
+        });
+      }
+      return {
+        ok: false,
+        status: 403,
+        text: async () => 'forbidden',
+      };
+    });
+
+    const oauth = service({ refreshTimeoutMs: 25 });
+    const pendingStatus = oauth.getStatus('user-1');
+    await vi.waitFor(() => expect(fetchFn).toHaveBeenCalled());
+    const logoutStartedAt = Date.now();
+    await oauth.logout('user-1');
+
+    expect(Date.now() - logoutStartedAt).toBeLessThan(1000);
+    await pendingStatus;
+    expect(tokenStore.rows.size).toBe(0);
+  });
+
   describe('refresh lease lifetime', () => {
     const disableProcessLock = async <T>(_userId: string, fn: () => Promise<T>) => fn();
 
