@@ -188,13 +188,6 @@ const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
       min-width: 0 !important;
     }
 
-    .${prefixCls}-form-item-control .${prefixCls}-radio-group {
-      width: 100% !important;
-      max-width: 100% !important;
-      min-width: 0 !important;
-      white-space: normal !important;
-    }
-
     .${prefixCls}-form-item-control .${prefixCls}-input-affix-wrapper,
     .${prefixCls}-form-item-control .${prefixCls}-input {
       width: 100%;

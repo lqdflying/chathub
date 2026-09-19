@@ -273,15 +273,19 @@
     "expired": "The device code expired. Sign in again.",
     "expires": "Session expires {{time}}",
     "fiveHourLeft": "5-hour limit: {{percent}}% left",
+    "fiveHourTitle": "5-hour limit",
+    "helpAria": "About ChatGPT / Codex subscription",
     "hint": "After you sign in, OpenAI chat uses your ChatGPT Plus/Pro Codex quota instead of Platform API billing. Images, speech, and embeddings still use the API key above.",
     "openChatGPT": "Open ChatGPT",
+    "remainingPercent": "{{percent}}% left",
     "signIn": "Sign in with ChatGPT",
     "signOut": "Sign out",
     "title": "ChatGPT / Codex subscription",
     "unofficial": "This is an unofficial Codex client path and can break if OpenAI changes the client or endpoints.",
     "usageResets": "resets {{time}}",
     "waiting": "Enter this code on the ChatGPT device page to finish authorization.",
-    "weeklyLeft": "Weekly limit: {{percent}}% left"
+    "weeklyLeft": "Weekly limit: {{percent}}% left",
+    "weeklyTitle": "Weekly limit"
   },
   "providerModels": {
     "batchSelect": {

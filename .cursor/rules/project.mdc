@@ -131,6 +131,10 @@ Adding or changing **per-model** API options (new provider module, new toggles) 
 
 Dedicated gear panels live under **`src/features/ChatInput/ActionBar/Model/providers/`** and are wired from **`src/features/ChatInput/ActionBar/Model/index.tsx`** (see table in that rule file). **`README.md`** summarizes user-facing behavior for the fork.
 
+Settings → provider detail layout (pane shrink, owned API-route toggle, collapse
+header so the enable switch stays visible) is **`.cursor/rules/settings-provider-layout.mdc`**.
+Do not reuse antd `Radio.Group block` or `Segmented block` there.
+
 ## GitHub Wiki — separate sub-repo (CRITICAL)
 
 The GitHub wiki is a **completely separate git repository** from the main codebase:

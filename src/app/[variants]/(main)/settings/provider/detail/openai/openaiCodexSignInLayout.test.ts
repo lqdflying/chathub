@@ -16,8 +16,33 @@ describe('OpenAICodexSignIn layout', () => {
     expect(src).toContain('flex-direction: column');
     expect(src).not.toContain('flex: 1 1 12rem');
     expect(src).toContain('statusRow');
-    expect(src).toContain('statusText');
     expect(src).toContain('fiveHourLeft');
     expect(src).toContain('weeklyLeft');
+  });
+
+  it('moves the long subscription notes onto a keyboard-reachable help icon', () => {
+    const src = readFileSync(join(dir, 'OpenAICodexSignIn.tsx'), 'utf8');
+
+    expect(src).toContain('CircleHelpIcon');
+    expect(src).toContain("t('openaiCodex.helpAria')");
+    expect(src).toContain("trigger={['hover', 'focus']}");
+    expect(src).toContain("t('openaiCodex.hint')");
+    expect(src).toContain("t('openaiCodex.deviceLoginPrerequisite')");
+    expect(src).toContain("t('openaiCodex.unofficial')");
+    expect(src).not.toContain('<div className={styles.hint}>{t(\'openaiCodex.hint\')}</div>');
+    expect(src).not.toContain(
+      '<div className={styles.hint}>{t(\'openaiCodex.deviceLoginPrerequisite\')}</div>',
+    );
+  });
+
+  it('renders connected usage as labeled meters instead of stacked hint lines', () => {
+    const src = readFileSync(join(dir, 'OpenAICodexSignIn.tsx'), 'utf8');
+
+    expect(src).toContain('<Progress');
+    expect(src).toContain('<Tag');
+    expect(src).toContain('formatCodexPlanLabel');
+    expect(src).toContain('fiveHourTitle');
+    expect(src).toContain('weeklyTitle');
+    expect(src).toContain('remainingPercent');
   });
 });

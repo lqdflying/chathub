@@ -99,6 +99,7 @@ describe('provider settings detail shell', () => {
     expect(form).not.toContain('width: auto !important');
     expect(form).not.toContain('<Segmented');
     expect(form).not.toContain('<Radio.Group');
+    expect(form).not.toContain('.${prefixCls}-radio-group');
 
     const routeToggle = readFileSync(
       join(

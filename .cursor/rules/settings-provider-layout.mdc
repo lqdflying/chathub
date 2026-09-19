@@ -1,0 +1,86 @@
+---
+description: Settings provider detail layout — shrink the pane, own the route toggle, shrink collapse titles. Do not reuse Radio/Segmented block.
+globs: src/app/[variants]/(main)/settings/**/*,src/features/Setting/**
+alwaysApply: false
+---
+
+# Settings provider detail layout
+
+How Settings → provider (native OpenAI and OpenAI Compatible) finally stayed
+inside the pane: two equal API-route pills, stacked Check, visible enable
+switch at 768–800px. Apply this stack. Do not revive the failed approaches.
+
+## What actually works (keep)
+
+These layers are all required. Fixing only the form, or only the toggle, is
+not enough.
+
+1. **Ancestor shrink.** Desktop Settings is a flex child of the app shell.
+   Default `min-width: auto` is min-content, so a form or Codex card widens
+   the whole pane past the viewport. `DESKTOP_SETTINGS_LAYOUT_STYLE` and the
+   provider detail / `SettingContainer` chain must set `min-width: 0` (and
+   `max-width: 100%` where the pane clips).
+2. **One-column form grid.** LobeHub Form still paints `.ant-row` as
+   horizontal `space-between` even when Ant `layout="vertical"`. Do not put
+   two `width: 100%` flex children in that row — they become ~2× the pane
+   and `overflow-x: hidden` clips Responses / Check. Force the item row to
+   `display: grid; grid-template-columns: minmax(0, 1fr)`.
+3. **Owned route toggle.** `ProviderRouteToggle` is a two-column CSS grid
+   with **inline** track/item widths. Do not use antd `Radio.Group block` or
+   `@lobehub/ui` `Segmented block`. Both start content-sized / `inline-block`,
+   then CSS-in-JS injects flex ~1s after paint / `setFieldsValue`; the
+   selected thumb becomes the full pane and the other label disappears.
+4. **Collapse title shrink.** The enable switch lives in `.ant-collapse-extra`.
+   antd header-text is `flex: auto` with `min-width: auto`, so the title keeps
+   min-content and `overflow: hidden` on the header clips the switch at
+   768–800px. Shrink `.ant-collapse-header-text` (`flex: 1 1 0`, `min-width: 0`)
+   and keep extra `flex: none`. Inner `providerConfigTitleRowStyle` alone is
+   not enough.
+5. **Drop `FORM_STYLE.itemMinWidth`.** `max(34%, 240px)` shrink-wraps the
+   control. Keep `itemMinWidth={undefined}` and `layout="vertical"`.
+
+Map boolean `enableResponseApi` with `getValueFromEvent` /
+`getValueProps`. Keyboard on the owned toggle follows the WAI-ARIA radio
+pattern (roving tabindex, arrows move and check).
+
+## Do not
+
+- Diagnose “Compatible works, native does not” as different CSS. They share
+  `ProviderConfig`. Compatible only *looked* stacked when long labels wrapped.
+- Beat LobeHub horizontal rows with stronger `flex` / `width: 100%` only.
+- Bring back `Radio.Group block` or `Segmented block` for the API route.
+- Set `min-width: 0` only on an inner title Flexbox and ignore
+  `.ant-collapse-header-text`.
+- Treat a first paint of two pills as success. Wait for late CSS-in-JS
+  (~1s / after `setFieldsValue`) before claiming the toggle is stable.
+- Add a second topic branch for another Settings layout pass; stay on the
+  current pre-GA branch.
+
+## Wrong-direction history (do not revert the working commits)
+
+| Commit | Intent | Verdict |
+| --- | --- | --- |
+| `f2b405086e` / `a4927d52f6` | Flex overrides, drop `FORM_STYLE` | Keep the `FORM_STYLE` drop. Flex-only overrides were not enough. |
+| `f5388e8936` | `layout="vertical"` | **Keep.** Labels must stack. Compatible was never a different form. |
+| `d2edaedf43` | One-column grid; `Radio.Group block` | **Keep the grid.** Radio `block` was the late-flex failure — already removed from JSX. Do not restore it. Dead `.ant-radio-group { width: 100% }` in the form styles is leftover and should stay gone. |
+| `4d62491d72` | `Segmented block` | **Wrong control.** Same late CSS-in-JS as Radio. Already replaced. |
+| `6714dc0513` / `b977a3320c` | Owned `ProviderRouteToggle` | **Keep.** This is the route control. |
+| `25dd3ae994` | Desktop `min-width: 0` | **Keep.** Outer pane shrink. |
+| `a7bf5d1a09` | Collapse header-text shrink | **Keep.** Enable switch at 768–800px. |
+| Codex card stack / usage meters | Stack Sign out; show 5h / weekly | **Keep** the stack. Card copy belongs in the title help icon, not three body paragraphs. |
+
+Do **not** `git revert` those commits. They also contain the working pieces.
+Prune only leftover Radio/Segmented markup or dead radio-group CSS.
+
+## Sources
+
+- [CSS Flexbox min-size:auto](https://www.w3.org/TR/css-flexbox-1/#min-size-auto)
+- [MDN `min-width`](https://developer.mozilla.org/en-US/docs/Web/CSS/min-width)
+- [Why flex items don’t shrink past content size](https://stackoverflow.com/questions/36247140/why-dont-flex-items-shrink-past-content-size)
+- [Ant Design Form](https://ant.design/components/form)
+- [Radio `block` (5.21+)](https://ant.design/components/radio)
+- [Segmented `block`](https://ant.design/components/segmented)
+- [Ant Design CSS-in-JS](https://ant.design/docs/blog/css-in-js)
+- [antd Collapse header-text `flex: auto`](https://github.com/ant-design/ant-design/blob/a549842b/components/collapse/style/index.ts)
+- [antd #54890](https://github.com/ant-design/ant-design/issues/54890)
+- [WAI-ARIA radio group](https://www.w3.org/WAI/ARIA/apg/patterns/radio/)

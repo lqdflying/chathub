@@ -1,7 +1,9 @@
 'use client';
 
-import { Button } from '@lobehub/ui';
+import { Button, Icon, Tooltip } from '@lobehub/ui';
+import { Progress, Tag } from 'antd';
 import { createStyles } from 'antd-style';
+import { CircleHelpIcon } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
@@ -14,6 +16,12 @@ import {
 import { useAiInfraStore } from '@/store/aiInfra';
 import { useUserStore } from '@/store/user';
 import { authSelectors } from '@/store/user/selectors';
+
+import {
+  clampCodexUsagePercent,
+  formatCodexPlanLabel,
+  resolveCodexUsageStroke,
+} from './openaiCodexStatus';
 
 const useStyles = createStyles(({ css, token }) => ({
   card: css`
@@ -35,6 +43,39 @@ const useStyles = createStyles(({ css, token }) => ({
     font-weight: 600;
     letter-spacing: 0.16em;
   `,
+  email: css`
+    min-width: 0;
+    overflow-wrap: anywhere;
+    color: ${token.colorText};
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.4;
+  `,
+  helpButton: css`
+    cursor: help;
+
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: ${token.colorTextDescription};
+
+    &:hover,
+    &:focus-visible {
+      color: ${token.colorText};
+    }
+  `,
+  helpText: css`
+    max-width: 320px;
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.55;
+    white-space: normal;
+  `,
   hint: css`
     min-width: 0;
     overflow-wrap: anywhere;
@@ -43,6 +84,44 @@ const useStyles = createStyles(({ css, token }) => ({
     font-size: 12px;
     line-height: 1.6;
   `,
+  identity: css`
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    justify-content: space-between;
+
+    width: 100%;
+    min-width: 0;
+  `,
+  meter: css`
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    width: 100%;
+    min-width: 0;
+  `,
+  meterLabel: css`
+    color: ${token.colorText};
+    font-size: 13px;
+    font-weight: 500;
+  `,
+  meterReset: css`
+    color: ${token.colorTextDescription};
+    font-size: 12px;
+    line-height: 1.4;
+  `,
+  meterValue: css`
+    flex: none;
+    color: ${token.colorTextSecondary};
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+  `,
+  session: css`
+    color: ${token.colorTextDescription};
+    font-size: 12px;
+    line-height: 1.4;
+  `,
   /* Same stack as Connectivity Check: text above the action so overflow-x
      hidden cannot park Sign Out / Open ChatGPT off the right edge.
      @see https://developer.mozilla.org/en-US/docs/Web/CSS/min-width
@@ -50,24 +129,24 @@ const useStyles = createStyles(({ css, token }) => ({
   statusRow: css`
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 12px;
     align-items: stretch;
 
     width: 100%;
     max-width: 100%;
     min-width: 0;
   `,
-  statusText: css`
-    width: 100%;
-    max-width: 100%;
-    min-width: 0;
-    overflow-wrap: anywhere;
-  `,
   title: css`
     min-width: 0;
     overflow-wrap: anywhere;
     font-size: 14px;
     font-weight: 600;
+  `,
+  titleRow: css`
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    min-width: 0;
   `,
 }));
 
@@ -198,53 +277,103 @@ const OpenAICodexSignIn = () => {
   };
 
   const connected = canFetch && !!statusQuery.data?.connected;
+  const fiveHourPercent = clampCodexUsagePercent(statusQuery.data?.fiveHour?.remainingPercent);
+  const weeklyPercent = clampCodexUsagePercent(statusQuery.data?.weekly?.remainingPercent);
   const fiveHourReset = formatUsageReset(statusQuery.data?.fiveHour?.resetsAt);
   const weeklyReset = formatUsageReset(statusQuery.data?.weekly?.resetsAt);
+  const planLabel = formatCodexPlanLabel(statusQuery.data?.chatgptPlanType);
+  const helpTitle = (
+    <Flexbox gap={8}>
+      <p className={styles.helpText}>{t('openaiCodex.hint')}</p>
+      <p className={styles.helpText}>{t('openaiCodex.deviceLoginPrerequisite')}</p>
+      <p className={styles.helpText}>{t('openaiCodex.unofficial')}</p>
+    </Flexbox>
+  );
 
   return (
-    <Flexbox className={styles.card} gap={8}>
-      <div className={styles.title}>{t('openaiCodex.title')}</div>
-      <div className={styles.hint}>{t('openaiCodex.hint')}</div>
-      <div className={styles.hint}>{t('openaiCodex.deviceLoginPrerequisite')}</div>
-      <div className={styles.hint}>{t('openaiCodex.unofficial')}</div>
+    <Flexbox className={styles.card} gap={12}>
+      <div className={styles.titleRow}>
+        <div className={styles.title}>{t('openaiCodex.title')}</div>
+        <Tooltip
+          styles={{ root: { maxWidth: 360 } }}
+          title={helpTitle}
+          trigger={['hover', 'focus']}
+        >
+          <button
+            aria-label={t('openaiCodex.helpAria')}
+            className={styles.helpButton}
+            type="button"
+          >
+            <Icon icon={CircleHelpIcon} size={14} />
+          </button>
+        </Tooltip>
+      </div>
 
       {connected ? (
         <div className={styles.statusRow}>
-          <div className={styles.statusText}>
-            <div>
+          <div className={styles.identity}>
+            <div className={styles.email}>
               {statusQuery.data?.email
                 ? t('openaiCodex.connected', { email: statusQuery.data.email })
                 : t('openaiCodex.connectedAnonymous')}
             </div>
-            {statusQuery.data?.chatgptPlanType && (
-              <div className={styles.hint}>
-                {t('openaiCodex.connectedPlan', { plan: statusQuery.data.chatgptPlanType })}
-              </div>
-            )}
-            {statusQuery.data?.fiveHour && (
-              <div className={styles.hint}>
-                {t('openaiCodex.fiveHourLeft', {
-                  percent: statusQuery.data.fiveHour.remainingPercent,
-                })}
-                {fiveHourReset ? ` · ${t('openaiCodex.usageResets', { time: fiveHourReset })}` : ''}
-              </div>
-            )}
-            {statusQuery.data?.weekly && (
-              <div className={styles.hint}>
-                {t('openaiCodex.weeklyLeft', {
-                  percent: statusQuery.data.weekly.remainingPercent,
-                })}
-                {weeklyReset ? ` · ${t('openaiCodex.usageResets', { time: weeklyReset })}` : ''}
-              </div>
-            )}
-            {statusQuery.data?.expiresAt && (
-              <div className={styles.hint}>
-                {t('openaiCodex.expires', {
-                  time: new Date(statusQuery.data.expiresAt).toLocaleString(),
-                })}
-              </div>
+            {planLabel && (
+              <Tag bordered={false} color="processing">
+                {t('openaiCodex.connectedPlan', { plan: planLabel })}
+              </Tag>
             )}
           </div>
+          {statusQuery.data?.fiveHour && (
+            <div className={styles.meter}>
+              <Flexbox align={'baseline'} horizontal justify={'space-between'}>
+                <span className={styles.meterLabel}>{t('openaiCodex.fiveHourTitle')}</span>
+                <span className={styles.meterValue}>
+                  {t('openaiCodex.remainingPercent', { percent: fiveHourPercent })}
+                </span>
+              </Flexbox>
+              <Progress
+                aria-label={t('openaiCodex.fiveHourLeft', { percent: fiveHourPercent })}
+                percent={fiveHourPercent}
+                showInfo={false}
+                size="small"
+                status={resolveCodexUsageStroke(fiveHourPercent)}
+              />
+              {fiveHourReset && (
+                <div className={styles.meterReset}>
+                  {t('openaiCodex.usageResets', { time: fiveHourReset })}
+                </div>
+              )}
+            </div>
+          )}
+          {statusQuery.data?.weekly && (
+            <div className={styles.meter}>
+              <Flexbox align={'baseline'} horizontal justify={'space-between'}>
+                <span className={styles.meterLabel}>{t('openaiCodex.weeklyTitle')}</span>
+                <span className={styles.meterValue}>
+                  {t('openaiCodex.remainingPercent', { percent: weeklyPercent })}
+                </span>
+              </Flexbox>
+              <Progress
+                aria-label={t('openaiCodex.weeklyLeft', { percent: weeklyPercent })}
+                percent={weeklyPercent}
+                showInfo={false}
+                size="small"
+                status={resolveCodexUsageStroke(weeklyPercent)}
+              />
+              {weeklyReset && (
+                <div className={styles.meterReset}>
+                  {t('openaiCodex.usageResets', { time: weeklyReset })}
+                </div>
+              )}
+            </div>
+          )}
+          {statusQuery.data?.expiresAt && (
+            <div className={styles.session}>
+              {t('openaiCodex.expires', {
+                time: new Date(statusQuery.data.expiresAt).toLocaleString(),
+              })}
+            </div>
+          )}
           <div>
             <Button loading={logout.isPending} onClick={handleLogout}>
               {t('openaiCodex.signOut')}
