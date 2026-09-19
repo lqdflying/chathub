@@ -13,7 +13,8 @@ describe('OpenAICodexSignIn layout', () => {
     expect(src).toContain('max-width: 100%');
     expect(src).toContain('min-width: 0');
     expect(src).toContain('overflow-wrap: anywhere');
-    expect(src).toContain('flex: 1 1 12rem');
+    expect(src).toContain('flex-direction: column');
+    expect(src).not.toContain('flex: 1 1 12rem');
     expect(src).toContain('statusRow');
     expect(src).toContain('statusText');
   });

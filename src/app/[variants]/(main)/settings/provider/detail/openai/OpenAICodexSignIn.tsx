@@ -17,6 +17,7 @@ import { authSelectors } from '@/store/user/selectors';
 
 const useStyles = createStyles(({ css, token }) => ({
   card: css`
+    box-sizing: border-box;
     width: 100%;
     max-width: 100%;
     min-width: 0;
@@ -42,18 +43,23 @@ const useStyles = createStyles(({ css, token }) => ({
     font-size: 12px;
     line-height: 1.6;
   `,
+  /* Same stack as Connectivity Check: text above the action so overflow-x
+     hidden cannot park Sign Out / Open ChatGPT off the right edge.
+     @see https://developer.mozilla.org/en-US/docs/Web/CSS/min-width
+     @see https://stackoverflow.com/questions/36230944/prevent-flex-items-from-overflowing-a-container */
   statusRow: css`
     display: flex;
-    flex-wrap: wrap;
+    flex-direction: column;
     gap: 8px;
-    align-items: flex-start;
+    align-items: stretch;
 
     width: 100%;
     max-width: 100%;
     min-width: 0;
   `,
   statusText: css`
-    flex: 1 1 12rem;
+    width: 100%;
+    max-width: 100%;
     min-width: 0;
     overflow-wrap: anywhere;
   `,
@@ -217,9 +223,11 @@ const OpenAICodexSignIn = () => {
               </div>
             )}
           </div>
-          <Button loading={logout.isPending} onClick={handleLogout}>
-            {t('openaiCodex.signOut')}
-          </Button>
+          <div>
+            <Button loading={logout.isPending} onClick={handleLogout}>
+              {t('openaiCodex.signOut')}
+            </Button>
+          </div>
         </div>
       ) : waiting && userCode ? (
         <>
