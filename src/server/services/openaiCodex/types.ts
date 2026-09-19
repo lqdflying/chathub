@@ -1,8 +1,18 @@
+export type OpenAICodexUsageWindow = {
+  remainingPercent: number;
+  resetsAt?: string;
+  usedPercent: number;
+  windowMinutes: number;
+  windowSeconds: number;
+};
+
 export type OpenAICodexConnectionStatus = {
   chatgptPlanType?: string;
   connected: boolean;
   email?: string;
   expiresAt?: string;
+  fiveHour?: OpenAICodexUsageWindow;
+  weekly?: OpenAICodexUsageWindow;
 };
 
 export type OpenAICodexDeviceLoginStart = {

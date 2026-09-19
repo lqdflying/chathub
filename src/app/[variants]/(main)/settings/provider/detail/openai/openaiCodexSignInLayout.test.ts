@@ -17,5 +17,7 @@ describe('OpenAICodexSignIn layout', () => {
     expect(src).not.toContain('flex: 1 1 12rem');
     expect(src).toContain('statusRow');
     expect(src).toContain('statusText');
+    expect(src).toContain('fiveHourLeft');
+    expect(src).toContain('weeklyLeft');
   });
 });

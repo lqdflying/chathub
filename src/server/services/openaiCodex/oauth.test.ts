@@ -459,6 +459,88 @@ describe('OpenAICodexOAuthService', () => {
     expect(tokenStore.rows.size).toBe(1);
   });
 
+  it('attaches 5-hour and weekly remaining from /wham/usage without returning tokens', async () => {
+    await tokenStore.upsert({
+      accessToken: `enc:${accessToken}`,
+      accountId: 'acct_1',
+      chatgptPlanType: 'plus',
+      clientId: 'client',
+      email: 'plus@example.com',
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      refreshToken: 'enc:refresh-1',
+      userId: 'user-1',
+    });
+    fetchFn.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({
+          plan_type: 'plus',
+          rate_limit: {
+            primary_window: {
+              limit_window_seconds: 18_000,
+              reset_at: 1_778_670_307,
+              used_percent: 27,
+            },
+            secondary_window: {
+              limit_window_seconds: 604_800,
+              reset_at: 1_783_357_722,
+              used_percent: 31,
+            },
+          },
+        }),
+    });
+
+    const status = await service().getStatus('user-1');
+
+    expect(status).toMatchObject({
+      chatgptPlanType: 'plus',
+      connected: true,
+      email: 'plus@example.com',
+      fiveHour: { remainingPercent: 73, usedPercent: 27 },
+      weekly: { remainingPercent: 69, usedPercent: 31 },
+    });
+    expect(fetchFn).toHaveBeenCalledWith(
+      'https://chatgpt.com/backend-api/wham/usage',
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          'ChatGPT-Account-Id': 'acct_1',
+        }),
+        method: 'GET',
+      }),
+    );
+    expect(JSON.stringify(status)).not.toContain(accessToken);
+    expect(JSON.stringify(fetchFn.mock.calls)).toContain(accessToken);
+  });
+
+  it('keeps the connection when usage lookup fails', async () => {
+    await tokenStore.upsert({
+      accessToken: `enc:${accessToken}`,
+      accountId: 'acct_1',
+      chatgptPlanType: 'plus',
+      clientId: 'client',
+      email: 'plus@example.com',
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      refreshToken: 'enc:refresh-1',
+      userId: 'user-1',
+    });
+    fetchFn.mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+      text: async () => 'forbidden',
+    });
+
+    const status = await service().getStatus('user-1');
+    expect(status).toEqual(
+      expect.objectContaining({
+        connected: true,
+        email: 'plus@example.com',
+      }),
+    );
+    expect(status.fiveHour).toBeUndefined();
+    expect(status.weekly).toBeUndefined();
+  });
+
   describe('refresh lease lifetime', () => {
     const disableProcessLock = async <T>(_userId: string, fn: () => Promise<T>) => fn();
 

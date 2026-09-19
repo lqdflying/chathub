@@ -272,13 +272,16 @@
     "deviceLoginPrerequisite": "ChatGPT must allow device-code login: enable it in Security settings for a personal account, or have a workspace admin allow it. That is a ChatGPT permission, not a ChatHub toggle.",
     "expired": "The device code expired. Sign in again.",
     "expires": "Session expires {{time}}",
+    "fiveHourLeft": "5-hour limit: {{percent}}% left",
     "hint": "After you sign in, OpenAI chat uses your ChatGPT Plus/Pro Codex quota instead of Platform API billing. Images, speech, and embeddings still use the API key above.",
     "openChatGPT": "Open ChatGPT",
     "signIn": "Sign in with ChatGPT",
     "signOut": "Sign out",
     "title": "ChatGPT / Codex subscription",
     "unofficial": "This is an unofficial Codex client path and can break if OpenAI changes the client or endpoints.",
-    "waiting": "Enter this code on the ChatGPT device page to finish authorization."
+    "usageResets": "resets {{time}}",
+    "waiting": "Enter this code on the ChatGPT device page to finish authorization.",
+    "weeklyLeft": "Weekly limit: {{percent}}% left"
   },
   "providerModels": {
     "batchSelect": {

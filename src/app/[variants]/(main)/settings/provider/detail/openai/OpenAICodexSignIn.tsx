@@ -72,6 +72,10 @@ const useStyles = createStyles(({ css, token }) => ({
 }));
 
 const POLL_INTERVAL_MS = 2500;
+const STATUS_STALE_MS = 30_000;
+
+const formatUsageReset = (iso?: string) =>
+  iso ? new Date(iso).toLocaleString() : undefined;
 
 const OpenAICodexSignIn = () => {
   const { styles } = useStyles();
@@ -91,7 +95,7 @@ const OpenAICodexSignIn = () => {
     !hasOwnerMismatch;
   const statusQuery = lambdaQuery.openaiCodex.status.useQuery(
     { accountScope: userStateScope ?? '' },
-    { enabled: canFetch },
+    { enabled: canFetch, staleTime: STATUS_STALE_MS },
   );
   const startLogin = lambdaQuery.openaiCodex.startDeviceLogin.useMutation();
   const pollLogin = lambdaQuery.openaiCodex.pollDeviceLogin.useMutation();
@@ -194,6 +198,8 @@ const OpenAICodexSignIn = () => {
   };
 
   const connected = canFetch && !!statusQuery.data?.connected;
+  const fiveHourReset = formatUsageReset(statusQuery.data?.fiveHour?.resetsAt);
+  const weeklyReset = formatUsageReset(statusQuery.data?.weekly?.resetsAt);
 
   return (
     <Flexbox className={styles.card} gap={8}>
@@ -213,6 +219,22 @@ const OpenAICodexSignIn = () => {
             {statusQuery.data?.chatgptPlanType && (
               <div className={styles.hint}>
                 {t('openaiCodex.connectedPlan', { plan: statusQuery.data.chatgptPlanType })}
+              </div>
+            )}
+            {statusQuery.data?.fiveHour && (
+              <div className={styles.hint}>
+                {t('openaiCodex.fiveHourLeft', {
+                  percent: statusQuery.data.fiveHour.remainingPercent,
+                })}
+                {fiveHourReset ? ` · ${t('openaiCodex.usageResets', { time: fiveHourReset })}` : ''}
+              </div>
+            )}
+            {statusQuery.data?.weekly && (
+              <div className={styles.hint}>
+                {t('openaiCodex.weeklyLeft', {
+                  percent: statusQuery.data.weekly.remainingPercent,
+                })}
+                {weeklyReset ? ` · ${t('openaiCodex.usageResets', { time: weeklyReset })}` : ''}
               </div>
             )}
             {statusQuery.data?.expiresAt && (

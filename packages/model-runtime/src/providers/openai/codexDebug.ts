@@ -27,7 +27,8 @@ export type OpenAICodexDebugEvent =
   | 'refresh_settled'
   | 'resolve_overlay_settled'
   | 'resolve_session_settled'
-  | 'token_exchange_settled';
+  | 'token_exchange_settled'
+  | 'usage_fetch_settled';
 
 export const isOpenAICodexDebugEnabled = (): boolean => {
   const value = (process.env.CHATHUB_OPENAI_CODEX_DEBUG ?? '').trim().toLowerCase();

@@ -10,6 +10,14 @@ export const OPENAI_CODEX_DEVICE_CALLBACK_URL = 'https://auth.openai.com/devicea
 /** Codex inference / catalog base (no trailing slash). */
 export const OPENAI_CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex';
 
+/**
+ * Official Codex CLI ChatGPT path for live 5-hour / weekly remaining.
+ * @see https://github.com/openai/codex/blob/main/codex-rs/backend-client/src/client/rate_limit_resets.rs
+ */
+export const OPENAI_CODEX_USAGE_URL = 'https://chatgpt.com/backend-api/wham/usage';
+
+export const OPENAI_CODEX_USAGE_TIMEOUT_MS = 8000;
+
 /** Pinned to a current Codex CLI version for `GET /models?client_version=`. */
 export const OPENAI_CODEX_CLIENT_VERSION = '0.154.0';
 

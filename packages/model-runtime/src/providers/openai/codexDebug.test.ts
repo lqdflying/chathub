@@ -44,22 +44,28 @@ describe('CHATHUB_OPENAI_CODEX_DEBUG', () => {
 
   it('emits allowlisted fields and drops tokens', () => {
     vi.stubEnv('CHATHUB_OPENAI_CODEX_DEBUG', '1');
-    logOpenAICodexDebugSafe('chat_request_settled', {
+    logOpenAICodexDebugSafe('usage_fetch_settled', {
       accessToken: 'sk-secret',
       durationMs: 12,
+      fiveHourRemaining: 73,
+      hasFiveHour: true,
+      hasWeekly: true,
       httpStatus: 200,
-      mediaType: 'text/event-stream',
       outcome: 'ok',
       userCode: 'ABCD-EFGH',
+      weeklyRemaining: 69,
     });
 
     const [prefix, json] = consoleLogSpy.mock.calls[0];
-    expect(prefix).toBe(`[${OPENAI_CODEX_DEBUG_NAMESPACE}:chat_request_settled]`);
+    expect(prefix).toBe(`[${OPENAI_CODEX_DEBUG_NAMESPACE}:usage_fetch_settled]`);
     expect(JSON.parse(json as string)).toMatchObject({
       durationMs: 12,
+      fiveHourRemaining: 73,
+      hasFiveHour: true,
+      hasWeekly: true,
       httpStatus: 200,
-      mediaType: 'text/event-stream',
       outcome: 'ok',
+      weeklyRemaining: 69,
     });
     expect(json).not.toContain('sk-secret');
     expect(json).not.toContain('ABCD-EFGH');

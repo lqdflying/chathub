@@ -34,7 +34,7 @@ tRPC `openaiCodex` (lambda, authed):
    `POST https://auth.openai.com/oauth/token` (`authorization_code`,
    `redirect_uri=https://auth.openai.com/deviceauth/callback`, `code_verifier`)
 4. JWT claim `https://api.openai.com/auth` → `chatgpt_account_id` (required)
-5. `status` returns email / plan / expiry only
+5. `status` returns email / plan / expiry, then fail-soft `GET https://chatgpt.com/backend-api/wham/usage` (official Codex ChatGPT path) and attaches 5-hour / weekly remaining when those windows exist. Usage HTTP errors do not disconnect.
 6. `logout` deletes the token row; API key vaults are untouched
 
 Refresh uses `grant_type=refresh_token` about five minutes before expiry.
@@ -99,7 +99,7 @@ media-type class, durations, SSE event counts, allowlisted outcomes
 (`ok` / `empty` / `failed` / `incomplete` / `unexpected_end` /
 `parse_error` / `cancelled` / `error` / `pending` / `connected` /
 `denied` / `live` / `missing` / `codex` / `platform` / `transient`).
-`chat_request_settled` `ok` is HTTP 200 only. `chat_stream_settled`
+`usage_fetch_settled` reports HTTP status and whether 5-hour / weekly windows were present. `chat_request_settled` `ok` is HTTP 200 only. `chat_stream_settled`
 follows the Responses lifecycle (`onCompletion` / `onError` terminal
 reason / cancel), not whether any SSE frame parsed. Tokens, device
 codes, emails, and prompt/response text are never logged. Platform

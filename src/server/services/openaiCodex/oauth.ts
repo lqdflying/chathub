@@ -10,7 +10,10 @@ import {
   OPENAI_CODEX_DEVICE_TIMEOUT_MS,
   OPENAI_CODEX_DEVICE_VERIFICATION_URL,
   OPENAI_CODEX_HANDOFF_CLIENT,
+  OPENAI_CODEX_ORIGINATOR,
   OPENAI_CODEX_REFRESH_SKEW_MS,
+  OPENAI_CODEX_USAGE_TIMEOUT_MS,
+  OPENAI_CODEX_USAGE_URL,
   OPENAI_CODEX_USER_AGENT,
 } from '@lobechat/model-runtime';
 import { TRPCError } from '@trpc/server';
@@ -35,6 +38,7 @@ import type {
   OpenAICodexDeviceLoginStart,
   OpenAICodexLiveSession,
 } from './types';
+import { parseOpenAICodexUsageWindows } from './usage';
 
 type FetchFn = typeof fetch;
 
@@ -348,7 +352,63 @@ export class OpenAICodexOAuthService {
     const record = await this.tokenStore.findByUserId(userId);
     if (!record) return { connected: false };
 
-    return sanitizeStatus(record);
+    const status = sanitizeStatus(record);
+    try {
+      const session = await this.resolveLiveSession(userId);
+      if (!session) return status;
+      return { ...sanitizeStatus(session), ...(await this.fetchUsageWindows(session)) };
+    } catch {
+      return status;
+    }
+  }
+
+  private async fetchUsageWindows(
+    session: OpenAICodexLiveSession,
+  ): Promise<Pick<OpenAICodexConnectionStatus, 'fiveHour' | 'weekly'>> {
+    const startedAt = Date.now();
+    try {
+      const response = await this.fetchFn(OPENAI_CODEX_USAGE_URL, {
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${session.accessToken}`,
+          'ChatGPT-Account-Id': session.accountId,
+          'User-Agent': OPENAI_CODEX_USER_AGENT,
+          originator: OPENAI_CODEX_ORIGINATOR,
+        },
+        method: 'GET',
+        signal: AbortSignal.timeout(OPENAI_CODEX_USAGE_TIMEOUT_MS),
+      });
+      const bodyText = await response.text();
+      if (!response.ok) {
+        logOpenAICodexDebugSafe('usage_fetch_settled', {
+          durationMs: Date.now() - startedAt,
+          httpStatus: response.status,
+          outcome: 'error',
+          reason: 'usage_http_error',
+        });
+        return {};
+      }
+
+      const usage = parseOpenAICodexUsageWindows(parseJsonObject(bodyText));
+      logOpenAICodexDebugSafe('usage_fetch_settled', {
+        durationMs: Date.now() - startedAt,
+        fiveHourRemaining: usage.fiveHour?.remainingPercent,
+        hasFiveHour: !!usage.fiveHour,
+        hasWeekly: !!usage.weekly,
+        httpStatus: response.status,
+        outcome: usage.fiveHour || usage.weekly ? 'ok' : 'missing',
+        weeklyRemaining: usage.weekly?.remainingPercent,
+      });
+      return usage;
+    } catch {
+      logOpenAICodexDebugSafe('usage_fetch_settled', {
+        durationMs: Date.now() - startedAt,
+        httpStatus: 0,
+        outcome: 'error',
+        reason: 'usage_fetch_failed',
+      });
+      return {};
+    }
   }
 
   async logout(userId: string): Promise<void> {

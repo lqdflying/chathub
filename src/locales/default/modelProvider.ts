@@ -276,13 +276,16 @@ export default {
       'ChatGPT 需允许设备码登录：个人账号在安全设置中开启，或由工作区管理员允许。这是 ChatGPT 侧的权限，不是 ChatHub 开关。',
     expired: '设备码已过期，请重新登录。',
     expires: '会话将于 {{time}} 过期',
+    fiveHourLeft: '5 小时额度剩余 {{percent}}%',
     hint: '登录后，OpenAI 聊天将使用你的 ChatGPT Plus/Pro Codex 额度，而不是 Platform API 计费。图像、语音和嵌入仍使用上方的 API Key。',
     openChatGPT: '打开 ChatGPT',
     signIn: '使用 ChatGPT 登录',
     signOut: '退出登录',
     title: 'ChatGPT / Codex 订阅',
     unofficial: '这是非官方 Codex 客户端路径，OpenAI 变更端点或客户端后可能失效。',
+    usageResets: '将于 {{time}} 重置',
     waiting: '在 ChatGPT 设备页输入此代码以完成授权。',
+    weeklyLeft: '每周额度剩余 {{percent}}%',
   },
   providerModels: {
     batchSelect: {
