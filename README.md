@@ -6,7 +6,7 @@
 
 **ChatHub 2.0** is the current GA. v1.0.0 (May 2026) was a rebranded, self-hosted LobeChat: credentials login, an extended model bank, Tools Hub, MCP OAuth, and per-provider gear. Twenty-eight patch releases later, the runtime contract is different. Closing the tab does not cancel the turn. Knowledge Base is a real RAG stack with its own embedding keys. Python and document conversion are optional sidecars. There is no Electron app and no browser-local database — browsers and PWAs talk to the server; durable data lives in PostgreSQL.
 
-Upgrade from any 1.x or 2.0.x image the same way as a patch: pull `:latest` or `2.0.7`, restart, let migrations run. [Release notes](https://github.com/lqdflying/chathub/releases/tag/v2.0.7) · [Wiki](https://github.com/lqdflying/chathub/wiki)
+Upgrade from any 1.x or 2.0.x image the same way as a patch: pull `:latest` or `2.0.8`, restart, let migrations run. **2.0.8** adds a native xAI / Grok provider (Console API key plus Settings-only SuperGrok login). [Release notes](https://github.com/lqdflying/chathub/releases/tag/v2.0.8) · [xAI / Grok](https://github.com/lqdflying/chathub/wiki/xAI-Grok) · [Wiki](https://github.com/lqdflying/chathub/wiki)
 
 ---
 
@@ -58,6 +58,7 @@ services:
       # ANTHROPIC_API_KEY=...
       # OPENAICOMPATIBLE_API_KEY=...
       # OPENAICOMPATIBLE_PROXY_URL=https://your-host/v1
+      # XAI_API_KEY=...
       # Dedicated Knowledge Base embeddings (all three required to index):
       # RAG_EMBEDDING_PROVIDER=openai
       # RAG_EMBEDDING_MODEL=text-embedding-3-small
@@ -163,7 +164,7 @@ Repo layout: [Architecture Overview](https://github.com/lqdflying/chathub/wiki/A
 
 ## Docker Release
 
-GitHub Actions builds `docker.io/lqdflying/chathub` on version tags. GA `v*.*.*` updates `:latest`. Canaries (`v*.*.*-canary.*`) do not. Current GA is **v2.0.7**; the next canary is `v2.0.8-canary.N`. [Release Workflow](https://github.com/lqdflying/chathub/wiki/Release-Workflow)
+GitHub Actions builds `docker.io/lqdflying/chathub` on version tags. GA `v*.*.*` updates `:latest`. Canaries (`v*.*.*-canary.*`) do not. Current GA is **v2.0.8**; the next canary is `v2.0.9-canary.N`. [Release Workflow](https://github.com/lqdflying/chathub/wiki/Release-Workflow)
 
 ---
 
