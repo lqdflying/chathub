@@ -424,8 +424,8 @@ models, raises the API `max_tokens` by 2048 and sends documented thinking-off /
 lowest-effort fields. Title, language-detect, and translation share
 `runSimpleCompletion` sampling (thinking-off / GPT-5 effort) but **do not**
 inherit that summary output cap — `chainTranslate` has no `max_tokens`.
-Native OpenAI Responses (for example `gpt-5.5`) maps the generic budget to
-`max_output_tokens`. Thinking-off is sent only where the vendor documents it
+Native OpenAI Responses (for example `gpt-5.5`) and native xAI Responses map
+the generic budget to `max_output_tokens`. Thinking-off is sent only where the vendor documents it
 (Anthropic `thinking: { type: 'disabled' }`; DeepSeek V4 / `deepseek-flash`
 `thinking: { type: 'disabled' }`, including saved Flash aliases
 `deepseek-v4-flash` and `deepseek-v4-flash-vision-exp`; Moonshot/Zhipu thinking-type APIs). Unlisted

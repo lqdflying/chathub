@@ -141,6 +141,38 @@ describe('LobeXaiAI cache and OAuth headers', () => {
     expect(requestOptions.headers).not.toHaveProperty('x-grok-conv-id');
   });
 
+  it('maps max_tokens to max_output_tokens on Responses only', async () => {
+    const instance = new LobeXaiAI({ apiKey: 'test-key' });
+    const mockStream = (async function* () {})();
+    const chatSpy = vi
+      .spyOn(instance['client'].chat.completions, 'create')
+      .mockResolvedValue(mockStream as any);
+    const responsesSpy = vi
+      .spyOn(instance['client'].responses, 'create')
+      .mockResolvedValue(mockStream as any);
+
+    await (
+      await instance.chat({
+        max_tokens: 2448,
+        messages: [{ content: 'Hello', role: 'user' }],
+        model: 'grok-4.6',
+      } as any)
+    ).text();
+    expect((chatSpy.mock.calls[0][0] as any).max_tokens).toBe(2448);
+    expect(chatSpy.mock.calls[0][0] as any).not.toHaveProperty('max_output_tokens');
+
+    await (
+      await instance.chat({
+        apiMode: 'responses',
+        max_tokens: 2448,
+        messages: [{ content: 'Hello', role: 'user' }],
+        model: 'grok-4.6',
+      } as any)
+    ).text();
+    expect((responsesSpy.mock.calls[0][0] as any).max_output_tokens).toBe(2448);
+    expect(responsesSpy.mock.calls[0][0] as any).not.toHaveProperty('max_tokens');
+  });
+
   it('sends Grok 4.3 none on Chat Completions and Responses', async () => {
     const instance = new LobeXaiAI({ apiKey: 'test-key' });
     const mockStream = (async function* () {})();

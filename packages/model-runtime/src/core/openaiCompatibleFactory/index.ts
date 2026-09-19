@@ -131,20 +131,24 @@ const applyOpenAICompatResponsesParams = (
 };
 
 /**
- * Native OpenAI `/v1/responses` documents `max_output_tokens`, not Chat
+ * Native OpenAI and xAI `/v1/responses` document `max_output_tokens`, not Chat
  * Completions `max_tokens`. Copy the generic budget then drop `max_tokens`
  * so both are never sent. OpenAI-compatible gateways keep the
  * `openAICompatResponsesParams` matrix instead.
  *
  * @see https://developers.openai.com/api/reference/resources/responses/methods/create
+ * @see https://docs.x.ai/developers/model-capabilities/text/comparison
  */
-const mapNativeOpenAIResponsesOutputBudget = (payload: Record<string, any>) => {
+const mapNativeResponsesOutputBudget = (payload: Record<string, any>) => {
   if (payload.max_output_tokens === undefined && payload.max_tokens !== undefined) {
     payload.max_output_tokens = payload.max_tokens;
   }
   delete payload.max_tokens;
   return payload;
 };
+
+const usesNativeResponsesOutputBudget = (providerId: string) =>
+  providerId === 'openai' || providerId === 'xai';
 
 type ConstructorOptions<T extends Record<string, any> = any> = ClientOptions & T;
 export type CreateImageOptions = Omit<ClientOptions, 'apiKey' | 'provider'> & {
@@ -1167,8 +1171,8 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
 
       const input = await convertOpenAIResponseInputs(messages as any, this.id);
       const responseParamsPayload = applyOpenAICompatResponsesParams(res, responsesParams);
-      if (this.id === 'openai') {
-        mapNativeOpenAIResponsesOutputBudget(responseParamsPayload);
+      if (usesNativeResponsesOutputBudget(this.id)) {
+        mapNativeResponsesOutputBudget(responseParamsPayload);
       }
       const effectiveReasoning =
         reasoning || reasoning_effort

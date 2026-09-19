@@ -330,3 +330,8 @@ Per-user ChatGPT / Codex subscription tokens and the unofficial
 Per-user SuperGrok device-code tokens and the unofficial
 `cli-chat-proxy.grok.com` overlay are documented in
 [xAI SuperGrok OAuth](xai-oauth.md).
+
+Native xAI `/v1/responses` uses `max_output_tokens`, not Chat Completions
+`max_tokens` ([xAI comparison](https://docs.x.ai/developers/model-capabilities/text/comparison)).
+The factory remaps the generic budget the same way as native OpenAI. Sending
+`max_tokens` on xAI Responses is HTTP 400.
