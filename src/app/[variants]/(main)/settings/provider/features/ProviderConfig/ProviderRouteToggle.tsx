@@ -1,7 +1,7 @@
 'use client';
 
 import { createStyles } from 'antd-style';
-import React from 'react';
+import React, { useRef } from 'react';
 
 /**
  * Equal-width Chat Completions | Responses API control.
@@ -11,9 +11,13 @@ import React from 'react';
  * refresh; the selected thumb or item becomes the full pane and the other
  * label is clipped by SettingContainer overflow-x hidden.
  *
+ * Keyboard follows the WAI-ARIA radio group pattern (roving tabindex,
+ * arrows move and check, wrap). Roles alone do not add that behavior.
+ *
+ * @see https://www.w3.org/WAI/ARIA/apg/patterns/radio/
+ * @see https://developer.mozilla.org/en-US/docs/Web/Accessibility/ARIA/Reference/Roles/radiogroup_role
  * @see https://ant.design/components/segmented
  * @see https://ant.design/docs/blog/css-in-js
- * @see https://ant.design/docs/blog/hydrate-cssinjs
  */
 export type ProviderRouteToggleValue = 'chatCompletions' | 'responses';
 
@@ -74,11 +78,48 @@ const useStyles = createStyles(({ css, token }) => ({
 
 const ProviderRouteToggle = ({ disabled, onChange, options, value }: ProviderRouteToggleProps) => {
   const { cx, styles } = useStyles();
+  const buttonRefs = useRef<Array<HTMLButtonElement | null>>([]);
+
+  const selectIndex = (index: number) => {
+    const option = options[index];
+    if (!option || disabled) return;
+    onChange?.(option.value);
+    buttonRefs.current[index]?.focus();
+  };
+
+  const onKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
+    if (disabled) return;
+    const last = options.length - 1;
+    switch (event.key) {
+      case 'ArrowRight':
+      case 'ArrowDown': {
+        event.preventDefault();
+        selectIndex(index === last ? 0 : index + 1);
+        break;
+      }
+      case 'ArrowLeft':
+      case 'ArrowUp': {
+        event.preventDefault();
+        selectIndex(index === 0 ? last : index - 1);
+        break;
+      }
+      case ' ':
+      case 'Enter': {
+        event.preventDefault();
+        selectIndex(index);
+        break;
+      }
+      default: {
+        break;
+      }
+    }
+  };
 
   return (
     <div className={styles.track} role="radiogroup">
-      {options.map((option) => {
+      {options.map((option, index) => {
         const checked = value === option.value;
+        const tabStop = checked || (value === undefined && index === 0);
         return (
           <button
             aria-checked={checked}
@@ -86,7 +127,12 @@ const ProviderRouteToggle = ({ disabled, onChange, options, value }: ProviderRou
             disabled={disabled}
             key={option.value}
             onClick={() => onChange?.(option.value)}
+            onKeyDown={(event) => onKeyDown(event, index)}
+            ref={(node) => {
+              buttonRefs.current[index] = node;
+            }}
             role="radio"
+            tabIndex={tabStop ? 0 : -1}
             type="button"
           >
             {option.label}

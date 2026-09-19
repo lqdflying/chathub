@@ -296,8 +296,11 @@ follows the Responses lifecycle, not `sseEventCount`:
 A 200 plus `sseEventCount>=1` is not success by itself.
 
 `refresh_settled` `outcome=transient` with `reason=timeout` means the ChatGPT
-token POST hit the 8s refresh bound. That is fail-soft: Settings stays
-connected without usage meters, and same-process Sign out can finish.
+token POST headers **or** body hit the 8s per-exchange refresh bound. That is
+fail-soft: the row stays, a still-valid access token remains usable, and
+same-process Sign out waits for that one in-flight attempt. Queued status
+callers reuse the failed ciphertext version instead of stacking more
+timeouts. Usage meters are independent (`usage_fetch_settled`).
 
 - `trigger=message_count` / `manual` is expected and is not an 80% bug.
 - `trigger=scheduled` on a topic `path` (`pre_send` / `durable_enqueued` / `client_inline`) is a regression (the daily topic-note scheduler was removed).

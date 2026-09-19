@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { oauthHandoffs } from '@/database/schemas/oidc';
 
 import { OpenAICodexTransientRefreshError } from './errors';
-import { OpenAICodexOAuthService } from './oauth';
+import { OpenAICodexOAuthService, resetOpenAICodexRefreshCooldownForTests } from './oauth';
 import { createMemoryOpenAICodexTokenStore } from './tokenStore';
 
 const makeJwt = (payload: Record<string, unknown>) => {
@@ -69,20 +69,51 @@ describe('OpenAICodexOAuthService', () => {
       ...overrides,
     });
 
-  const seedExpiringSession = async (refreshToken = 'old-refresh') => {
+  const seedExpiringSession = async (refreshToken = 'old-refresh', expiresAt = Date.now() + 60_000) => {
     await tokenStore.upsert({
       accessToken: 'enc:old-access',
       accountId: 'acct_1',
       chatgptPlanType: 'plus',
       clientId: 'client',
       email: 'plus@example.com',
-      expiresAt: new Date(Date.now() + 60_000),
+      expiresAt: new Date(expiresAt),
       refreshToken: `enc:${refreshToken}`,
       userId: 'user-1',
     });
   };
 
+  const hangUntilAborted = (signal?: AbortSignal) =>
+    new Promise<never>((_, reject) => {
+      const abort = () =>
+        reject(Object.assign(new Error('The operation was aborted'), { name: 'TimeoutError' }));
+      if (signal?.aborted) {
+        abort();
+        return;
+      }
+      signal?.addEventListener('abort', abort, { once: true });
+    });
+
+  const mockHungTokenThenUsageForbidden = (mode: 'headers' | 'body') => {
+    fetchFn.mockImplementation(async (url, init) => {
+      if (String(url).includes('/oauth/token')) {
+        const signal = init?.signal as AbortSignal | undefined;
+        if (mode === 'headers') return hangUntilAborted(signal);
+        return {
+          ok: true,
+          status: 200,
+          text: async () => hangUntilAborted(signal),
+        };
+      }
+      return {
+        ok: false,
+        status: 403,
+        text: async () => 'forbidden',
+      };
+    });
+  };
+
   beforeEach(() => {
+    resetOpenAICodexRefreshCooldownForTests();
     handoffs.length = 0;
     tokenStore = createMemoryOpenAICodexTokenStore();
     fetchFn.mockReset();
@@ -571,25 +602,7 @@ describe('OpenAICodexOAuthService', () => {
 
   it('returns status within the refresh budget when token refresh hangs', async () => {
     await seedExpiringSession();
-    fetchFn.mockImplementation(async (url, init) => {
-      if (String(url).includes('/oauth/token')) {
-        const signal = init?.signal as AbortSignal | undefined;
-        return new Promise((_resolve, reject) => {
-          const abort = () =>
-            reject(Object.assign(new Error('The operation was aborted'), { name: 'TimeoutError' }));
-          if (signal?.aborted) {
-            abort();
-            return;
-          }
-          signal?.addEventListener('abort', abort, { once: true });
-        });
-      }
-      return {
-        ok: false,
-        status: 403,
-        text: async () => 'forbidden',
-      };
-    });
+    mockHungTokenThenUsageForbidden('headers');
 
     const startedAt = Date.now();
     const status = await service({ refreshTimeoutMs: 25 }).getStatus('user-1');
@@ -607,27 +620,31 @@ describe('OpenAICodexOAuthService', () => {
     expect(fetchFn.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ signal: expect.any(AbortSignal) }));
   });
 
+  it('treats a stalled refresh body as transient and keeps a still-valid access token', async () => {
+    await seedExpiringSession();
+    mockHungTokenThenUsageForbidden('body');
+
+    const session = await service({ refreshTimeoutMs: 25 }).resolveLiveSession('user-1');
+
+    expect(session).toMatchObject({ accessToken: 'old-access', accountId: 'acct_1' });
+    expect(tokenStore.rows.size).toBe(1);
+    expect(tokenStore.rows.get('user-1')?.refreshLockId).toBeFalsy();
+  });
+
+  it('throws a typed transient error when a stalled refresh body meets expired access', async () => {
+    await seedExpiringSession('old-refresh', Date.now() - 1000);
+    mockHungTokenThenUsageForbidden('body');
+
+    await expect(service({ refreshTimeoutMs: 25 }).resolveLiveSession('user-1')).rejects.toBeInstanceOf(
+      OpenAICodexTransientRefreshError,
+    );
+    expect(tokenStore.rows.size).toBe(1);
+    expect(tokenStore.rows.get('user-1')?.refreshLockId).toBeFalsy();
+  });
+
   it('lets same-process sign-out finish after a hung refresh times out', async () => {
     await seedExpiringSession();
-    fetchFn.mockImplementation(async (url, init) => {
-      if (String(url).includes('/oauth/token')) {
-        const signal = init?.signal as AbortSignal | undefined;
-        return new Promise((_resolve, reject) => {
-          const abort = () =>
-            reject(Object.assign(new Error('The operation was aborted'), { name: 'TimeoutError' }));
-          if (signal?.aborted) {
-            abort();
-            return;
-          }
-          signal?.addEventListener('abort', abort, { once: true });
-        });
-      }
-      return {
-        ok: false,
-        status: 403,
-        text: async () => 'forbidden',
-      };
-    });
+    mockHungTokenThenUsageForbidden('headers');
 
     const oauth = service({ refreshTimeoutMs: 25 });
     const pendingStatus = oauth.getStatus('user-1');
@@ -637,6 +654,23 @@ describe('OpenAICodexOAuthService', () => {
 
     expect(Date.now() - logoutStartedAt).toBeLessThan(1000);
     await pendingStatus;
+    expect(tokenStore.rows.size).toBe(0);
+  });
+
+  it('shares one hung refresh among queued status callers so sign-out waits one budget', async () => {
+    await seedExpiringSession('old-refresh', Date.now() - 1000);
+    mockHungTokenThenUsageForbidden('headers');
+
+    const oauth = service({ refreshTimeoutMs: 40 });
+    const first = oauth.getStatus('user-1');
+    await vi.waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(1));
+    const queued = [oauth.getStatus('user-1'), oauth.getStatus('user-1')];
+    const logoutStartedAt = Date.now();
+    await oauth.logout('user-1');
+
+    expect(Date.now() - logoutStartedAt).toBeLessThan(400);
+    await Promise.all([first, ...queued]);
+    expect(fetchFn.mock.calls.filter(([url]) => String(url).includes('/oauth/token'))).toHaveLength(1);
     expect(tokenStore.rows.size).toBe(0);
   });
 

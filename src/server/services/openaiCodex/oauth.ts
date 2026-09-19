@@ -187,18 +187,67 @@ const rejectWhenAborted = (signal: AbortSignal): Promise<never> =>
     signal.addEventListener('abort', fail, { once: true });
   });
 
-const fetchWithTimeout = async (
+const fetchTextWithTimeout = async (
   fetchFn: FetchFn,
   url: string,
   init: NonNullable<Parameters<FetchFn>[1]>,
   timeoutMs: number,
-): Promise<Response> => {
+): Promise<{ bodyText: string; response: Response }> => {
   const signal = AbortSignal.timeout(timeoutMs);
-  const request = Promise.resolve(fetchFn(url, { ...init, signal }));
   const aborted = rejectWhenAborted(signal);
-  void request.catch(() => undefined);
   void aborted.catch(() => undefined);
-  return Promise.race([request, aborted]);
+  const request = Promise.resolve(fetchFn(url, { ...init, signal }));
+  void request.catch(() => undefined);
+  const response = await Promise.race([request, aborted]);
+  const textPromise = Promise.resolve(response.text());
+  void textPromise.catch(() => undefined);
+  const bodyText = await Promise.race([textPromise, aborted]);
+  return { bodyText, response };
+};
+
+type TransientRefreshMemory = { ciphertext: string; until: number };
+
+const recentTransientRefreshes = new Map<string, TransientRefreshMemory>();
+
+export const resetOpenAICodexRefreshCooldownForTests = () => {
+  recentTransientRefreshes.clear();
+};
+
+const rememberTransientRefresh = (userId: string, refreshCiphertext: string, cooldownMs: number) => {
+  recentTransientRefreshes.set(userId, {
+    ciphertext: refreshCiphertext,
+    until: Date.now() + cooldownMs,
+  });
+};
+
+const clearTransientRefresh = (userId: string) => {
+  recentTransientRefreshes.delete(userId);
+};
+
+const hasRecentTransientRefresh = (userId: string, refreshCiphertext: string): boolean => {
+  const entry = recentTransientRefreshes.get(userId);
+  if (!entry) return false;
+  if (Date.now() >= entry.until) {
+    recentTransientRefreshes.delete(userId);
+    return false;
+  }
+  return entry.ciphertext === refreshCiphertext;
+};
+
+const sessionOrTransientRefresh = (
+  accessToken: string,
+  record: {
+    accountId: string;
+    chatgptPlanType?: string | null;
+    email?: string | null;
+    expiresAt: Date;
+  },
+): OpenAICodexLiveSession => {
+  if (record.expiresAt.getTime() > Date.now()) return toLiveSession(accessToken, record);
+  throw new OpenAICodexTransientRefreshError(
+    'ChatGPT subscription refresh is temporarily unavailable.',
+    0,
+  );
 };
 
 export class OpenAICodexOAuthService {
@@ -451,6 +500,7 @@ export class OpenAICodexOAuthService {
   }
 
   async logout(userId: string): Promise<void> {
+    clearTransientRefresh(userId);
     await this.lockUser(userId, async () => {
       await this.tokenStore.deleteByUserId(userId);
     });
@@ -474,6 +524,10 @@ export class OpenAICodexOAuthService {
 
       const needsRefresh = record.expiresAt.getTime() - Date.now() <= OPENAI_CODEX_REFRESH_SKEW_MS;
       if (!needsRefresh) return toLiveSession(access.plaintext, record);
+
+      if (hasRecentTransientRefresh(userId, record.refreshToken)) {
+        return sessionOrTransientRefresh(access.plaintext, record);
+      }
 
       const lockId = randomUUID();
       const acquired = await this.tokenStore.tryAcquireRefreshLock(
@@ -507,6 +561,7 @@ export class OpenAICodexOAuthService {
 
         const refreshed = await this.refreshAccessToken(latestRefresh.plaintext);
         if (refreshed.type === 'transient') {
+          rememberTransientRefresh(userId, latest.refreshToken, this.refreshTimeoutMs);
           if (latest.expiresAt.getTime() > Date.now()) {
             return toLiveSession(latestAccess.plaintext, latest);
           }
@@ -515,6 +570,8 @@ export class OpenAICodexOAuthService {
             refreshed.status,
           );
         }
+
+        clearTransientRefresh(userId);
 
         if (refreshed.type === 'invalid') {
           const deleted = await this.tokenStore.deleteIfRefreshMatches(
@@ -639,9 +696,10 @@ export class OpenAICodexOAuthService {
   }
 
   private async refreshAccessToken(refreshToken: string): Promise<RefreshOutcome> {
+    let bodyText: string;
     let response: Response;
     try {
-      response = await fetchWithTimeout(
+      ({ bodyText, response } = await fetchTextWithTimeout(
         this.fetchFn,
         `${OPENAI_AUTH_BASE_URL}/oauth/token`,
         {
@@ -654,7 +712,7 @@ export class OpenAICodexOAuthService {
           method: 'POST',
         },
         this.refreshTimeoutMs,
-      );
+      ));
     } catch (error) {
       logOpenAICodexDebugSafe('refresh_settled', {
         httpStatus: 0,
@@ -664,7 +722,7 @@ export class OpenAICodexOAuthService {
       return { status: 0, type: 'transient' };
     }
 
-    const body = parseJsonObject(await response.text());
+    const body = parseJsonObject(bodyText);
     const error = asOptionalString(body.error);
     if (
       error === 'invalid_grant' ||
@@ -750,6 +808,7 @@ export class OpenAICodexOAuthService {
     tokens: { accessToken: string; expiresAt: Date; refreshToken: string },
   ) {
     return this.lockUser(userId, async () => {
+      clearTransientRefresh(userId);
       const insert = await this.encryptTokenRow(userId, tokens);
       await this.tokenStore.upsert(insert);
       return {

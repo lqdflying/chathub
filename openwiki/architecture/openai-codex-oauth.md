@@ -43,12 +43,16 @@ tRPC `openaiCodex` (lambda, authed):
 6. `logout` deletes the token row; API key vaults are untouched
 
 Refresh uses `grant_type=refresh_token` about five minutes before expiry.
-The token POST is bounded with `AbortSignal.timeout` (8s, same budget as
-usage). Timeout or transport failure is transient: keep the row, use a
-still-valid access token, or throw `OpenAICodexTransientRefreshError` if
-access already expired. That bound also releases the in-process user lock
-so Settings status and same-process sign-out cannot wait on a hung vendor
-refresh.
+The token POST **and** its response-body read share one `AbortSignal.timeout`
+(8s, same budget as usage). Header timeout, body timeout, and transport
+failure are transient: keep the row, use a still-valid access token, or throw
+`OpenAICodexTransientRefreshError` if access already expired. After a
+transient result, the same process remembers that refresh-ciphertext version
+for one timeout window so queued `getStatus` callers do not start another
+vendor redeem. Same-process `logout` still serializes on the in-memory user
+lock, so it waits for the in-flight attempt only, not one timeout per waiter.
+The 8s figure is per exchange, not an end-to-end Settings deadline (a
+still-valid session may then spend another 8s on usage).
 Before any vendor redeem, the worker must take a free refresh lease
 (`refresh_lock_id` is null), then re-read the ciphertext. A held lease
 stays exclusive through the token request, response-body read, and
