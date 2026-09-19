@@ -69,6 +69,11 @@ describe('lambda tRPC client links', () => {
     ).rejects.toMatchObject({
       message: ownershipError.message,
     });
+    await expect(
+      client.xaiOAuth.status.query({ accountScope: 'user:account-a' }),
+    ).rejects.toMatchObject({
+      message: ownershipError.message,
+    });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -100,8 +105,10 @@ describe('lambda tRPC client links', () => {
       handoffId: 'handoff-1',
     });
     await client.openaiCodex.logout.mutate({ accountScope: 'user:account-a' });
+    await client.xaiOAuth.status.query({ accountScope: 'user:account-a' });
 
     expect(accountScopes).toEqual([
+      'user:account-a',
       'user:account-a',
       'user:account-a',
       'user:account-a',

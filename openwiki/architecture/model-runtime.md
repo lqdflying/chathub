@@ -326,3 +326,7 @@ Durable chat generation reuses this runtime from Graphile Worker. See
 Per-user ChatGPT / Codex subscription tokens and the unofficial
 `chatgpt.com/backend-api/codex/responses` path are documented in
 [OpenAI Codex OAuth](openai-codex-oauth.md).
+
+Per-user SuperGrok device-code tokens and the unofficial
+`cli-chat-proxy.grok.com` overlay are documented in
+[xAI SuperGrok OAuth](xai-oauth.md).

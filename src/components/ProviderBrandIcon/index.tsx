@@ -9,11 +9,13 @@ import { Flexbox } from 'react-layout-kit';
 import {
   hasLocalProviderMono,
   isMimoModelId,
+  isXaiModelId,
   resolveModelLogoUrl,
   resolveProviderIcon,
   resolveProviderLogoUrl,
 } from '@/utils/resolveProviderIcon';
 
+import { XaiMono } from './XaiMono';
 import { XiaomiMiMoMono } from './XiaomiMiMoMono';
 
 /** Settings provider tiles use this; do not bake it into ProviderBrandIcon defaults. */
@@ -81,6 +83,7 @@ export interface ProviderBrandIconProps {
 export const ProviderBrandIcon = memo<ProviderBrandIconProps>(
   ({ provider, size = 24, style, type = 'avatar' }) => {
     if (type === 'mono' && hasLocalProviderMono(provider)) {
+      if (provider === 'xai') return <XaiMono size={size} style={style} />;
       return <XiaomiMiMoMono size={size} style={style} />;
     }
 
@@ -168,6 +171,10 @@ export const ModelBrandIcon = memo<ModelBrandIconProps>(({ model, size = 24, sty
 
   if (type === 'mono' && isMimoModelId(model)) {
     return <XiaomiMiMoMono size={size} style={style} />;
+  }
+
+  if (type === 'mono' && isXaiModelId(model)) {
+    return <XaiMono size={size} style={style} />;
   }
 
   const logo = resolveModelLogoUrl(model, variant);

@@ -41,7 +41,7 @@ const log = debug('context-engine:processor:PlaceholderVariablesProcessor');
  *   "minor formatting differences may affect cache effectiveness" and the cached
  *   prefix must be byte-stable. Confirmed live via canary probe.
  */
-const CACHE_PREFIX_SENSITIVE_PROVIDERS = new Set(['openaicompatible', 'zhipu']);
+const CACHE_PREFIX_SENSITIVE_PROVIDERS = new Set(['openaicompatible', 'xai', 'zhipu']);
 
 const placeholderVariablesRegex = /{{(.*?)}}/g;
 
@@ -50,7 +50,7 @@ export interface PlaceholderVariablesConfig {
   depth?: number;
   /**
    * The runtime provider id. For cache-prefix-sensitive providers
-   * (`openaicompatible`, `zhipu`), volatile placeholder generators (time,
+   * (`openaicompatible`, `xai`, `zhipu`), volatile placeholder generators (time,
    * random, uuid, etc.) are skipped in SYSTEM messages so the system prompt
    * stays byte-stable across requests and prompt caching keeps hitting. Other
    * providers expand all placeholders as before.
@@ -225,7 +225,7 @@ export class PlaceholderVariablesProcessor extends BaseProcessor {
    * @param message 消息对象
    * @param depth 递归深度
    * @param isSystem 是否为系统消息 — 当 provider 属于缓存前缀敏感集合
-   *   (`openaicompatible`、`zhipu`) 时，系统消息会跳过 volatile 生成器以保持
+   *   (`openaicompatible`、`xai`、`zhipu`) 时，系统消息会跳过 volatile 生成器以保持
    *   prompt-cache 前缀稳定。
    */
   private processMessagePlaceholders(message: any, depth: number, isSystem = false): any {
@@ -233,7 +233,7 @@ export class PlaceholderVariablesProcessor extends BaseProcessor {
 
     const { content } = message;
 
-    // For cache-prefix-sensitive providers (openaicompatible, zhipu) system
+    // For cache-prefix-sensitive providers (openaicompatible, xai, zhipu) system
     // messages, filter out volatile generators (time, random, uuid, etc.) so the
     // system prompt stays byte-stable across requests and prompt caching keeps
     // hitting. All other providers and message roles expand all placeholders as

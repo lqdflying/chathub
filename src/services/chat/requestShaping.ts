@@ -5,7 +5,7 @@ import {
   supportsAnthropicAdaptiveThinking,
 } from '@lobechat/model-runtime';
 import type { LobeAgentChatConfig } from '@lobechat/types';
-import { resolveGPT5ReasoningEffort } from '@lobechat/types';
+import { resolveGPT5ReasoningEffort, resolveXaiReasoningEffort } from '@lobechat/types';
 import type { ExtendParamsType, ModelSearchImplementType } from 'model-bank';
 import { ModelProvider } from 'model-bank';
 
@@ -192,6 +192,16 @@ export const buildModelExtendParams = ({
 
   if (modelExtendParams.includes('minimaxReasoningSplit')) {
     extendParams.reasoning_split = chatConfig.minimaxReasoningSplit !== false;
+  }
+
+  if (modelExtendParams.includes('xaiReasoningEffort')) {
+    const { effort, sendWhenUnset } = resolveXaiReasoningEffort(
+      model,
+      chatConfig.xaiReasoningEffort,
+    );
+    if (chatConfig.xaiReasoningEffort || sendWhenUnset) {
+      extendParams.reasoning_effort = effort;
+    }
   }
 
   if (modelExtendParams.includes('zhipuReasoningEffort') && chatConfig.zhipuReasoningEffort) {

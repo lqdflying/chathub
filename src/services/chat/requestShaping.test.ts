@@ -363,4 +363,37 @@ describe('buildModelExtendParams', () => {
       }),
     ).toEqual({ reasoning_effort: 'low' });
   });
+
+  it('sends default Grok 4.6 high when xaiReasoningEffort is unset', () => {
+    expect(
+      buildModelExtendParams({
+        chatConfig: {},
+        model: 'grok-4.6',
+        modelExtendParams: ['xaiReasoningEffort'],
+        provider: ModelProvider.Xai,
+      }),
+    ).toEqual({ reasoning_effort: 'high' });
+  });
+
+  it('maps leftover Grok 4.5 xhigh to high', () => {
+    expect(
+      buildModelExtendParams({
+        chatConfig: { xaiReasoningEffort: 'xhigh' },
+        model: 'grok-4.5',
+        modelExtendParams: ['xaiReasoningEffort'],
+        provider: ModelProvider.Xai,
+      }),
+    ).toEqual({ reasoning_effort: 'high' });
+  });
+
+  it('forwards Grok 4.3 none without inventing a default', () => {
+    expect(
+      buildModelExtendParams({
+        chatConfig: { xaiReasoningEffort: 'none' },
+        model: 'grok-4.3',
+        modelExtendParams: ['xaiReasoningEffort'],
+        provider: ModelProvider.Xai,
+      }),
+    ).toEqual({ reasoning_effort: 'none' });
+  });
 });

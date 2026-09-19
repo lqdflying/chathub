@@ -11,6 +11,7 @@ import MinimaxProvider from './minimax';
 import MoonshotProvider from './moonshot';
 import OpenAIProvider from './openai';
 import OpenAICompatibleProvider from './openaicompatible';
+import XaiProvider from './xai';
 import ZhipuProvider from './zhipu';
 
 /**
@@ -34,6 +35,7 @@ export const DEFAULT_MODEL_PROVIDER_LIST = [
   MinimaxProvider,
   MoonshotProvider,
   OpenAICompatibleProvider,
+  XaiProvider,
   ZhipuProvider,
 ];
 
@@ -58,4 +60,5 @@ export { default as MinimaxProviderCard } from './minimax';
 export { default as MoonshotProviderCard } from './moonshot';
 export { default as OpenAIProviderCard } from './openai';
 export { default as OpenAICompatibleProviderCard } from './openaicompatible';
+export { default as XaiProviderCard } from './xai';
 export { default as ZhipuProviderCard } from './zhipu';

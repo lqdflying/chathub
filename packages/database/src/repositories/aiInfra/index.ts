@@ -136,6 +136,13 @@ const inferProviderExtendParams = (
     if (modelId === 'kimi-k2.6') return ['enableReasoning', 'moonshotPreservedReasoning'];
   }
 
+  if (providerId === ModelProvider.Xai) {
+    if (modelId.includes('non-reasoning')) return undefined;
+    if (modelId.includes('grok-4.6') || modelId.includes('grok-4.5') || modelId.includes('grok-4.3')) {
+      return ['xaiReasoningEffort'];
+    }
+  }
+
   if (providerId === ModelProvider.Zhipu) {
     if (modelId.startsWith('glm-4.7')) {
       // Forced thinking; enableReasoning would send type=disabled and be ignored/rejected.

@@ -241,7 +241,8 @@ export type ExtendParamsType =
   | 'thinkingBudget'
   | 'urlContext'
   | 'zhipuReasoningEffort'
-  | 'zhipuPreservedThinking';
+  | 'zhipuPreservedThinking'
+  | 'xaiReasoningEffort';
 
 export interface AiModelSettings {
   extendParams?: ExtendParamsType[];

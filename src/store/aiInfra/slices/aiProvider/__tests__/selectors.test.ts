@@ -51,6 +51,7 @@ describe('aiProviderSelectors', () => {
     modelRuntimeConfig: {},
     modelSearchKeyword: '',
     openaiCodexConnected: false,
+    xaiOAuthConnected: false,
   };
 
   describe('enabledAiProviderList', () => {
@@ -221,6 +222,22 @@ describe('aiProviderSelectors', () => {
       };
 
       expect(aiProviderSelectors.isProviderFetchOnClient('openai')(state)).toBe(false);
+    });
+
+    it('forces xAI onto the server when a SuperGrok session is connected', () => {
+      const state = {
+        ...mockState,
+        xaiOAuthConnected: true,
+        aiProviderRuntimeConfig: {
+          xai: {
+            fetchOnClient: true,
+            keyVaults: { apiKey: 'xai-key', baseURL: 'https://api.x.ai/v1' },
+            settings: {},
+          },
+        },
+      };
+
+      expect(aiProviderSelectors.isProviderFetchOnClient('xai')(state)).toBe(false);
     });
   });
 

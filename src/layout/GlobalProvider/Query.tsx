@@ -4,10 +4,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React, { PropsWithChildren, useState } from 'react';
 
 import { useFetchOpenAICodexStatus } from '@/hooks/useFetchOpenAICodexStatus';
+import { useFetchXaiOAuthStatus } from '@/hooks/useFetchXaiOAuthStatus';
 import { lambdaQuery, lambdaQueryClient } from '@/libs/trpc/client';
 
-const OpenAICodexStatusBridge = () => {
+const ProviderOAuthStatusBridge = () => {
   useFetchOpenAICodexStatus();
+  useFetchXaiOAuthStatus();
   return null;
 };
 
@@ -21,7 +23,7 @@ const QueryProvider = ({ children }: PropsWithChildren) => {
   return (
     <lambdaQuery.Provider client={lambdaQueryClient} queryClient={providerQueryClient}>
       <QueryClientProvider client={queryClient}>
-        <OpenAICodexStatusBridge />
+        <ProviderOAuthStatusBridge />
         {children}
       </QueryClientProvider>
     </lambdaQuery.Provider>

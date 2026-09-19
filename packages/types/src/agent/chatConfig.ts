@@ -5,6 +5,71 @@ import { SearchMode } from '../search';
 
 export type GPT5ReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
+export type XaiReasoningEffort = 'none' | 'low' | 'medium' | 'high' | 'xhigh';
+
+export interface XaiReasoningEffortResolution {
+  effort: XaiReasoningEffort | undefined;
+  effortValues: readonly XaiReasoningEffort[];
+  sendWhenUnset?: boolean;
+}
+
+const GROK46_REASONING_EFFORTS: readonly XaiReasoningEffort[] = ['low', 'medium', 'high', 'xhigh'];
+const GROK45_REASONING_EFFORTS: readonly XaiReasoningEffort[] = ['low', 'medium', 'high'];
+const GROK43_REASONING_EFFORTS: readonly XaiReasoningEffort[] = ['none', 'low', 'medium', 'high'];
+
+const normalizeXaiModelId = (model: string) => model.trim().toLowerCase();
+
+/**
+ * Official Grok reasoning effort by family.
+ * 4.6: low|medium|high (default)|xhigh — cannot disable.
+ * 4.5: low|medium|high; leftover xhigh is sent as high.
+ * 4.3: none|low (default)|medium|high.
+ * @see https://docs.x.ai/developers/model-capabilities/text/reasoning
+ */
+export const resolveXaiReasoningEffort = (
+  model: string,
+  requestedEffort: XaiReasoningEffort | undefined,
+): XaiReasoningEffortResolution => {
+  const id = normalizeXaiModelId(model);
+  if (id.includes('non-reasoning')) {
+    return { effort: undefined, effortValues: [] };
+  }
+
+  if (id.includes('grok-4.6')) {
+    return {
+      effort: GROK46_REASONING_EFFORTS.includes(requestedEffort as XaiReasoningEffort)
+        ? (requestedEffort as XaiReasoningEffort)
+        : 'high',
+      effortValues: GROK46_REASONING_EFFORTS,
+      sendWhenUnset: true,
+    };
+  }
+
+  if (id.includes('grok-4.5')) {
+    const mapped = requestedEffort === 'xhigh' ? 'high' : requestedEffort;
+    return {
+      effort: GROK45_REASONING_EFFORTS.includes(mapped as XaiReasoningEffort)
+        ? (mapped as XaiReasoningEffort)
+        : 'high',
+      effortValues: GROK45_REASONING_EFFORTS,
+      sendWhenUnset: true,
+    };
+  }
+
+  if (id.includes('grok-4.3')) {
+    const mapped = requestedEffort === 'xhigh' ? 'high' : requestedEffort;
+    return {
+      effort: GROK43_REASONING_EFFORTS.includes(mapped as XaiReasoningEffort)
+        ? (mapped as XaiReasoningEffort)
+        : 'low',
+      effortValues: GROK43_REASONING_EFFORTS,
+      sendWhenUnset: true,
+    };
+  }
+
+  return { effort: undefined, effortValues: [] };
+};
+
 export interface GPT5ReasoningEffortResolution {
   effort: GPT5ReasoningEffort;
   effortValues: readonly GPT5ReasoningEffort[];
@@ -139,6 +204,12 @@ export interface LobeAgentChatConfig {
   reasoningEffort?: 'low' | 'medium' | 'high';
   gpt5ReasoningEffort?: GPT5ReasoningEffort;
   /**
+   * xAI Grok reasoning effort. Family-specific:
+   * grok-4.6 low|medium|high|xhigh; grok-4.5 low|medium|high;
+   * grok-4.3 none|low|medium|high.
+   */
+  xaiReasoningEffort?: XaiReasoningEffort;
+  /**
    * 输出文本详细程度控制
    */
   textVerbosity?: 'low' | 'medium' | 'high';
@@ -263,5 +334,6 @@ export const AgentChatConfigSchema = z.object({
   searchMode: z.enum(['off', 'on', 'auto']).optional(),
   textVerbosity: z.enum(['low', 'medium', 'high']).optional(),
   zhipuPreservedThinking: z.boolean().optional(),
+  xaiReasoningEffort: z.enum(['none', 'low', 'medium', 'high', 'xhigh']).optional(),
   zhipuReasoningEffort: z.enum(['max', 'high', 'low', 'skip']).optional(),
 });

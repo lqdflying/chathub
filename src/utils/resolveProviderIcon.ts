@@ -35,6 +35,7 @@ const VENDORED_PROVIDER_AVATAR_IDS = [
   'minimax',
   'moonshot',
   'openai',
+  'xai',
   'zhipu',
 ] as const;
 
@@ -45,7 +46,7 @@ const PROVIDER_LOCAL_LOGOS: Record<string, LocalProviderLogo> = Object.fromEntri
     id,
     {
       avatar: providerAvatarUrl(id),
-      ...(id === 'mimo' ? { mono: '/icons/providers/mimo.svg' } : {}),
+      ...(id === 'mimo' || id === 'xai' ? { mono: `/icons/providers/${id}.svg` } : {}),
     },
   ]),
 );
@@ -53,7 +54,7 @@ const PROVIDER_LOCAL_LOGOS: Record<string, LocalProviderLogo> = Object.fromEntri
 export const resolveProviderIcon = (id: string): string => PROVIDER_ICON_MAP[id] || id;
 
 /** True when ChatHub should render the inline Xiaomi MiMo mono mark. */
-export const hasLocalProviderMono = (id: string): boolean => id === 'mimo';
+export const hasLocalProviderMono = (id: string): boolean => id === 'mimo' || id === 'xai';
 
 const lookupLocalProviderLogo = (id: string): LocalProviderLogo | undefined =>
   PROVIDER_LOCAL_LOGOS[id] ?? PROVIDER_LOCAL_LOGOS[resolveProviderIcon(id)];
@@ -74,6 +75,11 @@ export const isMimoModelId = (modelId: string): boolean => {
   return id.startsWith('mimo') || id.includes('xiaomimimo');
 };
 
+export const isXaiModelId = (modelId: string): boolean => {
+  const id = modelId.toLowerCase();
+  return id.startsWith('grok-') || id.includes('grok.');
+};
+
 /**
  * Model ids that should use the Xiaomi MiMo local mark (ModelIcon has no mimo
  * keywords on icons 2.x). Default/avatar → webp; mono → undefined (use
@@ -83,6 +89,7 @@ export const resolveModelLogoUrl = (
   modelId: string,
   variant: ProviderLogoVariant = 'avatar',
 ): string | undefined => {
-  if (!isMimoModelId(modelId)) return undefined;
-  return resolveProviderLogoUrl('mimo', variant);
+  if (isMimoModelId(modelId)) return resolveProviderLogoUrl('mimo', variant);
+  if (isXaiModelId(modelId)) return resolveProviderLogoUrl('xai', variant);
+  return undefined;
 };

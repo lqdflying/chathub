@@ -10,6 +10,8 @@ import { getModelRuntimeParamsFromPayload } from '@/server/modules/ModelRuntime'
 import { isOpenAICodexTransientRefreshError } from '@/server/services/openaiCodex/errors';
 import { resolveOpenAICodexChatPayload } from '@/server/services/openaiCodex/resolve';
 import type { ConversationRuntimePurpose } from '@/server/services/openaiCodex/types';
+import { isXaiOAuthTransientRefreshError } from '@/server/services/xaiOAuth/errors';
+import { resolveXaiOAuthChatPayload } from '@/server/services/xaiOAuth/resolve';
 import type { LobeChatDatabase } from '@lobechat/database';
 import type { ProviderConfig } from '@/types/user/settings';
 
@@ -123,9 +125,14 @@ export const resolveConversationRuntimePayload = async ({
   } as ClientSecretPayload;
   let payload: ClientSecretPayload;
   try {
-    payload = await resolveOpenAICodexChatPayload(db, provider, vaultPayload, { purpose });
+    payload = await resolveXaiOAuthChatPayload(
+      db,
+      provider,
+      await resolveOpenAICodexChatPayload(db, provider, vaultPayload, { purpose }),
+      { purpose },
+    );
   } catch (error) {
-    if (isOpenAICodexTransientRefreshError(error)) {
+    if (isOpenAICodexTransientRefreshError(error) || isXaiOAuthTransientRefreshError(error)) {
       throw new TRPCError({
         code: 'BAD_GATEWAY',
         message: error.message,

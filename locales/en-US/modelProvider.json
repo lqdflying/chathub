@@ -287,6 +287,30 @@
     "weeklyLeft": "Weekly limit: {{percent}}% left",
     "weeklyTitle": "Weekly limit"
   },
+  "xaiOAuth": {
+    "connected": "Connected as {{email}}",
+    "connectedAnonymous": "Connected to SuperGrok",
+    "connectedPlan": "{{plan}} plan",
+    "denied": "Authorization was denied or failed. Sign in again.",
+    "deviceLoginPrerequisite": "xAI device login may label the app Grok Build. This uses the shared unofficial Grok CLI client, not an official ChatHub app.",
+    "expired": "The device code expired. Sign in again.",
+    "expires": "Session expires {{time}}",
+    "fiveHourLeft": "5-hour limit: {{percent}}% left",
+    "fiveHourTitle": "5-hour limit",
+    "helpAria": "About SuperGrok sign-in",
+    "hint": "After you sign in, xAI chat uses your SuperGrok quota instead of a Console API key. Image and Voice APIs are not in this release.",
+    "monthlyTitle": "Monthly limit",
+    "openGrok": "Open Grok authorization",
+    "remainingPercent": "{{percent}}% left",
+    "signIn": "Sign in with SuperGrok",
+    "signOut": "Sign out",
+    "title": "SuperGrok",
+    "unofficial": "This is an unofficial shared Grok CLI client path and can break if xAI changes the client or endpoints.",
+    "usageResets": "resets {{time}}",
+    "waiting": "Enter this code on the xAI device page to finish authorization.",
+    "weeklyLeft": "Weekly limit: {{percent}}% left",
+    "weeklyTitle": "Weekly limit"
+  },
   "providerModels": {
     "batchSelect": {
       "selected": "{{count}} models selected",

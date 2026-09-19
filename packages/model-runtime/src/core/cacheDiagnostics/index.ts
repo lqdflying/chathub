@@ -6,5 +6,5 @@ export {
   emitModelCacheUsageMissing,
   resolveModelCacheStatus,
 } from './events';
-export { supportsTrustedPromptCacheKey } from './nativePromptCache';
+export { supportsTrustedPromptCacheKey, usesTrustedNativePromptCache } from './nativePromptCache';
 export { sanitizeToolCacheDebugMetadata } from './toolMetadata';

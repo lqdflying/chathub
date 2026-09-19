@@ -42,6 +42,10 @@ vi.mock('@/server/services/openaiCodex/resolve', () => ({
   resolveOpenAICodexChatPayload: vi.fn(async (_db: unknown, _provider: string, payload: unknown) => payload),
 }));
 
+vi.mock('@/server/services/xaiOAuth/resolve', () => ({
+  resolveXaiOAuthChatPayload: vi.fn(async (_db: unknown, _provider: string, payload: unknown) => payload),
+}));
+
 import { UserModel } from '@/database/models/user';
 import { resolveOpenAICodexChatPayload } from '@/server/services/openaiCodex/resolve';
 

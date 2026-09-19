@@ -42,7 +42,7 @@ import {
   createModelCacheDiagnosticCallbacks,
   emitModelCacheRequest,
   sanitizeToolCacheDebugMetadata,
-  supportsTrustedPromptCacheKey,
+  usesTrustedNativePromptCache,
 } from '../cacheDiagnostics';
 import { convertOpenAIMessages, convertOpenAIResponseInputs } from '../contextBuilders/openai';
 import { OpenAIResponsesStream, OpenAIStream, OpenAIStreamOptions } from '../streams';
@@ -430,17 +430,16 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
             : payload.openAICompatCache || processedPayload.openAICompatCache;
         const chatCache = openAICompatCache?.chat;
         const trustedNativePromptCacheKey =
-          this.id === 'openai' &&
-          supportsTrustedPromptCacheKey(payload.model) &&
-          options?.trustedPromptCacheKey
+          usesTrustedNativePromptCache(this.id, payload.model) && options?.trustedPromptCacheKey
             ? options.trustedPromptCacheKey
             : '';
         const explicitChatCacheKey =
           this.id !== 'openai' &&
+          this.id !== 'xai' &&
           typeof (chatCompletionPayload as any).prompt_cache_key === 'string'
             ? (chatCompletionPayload as any).prompt_cache_key
             : '';
-        if (this.id === 'openai') {
+        if (this.id === 'openai' || this.id === 'xai') {
           delete (chatCompletionPayload as any).prompt_cache_key;
         }
         const derivedChatCacheKey =
@@ -467,11 +466,13 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
             }
           : undefined;
 
+        const shouldSendCcPromptCacheKey =
+          this.id !== 'xai' &&
+          !!(trustedNativePromptCacheKey || chatCache?.promptCacheKey) &&
+          !!chatCacheKey;
         const finalPayload = {
           ...chatCompletionPayload,
-          ...((trustedNativePromptCacheKey || chatCache?.promptCacheKey) && chatCacheKey
-            ? { prompt_cache_key: chatCacheKey }
-            : {}),
+          ...(shouldSendCcPromptCacheKey ? { prompt_cache_key: chatCacheKey } : {}),
           messages,
           ...(chatCompletion?.noUserId ? {} : { user: options?.user }),
           stream_options:
@@ -482,7 +483,10 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
         const requestHeaders = {
           Accept: '*/*',
           ...options?.requestHeaders,
-          ...(chatCache?.sessionHeader && chatCacheKey ? { Session_id: chatCacheKey } : {}),
+          ...(this.id === 'xai' && chatCacheKey ? { 'x-grok-conv-id': chatCacheKey } : {}),
+          ...(this.id !== 'xai' && chatCache?.sessionHeader && chatCacheKey
+            ? { Session_id: chatCacheKey }
+            : {}),
         };
 
         let response: Stream<OpenAI.Chat.Completions.ChatCompletionChunk> | OpenAI.ChatCompletion;
@@ -506,17 +510,22 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
         requestHash = emitModelCacheRequest(cacheDiagnostics, {
           apiType: 'chat-completions',
           cacheMechanism:
-            trustedNativePromptCacheKey || chatCache?.promptCacheKey || explicitChatCacheKey
+            this.id === 'xai' && chatCacheKey
               ? 'request-key'
-              : chatCache?.sessionHeader
-                ? 'session-affinity'
-                : 'automatic',
+              : trustedNativePromptCacheKey || chatCache?.promptCacheKey || explicitChatCacheKey
+                ? 'request-key'
+                : chatCache?.sessionHeader
+                  ? 'session-affinity'
+                  : 'automatic',
           cachePolicy: {
-            promptCacheKey: !!(
-              (trustedNativePromptCacheKey || chatCache?.promptCacheKey || explicitChatCacheKey) &&
-              chatCacheKey
-            ),
-            sessionAffinity: !!(chatCache?.sessionHeader && chatCacheKey),
+            grokConvId: this.id === 'xai' && !!chatCacheKey,
+            promptCacheKey:
+              this.id !== 'xai' &&
+              !!(
+                (trustedNativePromptCacheKey || chatCache?.promptCacheKey || explicitChatCacheKey) &&
+                chatCacheKey
+              ),
+            sessionAffinity: this.id !== 'xai' && !!(chatCache?.sessionHeader && chatCacheKey),
           },
           cacheSupport,
           inputItemCount: messages.length,
@@ -1172,16 +1181,16 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
         this.convertChatCompletionToolToResponseTool(tool),
       );
       const trustedNativePromptCacheKey =
-        this.id === 'openai' &&
-        supportsTrustedPromptCacheKey(payload.model) &&
-        options?.trustedPromptCacheKey
+        usesTrustedNativePromptCache(this.id, payload.model) && options?.trustedPromptCacheKey
           ? options.trustedPromptCacheKey
           : '';
       const explicitPromptCacheKey =
-        this.id !== 'openai' && typeof responseParamsPayload.prompt_cache_key === 'string'
+        this.id !== 'openai' &&
+        this.id !== 'xai' &&
+        typeof responseParamsPayload.prompt_cache_key === 'string'
           ? responseParamsPayload.prompt_cache_key
           : '';
-      if (this.id === 'openai') {
+      if (this.id === 'openai' || this.id === 'xai') {
         delete responseParamsPayload.prompt_cache_key;
       }
       const derivedPromptCacheKey =
@@ -1262,7 +1271,9 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
       log('sending responses.create request');
       const requestHeaders = {
         ...options?.requestHeaders,
-        ...(responseCache?.sessionHeader && promptCacheKey ? { Session_id: promptCacheKey } : {}),
+        ...(this.id !== 'xai' && responseCache?.sessionHeader && promptCacheKey
+          ? { Session_id: promptCacheKey }
+          : {}),
       };
       let requestHash: string | undefined;
 
@@ -1274,6 +1285,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
             ? 'session-affinity'
             : 'automatic',
         cachePolicy: {
+          grokConvId: false,
           promptCacheKey: shouldSendPromptCacheKey,
           sessionAffinity: !!(responseCache?.sessionHeader && promptCacheKey),
           store: store === undefined ? null : store,

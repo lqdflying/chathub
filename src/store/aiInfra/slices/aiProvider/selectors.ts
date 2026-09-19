@@ -68,6 +68,7 @@ const isProviderFetchOnClient =
     // Codex tokens are server-only. Never send OpenAI chat from the browser
     // while a ChatGPT subscription session is connected.
     if (provider === 'openai' && s.openaiCodexConnected) return false;
+    if (provider === 'xai' && s.xaiOAuthConnected) return false;
 
     // If the provider already disable browser request in model config, force on Server.
     if (isProviderDisableBrowserRequest(provider)) return false;
@@ -149,6 +150,7 @@ export const aiProviderSelectors = {
   isAiProviderConfigLoading,
   isInitAiProviderRuntimeState,
   isOpenAICodexConnected: (s: AIProviderStoreState) => !!s.openaiCodexConnected,
+  isXaiOAuthConnected: (s: AIProviderStoreState) => !!s.xaiOAuthConnected,
   isProviderConfigUpdating,
   isProviderEnableResponseApi,
   isProviderEnabled,

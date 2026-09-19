@@ -25,6 +25,7 @@ import { knowledgeBaseRouter } from './knowledgeBase';
 import { marketRouter } from './market';
 import { messageRouter } from './message';
 import { openaiCodexRouter } from './openaiCodex';
+import { xaiOAuthRouter } from './xaiOAuth';
 import { picbedRouter } from './picbed';
 import { pluginRouter } from './plugin';
 import { ragEvalRouter } from './ragEval';
@@ -61,6 +62,7 @@ export const lambdaRouter = router({
   market: marketRouter,
   message: messageRouter,
   openaiCodex: openaiCodexRouter,
+  xaiOAuth: xaiOAuthRouter,
   picbed: picbedRouter,
   plugin: pluginRouter,
   ragEval: ragEvalRouter,

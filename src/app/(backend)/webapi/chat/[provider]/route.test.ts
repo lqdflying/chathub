@@ -31,6 +31,10 @@ vi.mock('@/server/services/openaiCodex/resolve', () => ({
   resolveOpenAICodexChatPayload: vi.fn(async (_db: unknown, _provider: string, payload: unknown) => payload),
 }));
 
+vi.mock('@/server/services/xaiOAuth/resolve', () => ({
+  resolveXaiOAuthChatPayload: vi.fn(async (_db: unknown, _provider: string, payload: unknown) => payload),
+}));
+
 // 定义一个变量来存储 enableAuth 的值
 let enableClerk = false;
 

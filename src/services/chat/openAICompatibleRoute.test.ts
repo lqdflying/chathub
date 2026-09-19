@@ -32,6 +32,22 @@ describe('resolveOpenAICompatibleChatRoute', () => {
     expect(route.apiMode).toBe('responses');
   });
 
+  it('sets Responses routing for native xAI without OpenAI-compat cache fields', () => {
+    expect(
+      resolveOpenAICompatibleChatRoute({
+        provider: 'xai',
+        providerConfig: { enableResponseApi: true },
+      }),
+    ).toEqual({ apiMode: 'responses' });
+
+    expect(
+      resolveOpenAICompatibleChatRoute({
+        provider: 'xai',
+        providerConfig: { enableResponseApi: false },
+      }),
+    ).toEqual({});
+  });
+
   it('lets an explicit apiMode override the radio', () => {
     expect(
       resolveOpenAICompatibleChatRoute({

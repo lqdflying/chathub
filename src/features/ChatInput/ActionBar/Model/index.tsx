@@ -18,6 +18,7 @@ import MinimaxOptions from './providers/MinimaxOptions';
 import MimoOptions from './providers/MimoOptions';
 import MoonshotOptions from './providers/MoonshotOptions';
 import OpenAIOptions from './providers/OpenAIOptions';
+import XaiOptions from './providers/XaiOptions';
 import ZhipuOptions from './providers/ZhipuOptions';
 
 const useStyles = createStyles(({ css, token, cx }) => ({
@@ -103,6 +104,8 @@ const ModelSwitch = memo(() => {
                 <MimoOptions />
               ) : provider === 'openai' || provider === 'openaicompatible' ? (
                 <OpenAIOptions />
+              ) : provider === 'xai' ? (
+                <XaiOptions />
               ) : provider === 'zhipu' ? (
                 <ZhipuOptions />
               ) : (
@@ -117,6 +120,7 @@ const ModelSwitch = memo(() => {
               provider === 'mimo' ||
               provider === 'openai' ||
               provider === 'openaicompatible' ||
+              provider === 'xai' ||
               provider === 'zhipu'
                 ? 320
                 : 350,

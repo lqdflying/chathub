@@ -138,6 +138,10 @@
       "desc": "开启后将自动解析网页链接，以获取实际网页上下文内容",
       "title": "提取网页链接内容"
     },
+    "xaiReasoningEffort": {
+      "desc": "Grok 4.6：low / medium / high / xhigh（无法关闭思考）。Grok 4.5：low / medium / high。Grok 4.3：none / low / medium / high。",
+      "title": "推理强度（Grok）"
+    },
     "zhipuPreservedThinking": {
       "desc": "保留历史轮的 reasoning_content（Preserved Thinking，clear_thinking=false）以提升多轮推理质量。需与深度思考同时开启；会增加上下文长度与费用。",
       "title": "保留历史思考（GLM）"

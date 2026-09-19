@@ -23,6 +23,7 @@ const CACHE_DEBUG_ENV_BY_PROVIDER: Readonly<Record<string, string>> = {
   moonshot: 'DEBUG_MOONSHOT_CACHE',
   openai: 'DEBUG_OPENAI_CACHE',
   openaicompatible: 'DEBUG_OPENAICOMPATIBLE_CACHE',
+  xai: 'DEBUG_XAI_CACHE',
   vertexai: 'DEBUG_GOOGLE_CACHE',
   zhipu: 'DEBUG_ZHIPU_CACHE',
 };
@@ -186,6 +187,7 @@ export const resolveModelCacheRuntimeFamily = (provider: string): ModelCacheRunt
     case 'mimo':
     case 'moonshot':
     case 'openaicompatible':
+    case 'xai':
     case 'zhipu': {
       return 'openai-compatible';
     }
@@ -213,6 +215,7 @@ const emitModelCacheDiagnostic = (
             cacheControl: event.cachePolicy.cacheControl,
             cacheControlBreakpointCount: event.cachePolicy.cacheControlBreakpointCount,
             cacheTTL: event.cachePolicy.cacheTTL,
+            grokConvId: event.cachePolicy.grokConvId,
             promptCacheKey: event.cachePolicy.promptCacheKey,
             sessionAffinity: event.cachePolicy.sessionAffinity,
             store: event.cachePolicy.store,

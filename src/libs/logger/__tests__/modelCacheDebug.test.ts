@@ -288,6 +288,18 @@ describe('model cache diagnostic logging', () => {
     });
   });
 
+  it('creates an xAI cache diagnostic context and maps it to the openai-compatible family', () => {
+    vi.stubEnv('DEBUG_XAI_CACHE', '1');
+    const context = createModelCacheDiagnosticContext({
+      provider: 'xai',
+      runtimeFamily: resolveModelCacheRuntimeFamily('xai'),
+    });
+
+    expect(context).toBeDefined();
+    expect(context?.provider).toBe('xai');
+    expect(context?.runtimeFamily).toBe('openai-compatible');
+  });
+
   it('does not create a zhipu context unless DEBUG_ZHIPU_CACHE is enabled', () => {
     const context = createModelCacheDiagnosticContext({
       provider: 'zhipu',

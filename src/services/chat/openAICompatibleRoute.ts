@@ -34,6 +34,12 @@ export const resolveOpenAICompatibleChatRoute = ({
   provider: string;
   providerConfig?: AiProviderConfig;
 }): OpenAICompatibleChatRoute => {
+  if (provider === ModelProvider.Xai) {
+    const configuredApiMode = providerConfig?.enableResponseApi === true ? 'responses' : undefined;
+    const resolvedApiMode = explicitApiMode || configuredApiMode;
+    return resolvedApiMode === 'responses' ? { apiMode: 'responses' } : {};
+  }
+
   if (provider !== ModelProvider.OpenAICompatible) {
     return {};
   }

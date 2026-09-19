@@ -134,6 +134,10 @@
       "title": "Deep Thinking Switch"
     },
     "title": "Model Extension Features",
+    "xaiReasoningEffort": {
+      "desc": "Grok 4.6: low / medium / high / xhigh (thinking cannot be disabled). Grok 4.5: low / medium / high. Grok 4.3: none / low / medium / high.",
+      "title": "Reasoning intensity (Grok)"
+    },
     "urlContext": {
       "desc": "When enabled, web links will be automatically parsed to retrieve the actual webpage context content",
       "title": "Extract Webpage Link Content"

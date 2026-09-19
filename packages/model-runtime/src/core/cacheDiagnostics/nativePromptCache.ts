@@ -9,3 +9,7 @@ export const supportsTrustedPromptCacheKey = (model: string): boolean => {
 
   return majorVersion > 5 || (majorVersion === 5 && minorVersion >= 6);
 };
+
+/** Native OpenAI GPT-5.6+ and every xAI Grok chat id accept a trusted conversation cache key. */
+export const usesTrustedNativePromptCache = (providerId: string, model: string): boolean =>
+  (providerId === 'openai' && supportsTrustedPromptCacheKey(model)) || providerId === 'xai';

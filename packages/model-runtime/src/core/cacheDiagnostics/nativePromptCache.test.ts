@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { supportsTrustedPromptCacheKey } from './nativePromptCache';
+import { supportsTrustedPromptCacheKey, usesTrustedNativePromptCache } from './nativePromptCache';
 
 describe('supportsTrustedPromptCacheKey', () => {
   it.each(['gpt-5.6', 'gpt-5.6-sol', 'gpt-5.7-preview', 'gpt-6', 'gpt-6-mini'])(
@@ -16,4 +16,16 @@ describe('supportsTrustedPromptCacheKey', () => {
       expect(supportsTrustedPromptCacheKey(model)).toBe(false);
     },
   );
+});
+
+describe('usesTrustedNativePromptCache', () => {
+  it('is true for every xAI model id', () => {
+    expect(usesTrustedNativePromptCache('xai', 'grok-4.6')).toBe(true);
+    expect(usesTrustedNativePromptCache('xai', 'grok-build-0.1')).toBe(true);
+  });
+
+  it('stays model-gated for native OpenAI', () => {
+    expect(usesTrustedNativePromptCache('openai', 'gpt-5.6-sol')).toBe(true);
+    expect(usesTrustedNativePromptCache('openai', 'gpt-5.4')).toBe(false);
+  });
 });

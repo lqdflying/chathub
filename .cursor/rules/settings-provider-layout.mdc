@@ -6,9 +6,11 @@ alwaysApply: false
 
 # Settings provider detail layout
 
-How Settings → provider (native OpenAI and OpenAI Compatible) finally stayed
-inside the pane: two equal API-route pills, stacked Check, visible enable
-switch at 768–800px. Apply this stack. Do not revive the failed approaches.
+How Settings → provider (native OpenAI, native xAI, and OpenAI Compatible)
+finally stayed inside the pane: two equal API-route pills, stacked Check,
+visible enable switch at 768–800px. Apply this stack. Do not revive the
+failed approaches. Native xAI reuses the same shrink stack plus a Codex-style
+SuperGrok OAuth extra card (`min-width: 0`, stacked Sign out, wrap meters).
 
 ## What actually works (keep)
 

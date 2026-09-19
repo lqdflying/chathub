@@ -6,6 +6,7 @@ import { checkAuth } from '@/app/(backend)/middleware/auth';
 import { getServerDB } from '@/database/server';
 import { initModelRuntimeWithUserPayload } from '@/server/modules/ModelRuntime';
 import { resolveOpenAICodexChatPayload } from '@/server/services/openaiCodex/resolve';
+import { resolveXaiOAuthChatPayload } from '@/server/services/xaiOAuth/resolve';
 import { createErrorResponse } from '@/utils/errorResponse';
 
 export const GET = checkAuth(async (req, { params, jwtPayload }) => {
@@ -13,7 +14,11 @@ export const GET = checkAuth(async (req, { params, jwtPayload }) => {
 
   try {
     const db = await getServerDB();
-    const resolvedPayload = await resolveOpenAICodexChatPayload(db, provider, jwtPayload);
+    const resolvedPayload = await resolveXaiOAuthChatPayload(
+      db,
+      provider,
+      await resolveOpenAICodexChatPayload(db, provider, jwtPayload),
+    );
     const agentRuntime = await initModelRuntimeWithUserPayload(provider, {
       ...resolvedPayload,
     });

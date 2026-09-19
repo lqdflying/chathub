@@ -71,6 +71,7 @@ export interface ModelCachePolicy {
   cacheControl?: boolean;
   cacheControlBreakpointCount?: number;
   cacheTTL?: '1h' | '5m' | 'mixed';
+  grokConvId?: boolean;
   promptCacheKey?: boolean;
   sessionAffinity?: boolean;
   store?: boolean | null;

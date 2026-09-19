@@ -19,6 +19,7 @@ import {
 import { getServerDB } from '@/database/server';
 import { createTraceOptions, initModelRuntimeWithUserPayload } from '@/server/modules/ModelRuntime';
 import { resolveOpenAICodexChatPayload } from '@/server/services/openaiCodex/resolve';
+import { resolveXaiOAuthChatPayload } from '@/server/services/xaiOAuth/resolve';
 import { ChatStreamPayload } from '@/types/openai/chat';
 import { createErrorResponse } from '@/utils/errorResponse';
 import { stripLegacyProviderParams } from '@/utils/stripLegacyProviderParams';
@@ -52,7 +53,11 @@ export const POST = checkAuth(async (req: Request, { params, jwtPayload, createR
       modelRuntime = createRuntime(jwtPayload);
     } else {
       const db = await getServerDB();
-      const resolvedPayload = await resolveOpenAICodexChatPayload(db, provider, jwtPayload);
+      const resolvedPayload = await resolveXaiOAuthChatPayload(
+        db,
+        provider,
+        await resolveOpenAICodexChatPayload(db, provider, jwtPayload),
+      );
       modelRuntime = await initModelRuntimeWithUserPayload(provider, resolvedPayload);
     }
 

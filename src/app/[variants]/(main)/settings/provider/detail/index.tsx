@@ -4,6 +4,7 @@ import Azure from './azure';
 import AzureAI from './azureai';
 import DefaultPage from './default/ProviderDetialPage';
 import OpenAI from './openai';
+import Xai from './xai';
 
 const ProviderDetailPage = (props: { id?: string | null }) => {
   const { id } = props;
@@ -23,6 +24,9 @@ const ProviderDetailPage = (props: { id?: string | null }) => {
     }
     case 'openai': {
       return <OpenAI />;
+    }
+    case 'xai': {
+      return <Xai />;
     }
     default: {
       return <DefaultPage id={id} />;

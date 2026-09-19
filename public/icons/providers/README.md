@@ -18,6 +18,8 @@ rounded-square webp). Avatar files come from `@lobehub/icons-static-avatar` (MIT
 | `minimax-avatar.webp` | `avatars/minimax.webp` |
 | `moonshot-avatar.webp` | `avatars/moonshot.webp` |
 | `zhipu-avatar.webp` | `avatars/zhipu.webp` |
+| `xai-avatar.webp` | Vendored xAI X mark on black (no `@lobehub/icons` 2.x key) |
+| `xai.svg` | Source for the inline `XaiMono` mark |
 
 `mimo` also vendors a mono SVG because `@lobehub/icons` 2.x has no XiaomiMiMo key
 (`xiaomimimo` is v3+). Other providers still use the package for `type="mono"` /

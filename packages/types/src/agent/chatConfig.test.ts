@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { AgentChatConfigSchema, resolveGPT5ReasoningEffort } from './chatConfig';
+import { AgentChatConfigSchema, resolveGPT5ReasoningEffort, resolveXaiReasoningEffort } from './chatConfig';
 
 describe('GPT-5 reasoning effort contract', () => {
   it('preserves legacy reasoning efforts through persisted config validation', () => {
@@ -119,5 +119,38 @@ describe('GPT-5 reasoning effort contract', () => {
       effort: expectedEffort,
       effortValues: ['minimal', 'low', 'medium', 'high'],
     });
+  });
+});
+
+describe('xAI Grok reasoning effort contract', () => {
+  it('keeps persisted xAI efforts valid', () => {
+    expect(AgentChatConfigSchema.parse({ xaiReasoningEffort: 'xhigh' })).toMatchObject({
+      xaiReasoningEffort: 'xhigh',
+    });
+    expect(AgentChatConfigSchema.parse({ xaiReasoningEffort: 'none' })).toMatchObject({
+      xaiReasoningEffort: 'none',
+    });
+  });
+
+  it('defaults Grok 4.6 to high and accepts xhigh', () => {
+    expect(resolveXaiReasoningEffort('grok-4.6', undefined)).toEqual({
+      effort: 'high',
+      effortValues: ['low', 'medium', 'high', 'xhigh'],
+      sendWhenUnset: true,
+    });
+    expect(resolveXaiReasoningEffort('grok-4.6', 'xhigh').effort).toBe('xhigh');
+  });
+
+  it('maps leftover Grok 4.5 xhigh to high', () => {
+    expect(resolveXaiReasoningEffort('grok-4.5', 'xhigh')).toEqual({
+      effort: 'high',
+      effortValues: ['low', 'medium', 'high'],
+      sendWhenUnset: true,
+    });
+  });
+
+  it('defaults Grok 4.3 to low and keeps none', () => {
+    expect(resolveXaiReasoningEffort('grok-4.3', undefined).effort).toBe('low');
+    expect(resolveXaiReasoningEffort('grok-4.3', 'none').effort).toBe('none');
   });
 });

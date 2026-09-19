@@ -31,7 +31,7 @@ type LambdaClientOptions = {
   getAuthHeaders?: () => Promise<HeadersInput>;
 };
 
-const VERIFIED_ACCOUNT_RPC_NAMESPACES = ['apiKey.', 'openaiCodex.', 'picbed.'] as const;
+const VERIFIED_ACCOUNT_RPC_NAMESPACES = ['apiKey.', 'openaiCodex.', 'picbed.', 'xaiOAuth.'] as const;
 
 // 401 error debouncing: prevent showing multiple login notifications in short time
 let last401Time = 0;

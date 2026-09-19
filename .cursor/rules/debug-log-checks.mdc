@@ -19,7 +19,9 @@ All dedicated switches emit prefixed JSON. Query their distinct `debug_namespace
 | `CHATHUB_COMPACTION_DEBUG=1`        | safe    | topic compaction planner/watcher/worker events plus scheduled memory-dream tick/settle (why compact or dream ran, estimate parts, context-window number) |
 | `CHATHUB_COMPACTION_DEBUG=verbose`  | verbose | same compaction records plus flag booleans |
 | `CHATHUB_OPENAI_CODEX_DEBUG=1`      | safe    | ChatGPT / Codex device-login, refresh, overlay, and `codex/responses` HTTP/SSE metadata |
+| `CHATHUB_XAI_OAUTH_DEBUG=1`         | safe    | SuperGrok device-login, refresh, overlay, and billing-fetch metadata |
 | `DEBUG_OPENAI_CACHE=1`              | safe    | native OpenAI cache events                     |
+| `DEBUG_XAI_CACHE=1`                 | safe    | native xAI cache-key / `x-grok-conv-id` presence + `cached_tokens` |
 | `DEBUG_AZURE_CACHE=1`               | safe    | Azure OpenAI cache events                      |
 | `DEBUG_AZUREAI_CACHE=1`             | safe    | Azure AI cache support/usage events            |
 | `DEBUG_MOONSHOT_CACHE=1`            | safe    | Moonshot/Kimi cache events                     |
@@ -550,6 +552,8 @@ docker exec lobe-chat sh -c 'cat /proc/1/environ | tr "\0" "\n" | grep CHATHUB_G
 docker exec lobe-chat sh -c 'cat /proc/1/environ | tr "\0" "\n" | grep CHATHUB_COMPACTION_DEBUG'
 docker exec lobe-chat env | grep CHATHUB_OPENAI_CODEX_DEBUG
 docker exec lobe-chat sh -c 'cat /proc/1/environ | tr "\0" "\n" | grep CHATHUB_OPENAI_CODEX_DEBUG'
+docker exec lobe-chat env | grep CHATHUB_XAI_OAUTH_DEBUG
+docker exec lobe-chat sh -c 'cat /proc/1/environ | tr "\0" "\n" | grep CHATHUB_XAI_OAUTH_DEBUG'
 docker exec lobe-chat sh -c 'cat /proc/1/environ | tr "\0" "\n" | grep -E "DEBUG_.*_CACHE|KEY_VAULTS_SECRET|NEXT_AUTH_SECRET"'
 ```
 
