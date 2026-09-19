@@ -272,6 +272,8 @@ export default {
     connectedAnonymous: '已连接 ChatGPT / Codex 订阅',
     connectedPlan: '{{plan}} 套餐',
     denied: '授权被拒绝或失败，请重新登录。',
+    deviceLoginPrerequisite:
+      'ChatGPT 需允许设备码登录：个人账号在安全设置中开启，或由工作区管理员允许。这是 ChatGPT 侧的权限，不是 ChatHub 开关。',
     expired: '设备码已过期，请重新登录。',
     expires: '会话将于 {{time}} 过期',
     hint: '登录后，OpenAI 聊天将使用你的 ChatGPT Plus/Pro Codex 额度，而不是 Platform API 计费。图像、语音和嵌入仍使用上方的 API Key。',

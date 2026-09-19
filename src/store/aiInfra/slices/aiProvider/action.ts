@@ -214,10 +214,10 @@ export interface AiProviderAction {
   refreshAiProviderRuntimeState: () => Promise<void>;
   removeAiProvider: (id: string) => Promise<void>;
   toggleProviderEnabled: (id: string, enabled: boolean) => Promise<void>;
-  updateOpenAICodexConnected: (connected: boolean) => void;
   updateAiProvider: (id: string, value: UpdateAiProviderParams) => Promise<void>;
   updateAiProviderConfig: (id: string, value: UpdateAiProviderConfigParams) => Promise<void>;
   updateAiProviderSort: (items: AiProviderSortMap[]) => Promise<void>;
+  updateOpenAICodexConnected: (connected: boolean) => void;
 
   useFetchAiProviderItem: (id: string) => SWRResponse<AiProviderDetailItem | undefined>;
   useFetchAiProviderList: (params?: {

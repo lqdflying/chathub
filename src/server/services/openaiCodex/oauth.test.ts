@@ -1,10 +1,11 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { openaiCodexOAuthTokens } from '@/database/schemas/openaiCodexOAuth';
 import { oauthHandoffs } from '@/database/schemas/oidc';
 
+import { OpenAICodexTransientRefreshError } from './errors';
 import { OpenAICodexOAuthService } from './oauth';
+import { createMemoryOpenAICodexTokenStore } from './tokenStore';
 
 const makeJwt = (payload: Record<string, unknown>) => {
   const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })).toString('base64url');
@@ -21,9 +22,17 @@ const accessToken = makeJwt({
   exp: Math.floor(Date.now() / 1000) + 3600,
 });
 
+const loginAccessToken = makeJwt({
+  'https://api.openai.com/auth': {
+    chatgpt_account_id: 'acct_2',
+    chatgpt_plan_type: 'pro',
+  },
+  'https://api.openai.com/profile': { email: 'pro@example.com' },
+  exp: Math.floor(Date.now() / 1000) + 3600,
+});
+
 describe('OpenAICodexOAuthService', () => {
   const handoffs: any[] = [];
-  const tokens: any[] = [];
   const fetchFn = vi.fn();
   const crypto = {
     decrypt: vi.fn(async (value: string) => ({
@@ -32,36 +41,45 @@ describe('OpenAICodexOAuthService', () => {
     })),
     encrypt: vi.fn(async (value: string) => `enc:${value}`),
   };
+  let tokenStore: ReturnType<typeof createMemoryOpenAICodexTokenStore>;
 
   const db = {
     delete: vi.fn((table: unknown) => ({
       where: async () => {
         if (table === oauthHandoffs) handoffs.length = 0;
-        if (table === openaiCodexOAuthTokens) tokens.length = 0;
       },
     })),
     insert: vi.fn((table: unknown) => ({
       values: async (row: any) => {
-        if (table === oauthHandoffs) {
-          handoffs.push(row);
-          return;
-        }
-        tokens.push(row);
+        if (table === oauthHandoffs) handoffs.push(row);
       },
     })),
     select: vi.fn(() => ({
       from: (table: unknown) => ({
-        where: async () => (table === oauthHandoffs ? [...handoffs] : [...tokens]),
+        where: async () => (table === oauthHandoffs ? [...handoffs] : []),
       }),
     })),
   };
 
   const service = () =>
-    new OpenAICodexOAuthService(db as any, { crypto, fetchFn: fetchFn as any });
+    new OpenAICodexOAuthService(db as any, { crypto, fetchFn: fetchFn as any, tokenStore });
+
+  const seedExpiringSession = async (refreshToken = 'old-refresh') => {
+    await tokenStore.upsert({
+      accessToken: 'enc:old-access',
+      accountId: 'acct_1',
+      chatgptPlanType: 'plus',
+      clientId: 'client',
+      email: 'plus@example.com',
+      expiresAt: new Date(Date.now() + 60_000),
+      refreshToken: `enc:${refreshToken}`,
+      userId: 'user-1',
+    });
+  };
 
   beforeEach(() => {
     handoffs.length = 0;
-    tokens.length = 0;
+    tokenStore = createMemoryOpenAICodexTokenStore();
     fetchFn.mockReset();
     db.delete.mockClear();
     db.insert.mockClear();
@@ -136,7 +154,7 @@ describe('OpenAICodexOAuthService', () => {
     });
     expect(JSON.stringify(polled)).not.toContain(accessToken);
     expect(JSON.stringify(polled)).not.toContain('refresh-1');
-    expect(tokens[0]).toMatchObject({
+    expect(tokenStore.rows.get('user-1')).toMatchObject({
       accessToken: `enc:${accessToken}`,
       accountId: 'acct_1',
       refreshToken: 'enc:refresh-1',
@@ -176,15 +194,7 @@ describe('OpenAICodexOAuthService', () => {
   });
 
   it('refreshes a near-expiry session and rotates the refresh token', async () => {
-    tokens.push({
-      accessToken: 'enc:old-access',
-      accountId: 'acct_1',
-      chatgptPlanType: 'plus',
-      email: 'plus@example.com',
-      expiresAt: new Date(Date.now() + 60_000),
-      refreshToken: 'enc:old-refresh',
-      userId: 'user-1',
-    });
+    await seedExpiringSession();
     fetchFn.mockResolvedValueOnce({
       ok: true,
       text: async () =>
@@ -201,25 +211,197 @@ describe('OpenAICodexOAuthService', () => {
       accessToken,
       accountId: 'acct_1',
     });
-    expect(tokens.at(-1)).toMatchObject({
+    expect(tokenStore.rows.get('user-1')).toMatchObject({
       refreshToken: 'enc:new-refresh',
     });
   });
 
-  it('disconnects when refresh fails with invalid_grant', async () => {
-    tokens.push({
-      accessToken: 'enc:old-access',
-      accountId: 'acct_1',
-      expiresAt: new Date(Date.now() + 60_000),
-      refreshToken: 'enc:old-refresh',
+  it('serializes concurrent refresh so one valid row remains', async () => {
+    await seedExpiringSession();
+    let releaseFirst!: (value: unknown) => void;
+    const firstRefresh = new Promise((resolve) => {
+      releaseFirst = resolve;
+    });
+    let calls = 0;
+    fetchFn.mockImplementation(async () => {
+      calls += 1;
+      if (calls === 1) await firstRefresh;
+      return {
+        ok: true,
+        text: async () =>
+          JSON.stringify({
+            access_token: accessToken,
+            expires_in: 3600,
+            refresh_token: 'new-refresh',
+          }),
+      };
+    });
+
+    const first = service();
+    const second = service();
+    const pendingA = first.resolveLiveSession('user-1');
+    const pendingB = second.resolveLiveSession('user-1');
+    await vi.waitFor(() => expect(fetchFn).toHaveBeenCalled());
+    releaseFirst(undefined);
+
+    const [sessionA, sessionB] = await Promise.all([pendingA, pendingB]);
+    expect(sessionA?.accessToken).toBe(accessToken);
+    expect(sessionB?.accessToken).toBe(accessToken);
+    expect(tokenStore.rows.size).toBe(1);
+    expect(tokenStore.rows.get('user-1')?.refreshToken).toBe('enc:new-refresh');
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not recreate a session when logout races an in-flight refresh', async () => {
+    await seedExpiringSession();
+    let finishRefresh!: (value: unknown) => void;
+    fetchFn.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishRefresh = resolve;
+        }),
+    );
+
+    const oauth = service();
+    const pending = oauth.resolveLiveSession('user-1');
+    await vi.waitFor(() => expect(fetchFn).toHaveBeenCalled());
+    const logout = oauth.logout('user-1');
+    finishRefresh({
+      ok: true,
+      text: async () =>
+        JSON.stringify({
+          access_token: accessToken,
+          expires_in: 3600,
+          refresh_token: 'new-refresh',
+        }),
+    });
+
+    await Promise.all([pending, logout]);
+    expect(tokenStore.rows.size).toBe(0);
+  });
+
+  it('does not let a stale refresh overwrite a newer login', async () => {
+    await seedExpiringSession();
+    let finishRefresh!: (value: unknown) => void;
+    fetchFn.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishRefresh = resolve;
+        }),
+    );
+
+    const pending = service().resolveLiveSession('user-1');
+    await vi.waitFor(() => expect(fetchFn).toHaveBeenCalled());
+    await tokenStore.upsert({
+      accessToken: `enc:${loginAccessToken}`,
+      accountId: 'acct_2',
+      chatgptPlanType: 'pro',
+      clientId: 'client',
+      email: 'pro@example.com',
+      expiresAt: new Date(Date.now() + 3_600_000),
+      refreshToken: 'enc:login-refresh',
       userId: 'user-1',
     });
+    finishRefresh({
+      ok: true,
+      text: async () =>
+        JSON.stringify({
+          access_token: accessToken,
+          expires_in: 3600,
+          refresh_token: 'stale-refresh',
+        }),
+    });
+
+    const session = await pending;
+    expect(session).toMatchObject({
+      accessToken: loginAccessToken,
+      accountId: 'acct_2',
+    });
+    expect(tokenStore.rows.get('user-1')?.refreshToken).toBe('enc:login-refresh');
+  });
+
+  it('keeps a newer rotation when a stale refresh is rejected as reused', async () => {
+    await seedExpiringSession();
+    let finishRefresh!: (value: unknown) => void;
+    fetchFn.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishRefresh = resolve;
+        }),
+    );
+
+    const pending = service().resolveLiveSession('user-1');
+    await vi.waitFor(() => expect(fetchFn).toHaveBeenCalled());
+    await tokenStore.upsert({
+      accessToken: `enc:${accessToken}`,
+      accountId: 'acct_1',
+      chatgptPlanType: 'plus',
+      clientId: 'client',
+      email: 'plus@example.com',
+      expiresAt: new Date(Date.now() + 3_600_000),
+      refreshToken: 'enc:new-refresh',
+      userId: 'user-1',
+    });
+    finishRefresh({
+      ok: false,
+      text: async () => JSON.stringify({ error: 'refresh_token_reused' }),
+    });
+
+    await expect(pending).resolves.toMatchObject({
+      accessToken,
+      accountId: 'acct_1',
+    });
+    expect(tokenStore.rows.get('user-1')?.refreshToken).toBe('enc:new-refresh');
+  });
+
+  it('disconnects only the matching credential version on invalid_grant', async () => {
+    await seedExpiringSession();
     fetchFn.mockResolvedValueOnce({
       ok: false,
       text: async () => JSON.stringify({ error: 'invalid_grant' }),
     });
 
     await expect(service().resolveLiveSession('user-1')).resolves.toBeNull();
-    expect(db.delete).toHaveBeenCalled();
+    expect(tokenStore.rows.size).toBe(0);
+  });
+
+  it.each([429, 500, 502, 503])(
+    'preserves the session on transient HTTP %s and does not fall back',
+    async (status) => {
+      await seedExpiringSession();
+      fetchFn.mockResolvedValueOnce({
+        ok: false,
+        status,
+        text: async () => 'temporarily unavailable',
+      });
+
+      const session = await service().resolveLiveSession('user-1');
+      expect(session).toMatchObject({ accessToken: 'old-access', accountId: 'acct_1' });
+      expect(tokenStore.rows.size).toBe(1);
+      expect(tokenStore.rows.get('user-1')?.refreshToken).toBe('enc:old-refresh');
+    },
+  );
+
+  it('throws a retryable error when a transient refresh happens after expiry', async () => {
+    await tokenStore.upsert({
+      accessToken: 'enc:old-access',
+      accountId: 'acct_1',
+      chatgptPlanType: 'plus',
+      clientId: 'client',
+      email: 'plus@example.com',
+      expiresAt: new Date(Date.now() - 1000),
+      refreshToken: 'enc:old-refresh',
+      userId: 'user-1',
+    });
+    fetchFn.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({}),
+    });
+
+    await expect(service().resolveLiveSession('user-1')).rejects.toBeInstanceOf(
+      OpenAICodexTransientRefreshError,
+    );
+    expect(tokenStore.rows.size).toBe(1);
   });
 });

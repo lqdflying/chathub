@@ -9,6 +9,7 @@ vi.mock('./oauth', () => ({
   },
 }));
 
+import { OpenAICodexTransientRefreshError } from './errors';
 import { applyOpenAICodexChatPayload, resolveOpenAICodexChatPayload } from './resolve';
 
 describe('resolveOpenAICodexChatPayload', () => {
@@ -41,6 +42,23 @@ describe('resolveOpenAICodexChatPayload', () => {
       baseURL: 'https://chatgpt.com/backend-api/codex',
       userId: 'user-1',
     });
+  });
+
+  it('does not overlay Codex credentials for structured generation', async () => {
+    const payload = { apiKey: 'sk-test', userId: 'user-1' };
+
+    await expect(
+      resolveOpenAICodexChatPayload({} as any, 'openai', payload, { purpose: 'structured' }),
+    ).resolves.toEqual(payload);
+    expect(resolveLiveSession).not.toHaveBeenCalled();
+  });
+
+  it('does not fall back to Platform credentials on a transient refresh failure', async () => {
+    resolveLiveSession.mockRejectedValueOnce(new OpenAICodexTransientRefreshError(undefined, 503));
+
+    await expect(
+      resolveOpenAICodexChatPayload({} as any, 'openai', { apiKey: 'sk-test', userId: 'user-1' }),
+    ).rejects.toBeInstanceOf(OpenAICodexTransientRefreshError);
   });
 
   it('does not put refresh tokens on the chat payload', () => {

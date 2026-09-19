@@ -7,7 +7,9 @@ import { AiInfraRepos } from '@/database/repositories/aiInfra';
 import { getServerGlobalConfig } from '@/server/globalConfig';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
 import { getModelRuntimeParamsFromPayload } from '@/server/modules/ModelRuntime';
+import { isOpenAICodexTransientRefreshError } from '@/server/services/openaiCodex/errors';
 import { resolveOpenAICodexChatPayload } from '@/server/services/openaiCodex/resolve';
+import type { ConversationRuntimePurpose } from '@/server/services/openaiCodex/types';
 import type { LobeChatDatabase } from '@lobechat/database';
 import type { ProviderConfig } from '@/types/user/settings';
 
@@ -78,11 +80,13 @@ export const resolveConversationRuntimePayload = async ({
   db,
   fetchOnClient,
   provider,
+  purpose = 'chat',
   userId,
 }: {
   db: LobeChatDatabase;
   fetchOnClient?: boolean;
   provider: string;
+  purpose?: ConversationRuntimePurpose;
   userId: string;
 }): Promise<ClientSecretPayload> => {
   const { aiProvider } = await getServerGlobalConfig();
@@ -117,7 +121,18 @@ export const resolveConversationRuntimePayload = async ({
     userId,
     ...providerPayloadFromVault(runtimeProvider, vault),
   } as ClientSecretPayload;
-  const payload = await resolveOpenAICodexChatPayload(db, provider, vaultPayload);
+  let payload: ClientSecretPayload;
+  try {
+    payload = await resolveOpenAICodexChatPayload(db, provider, vaultPayload, { purpose });
+  } catch (error) {
+    if (isOpenAICodexTransientRefreshError(error)) {
+      throw new TRPCError({
+        code: 'BAD_GATEWAY',
+        message: error.message,
+      });
+    }
+    throw error;
+  }
 
   const runtimeParams = getModelRuntimeParamsFromPayload(runtimeProvider, payload);
   const hasCredential = payloadHasUserCredential(payload) || Boolean(runtimeParams.apiKey || runtimeParams.baseURL);

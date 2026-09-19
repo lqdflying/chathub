@@ -190,9 +190,20 @@ export const chatWithCodexResponses = async ({
   }
 
   return StreamingResponse(
-    OpenAIResponsesStream(parseCodexResponsesSse(response) as any, undefined, {
-      requireTerminalEvent: true,
-    }),
-    { headers: options?.headers },
+    OpenAIResponsesStream(
+      parseCodexResponsesSse(response) as any,
+      {
+        callbacks: options?.callback,
+        payload: {
+          model: payload.model,
+          provider: 'openai',
+        },
+      },
+      { requireTerminalEvent: true },
+    ),
+    {
+      headers: options?.headers,
+      onCancel: options?.callback?.onCancel,
+    },
   );
 };

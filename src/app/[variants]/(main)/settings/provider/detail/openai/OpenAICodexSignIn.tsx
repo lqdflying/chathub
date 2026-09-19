@@ -7,7 +7,13 @@ import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
 import { lambdaQuery } from '@/libs/trpc/client';
+import {
+  captureSensitiveAccountMutationSnapshot,
+  isAccountMutationCurrent,
+} from '@/store/accountMutation';
 import { useAiInfraStore } from '@/store/aiInfra';
+import { useUserStore } from '@/store/user';
+import { authSelectors } from '@/store/user/selectors';
 
 const useStyles = createStyles(({ css, token }) => ({
   card: css`
@@ -39,7 +45,22 @@ const OpenAICodexSignIn = () => {
   const { styles } = useStyles();
   const { t } = useTranslation('modelProvider');
   const updateOpenAICodexConnected = useAiInfraStore((s) => s.updateOpenAICodexConnected);
-  const statusQuery = lambdaQuery.openaiCodex.status.useQuery();
+  const userStateScope = useUserStore((s) => s.userStateScope);
+  const preferenceOwner = useUserStore(authSelectors.currentUserScope);
+  const hasOwnerMismatch = useUserStore(authSelectors.hasActiveUserStateOwnerMismatch);
+  const isUserStateInit = useUserStore((s) => s.isUserStateInit);
+  const isLogin = useUserStore(authSelectors.isLogin);
+  const canFetch =
+    !!isLogin &&
+    !!userStateScope &&
+    !!preferenceOwner &&
+    userStateScope === preferenceOwner &&
+    isUserStateInit &&
+    !hasOwnerMismatch;
+  const statusQuery = lambdaQuery.openaiCodex.status.useQuery(
+    { accountScope: userStateScope ?? '' },
+    { enabled: canFetch },
+  );
   const startLogin = lambdaQuery.openaiCodex.startDeviceLogin.useMutation();
   const pollLogin = lambdaQuery.openaiCodex.pollDeviceLogin.useMutation();
   const logout = lambdaQuery.openaiCodex.logout.useMutation();
@@ -54,21 +75,43 @@ const OpenAICodexSignIn = () => {
     pollTimer.current = undefined;
   }, []);
 
+  const resetDeviceLogin = useCallback(() => {
+    stopPolling();
+    setWaiting(false);
+    setUserCode(undefined);
+    setVerificationUrl(undefined);
+    setError(undefined);
+  }, [stopPolling]);
+
   useEffect(() => () => stopPolling(), [stopPolling]);
 
   useEffect(() => {
-    updateOpenAICodexConnected(!!statusQuery.data?.connected);
-  }, [statusQuery.data?.connected, updateOpenAICodexConnected]);
+    resetDeviceLogin();
+    updateOpenAICodexConnected(false);
+  }, [resetDeviceLogin, updateOpenAICodexConnected, userStateScope]);
+
+  useEffect(() => {
+    if (!canFetch) {
+      updateOpenAICodexConnected(false);
+      return;
+    }
+    if (statusQuery.data) updateOpenAICodexConnected(!!statusQuery.data.connected);
+  }, [canFetch, statusQuery.data, updateOpenAICodexConnected]);
 
   const startDeviceLogin = async () => {
+    const snapshot = captureSensitiveAccountMutationSnapshot(useUserStore.getState());
+    if (!snapshot) return;
+
     setError(undefined);
     let started: Awaited<ReturnType<typeof startLogin.mutateAsync>>;
     try {
-      started = await startLogin.mutateAsync();
+      started = await startLogin.mutateAsync({ accountScope: snapshot.scope });
     } catch {
+      if (!isAccountMutationCurrent(useUserStore.getState(), snapshot)) return;
       setError(t('openaiCodex.denied'));
       return;
     }
+    if (!isAccountMutationCurrent(useUserStore.getState(), snapshot)) return;
     setUserCode(started.userCode);
     setVerificationUrl(started.verificationUrl);
     setWaiting(true);
@@ -76,8 +119,16 @@ const OpenAICodexSignIn = () => {
     stopPolling();
     pollTimer.current = window.setInterval(() => {
       void (async () => {
+        if (!isAccountMutationCurrent(useUserStore.getState(), snapshot)) {
+          stopPolling();
+          return;
+        }
         try {
-          const result = await pollLogin.mutateAsync({ handoffId: started.handoffId });
+          const result = await pollLogin.mutateAsync({
+            accountScope: snapshot.scope,
+            handoffId: started.handoffId,
+          });
+          if (!isAccountMutationCurrent(useUserStore.getState(), snapshot)) return;
           if (result.status === 'pending') return;
 
           stopPolling();
@@ -101,18 +152,22 @@ const OpenAICodexSignIn = () => {
   };
 
   const handleLogout = async () => {
+    const snapshot = captureSensitiveAccountMutationSnapshot(useUserStore.getState());
+    if (!snapshot) return;
     stopPolling();
-    await logout.mutateAsync();
+    await logout.mutateAsync({ accountScope: snapshot.scope });
+    if (!isAccountMutationCurrent(useUserStore.getState(), snapshot)) return;
     updateOpenAICodexConnected(false);
     await statusQuery.refetch();
   };
 
-  const connected = !!statusQuery.data?.connected;
+  const connected = canFetch && !!statusQuery.data?.connected;
 
   return (
     <Flexbox className={styles.card} gap={8}>
       <div className={styles.title}>{t('openaiCodex.title')}</div>
       <div className={styles.hint}>{t('openaiCodex.hint')}</div>
+      <div className={styles.hint}>{t('openaiCodex.deviceLoginPrerequisite')}</div>
       <div className={styles.hint}>{t('openaiCodex.unofficial')}</div>
 
       {connected ? (
@@ -153,6 +208,7 @@ const OpenAICodexSignIn = () => {
         </>
       ) : (
         <Button
+          disabled={!canFetch}
           loading={startLogin.isPending}
           onClick={() => void startDeviceLogin()}
           type={'primary'}

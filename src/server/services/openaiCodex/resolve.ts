@@ -5,7 +5,7 @@ import { ModelProvider } from 'model-bank';
 import type { LobeChatDatabase } from '@lobechat/database';
 
 import { OpenAICodexOAuthService } from './oauth';
-import type { OpenAICodexLiveSession } from './types';
+import type { ConversationRuntimePurpose, OpenAICodexLiveSession } from './types';
 
 export const isOpenAICodexProvider = (provider?: string) => provider === ModelProvider.OpenAI;
 
@@ -33,8 +33,10 @@ export const resolveOpenAICodexChatPayload = async (
   db: LobeChatDatabase,
   provider: string,
   payload: ClientSecretPayload,
+  options?: { purpose?: ConversationRuntimePurpose },
 ): Promise<ClientSecretPayload> => {
   if (!isOpenAICodexProvider(provider)) return payload;
+  if (options?.purpose === 'structured') return payload;
 
   const session = await resolveOpenAICodexLiveSession(db, payload.userId);
   if (!session) return payload;

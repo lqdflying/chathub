@@ -14,13 +14,17 @@ import { eq } from 'drizzle-orm';
 
 import {
   NewOpenAICodexOAuthTokenItem,
-  openaiCodexOAuthTokens,
 } from '@/database/schemas/openaiCodexOAuth';
 import { oauthHandoffs } from '@/database/schemas/oidc';
 import { generateState } from '@/libs/mcp/pkce';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
 
+import { OpenAICodexTransientRefreshError } from './errors';
 import { resolveOpenAICodexJwtIdentity } from './jwt';
+import {
+  createDrizzleOpenAICodexTokenStore,
+  type OpenAICodexTokenStore,
+} from './tokenStore';
 import type {
   OpenAICodexConnectionStatus,
   OpenAICodexDeviceLoginPoll,
@@ -40,6 +44,35 @@ type DeviceAuthHandoffPayload = {
   expiresAt: number;
   userCode: string;
   userId: string;
+};
+
+type RefreshOutcome =
+  | { tokens: { accessToken: string; expiresAt: Date; refreshToken: string }; type: 'success' }
+  | { type: 'invalid' }
+  | { status: number; type: 'transient' };
+
+const userLocks = new Map<string, Promise<unknown>>();
+
+const withUserLock = async <T>(userId: string, fn: () => Promise<T>): Promise<T> => {
+  const previous = userLocks.get(userId) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  userLocks.set(
+    userId,
+    previous.then(
+      () => current,
+      () => current,
+    ),
+  );
+  await previous.catch(() => undefined);
+  try {
+    return await fn();
+  } finally {
+    release();
+    if (userLocks.get(userId) === current) userLocks.delete(userId);
+  }
 };
 
 const jsonHeaders = {
@@ -104,9 +137,26 @@ const sanitizeStatus = (session: {
   expiresAt: session.expiresAt.toISOString(),
 });
 
+const toLiveSession = (
+  accessToken: string,
+  record: {
+    accountId: string;
+    chatgptPlanType?: string | null;
+    email?: string | null;
+    expiresAt: Date;
+  },
+): OpenAICodexLiveSession => ({
+  accessToken,
+  accountId: record.accountId,
+  chatgptPlanType: record.chatgptPlanType || undefined,
+  email: record.email || undefined,
+  expiresAt: record.expiresAt,
+});
+
 export class OpenAICodexOAuthService {
   private readonly db: LobeChatDatabase;
   private readonly fetchFn: FetchFn;
+  private readonly tokenStore: OpenAICodexTokenStore;
   private crypto?: TokenCrypto;
 
   constructor(
@@ -114,11 +164,13 @@ export class OpenAICodexOAuthService {
     options?: {
       crypto?: TokenCrypto;
       fetchFn?: FetchFn;
+      tokenStore?: OpenAICodexTokenStore;
     },
   ) {
     this.db = db;
     this.fetchFn = options?.fetchFn ?? fetch;
     this.crypto = options?.crypto;
+    this.tokenStore = options?.tokenStore ?? createDrizzleOpenAICodexTokenStore(db);
   }
 
   private async getCrypto(): Promise<TokenCrypto> {
@@ -232,72 +284,78 @@ export class OpenAICodexOAuthService {
       return { message: 'token_exchange_failed', status: 'denied' };
     }
 
-    const stored = await this.persistTokens(userId, exchanged);
+    const stored = await this.persistLoginTokens(userId, exchanged);
     await this.db.delete(oauthHandoffs).where(eq(oauthHandoffs.id, handoffId));
 
     return { ...sanitizeStatus(stored), status: 'connected' };
   }
 
   async getStatus(userId: string): Promise<OpenAICodexConnectionStatus> {
-    const [record] = await this.db
-      .select({
-        chatgptPlanType: openaiCodexOAuthTokens.chatgptPlanType,
-        email: openaiCodexOAuthTokens.email,
-        expiresAt: openaiCodexOAuthTokens.expiresAt,
-      })
-      .from(openaiCodexOAuthTokens)
-      .where(eq(openaiCodexOAuthTokens.userId, userId));
-
+    const record = await this.tokenStore.findByUserId(userId);
     if (!record) return { connected: false };
 
     return sanitizeStatus(record);
   }
 
   async logout(userId: string): Promise<void> {
-    await this.db.delete(openaiCodexOAuthTokens).where(eq(openaiCodexOAuthTokens.userId, userId));
+    await withUserLock(userId, async () => {
+      await this.tokenStore.deleteByUserId(userId);
+    });
   }
 
   async resolveLiveSession(userId: string): Promise<OpenAICodexLiveSession | null> {
-    const [record] = await this.db
-      .select()
-      .from(openaiCodexOAuthTokens)
-      .where(eq(openaiCodexOAuthTokens.userId, userId));
+    return withUserLock(userId, async () => {
+      const record = await this.tokenStore.findByUserId(userId);
+      if (!record) return null;
 
+      const crypto = await this.getCrypto();
+      const access = await crypto.decrypt(record.accessToken);
+      const refresh = await crypto.decrypt(record.refreshToken);
+      if (!access.wasAuthentic || !refresh.wasAuthentic || !access.plaintext || !refresh.plaintext) {
+        await this.tokenStore.deleteIfRefreshMatches(userId, record.refreshToken);
+        return null;
+      }
+
+      const needsRefresh = record.expiresAt.getTime() - Date.now() <= OPENAI_CODEX_REFRESH_SKEW_MS;
+      if (!needsRefresh) return toLiveSession(access.plaintext, record);
+
+      const refreshed = await this.refreshAccessToken(refresh.plaintext);
+      if (refreshed.type === 'transient') {
+        if (record.expiresAt.getTime() > Date.now()) {
+          return toLiveSession(access.plaintext, record);
+        }
+        throw new OpenAICodexTransientRefreshError(
+          'ChatGPT subscription refresh is temporarily unavailable.',
+          refreshed.status,
+        );
+      }
+
+      if (refreshed.type === 'invalid') {
+        const deleted = await this.tokenStore.deleteIfRefreshMatches(
+          userId,
+          record.refreshToken,
+        );
+        if (deleted) return null;
+        return this.loadCurrentSession(userId);
+      }
+
+      const rotated = await this.rotateTokens(userId, record.refreshToken, refreshed.tokens);
+      if (rotated) return toLiveSession(refreshed.tokens.accessToken, rotated);
+
+      const current = await this.loadCurrentSession(userId);
+      return current;
+    });
+  }
+
+  private async loadCurrentSession(userId: string): Promise<OpenAICodexLiveSession | null> {
+    const record = await this.tokenStore.findByUserId(userId);
     if (!record) return null;
 
     const crypto = await this.getCrypto();
     const access = await crypto.decrypt(record.accessToken);
-    const refresh = await crypto.decrypt(record.refreshToken);
-    if (!access.wasAuthentic || !refresh.wasAuthentic || !access.plaintext || !refresh.plaintext) {
-      await this.logout(userId);
-      return null;
-    }
+    if (!access.wasAuthentic || !access.plaintext) return null;
 
-    const needsRefresh = record.expiresAt.getTime() - Date.now() <= OPENAI_CODEX_REFRESH_SKEW_MS;
-    if (!needsRefresh) {
-      return {
-        accessToken: access.plaintext,
-        accountId: record.accountId,
-        chatgptPlanType: record.chatgptPlanType || undefined,
-        email: record.email || undefined,
-        expiresAt: record.expiresAt,
-      };
-    }
-
-    const refreshed = await this.refreshAccessToken(refresh.plaintext);
-    if (!refreshed) {
-      await this.logout(userId);
-      return null;
-    }
-
-    const stored = await this.persistTokens(userId, refreshed);
-    return {
-      accessToken: refreshed.accessToken,
-      accountId: stored.accountId,
-      chatgptPlanType: stored.chatgptPlanType || undefined,
-      email: stored.email || undefined,
-      expiresAt: stored.expiresAt,
-    };
+    return toLiveSession(access.plaintext, record);
   }
 
   private async exchangeAuthorizationCode(
@@ -330,46 +388,58 @@ export class OpenAICodexOAuthService {
     };
   }
 
-  private async refreshAccessToken(
-    refreshToken: string,
-  ): Promise<{ accessToken: string; expiresAt: Date; refreshToken: string } | null> {
-    const response = await this.fetchFn(`${OPENAI_AUTH_BASE_URL}/oauth/token`, {
-      body: new URLSearchParams({
-        client_id: OPENAI_CODEX_CLIENT_ID,
-        grant_type: 'refresh_token',
-        refresh_token: refreshToken,
-      }),
-      headers: formHeaders,
-      method: 'POST',
-    });
+  private async refreshAccessToken(refreshToken: string): Promise<RefreshOutcome> {
+    let response: Response;
+    try {
+      response = await this.fetchFn(`${OPENAI_AUTH_BASE_URL}/oauth/token`, {
+        body: new URLSearchParams({
+          client_id: OPENAI_CODEX_CLIENT_ID,
+          grant_type: 'refresh_token',
+          refresh_token: refreshToken,
+        }),
+        headers: formHeaders,
+        method: 'POST',
+      });
+    } catch {
+      return { status: 0, type: 'transient' };
+    }
+
     const body = parseJsonObject(await response.text());
     const error = asOptionalString(body.error);
     if (
-      !response.ok ||
       error === 'invalid_grant' ||
       error === 'invalid_refresh_token' ||
       error === 'refresh_token_reused'
     ) {
-      return null;
+      return { type: 'invalid' };
+    }
+
+    if (!response.ok) {
+      return { status: response.status, type: 'transient' };
     }
 
     const accessToken = asOptionalString(body.access_token);
-    if (!accessToken) return null;
+    if (!accessToken) {
+      return { status: response.status, type: 'transient' };
+    }
 
     return {
-      accessToken,
-      expiresAt: computeExpiresAt(
-        typeof body.expires_in === 'number' ? body.expires_in : undefined,
+      tokens: {
         accessToken,
-      ),
-      refreshToken: asOptionalString(body.refresh_token) || refreshToken,
+        expiresAt: computeExpiresAt(
+          typeof body.expires_in === 'number' ? body.expires_in : undefined,
+          accessToken,
+        ),
+        refreshToken: asOptionalString(body.refresh_token) || refreshToken,
+      },
+      type: 'success',
     };
   }
 
-  private async persistTokens(
+  private async encryptTokenRow(
     userId: string,
     tokens: { accessToken: string; expiresAt: Date; refreshToken: string },
-  ) {
+  ): Promise<NewOpenAICodexOAuthTokenItem> {
     const identity = resolveOpenAICodexJwtIdentity(tokens.accessToken);
     if (!identity?.accountId) {
       throw new TRPCError({
@@ -384,7 +454,7 @@ export class OpenAICodexOAuthService {
       crypto.encrypt(tokens.refreshToken),
     ]);
 
-    const insert: NewOpenAICodexOAuthTokenItem = {
+    return {
       accessToken,
       accountId: identity.accountId,
       chatgptPlanType: identity.chatgptPlanType,
@@ -394,16 +464,41 @@ export class OpenAICodexOAuthService {
       refreshToken,
       userId,
     };
+  }
 
-    await this.db
-      .delete(openaiCodexOAuthTokens)
-      .where(eq(openaiCodexOAuthTokens.userId, userId));
-    await this.db.insert(openaiCodexOAuthTokens).values(insert);
+  private async persistLoginTokens(
+    userId: string,
+    tokens: { accessToken: string; expiresAt: Date; refreshToken: string },
+  ) {
+    return withUserLock(userId, async () => {
+      const insert = await this.encryptTokenRow(userId, tokens);
+      await this.tokenStore.upsert(insert);
+      return {
+        accountId: insert.accountId,
+        chatgptPlanType: insert.chatgptPlanType,
+        email: insert.email,
+        expiresAt: tokens.expiresAt,
+      };
+    });
+  }
+
+  private async rotateTokens(
+    userId: string,
+    expectedRefreshCiphertext: string,
+    tokens: { accessToken: string; expiresAt: Date; refreshToken: string },
+  ) {
+    const insert = await this.encryptTokenRow(userId, tokens);
+    const updated = await this.tokenStore.updateIfRefreshMatches(
+      userId,
+      expectedRefreshCiphertext,
+      insert,
+    );
+    if (!updated) return null;
 
     return {
-      accountId: identity.accountId,
-      chatgptPlanType: identity.chatgptPlanType,
-      email: identity.email,
+      accountId: insert.accountId,
+      chatgptPlanType: insert.chatgptPlanType,
+      email: insert.email,
       expiresAt: tokens.expiresAt,
     };
   }

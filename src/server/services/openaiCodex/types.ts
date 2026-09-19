@@ -12,10 +12,12 @@ export type OpenAICodexDeviceLoginStart = {
   verificationUrl: string;
 };
 
+export type ConversationRuntimePurpose = 'chat' | 'structured';
+
 export type OpenAICodexDeviceLoginPoll =
-  | { status: 'pending' }
   | { status: 'expired' }
-  | { status: 'denied'; message?: string }
+  | { status: 'pending' }
+  | { message?: string; status: 'denied' }
   | (OpenAICodexConnectionStatus & { status: 'connected' });
 
 export type OpenAICodexLiveSession = {

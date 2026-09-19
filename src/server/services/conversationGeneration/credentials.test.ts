@@ -178,6 +178,59 @@ describe('resolveConversationRuntimePayload', () => {
     );
   });
 
+  it('keeps structured generation on the Platform key while a Codex session is connected', async () => {
+    runtimeState.getAiProviderRuntimeState.mockResolvedValue({
+      runtimeConfig: {
+        openai: { fetchOnClient: false, keyVaults: { apiKey: 'sk-test' } },
+      },
+    });
+
+    await expect(
+      resolveConversationRuntimePayload({
+        db: {} as any,
+        provider: 'openai',
+        purpose: 'structured',
+        userId: 'user-1',
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        apiKey: 'sk-test',
+        userId: 'user-1',
+      }),
+    );
+    expect(resolveOpenAICodexChatPayload).toHaveBeenCalledWith(
+      {},
+      'openai',
+      expect.objectContaining({ apiKey: 'sk-test', userId: 'user-1' }),
+      { purpose: 'structured' },
+    );
+  });
+
+  it('does not select the Platform key when Codex refresh is temporarily unavailable', async () => {
+    runtimeState.getAiProviderRuntimeState.mockResolvedValue({
+      runtimeConfig: {
+        openai: { fetchOnClient: false, keyVaults: { apiKey: 'sk-test' } },
+      },
+    });
+    const { OpenAICodexTransientRefreshError } = await import(
+      '@/server/services/openaiCodex/errors'
+    );
+    vi.mocked(resolveOpenAICodexChatPayload).mockRejectedValueOnce(
+      new OpenAICodexTransientRefreshError('ChatGPT subscription refresh is temporarily unavailable.', 503),
+    );
+
+    await expect(
+      resolveConversationRuntimePayload({
+        db: {} as any,
+        provider: 'openai',
+        userId: 'user-1',
+      }),
+    ).rejects.toMatchObject({
+      code: 'BAD_GATEWAY',
+      message: 'ChatGPT subscription refresh is temporarily unavailable.',
+    } satisfies Partial<TRPCError>);
+  });
+
   it('treats a live Codex session as a credential without an API key or env key', async () => {
     runtimeState.getAiProviderRuntimeState.mockResolvedValue({
       runtimeConfig: {

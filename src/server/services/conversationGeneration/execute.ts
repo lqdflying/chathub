@@ -2404,6 +2404,7 @@ const executeSupervisor = async (
   const runtimePayload = await resolveConversationRuntimePayload({
     db,
     provider: operation.config.provider,
+    purpose: 'structured',
     userId: operation.userId,
   });
   const runtime = initModelRuntimeWithUserPayload(operation.config.provider, runtimePayload);

@@ -14,10 +14,26 @@ describe('codexModels', () => {
     expect(buildCodexModelsUrl()).toBe(
       'https://chatgpt.com/backend-api/codex/models?client_version=0.154.0',
     );
-    expect(buildCodexModelsHeaders({ accessToken: 'tok', accountId: 'acct' })).toMatchObject({
-      Authorization: 'Bearer tok',
-      'ChatGPT-Account-ID': 'acct',
+    const headers = buildCodexModelsHeaders({ accessToken: 'tok', accountId: 'acct-review' });
+    expect(
+      new Request('https://chatgpt.com/backend-api/codex/models', { headers }).headers.get(
+        'chatgpt-account-id',
+      ),
+    ).toBe('acct-review');
+    expect(headers['ChatGPT-Account-ID']).toBeUndefined();
+  });
+
+  it('returns the live catalog when the fetch succeeds', async () => {
+    const models = await fetchOpenAICodexModels({
+      accessToken: 'tok',
+      accountId: 'acct',
+      fetchFn: vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ data: [{ id: 'gpt-5.4' }, { id: 'o3' }] }),
+      }),
     });
+
+    expect(models.map((model) => model.id)).toEqual(expect.arrayContaining(['gpt-5.4', 'o3']));
   });
 
   it('normalizes live catalog shapes', () => {

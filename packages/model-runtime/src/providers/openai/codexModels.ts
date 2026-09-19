@@ -38,7 +38,6 @@ export const buildCodexModelsHeaders = ({
   accountId: string;
 }): Record<string, string> => ({
   Authorization: `Bearer ${accessToken}`,
-  'ChatGPT-Account-ID': accountId,
   'User-Agent': OPENAI_CODEX_USER_AGENT,
   'chatgpt-account-id': accountId,
   originator: OPENAI_CODEX_ORIGINATOR,

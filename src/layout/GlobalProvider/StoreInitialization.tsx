@@ -7,7 +7,6 @@ import { createStoreUpdater } from 'zustand-utils';
 
 import { enableNextAuth } from '@/const/auth';
 import { useFetchAiImageConfig } from '@/hooks/useFetchAiImageConfig';
-import { useFetchOpenAICodexStatus } from '@/hooks/useFetchOpenAICodexStatus';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { subscribeAccountScopeInvalidation } from '@/store/accountScopeInvalidation';
 import { resetAccountScopedStores } from '@/store/accountScopeReset';
@@ -104,7 +103,6 @@ const StoreInitialization = memo(() => {
   // hydrate the owner-aware image generation config globally (not only on the
   // /image page) so the built-in chat Image tool uses the user's saved model
   useFetchAiImageConfig();
-  useFetchOpenAICodexStatus();
 
   // init user state
   useInitUserState(isLoginOnInit, userStateScope, serverConfig, {

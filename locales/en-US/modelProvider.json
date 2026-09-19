@@ -269,6 +269,7 @@
     "connectedAnonymous": "Connected to ChatGPT / Codex subscription",
     "connectedPlan": "{{plan}} plan",
     "denied": "Authorization was denied or failed. Sign in again.",
+    "deviceLoginPrerequisite": "ChatGPT must allow device-code login: enable it in Security settings for a personal account, or have a workspace admin allow it. That is a ChatGPT permission, not a ChatHub toggle.",
     "expired": "The device code expired. Sign in again.",
     "expires": "Session expires {{time}}",
     "hint": "After you sign in, OpenAI chat uses your ChatGPT Plus/Pro Codex quota instead of Platform API billing. Images, speech, and embeddings still use the API key above.",

@@ -33,21 +33,30 @@ tRPC `openaiCodex` (lambda, authed):
 6. `logout` deletes the token row; API key vaults are untouched
 
 Refresh uses `grant_type=refresh_token` about five minutes before expiry.
-`invalid_grant` / reused refresh deletes the row.
+Rotation is versioned on the stored refresh ciphertext: `UPDATE`/`DELETE`
+only when that ciphertext still matches. A stale refresh cannot recreate a
+logged-out row or overwrite a newer login. Same-process resolvers also take
+a per-user lock. Confirmed `invalid_grant` / reused refresh deletes only the
+matching version. HTTP 429/5xx, transport failures, and malformed 2xx
+responses keep the row; if the access token is already expired, resolve
+throws `OpenAICodexTransientRefreshError` so chat cannot silently use the
+Platform key.
 
 ## Server-only credential resolve
 
-`resolveOpenAICodexChatPayload` overlays `{ authMode: 'codex-oauth', apiKey: accessToken, accountId, baseURL: https://chatgpt.com/backend-api/codex }` for provider `openai` when a live row exists.
+`resolveOpenAICodexChatPayload` overlays `{ authMode: 'codex-oauth', apiKey: accessToken, accountId, baseURL: https://chatgpt.com/backend-api/codex }` for provider `openai` when a live row exists **and** `purpose` is not `structured`.
 
 Call sites:
 
-- `src/app/(backend)/webapi/chat/[provider]/route.ts`
-- `src/app/(backend)/webapi/models/[provider]/route.ts`
-- `src/server/services/conversationGeneration/credentials.ts`
+- `src/app/(backend)/webapi/chat/[provider]/route.ts` (chat)
+- `src/app/(backend)/webapi/models/[provider]/route.ts` (chat catalog)
+- `src/server/services/conversationGeneration/credentials.ts` (`purpose: 'chat'` default; supervisor passes `structured`)
 
-Image / TTS / STT / embedding routes keep the Platform key. Browser XOR
-payloads must not carry Codex tokens. `isProviderFetchOnClient('openai')` is
-forced off while `openaiCodexConnected` is true.
+Image / TTS / STT / embedding routes and group-supervisor `generateObject`
+keep the Platform key. Browser XOR payloads must not carry Codex tokens.
+`isProviderFetchOnClient('openai')` is forced off while
+`openaiCodexConnected` is true. Status queries are keyed by
+`userStateScope` and use `verifiedAccountScope`.
 
 A live Codex row is a credential even with no vault key and no `OPENAI_API_KEY`.
 
