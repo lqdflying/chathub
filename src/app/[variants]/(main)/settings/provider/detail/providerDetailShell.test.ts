@@ -130,8 +130,21 @@ describe('provider settings detail shell', () => {
       ),
       'utf8',
     );
-    expect(checkerRow).toContain("gridTemplateColumns: 'minmax(0, 1fr) auto'");
+    expect(checkerRow).toContain('minmax(${CHECKER_SELECT_MIN}, 1fr) minmax(${CHECKER_BUTTON_MIN}, max-content)');
+    expect(checkerRow).toContain('container-type: inline-size');
+    expect(checkerRow).toContain('@container (max-width: ${CHECKER_COMPACT_MAX})');
     expect(checkerRow).not.toContain('<Flexbox');
+
+    const checker = readFileSync(
+      join(
+        root,
+        'src/app/[variants]/(main)/settings/provider/features/ProviderConfig/Checker.tsx',
+      ),
+      'utf8',
+    );
+    expect(checker).toContain('aria-label={checkLabel}');
+    expect(checker).toContain('data-checker-button-label');
+    expect(checker).toContain('data-checker-button-icon');
   });
 });
 

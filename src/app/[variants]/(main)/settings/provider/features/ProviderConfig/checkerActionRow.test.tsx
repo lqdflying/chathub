@@ -1,34 +1,46 @@
+import { ConfigProvider } from 'antd';
 import { render, screen } from '@testing-library/react';
 import React from 'react';
 import { describe, expect, it } from 'vitest';
 
-import { CheckerActionRow } from './checkerActionRow';
+import {
+  CHECKER_BUTTON_MIN,
+  CHECKER_COMPACT_MAX,
+  CHECKER_GRID_COLUMNS,
+  CHECKER_NARROW_DESKTOP_ROW_PX,
+  CHECKER_ROW_GAP_PX,
+  CHECKER_SELECT_MIN,
+  CheckerActionRow,
+  checkerRowMinsFitNarrowDesktop,
+} from './checkerActionRow';
 
 describe('CheckerActionRow', () => {
-  it('keeps Select and Check on one shrinking grid row', () => {
+  it('keeps both track floors inside the 768px desktop form row', () => {
+    expect(CHECKER_GRID_COLUMNS).toBe(
+      `minmax(${CHECKER_SELECT_MIN}, 1fr) minmax(${CHECKER_BUTTON_MIN}, max-content)`,
+    );
+    expect(CHECKER_COMPACT_MAX).toBe('14rem');
+    expect(checkerRowMinsFitNarrowDesktop()).toBe(true);
+    expect(
+      Number.parseFloat(CHECKER_SELECT_MIN) * 16 +
+        Number.parseFloat(CHECKER_BUTTON_MIN) * 16 +
+        CHECKER_ROW_GAP_PX,
+    ).toBeLessThanOrEqual(CHECKER_NARROW_DESKTOP_ROW_PX);
+  });
+
+  it('renders Select and Check slots on the shared row', () => {
     render(
-      <CheckerActionRow
-        button={<button type={'button'}>Check</button>}
-        select={<div style={{ width: '100%' }}>gpt-5.6-terra</div>}
-      />,
+      <ConfigProvider>
+        <CheckerActionRow
+          button={<button type={'button'}>Проверить</button>}
+          select={<div style={{ width: '100%' }}>grok-4.6</div>}
+        />
+      </ConfigProvider>,
     );
 
     const row = screen.getByTestId('checker-action-row');
-    expect(row.style.display).toBe('grid');
-    expect(row.style.gridTemplateColumns).toBe('minmax(0, 1fr) auto');
-    expect(row.style.width).toBe('100%');
-    expect(row.style.maxWidth).toBe('100%');
-    expect(['0', '0px']).toContain(row.style.minWidth);
-    expect(row.style.flexDirection).toBe('');
-
-    const selectWrap = screen.getByTestId('checker-select-wrap');
-    expect(selectWrap.style.width).toBe('100%');
-    expect(selectWrap.style.maxWidth).toBe('100%');
-    expect(['0', '0px']).toContain(selectWrap.style.minWidth);
-    expect(selectWrap.style.overflow).toBe('hidden');
-
-    const buttonWrap = screen.getByTestId('checker-button-wrap');
-    expect(buttonWrap.style.whiteSpace).toBe('nowrap');
-    expect(screen.getByRole('button', { name: 'Check' })).toBeTruthy();
+    expect(row.className.length).toBeGreaterThan(0);
+    expect(screen.getByTestId('checker-select-wrap').textContent).toBe('grok-4.6');
+    expect(screen.getByRole('button', { name: 'Проверить' })).toBeTruthy();
   });
 });

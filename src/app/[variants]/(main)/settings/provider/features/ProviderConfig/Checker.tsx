@@ -4,7 +4,7 @@ import { CheckCircleFilled } from '@ant-design/icons';
 import { ChatMessageError, TraceNameMap } from '@lobechat/types';
 import { Alert, Button, Highlighter, Icon, Select } from '@lobehub/ui';
 import { useTheme } from 'antd-style';
-import { Loader2Icon } from 'lucide-react';
+import { Loader2Icon, Wifi } from 'lucide-react';
 import { ReactNode, memo, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
@@ -235,6 +235,8 @@ const Checker = memo<ConnectionCheckerProps>(
       }
     };
 
+    const checkLabel = t('llm.checker.button');
+
     const defaultError = error ? <Error error={error as ChatMessageError} /> : null;
 
     const errorContent = CheckErrorRender ? (
@@ -248,6 +250,7 @@ const Checker = memo<ConnectionCheckerProps>(
         <CheckerActionRow
           button={
             <Button
+              aria-label={checkLabel}
               disabled={isProviderConfigUpdating && !loading}
               loading={loading}
               onClick={async () => {
@@ -270,8 +273,12 @@ const Checker = memo<ConnectionCheckerProps>(
                   await onAfterCheck();
                 }
               }}
+              title={checkLabel}
             >
-              {t('llm.checker.button')}
+              <span aria-hidden data-checker-button-icon="">
+                <Icon icon={Wifi} size={16} />
+              </span>
+              <span data-checker-button-label="">{checkLabel}</span>
             </Button>
           }
           select={
