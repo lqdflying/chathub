@@ -99,30 +99,37 @@ const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
     overflow-wrap: anywhere;
   `,
   form: css`
-    container-name: provider-config;
-    container-type: inline-size;
     max-width: 100%;
     min-width: 0;
 
-    /* @lobehub/ui Form desktop (Form/style.js + FormItem root):
-       label flex 1, control flex 0, ant-row justify-content space-between,
-       and row > div flex unset. That parks API Key / proxy / Check on the far
-       right and leaves the left half empty. Beat those exact selectors.
-       @see https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Properties/flex
-       @see https://ant.design/components/form (horizontal item row) */
+    /* Match OpenAI Compatible: label above, control full pane width.
+       @lobehub/ui Form defaults to layout=horizontal on desktop (Form.js) and
+       then parks shrink-wrapped controls on the far right (label flex 1,
+       control flex 0, row space-between, row > div flex unset). Native OpenAI
+       kept that row; Compatible only looked stacked when long labels wrapped.
+       Ant Design Form Layout: vertical = label above control.
+       Same explicit layout as Settings RAG provider and Skills.
+       @see https://ant.design/components/form
+       @see https://github.com/ant-design/ant-design/blob/master/components/form/style/index.ts */
     .${prefixCls}-form-item .${prefixCls}-row,
     .${prefixCls}-form-item .${prefixCls}-form-item-row {
-      align-items: flex-start;
+      flex-direction: column !important;
+      flex-wrap: nowrap;
+      gap: 4px;
+      align-items: stretch !important;
       justify-content: flex-start !important;
-      flex-wrap: wrap;
     }
 
     .${prefixCls}-form-item .${prefixCls}-row > .${prefixCls}-form-item-label,
     .${prefixCls}-form-item .${prefixCls}-form-item-row > .${prefixCls}-form-item-label,
-    .${prefixCls}-form-item-label {
-      flex: 0 1 220px !important;
+    .${prefixCls}-form-item .${prefixCls}-row > .${prefixCls}-form-item-control,
+    .${prefixCls}-form-item .${prefixCls}-form-item-row > .${prefixCls}-form-item-control,
+    .${prefixCls}-form-item-label,
+    .${prefixCls}-form-item-control {
+      flex: none !important;
+      width: 100% !important;
       max-width: 100%;
-      min-width: 0;
+      min-width: 0 !important;
       overflow: visible;
     }
 
@@ -150,19 +157,8 @@ const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
       overflow-wrap: anywhere;
     }
 
-    .${prefixCls}-form-item .${prefixCls}-row > .${prefixCls}-form-item-control,
-    .${prefixCls}-form-item .${prefixCls}-form-item-row > .${prefixCls}-form-item-control,
-    .${prefixCls}-form-item-control {
-      flex: 1 1 12rem !important;
-      width: auto !important;
-      max-width: 100%;
-      min-width: 0 !important;
-    }
-
     /* Shared by every provider detail page. Long Select values must shrink inside
        SettingContainer overflow-x: hidden, not push Check / sibling controls out.
-       Do not use a 320px min-width floor — label 220px + control 320px overflows
-       the detail pane next to the 280px provider menu.
        @see https://ant.design/components/select (popupMatchSelectWidth) */
     .${prefixCls}-form-item-control .${prefixCls}-select,
     .${prefixCls}-form-item-control .${prefixCls}-select-selector {
@@ -172,6 +168,7 @@ const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
     }
 
     .${prefixCls}-form-item-control .${prefixCls}-radio-group {
+      width: 100%;
       max-width: 100%;
     }
 
@@ -182,58 +179,11 @@ const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
       min-width: 0;
     }
 
-    /* The detail pane is often narrower than the viewport (settings nav +
-       280px provider menu). Query this form, not @media mobile.
-       @see https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Containment/Container_size_and_style_queries */
-    @container provider-config (max-width: 36rem) {
-      .${prefixCls}-form-item .${prefixCls}-row,
-      .${prefixCls}-form-item .${prefixCls}-form-item-row {
-        flex-direction: column;
-        gap: 4px;
-        align-items: stretch;
-        justify-content: flex-start !important;
-      }
-
-      .${prefixCls}-form-item .${prefixCls}-row > .${prefixCls}-form-item-label,
-      .${prefixCls}-form-item .${prefixCls}-form-item-row > .${prefixCls}-form-item-label,
-      .${prefixCls}-form-item .${prefixCls}-row > .${prefixCls}-form-item-control,
-      .${prefixCls}-form-item .${prefixCls}-form-item-row > .${prefixCls}-form-item-control,
-      .${prefixCls}-form-item-label,
-      .${prefixCls}-form-item-control {
-        flex: none !important;
-        width: 100%;
-        max-width: 100%;
-        min-width: 0 !important;
-      }
-    }
-
     ${responsive.mobile} {
       width: 100%;
       min-width: unset !important;
-
-      /* On mobile the lobehub Form switches antd Form.Item to layout="vertical",
-         so the item row is a COLUMN flex — leftover flex-basis would become
-         vertical height. Neutralize them entirely. */
-      .${prefixCls}-form-item .${prefixCls}-row,
-      .${prefixCls}-form-item .${prefixCls}-form-item-row {
-        flex-direction: column;
-        gap: 4px;
-        align-items: stretch;
-        justify-content: flex-start !important;
-      }
-
-      .${prefixCls}-form-item .${prefixCls}-row > .${prefixCls}-form-item-label,
-      .${prefixCls}-form-item .${prefixCls}-form-item-row > .${prefixCls}-form-item-label,
-      .${prefixCls}-form-item .${prefixCls}-row > .${prefixCls}-form-item-control,
-      .${prefixCls}-form-item .${prefixCls}-form-item-row > .${prefixCls}-form-item-control,
-      .${prefixCls}-form-item-label,
-      .${prefixCls}-form-item-control {
-        flex: none !important;
-        width: 100%;
-        max-width: 100%;
-        min-width: 0 !important;
-      }
     }
+
     .${prefixCls}-select-selection-overflow-item {
       font-size: 12px;
     }
@@ -950,6 +900,7 @@ const ProviderConfig = memo<ProviderConfigProps>(
           form={form}
           itemMinWidth={undefined}
           items={[model]}
+          layout={'vertical'}
           onValuesChange={(changedValues, values) => {
             const resolvedValues = supportOpenAICompatCache
               ? resolveOpenAICompatValues(changedValues, values)

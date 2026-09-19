@@ -76,19 +76,18 @@ describe('provider settings detail shell', () => {
       join(root, 'src/app/[variants]/(main)/settings/provider/features/ProviderConfig/index.tsx'),
       'utf8',
     );
+    expect(form).toContain("layout={'vertical'}");
     expect(form).toContain('itemMinWidth={undefined}');
     expect(form).not.toContain('{...FORM_STYLE}');
     expect(form).not.toContain('min-width: min(100%, 320px)');
+    expect(form).toContain('flex-direction: column !important');
+    expect(form).toContain('align-items: stretch !important');
+    expect(form).toContain('width: 100% !important');
     expect(form).toContain('min-width: 0 !important');
-    expect(form).toContain('flex: 0 1 220px !important');
-    expect(form).not.toContain('flex: 1 1 220px !important');
-    expect(form).toContain('justify-content: flex-start !important');
     expect(form).toContain('.${prefixCls}-row > .${prefixCls}-form-item-label');
     expect(form).toContain('.${prefixCls}-form-item-row > .${prefixCls}-form-item-label');
     expect(form).toContain('.${prefixCls}-row > .${prefixCls}-form-item-control');
     expect(form).toContain('.${prefixCls}-form-item-row > .${prefixCls}-form-item-control');
-    expect(form).toContain('container-name: provider-config');
-    expect(form).toContain('@container provider-config (max-width: 36rem)');
     expect(form).toContain("style={{ maxWidth: '100%', minWidth: 0, width: '100%' }}>{extra}</Flexbox>");
   });
 });
