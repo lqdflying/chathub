@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { LobeChatDatabase } from '@lobechat/database';
 import {
   OPENAI_AUTH_BASE_URL,
+  describeOpenAICodexErrorClass,
+  logOpenAICodexDebugSafe,
   OPENAI_CODEX_CLIENT_ID,
   OPENAI_CODEX_DEVICE_CALLBACK_URL,
   OPENAI_CODEX_DEVICE_TIMEOUT_MS,
@@ -196,6 +198,7 @@ export class OpenAICodexOAuthService {
   }
 
   async startDeviceLogin(userId: string): Promise<OpenAICodexDeviceLoginStart> {
+    const startedAt = Date.now();
     const response = await this.fetchFn(`${OPENAI_AUTH_BASE_URL}/api/accounts/deviceauth/usercode`, {
       body: JSON.stringify({ client_id: OPENAI_CODEX_CLIENT_ID }),
       headers: jsonHeaders,
@@ -211,6 +214,12 @@ export class OpenAICodexOAuthService {
       OPENAI_CODEX_DEVICE_VERIFICATION_URL;
 
     if (!response.ok || !deviceAuthId || !userCode) {
+      logOpenAICodexDebugSafe('device_login_settled', {
+        durationMs: Date.now() - startedAt,
+        httpStatus: response.status,
+        outcome: 'error',
+        reason: 'device_auth_failed',
+      });
       throw new TRPCError({
         code: 'BAD_GATEWAY',
         message: `OpenAI device authorization failed (HTTP ${response.status}).`,
@@ -232,6 +241,12 @@ export class OpenAICodexOAuthService {
       payload,
     });
 
+    logOpenAICodexDebugSafe('device_login_settled', {
+      durationMs: Date.now() - startedAt,
+      httpStatus: response.status,
+      outcome: 'ok',
+    });
+
     return {
       expiresAt: new Date(expiresAt).toISOString(),
       handoffId,
@@ -247,6 +262,7 @@ export class OpenAICodexOAuthService {
       .where(eq(oauthHandoffs.id, handoffId));
 
     if (!handoff || handoff.client !== OPENAI_CODEX_HANDOFF_CLIENT) {
+      logOpenAICodexDebugSafe('device_poll_settled', { outcome: 'expired', reason: 'missing_handoff' });
       return { status: 'expired' };
     }
 
@@ -257,6 +273,7 @@ export class OpenAICodexOAuthService {
 
     if (payload.expiresAt <= Date.now()) {
       await this.db.delete(oauthHandoffs).where(eq(oauthHandoffs.id, handoffId));
+      logOpenAICodexDebugSafe('device_poll_settled', { outcome: 'expired', reason: 'handoff_timeout' });
       return { status: 'expired' };
     }
 
@@ -280,24 +297,49 @@ export class OpenAICodexOAuthService {
       const error = asOptionalString(tokenBody.error);
       if (error === 'access_denied' || error === 'expired_token') {
         await this.db.delete(oauthHandoffs).where(eq(oauthHandoffs.id, handoffId));
+        logOpenAICodexDebugSafe('device_poll_settled', {
+          httpStatus: tokenResponse.status,
+          outcome: 'denied',
+          reason: error === 'expired_token' ? 'expired_token' : 'access_denied',
+        });
         return { message: error, status: 'denied' };
       }
+      logOpenAICodexDebugSafe('device_poll_settled', {
+        httpStatus: tokenResponse.status,
+        outcome: 'pending',
+      });
       return { status: 'pending' };
     }
 
     if (!codeVerifier) {
       await this.db.delete(oauthHandoffs).where(eq(oauthHandoffs.id, handoffId));
+      logOpenAICodexDebugSafe('device_poll_settled', {
+        httpStatus: tokenResponse.status,
+        outcome: 'denied',
+        reason: 'missing_code_verifier',
+      });
       return { message: 'missing_code_verifier', status: 'denied' };
     }
 
     const exchanged = await this.exchangeAuthorizationCode(authorizationCode, codeVerifier);
     if (!exchanged) {
       await this.db.delete(oauthHandoffs).where(eq(oauthHandoffs.id, handoffId));
+      logOpenAICodexDebugSafe('device_poll_settled', {
+        httpStatus: tokenResponse.status,
+        outcome: 'denied',
+        reason: 'token_exchange_failed',
+      });
       return { message: 'token_exchange_failed', status: 'denied' };
     }
 
     const stored = await this.persistLoginTokens(userId, exchanged);
     await this.db.delete(oauthHandoffs).where(eq(oauthHandoffs.id, handoffId));
+    logOpenAICodexDebugSafe('device_poll_settled', {
+      hasAccountId: !!stored.accountId,
+      hasEmail: !!stored.email,
+      httpStatus: tokenResponse.status,
+      outcome: 'connected',
+    });
 
     return { ...sanitizeStatus(stored), status: 'connected' };
   }
@@ -313,10 +355,13 @@ export class OpenAICodexOAuthService {
     await this.lockUser(userId, async () => {
       await this.tokenStore.deleteByUserId(userId);
     });
+    logOpenAICodexDebugSafe('logout_settled', { outcome: 'ok' });
   }
 
   async resolveLiveSession(userId: string): Promise<OpenAICodexLiveSession | null> {
-    return this.lockUser(userId, async () => {
+    const startedAt = Date.now();
+    try {
+      const session = await this.lockUser(userId, async () => {
       const record = await this.tokenStore.findByUserId(userId);
       if (!record) return null;
 
@@ -394,7 +439,21 @@ export class OpenAICodexOAuthService {
       } finally {
         await this.tokenStore.releaseRefreshLock(userId, lockId);
       }
-    });
+      });
+      logOpenAICodexDebugSafe('resolve_session_settled', {
+        durationMs: Date.now() - startedAt,
+        hasAccountId: !!session?.accountId,
+        outcome: session ? 'live' : 'missing',
+      });
+      return session;
+    } catch (error) {
+      logOpenAICodexDebugSafe('resolve_session_settled', {
+        durationMs: Date.now() - startedAt,
+        errorClass: describeOpenAICodexErrorClass(error),
+        outcome: error instanceof OpenAICodexTransientRefreshError ? 'transient' : 'error',
+      });
+      throw error;
+    }
   }
 
   private async loadRefreshedOrTransientSession(
@@ -457,7 +516,18 @@ export class OpenAICodexOAuthService {
     const body = parseJsonObject(await response.text());
     const accessToken = asOptionalString(body.access_token);
     const refreshToken = asOptionalString(body.refresh_token);
-    if (!response.ok || !accessToken || !refreshToken) return null;
+    if (!response.ok || !accessToken || !refreshToken) {
+      logOpenAICodexDebugSafe('token_exchange_settled', {
+        httpStatus: response.status,
+        outcome: 'error',
+      });
+      return null;
+    }
+
+    logOpenAICodexDebugSafe('token_exchange_settled', {
+      httpStatus: response.status,
+      outcome: 'ok',
+    });
 
     return {
       accessToken,
@@ -482,6 +552,7 @@ export class OpenAICodexOAuthService {
         method: 'POST',
       });
     } catch {
+      logOpenAICodexDebugSafe('refresh_settled', { httpStatus: 0, outcome: 'transient' });
       return { status: 0, type: 'transient' };
     }
 
@@ -492,17 +563,36 @@ export class OpenAICodexOAuthService {
       error === 'invalid_refresh_token' ||
       error === 'refresh_token_reused'
     ) {
+      logOpenAICodexDebugSafe('refresh_settled', {
+        httpStatus: response.status,
+        outcome: 'invalid',
+        reason: error === 'refresh_token_reused' ? 'refresh_token_reused' : 'invalid_grant',
+      });
       return { type: 'invalid' };
     }
 
     if (!response.ok) {
+      logOpenAICodexDebugSafe('refresh_settled', {
+        httpStatus: response.status,
+        outcome: 'transient',
+      });
       return { status: response.status, type: 'transient' };
     }
 
     const accessToken = asOptionalString(body.access_token);
     if (!accessToken) {
+      logOpenAICodexDebugSafe('refresh_settled', {
+        httpStatus: response.status,
+        outcome: 'transient',
+        reason: 'missing_access_token',
+      });
       return { status: response.status, type: 'transient' };
     }
+
+    logOpenAICodexDebugSafe('refresh_settled', {
+      httpStatus: response.status,
+      outcome: 'ok',
+    });
 
     return {
       tokens: {

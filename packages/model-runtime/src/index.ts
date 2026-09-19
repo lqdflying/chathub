@@ -23,12 +23,17 @@ export { LobeGoogleAI } from './providers/google';
 export { isMimoTokenPlanBaseURL } from './providers/mimo';
 export { LobeMoonshotAI } from './providers/moonshot';
 export {
+  classifyCodexMediaType,
+  describeOpenAICodexErrorClass,
+  isOpenAICodexDebugEnabled,
   LobeOpenAI,
+  logOpenAICodexDebugSafe,
   OPENAI_AUTH_BASE_URL,
   OPENAI_CODEX_AUTH_MODE,
   OPENAI_CODEX_BASE_URL,
   OPENAI_CODEX_CLIENT_ID,
   OPENAI_CODEX_CLIENT_VERSION,
+  OPENAI_CODEX_DEBUG_NAMESPACE,
   OPENAI_CODEX_DEVICE_CALLBACK_URL,
   OPENAI_CODEX_DEVICE_TIMEOUT_MS,
   OPENAI_CODEX_DEVICE_VERIFICATION_URL,

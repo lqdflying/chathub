@@ -91,6 +91,18 @@ A live Codex row is a credential even with no vault key and no `OPENAI_API_KEY`.
 Live catalog: `GET .../codex/models?client_version=0.154.0` (pinned Codex CLI
 version). Static fallback if the fetch fails.
 
+## Diagnostics
+
+`CHATHUB_OPENAI_CODEX_DEBUG=1` emits prefixed JSON
+`[chathub-openai-codex-debug:<event>]`. Safe fields only: HTTP status,
+media-type class, durations, SSE event counts, allowlisted outcomes
+(`ok` / `empty` / `pending` / `connected` / `denied` / `live` / `missing` /
+`codex` / `platform` / `transient`). Tokens, device codes, emails, and
+prompt/response text are never logged. Platform
+`DEBUG_OPENAI_CHAT_COMPLETION` / `DEBUG_OPENAI_RESPONSES` do **not** cover
+this path — `LobeOpenAI.chat` bypasses the factory when
+`authMode === 'codex-oauth'`.
+
 ## Key source references
 
 - `src/server/services/openaiCodex/`

@@ -18,6 +18,7 @@ All dedicated switches emit prefixed JSON. Query their distinct `debug_namespace
 | `CHATHUB_GENERATION_DEBUG=1`        | safe    | durable conversation-generation send-path events (client + server), including chat Image tool tile create/persist/attach |
 | `CHATHUB_COMPACTION_DEBUG=1`        | safe    | topic compaction planner/watcher/worker events plus scheduled memory-dream tick/settle (why compact or dream ran, estimate parts, context-window number) |
 | `CHATHUB_COMPACTION_DEBUG=verbose`  | verbose | same compaction records plus flag booleans |
+| `CHATHUB_OPENAI_CODEX_DEBUG=1`      | safe    | ChatGPT / Codex device-login, refresh, overlay, and `codex/responses` HTTP/SSE metadata |
 | `DEBUG_OPENAI_CACHE=1`              | safe    | native OpenAI cache events                     |
 | `DEBUG_AZURE_CACHE=1`               | safe    | Azure OpenAI cache events                      |
 | `DEBUG_AZUREAI_CACHE=1`             | safe    | Azure AI cache support/usage events            |
@@ -60,6 +61,7 @@ The Docker line is `<container> | [<namespace>:<event>] {<json>}`. In Axiom:
 - Image generation uses `debug_namespace=chathub-image-debug`.
 - Durable conversation generation uses `debug_namespace=chathub-generation-debug`; records carry `side=server` or `side=client` (client records are re-emitted by the server's `reportClientDebug` procedure and re-sanitized as untrusted input).
 - Topic compaction uses `debug_namespace=chathub-compaction-debug`; client `planner_settled` / `watcher_armed` are re-emitted by `reportCompactionDebug` (not `reportClientDebug`). `kind=memory_compaction` `execute_*` remains on generation-debug. Scheduled memory-dream events (`dream_scheduler_tick`, `dream_scheduler_settled`, `path=assistant_memory_rollup`) are **server-emitted** into the same namespace. `planner_settled` with `trigger=scheduled` on a topic path is a regression.
+- ChatGPT / Codex OAuth uses `debug_namespace=chathub-openai-codex-debug`. Platform `DEBUG_OPENAI_*` stream flags do not fire on this path.
 - Payload fields listed by `getschema` may still be null in current ingestion. Parse the JSON suffix from `message`, then extract fields in a second `extend`:
 
 ```apl
@@ -263,6 +265,18 @@ Compaction-debug (why compact ran before 80%, which window was used):
   maxTokens=tolong(payload.maxTokens), spanId=tostring(payload.spanId)
 | project _time, event, trigger, status, reason, path, ratio, maxTokens, spanId
 | sort by _time asc
+```
+
+ChatGPT / Codex OAuth:
+
+```apl
+['chathub'] | where ['debug_namespace'] == 'chathub-openai-codex-debug'
+| extend payload=parse_json(extract("(\\{.*\\})$", 1, ['message']))
+| extend outcome=tostring(payload.outcome), httpStatus=tolong(payload.httpStatus),
+  mediaType=tostring(payload.mediaType), sseEventCount=tolong(payload.sseEventCount),
+  reason=tostring(payload.reason)
+| project _time, debug_event, outcome, httpStatus, mediaType, sseEventCount, reason
+| sort by _time desc | take 50
 ```
 
 - `trigger=message_count` / `manual` is expected and is not an 80% bug.
@@ -511,6 +525,8 @@ docker exec lobe-chat sh -c 'cat /proc/1/environ | tr "\0" "\n" | grep CHATHUB_T
 docker exec lobe-chat sh -c 'cat /proc/1/environ | tr "\0" "\n" | grep CHATHUB_IMAGE_DEBUG'
 docker exec lobe-chat sh -c 'cat /proc/1/environ | tr "\0" "\n" | grep CHATHUB_GENERATION_DEBUG'
 docker exec lobe-chat sh -c 'cat /proc/1/environ | tr "\0" "\n" | grep CHATHUB_COMPACTION_DEBUG'
+docker exec lobe-chat env | grep CHATHUB_OPENAI_CODEX_DEBUG
+docker exec lobe-chat sh -c 'cat /proc/1/environ | tr "\0" "\n" | grep CHATHUB_OPENAI_CODEX_DEBUG'
 docker exec lobe-chat sh -c 'cat /proc/1/environ | tr "\0" "\n" | grep -E "DEBUG_.*_CACHE|KEY_VAULTS_SECRET|NEXT_AUTH_SECRET"'
 ```
 

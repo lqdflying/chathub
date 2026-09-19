@@ -1,4 +1,5 @@
 import { processMultiProviderModelList } from '../../utils/modelParse';
+import { classifyCodexMediaType, logOpenAICodexDebugSafe } from './codexDebug';
 import {
   OPENAI_CODEX_BASE_URL,
   OPENAI_CODEX_CLIENT_VERSION,
@@ -81,18 +82,52 @@ export const fetchOpenAICodexModels = async ({
   accountId: string;
   fetchFn?: typeof fetch;
 }) => {
+  const startedAt = Date.now();
   try {
     const response = await fetchFn(buildCodexModelsUrl(), {
       headers: buildCodexModelsHeaders({ accessToken, accountId }),
       method: 'GET',
     });
-    if (!response.ok) return getOpenAICodexFallbackModels();
+    if (!response.ok) {
+      logOpenAICodexDebugSafe('models_fetch_settled', {
+        durationMs: Date.now() - startedAt,
+        httpStatus: response.status,
+        mediaType: classifyCodexMediaType(response.headers.get('content-type')),
+        outcome: 'fallback',
+        provider: 'openai',
+        reason: 'http_error',
+      });
+      return getOpenAICodexFallbackModels();
+    }
 
     const models = normalizeCodexModelList(await response.json());
-    if (models.length === 0) return getOpenAICodexFallbackModels();
+    if (models.length === 0) {
+      logOpenAICodexDebugSafe('models_fetch_settled', {
+        durationMs: Date.now() - startedAt,
+        httpStatus: response.status,
+        modelCount: 0,
+        outcome: 'fallback',
+        provider: 'openai',
+        reason: 'empty_catalog',
+      });
+      return getOpenAICodexFallbackModels();
+    }
 
+    logOpenAICodexDebugSafe('models_fetch_settled', {
+      durationMs: Date.now() - startedAt,
+      httpStatus: response.status,
+      modelCount: models.length,
+      outcome: 'ok',
+      provider: 'openai',
+    });
     return processMultiProviderModelList(models, 'openai');
   } catch {
+    logOpenAICodexDebugSafe('models_fetch_settled', {
+      durationMs: Date.now() - startedAt,
+      outcome: 'fallback',
+      provider: 'openai',
+      reason: 'transport_error',
+    });
     return getOpenAICodexFallbackModels();
   }
 };

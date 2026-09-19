@@ -1,5 +1,10 @@
 import type { ClientSecretPayload } from '@lobechat/types';
-import { OPENAI_CODEX_AUTH_MODE, OPENAI_CODEX_BASE_URL } from '@lobechat/model-runtime';
+import {
+  describeOpenAICodexErrorClass,
+  logOpenAICodexDebugSafe,
+  OPENAI_CODEX_AUTH_MODE,
+  OPENAI_CODEX_BASE_URL,
+} from '@lobechat/model-runtime';
 import { ModelProvider } from 'model-bank';
 
 import type { LobeChatDatabase } from '@lobechat/database';
@@ -36,10 +41,31 @@ export const resolveOpenAICodexChatPayload = async (
   options?: { purpose?: ConversationRuntimePurpose },
 ): Promise<ClientSecretPayload> => {
   if (!isOpenAICodexProvider(provider)) return payload;
-  if (options?.purpose === 'structured') return payload;
+  if (options?.purpose === 'structured') {
+    logOpenAICodexDebugSafe('resolve_overlay_settled', {
+      outcome: 'skipped',
+      reason: 'structured',
+    });
+    return payload;
+  }
 
-  const session = await resolveOpenAICodexLiveSession(db, payload.userId);
-  if (!session) return payload;
+  try {
+    const session = await resolveOpenAICodexLiveSession(db, payload.userId);
+    if (!session) {
+      logOpenAICodexDebugSafe('resolve_overlay_settled', { outcome: 'platform' });
+      return payload;
+    }
 
-  return applyOpenAICodexChatPayload(payload, session);
+    logOpenAICodexDebugSafe('resolve_overlay_settled', {
+      hasAccountId: true,
+      outcome: 'codex',
+    });
+    return applyOpenAICodexChatPayload(payload, session);
+  } catch (error) {
+    logOpenAICodexDebugSafe('resolve_overlay_settled', {
+      errorClass: describeOpenAICodexErrorClass(error),
+      outcome: 'error',
+    });
+    throw error;
+  }
 };

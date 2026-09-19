@@ -288,3 +288,10 @@ export {
   OPENAI_CODEX_REFRESH_SKEW_MS,
   OPENAI_CODEX_USER_AGENT,
 } from './codexConstants';
+export {
+  classifyCodexMediaType,
+  describeOpenAICodexErrorClass,
+  isOpenAICodexDebugEnabled,
+  logOpenAICodexDebugSafe,
+  OPENAI_CODEX_DEBUG_NAMESPACE,
+} from './codexDebug';

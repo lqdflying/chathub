@@ -4,6 +4,11 @@ import type { ChatMethodOptions, ChatStreamPayload, OpenAIChatMessage } from '..
 import { AgentRuntimeError } from '../../utils/createError';
 import { StreamingResponse } from '../../utils/response';
 import {
+  classifyCodexMediaType,
+  describeOpenAICodexErrorClass,
+  logOpenAICodexDebugSafe,
+} from './codexDebug';
+import {
   OPENAI_CODEX_BASE_URL,
   OPENAI_CODEX_ORIGINATOR,
   OPENAI_CODEX_USER_AGENT,
@@ -167,14 +172,40 @@ export const chatWithCodexResponses = async ({
   const requestId = options?.trustedPromptCacheKey;
   const headers = buildCodexResponsesHeaders({ accessToken, accountId, requestId });
   const url = buildCodexResponsesUrl();
+  const startedAt = Date.now();
 
   await options?.onRequestPrepared?.(body, { apiMode: 'responses' });
+  logOpenAICodexDebugSafe('chat_request_started', {
+    operation: 'chat',
+    provider: 'openai',
+  });
 
-  const response = await fetchFn(url, {
-    body: JSON.stringify(body),
-    headers,
-    method: 'POST',
-    signal: options?.signal,
+  let response: Response;
+  try {
+    response = await fetchFn(url, {
+      body: JSON.stringify(body),
+      headers,
+      method: 'POST',
+      signal: options?.signal,
+    });
+  } catch (error) {
+    logOpenAICodexDebugSafe('chat_request_settled', {
+      durationMs: Date.now() - startedAt,
+      errorClass: describeOpenAICodexErrorClass(error),
+      outcome: 'transport_error',
+      provider: 'openai',
+    });
+    throw error;
+  }
+
+  const mediaType = classifyCodexMediaType(response.headers.get('content-type'));
+  logOpenAICodexDebugSafe('chat_request_settled', {
+    durationMs: Date.now() - startedAt,
+    hasBody: !!response.body,
+    httpStatus: response.status,
+    mediaType,
+    outcome: response.ok ? 'ok' : 'http_error',
+    provider: 'openai',
   });
 
   if (!response.ok) {
@@ -189,9 +220,27 @@ export const chatWithCodexResponses = async ({
     });
   }
 
+  const streamStartedAt = Date.now();
+  async function* countedCodexSse() {
+    let sseEventCount = 0;
+    try {
+      for await (const event of parseCodexResponsesSse(response)) {
+        sseEventCount += 1;
+        yield event;
+      }
+    } finally {
+      logOpenAICodexDebugSafe('chat_stream_settled', {
+        durationMs: Date.now() - streamStartedAt,
+        outcome: sseEventCount > 0 ? 'ok' : 'empty',
+        provider: 'openai',
+        sseEventCount,
+      });
+    }
+  }
+
   return StreamingResponse(
     OpenAIResponsesStream(
-      parseCodexResponsesSse(response) as any,
+      countedCodexSse() as any,
       {
         callbacks: options?.callback,
         payload: {
