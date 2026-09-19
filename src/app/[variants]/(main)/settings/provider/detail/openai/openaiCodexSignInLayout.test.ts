@@ -25,7 +25,10 @@ describe('OpenAICodexSignIn layout', () => {
 
     expect(src).toContain('CircleHelpIcon');
     expect(src).toContain("t('openaiCodex.helpAria')");
-    expect(src).toContain("trigger={['hover', 'focus']}");
+    expect(src).toContain('resolveCodexHelpTrigger');
+    expect(src).toContain('CODEX_HELP_TOOLTIP_MAX_WIDTH');
+    expect(src).not.toContain("trigger={['hover', 'focus']}");
+    expect(src).not.toContain("trigger={['hover', 'focus', 'click']}");
     expect(src).toContain("t('openaiCodex.hint')");
     expect(src).toContain("t('openaiCodex.deviceLoginPrerequisite')");
     expect(src).toContain("t('openaiCodex.unofficial')");
@@ -35,9 +38,14 @@ describe('OpenAICodexSignIn layout', () => {
     );
   });
 
-  it('renders connected usage as labeled meters instead of stacked hint lines', () => {
+  it('lets quota labels and the plan badge wrap inside the card', () => {
     const src = readFileSync(join(dir, 'OpenAICodexSignIn.tsx'), 'utf8');
 
+    expect(src).toContain('meterHeading');
+    expect(src).toContain('flex-wrap: wrap');
+    expect(src).toContain('planTag');
+    expect(src).toContain('white-space: normal !important');
+    expect(src).not.toMatch(/meterValue: css`[\s\S]*flex:\s*none/);
     expect(src).toContain('<Progress');
     expect(src).toContain('<Tag');
     expect(src).toContain('formatCodexPlanLabel');

@@ -69,6 +69,13 @@ pattern (roving tabindex, arrows move and check).
 | `a7bf5d1a09` | Collapse header-text shrink | **Keep.** Enable switch at 768–800px. |
 | Codex card stack / usage meters | Stack Sign out; show 5h / weekly | **Keep** the stack. Card copy belongs in the title help icon, not three body paragraphs. |
 
+Codex help icon: do **not** set `trigger={['hover', 'focus']}` alone. Installed
+`@rc-component/trigger` maps hover to click on touch, so the first tap focuses
+(open) then clicks (close). Use `resolveCodexHelpTrigger`: `['click']` when
+`(hover: none)` / `(pointer: coarse)`, else `['hover', 'focus']`. Cap the popup
+with `min(360px, calc(100vw - 32px))`. Meter heading/value and the plan Tag
+must wrap (`flex-wrap`, `min-width: 0`, Tag `white-space: normal`).
+
 Do **not** `git revert` those commits. They also contain the working pieces.
 Prune only leftover Radio/Segmented markup or dead radio-group CSS.
 

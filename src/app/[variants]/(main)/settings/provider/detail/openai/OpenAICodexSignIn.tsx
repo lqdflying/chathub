@@ -4,7 +4,7 @@ import { Button, Icon, Tooltip } from '@lobehub/ui';
 import { Progress, Tag } from 'antd';
 import { createStyles } from 'antd-style';
 import { CircleHelpIcon } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
@@ -18,9 +18,14 @@ import { useUserStore } from '@/store/user';
 import { authSelectors } from '@/store/user/selectors';
 
 import {
+  CODEX_HELP_TOOLTIP_MAX_WIDTH,
   clampCodexUsagePercent,
   formatCodexPlanLabel,
+  getCoarsePointerServerSnapshot,
+  getCoarsePointerSnapshot,
+  resolveCodexHelpTrigger,
   resolveCodexUsageStroke,
+  subscribeCoarsePointer,
 } from './openaiCodexStatus';
 
 const useStyles = createStyles(({ css, token }) => ({
@@ -70,8 +75,10 @@ const useStyles = createStyles(({ css, token }) => ({
     }
   `,
   helpText: css`
-    max-width: 320px;
+    max-width: 100%;
+    min-width: 0;
     margin: 0;
+    overflow-wrap: anywhere;
     font-size: 12px;
     line-height: 1.55;
     white-space: normal;
@@ -101,21 +108,44 @@ const useStyles = createStyles(({ css, token }) => ({
     width: 100%;
     min-width: 0;
   `,
+  meterHeading: css`
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 8px;
+    align-items: baseline;
+    justify-content: space-between;
+
+    width: 100%;
+    min-width: 0;
+  `,
   meterLabel: css`
+    min-width: 0;
+    overflow-wrap: anywhere;
     color: ${token.colorText};
     font-size: 13px;
     font-weight: 500;
   `,
   meterReset: css`
+    min-width: 0;
+    overflow-wrap: anywhere;
     color: ${token.colorTextDescription};
     font-size: 12px;
     line-height: 1.4;
   `,
   meterValue: css`
-    flex: none;
+    min-width: 0;
+    overflow-wrap: anywhere;
     color: ${token.colorTextSecondary};
     font-size: 12px;
     font-variant-numeric: tabular-nums;
+  `,
+  planTag: css`
+    max-width: 100%;
+    min-width: 0;
+    height: auto;
+    overflow-wrap: anywhere;
+    white-space: normal !important;
+    line-height: 1.4;
   `,
   session: css`
     color: ${token.colorTextDescription};
@@ -276,6 +306,12 @@ const OpenAICodexSignIn = () => {
     await statusQuery.refetch();
   };
 
+  const coarsePointer = useSyncExternalStore(
+    subscribeCoarsePointer,
+    getCoarsePointerSnapshot,
+    getCoarsePointerServerSnapshot,
+  );
+  const helpTrigger = resolveCodexHelpTrigger(coarsePointer);
   const connected = canFetch && !!statusQuery.data?.connected;
   const fiveHourPercent = clampCodexUsagePercent(statusQuery.data?.fiveHour?.remainingPercent);
   const weeklyPercent = clampCodexUsagePercent(statusQuery.data?.weekly?.remainingPercent);
@@ -295,9 +331,9 @@ const OpenAICodexSignIn = () => {
       <div className={styles.titleRow}>
         <div className={styles.title}>{t('openaiCodex.title')}</div>
         <Tooltip
-          styles={{ root: { maxWidth: 360 } }}
+          styles={{ root: { boxSizing: 'border-box', maxWidth: CODEX_HELP_TOOLTIP_MAX_WIDTH } }}
           title={helpTitle}
-          trigger={['hover', 'focus']}
+          trigger={helpTrigger}
         >
           <button
             aria-label={t('openaiCodex.helpAria')}
@@ -318,19 +354,19 @@ const OpenAICodexSignIn = () => {
                 : t('openaiCodex.connectedAnonymous')}
             </div>
             {planLabel && (
-              <Tag bordered={false} color="processing">
+              <Tag bordered={false} className={styles.planTag} color="processing">
                 {t('openaiCodex.connectedPlan', { plan: planLabel })}
               </Tag>
             )}
           </div>
           {statusQuery.data?.fiveHour && (
             <div className={styles.meter}>
-              <Flexbox align={'baseline'} horizontal justify={'space-between'}>
+              <div className={styles.meterHeading}>
                 <span className={styles.meterLabel}>{t('openaiCodex.fiveHourTitle')}</span>
                 <span className={styles.meterValue}>
                   {t('openaiCodex.remainingPercent', { percent: fiveHourPercent })}
                 </span>
-              </Flexbox>
+              </div>
               <Progress
                 aria-label={t('openaiCodex.fiveHourLeft', { percent: fiveHourPercent })}
                 percent={fiveHourPercent}
@@ -347,12 +383,12 @@ const OpenAICodexSignIn = () => {
           )}
           {statusQuery.data?.weekly && (
             <div className={styles.meter}>
-              <Flexbox align={'baseline'} horizontal justify={'space-between'}>
+              <div className={styles.meterHeading}>
                 <span className={styles.meterLabel}>{t('openaiCodex.weeklyTitle')}</span>
                 <span className={styles.meterValue}>
                   {t('openaiCodex.remainingPercent', { percent: weeklyPercent })}
                 </span>
-              </Flexbox>
+              </div>
               <Progress
                 aria-label={t('openaiCodex.weeklyLeft', { percent: weeklyPercent })}
                 percent={weeklyPercent}
