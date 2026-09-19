@@ -7,7 +7,10 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
-import ProviderRouteToggle from './ProviderRouteToggle';
+import ProviderRouteToggle, {
+  PROVIDER_ROUTE_TOGGLE_ITEM_STYLE,
+  PROVIDER_ROUTE_TOGGLE_TRACK_STYLE,
+} from './ProviderRouteToggle';
 
 vi.stubGlobal('React', React);
 
@@ -49,12 +52,29 @@ describe('ProviderRouteToggle', () => {
   it('uses a two-column grid and is not an antd block control', () => {
     const src = readFileSync(join(dir, 'ProviderRouteToggle.tsx'), 'utf8');
 
-    expect(src).toContain('display: grid');
-    expect(src).toContain('repeat(2, minmax(0, 1fr))');
+    expect(src).toContain("gridTemplateColumns: '1fr 1fr'");
+    expect(src).toContain("gridAutoFlow: 'column'");
+    expect(src).toContain('PROVIDER_ROUTE_TOGGLE_TRACK_STYLE');
     expect(src).toContain('role="radiogroup"');
     expect(src).toContain('role="radio"');
     expect(src).not.toContain('<Segmented');
     expect(src).not.toContain('<Radio');
+    expect(PROVIDER_ROUTE_TOGGLE_TRACK_STYLE.display).toBe('grid');
+    expect(PROVIDER_ROUTE_TOGGLE_TRACK_STYLE.gridTemplateColumns).toBe('1fr 1fr');
+    expect(PROVIDER_ROUTE_TOGGLE_TRACK_STYLE.width).toBe('100%');
+    expect(PROVIDER_ROUTE_TOGGLE_ITEM_STYLE.width).toBe('100%');
+    expect(PROVIDER_ROUTE_TOGGLE_ITEM_STYLE.minWidth).toBe(0);
+  });
+
+  it('renders both options on an inline two-column track', () => {
+    render(<ProviderRouteToggle options={options} value="chatCompletions" />);
+
+    const track = screen.getByTestId('provider-route-toggle');
+    expect(track.style.display).toBe('grid');
+    expect(track.style.gridTemplateColumns).toBe('1fr 1fr');
+    expect(track.style.width).toBe('100%');
+    expect(screen.getByRole('radio', { name: 'Chat Completions' })).toBeTruthy();
+    expect(screen.getByRole('radio', { name: 'Responses API' })).toBeTruthy();
   });
 
   it('moves Form selection with arrow keys and keeps a single tab stop', () => {

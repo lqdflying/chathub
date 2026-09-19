@@ -111,11 +111,15 @@ const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
        items in a still-horizontal LobeHub row become ~2x the pane; overflow-x
        hidden then clips Responses API and Check (canary.8 screenshot).
        CSS Grid 1fr cannot invent a second column.
+       LobeHub Form still sets .ant-form-item-control { flex: 0 } and
+       .ant-row { justify-content: space-between } even when Ant Form
+       layout is vertical (item verticalLayout only stretches align-items).
+       width:auto on that control shrink-wraps ProviderRouteToggle so
+       minmax(0, 1fr) drops the Responses column — native OpenAI screenshot.
+       Compatible kept both pills because later 100% Selects gave a definite
+       used width. Keep controls at width 100% inside this 1-column grid.
        @see https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Flexible_box_layout/Basic_concepts
        @see https://ant.design/components/form
-       Route control is ProviderRouteToggle (CSS grid), not Radio.Group or
-       Segmented block. antd injects those flex layouts ~1s after paint and the
-       selected Chat Completions control eats the row.
        @see https://ant.design/components/segmented
        @see https://ant.design/docs/blog/hydrate-cssinjs */
     .${prefixCls}-form-item,
@@ -145,7 +149,7 @@ const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
     .${prefixCls}-form-item-label,
     .${prefixCls}-form-item-control {
       flex: none !important;
-      width: auto !important;
+      width: 100% !important;
       max-width: 100% !important;
       min-width: 0 !important;
       overflow: visible;
@@ -206,6 +210,33 @@ const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
 
     .${prefixCls}-select-selection-overflow-item {
       font-size: 12px;
+    }
+  `,
+  /* Scoped to the API-route field. If LobeHub/antd re-assert display:flex on
+     the item row, stay in one column so Chat Completions | Responses API
+     cannot sit at 2x pane width (OpenAI screenshot vs Compatible).
+     @see https://ant.design/components/form#formitem */
+  routeItem: css`
+    &.${prefixCls}-form-item .${prefixCls}-row,
+    &.${prefixCls}-form-item .${prefixCls}-form-item-row {
+      display: flex !important;
+      flex-direction: column !important;
+      flex-wrap: nowrap !important;
+      align-items: stretch !important;
+      justify-content: flex-start !important;
+      width: 100% !important;
+      max-width: 100% !important;
+      min-width: 0 !important;
+    }
+
+    &.${prefixCls}-form-item .${prefixCls}-form-item-label,
+    &.${prefixCls}-form-item .${prefixCls}-form-item-control,
+    &.${prefixCls}-form-item .${prefixCls}-form-item-control-input,
+    &.${prefixCls}-form-item .${prefixCls}-form-item-control-input-content {
+      flex: 0 0 auto !important;
+      width: 100% !important;
+      max-width: 100% !important;
+      min-width: 0 !important;
     }
   `,
   help: css`
@@ -789,12 +820,15 @@ const ProviderConfig = memo<ProviderConfigProps>(
                 options={responseApiRouteOptions}
               />
             ),
+            className: styles.routeItem,
             desc: t('providerModels.config.responsesApi.desc'),
             getValueFromEvent: (value: string) => value === 'responses',
             getValueProps: (value?: boolean) => ({
               value: value ? 'responses' : 'chatCompletions',
             }),
             label: t('providerModels.config.responsesApi.title'),
+            layout: 'vertical',
+            minWidth: undefined,
             name: ['config', 'enableResponseApi'],
           }
         : undefined,

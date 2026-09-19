@@ -84,6 +84,11 @@ describe('provider settings detail shell', () => {
     expect(form).toContain('display: grid !important');
     expect(form).toContain('grid-template-columns: minmax(0, 1fr)');
     expect(form).toContain('<ProviderRouteToggle');
+    expect(form).toContain('className: styles.routeItem');
+    expect(form).toContain("layout: 'vertical'");
+    expect(form).toContain('flex-direction: column !important');
+    expect(form).toContain('width: 100% !important');
+    expect(form).not.toContain('width: auto !important');
     expect(form).not.toContain('<Segmented');
     expect(form).not.toContain('<Radio.Group');
 
@@ -94,7 +99,7 @@ describe('provider settings detail shell', () => {
       ),
       'utf8',
     );
-    expect(routeToggle).toContain('repeat(2, minmax(0, 1fr))');
+    expect(routeToggle).toContain("gridTemplateColumns: '1fr 1fr'");
     expect(routeToggle).not.toContain('<Segmented');
     expect(routeToggle).not.toContain('<Radio');
     expect(form).toContain("getValueFromEvent: (value: string) => value === 'responses'");
