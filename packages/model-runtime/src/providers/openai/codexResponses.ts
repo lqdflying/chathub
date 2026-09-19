@@ -5,6 +5,7 @@ import { AgentRuntimeError } from '../../utils/createError';
 import { StreamingResponse } from '../../utils/response';
 import {
   classifyCodexMediaType,
+  classifyCodexStreamSettled,
   describeOpenAICodexErrorClass,
   logOpenAICodexDebugSafe,
 } from './codexDebug';
@@ -221,20 +222,37 @@ export const chatWithCodexResponses = async ({
   }
 
   const streamStartedAt = Date.now();
+  const caller = options?.callback;
+  const streamState = {
+    cancelled: false,
+    logged: false,
+    sseEventCount: 0,
+    succeeded: false,
+    terminalReason: undefined as string | undefined,
+  };
+
+  const settleStream = () => {
+    if (streamState.logged) return;
+    streamState.logged = true;
+    const classified = classifyCodexStreamSettled({
+      cancelled: streamState.cancelled,
+      sseEventCount: streamState.sseEventCount,
+      succeeded: streamState.succeeded,
+      terminalReason: streamState.terminalReason,
+    });
+    logOpenAICodexDebugSafe('chat_stream_settled', {
+      durationMs: Date.now() - streamStartedAt,
+      outcome: classified.outcome,
+      provider: 'openai',
+      ...(classified.reason ? { reason: classified.reason } : {}),
+      sseEventCount: streamState.sseEventCount,
+    });
+  };
+
   async function* countedCodexSse() {
-    let sseEventCount = 0;
-    try {
-      for await (const event of parseCodexResponsesSse(response)) {
-        sseEventCount += 1;
-        yield event;
-      }
-    } finally {
-      logOpenAICodexDebugSafe('chat_stream_settled', {
-        durationMs: Date.now() - streamStartedAt,
-        outcome: sseEventCount > 0 ? 'ok' : 'empty',
-        provider: 'openai',
-        sseEventCount,
-      });
+    for await (const event of parseCodexResponsesSse(response)) {
+      streamState.sseEventCount += 1;
+      yield event;
     }
   }
 
@@ -242,7 +260,24 @@ export const chatWithCodexResponses = async ({
     OpenAIResponsesStream(
       countedCodexSse() as any,
       {
-        callbacks: options?.callback,
+        callbacks: {
+          ...caller,
+          onCompletion: async (data) => {
+            streamState.succeeded = true;
+            await caller?.onCompletion?.(data);
+          },
+          onError: async (error, metadata) => {
+            streamState.terminalReason = metadata?.terminalReason;
+            await caller?.onError?.(error, metadata);
+          },
+          onFinal: async (data) => {
+            try {
+              await caller?.onFinal?.(data);
+            } finally {
+              settleStream();
+            }
+          },
+        },
         payload: {
           model: payload.model,
           provider: 'openai',
@@ -252,7 +287,14 @@ export const chatWithCodexResponses = async ({
     ),
     {
       headers: options?.headers,
-      onCancel: options?.callback?.onCancel,
+      onCancel: async (reason) => {
+        streamState.cancelled = true;
+        try {
+          await caller?.onCancel?.(reason);
+        } finally {
+          settleStream();
+        }
+      },
     },
   );
 };

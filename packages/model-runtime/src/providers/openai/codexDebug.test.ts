@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   OPENAI_CODEX_DEBUG_NAMESPACE,
   classifyCodexMediaType,
+  classifyCodexStreamSettled,
   isOpenAICodexDebugEnabled,
   logOpenAICodexDebugSafe,
 } from './codexDebug';
@@ -70,5 +71,63 @@ describe('CHATHUB_OPENAI_CODEX_DEBUG', () => {
     expect(classifyCodexMediaType('application/json')).toBe('application/json');
     expect(classifyCodexMediaType('application/pdf')).toBe('other');
     expect(classifyCodexMediaType(null)).toBe('empty');
+  });
+
+  it('classifies stream settlement from lifecycle state, not event count', () => {
+    expect(
+      classifyCodexStreamSettled({
+        cancelled: false,
+        sseEventCount: 1,
+        succeeded: true,
+        terminalReason: 'response_failed',
+      }),
+    ).toEqual({ outcome: 'ok' });
+    expect(
+      classifyCodexStreamSettled({
+        cancelled: false,
+        sseEventCount: 1,
+        succeeded: false,
+        terminalReason: 'response_failed',
+      }),
+    ).toEqual({ outcome: 'failed', reason: 'response_failed' });
+    expect(
+      classifyCodexStreamSettled({
+        cancelled: false,
+        sseEventCount: 1,
+        succeeded: false,
+        terminalReason: 'max_output_tokens',
+      }),
+    ).toEqual({ outcome: 'incomplete', reason: 'max_output_tokens' });
+    expect(
+      classifyCodexStreamSettled({
+        cancelled: false,
+        sseEventCount: 1,
+        succeeded: false,
+        terminalReason: 'unexpected_end',
+      }),
+    ).toEqual({ outcome: 'unexpected_end', reason: 'missing_terminal_event' });
+    expect(
+      classifyCodexStreamSettled({
+        cancelled: false,
+        sseEventCount: 1,
+        succeeded: false,
+        terminalReason: 'invalid_json',
+      }),
+    ).toEqual({ outcome: 'parse_error', reason: 'invalid_json' });
+    expect(
+      classifyCodexStreamSettled({
+        cancelled: false,
+        sseEventCount: 0,
+        succeeded: false,
+        terminalReason: 'unexpected_end',
+      }),
+    ).toEqual({ outcome: 'empty' });
+    expect(
+      classifyCodexStreamSettled({
+        cancelled: true,
+        sseEventCount: 1,
+        succeeded: false,
+      }),
+    ).toEqual({ outcome: 'cancelled' });
   });
 });

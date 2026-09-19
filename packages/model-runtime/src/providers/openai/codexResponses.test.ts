@@ -1,7 +1,8 @@
 // @vitest-environment node
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { readStreamChunk } from '../../core/streams/utils';
+import { OPENAI_CODEX_DEBUG_NAMESPACE } from './codexDebug';
 import {
   buildCodexResponsesHeaders,
   buildCodexResponsesPayload,
@@ -9,6 +10,20 @@ import {
   chatWithCodexResponses,
   parseCodexResponsesSse,
 } from './codexResponses';
+
+const sseFrame = (event: object) => `data: ${JSON.stringify(event)}\n\n`;
+const createdFrame = sseFrame({
+  response: { id: 'resp_created', status: 'in_progress' },
+  type: 'response.created',
+});
+
+const readChatStreamSettled = (logs: ReturnType<typeof vi.spyOn>) => {
+  const settled = logs.mock.calls.filter(
+    ([prefix]) => prefix === `[${OPENAI_CODEX_DEBUG_NAMESPACE}:chat_stream_settled]`,
+  );
+  expect(settled).toHaveLength(1);
+  return JSON.parse(settled[0][1] as string);
+};
 
 describe('codexResponses', () => {
   it('builds the Codex responses URL and ChatHub attribution headers', () => {
@@ -133,5 +148,109 @@ describe('codexResponses', () => {
     await response.body?.cancel('user_stop');
     expect(callbacks.onCancel).toHaveBeenCalledTimes(1);
     expect(callbacks.onCompletion).not.toHaveBeenCalled();
+  });
+
+  describe('CHATHUB_OPENAI_CODEX_DEBUG stream outcomes', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+      vi.unstubAllEnvs();
+    });
+
+    const consumeDebugStream = async (body: BodyInit | null, callbacks = {}) => {
+      vi.stubEnv('CHATHUB_OPENAI_CODEX_DEBUG', '1');
+      const logs = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+      const response = await chatWithCodexResponses({
+        accessToken: 'tok',
+        accountId: 'acct_1',
+        fetchFn: vi.fn().mockResolvedValue(
+          new Response(body, { headers: { 'content-type': 'text/event-stream' }, status: 200 }),
+        ),
+        options: { callback: callbacks },
+        payload: { messages: [{ content: 'Hello', role: 'user' }], model: 'gpt-5.4' } as any,
+      });
+      return { logs, response };
+    };
+
+    it('logs ok only after a completed Responses lifecycle', async () => {
+      const onCompletion = vi.fn();
+      const onError = vi.fn();
+      const { logs, response } = await consumeDebugStream(
+        sseFrame({
+          response: { id: 'resp_1', status: 'completed' },
+          type: 'response.completed',
+        }),
+        { onCompletion, onError },
+      );
+
+      await response.text();
+      expect(onCompletion).toHaveBeenCalledTimes(1);
+      expect(onError).not.toHaveBeenCalled();
+      expect(readChatStreamSettled(logs)).toMatchObject({
+        outcome: 'ok',
+        sseEventCount: 1,
+      });
+    });
+
+    it.each([
+      {
+        body: sseFrame({
+          response: { error: { code: 'quota_exceeded', message: 'test failure' } },
+          type: 'response.failed',
+        }),
+        expected: { outcome: 'failed', reason: 'response_failed', sseEventCount: 1 },
+        name: 'failed',
+      },
+      {
+        body: sseFrame({
+          response: { incomplete_details: { reason: 'max_output_tokens' } },
+          type: 'response.incomplete',
+        }),
+        expected: { outcome: 'incomplete', reason: 'max_output_tokens', sseEventCount: 1 },
+        name: 'incomplete',
+      },
+      {
+        body: createdFrame,
+        expected: { outcome: 'unexpected_end', reason: 'missing_terminal_event', sseEventCount: 1 },
+        name: 'missing terminal',
+      },
+      {
+        body: `${createdFrame}data: invalid-json\n\n`,
+        expected: { outcome: 'parse_error', reason: 'invalid_json', sseEventCount: 1 },
+        name: 'invalid JSON',
+      },
+      {
+        body: '',
+        expected: { outcome: 'empty', sseEventCount: 0 },
+        name: 'zero events',
+      },
+    ])('logs $name from the Responses terminal, not event count', async ({ body, expected }) => {
+      const onCompletion = vi.fn();
+      const onError = vi.fn();
+      const { logs, response } = await consumeDebugStream(body, { onCompletion, onError });
+      const output = await response.text();
+
+      expect(output).toContain('event: error');
+      expect(onError).toHaveBeenCalledTimes(1);
+      expect(onCompletion).not.toHaveBeenCalled();
+      expect(readChatStreamSettled(logs)).toMatchObject(expected);
+    });
+
+    it('logs cancelled once when the consumer cancels the stream', async () => {
+      const onCancel = vi.fn();
+      const onCompletion = vi.fn();
+      const { logs, response } = await consumeDebugStream(
+        new ReadableStream({
+          start() {
+            // Stay open until the consumer cancels.
+          },
+        }),
+        { onCancel, onCompletion },
+      );
+
+      await response.body?.cancel('user_stop');
+      expect(onCancel).toHaveBeenCalledTimes(1);
+      expect(onCompletion).not.toHaveBeenCalled();
+      expect(readChatStreamSettled(logs)).toMatchObject({ outcome: 'cancelled' });
+    });
   });
 });

@@ -279,6 +279,22 @@ ChatGPT / Codex OAuth:
 | sort by _time desc | take 50
 ```
 
+`chat_request_settled` `outcome=ok` is HTTP 200 only. `chat_stream_settled`
+follows the Responses lifecycle, not `sseEventCount`:
+
+- `ok` — completed stream
+- `empty` — HTTP 200 with zero SSE events
+- `failed` — `response.failed`
+- `incomplete` — `response.incomplete` (`reason` is `max_output_tokens`,
+  `content_filter`, or `response_incomplete`)
+- `unexpected_end` — events then EOF without a terminal event
+  (`reason=missing_terminal_event`)
+- `parse_error` — `invalid_json` or `html_response`
+- `cancelled` — consumer cancelled
+- `error` — other allowlisted terminal reason
+
+A 200 plus `sseEventCount>=1` is not success by itself.
+
 - `trigger=message_count` / `manual` is expected and is not an 80% bug.
 - `trigger=scheduled` on a topic `path` (`pre_send` / `durable_enqueued` / `client_inline`) is a regression (the daily topic-note scheduler was removed).
 - Memory dream: `debug_event in ('dream_scheduler_tick','dream_scheduler_settled')` and `path == 'assistant_memory_rollup'`. Tick fields include `frequency`, `scheduleTime`, `due`, `skippedReason`. Settled fields include `status`, `reason` (`already_has_card`, `invalid_regenerate`, `not_found`, `mismatch`, …), `historyDate`, `maxEntries`, keep-N counts (`keepCount`, `foldCount`, `singleDayCount`, `overflowCount`), `topicsWithSummary` / `topicsWithExcerpt` (summary vs recent-message excerpt sources), `overflowEnvelope` (`none` / `overflow_v1` / `opaque_v3` / `opaque_payload`), `foldPath` (`none` / `llm` / `llm_rewrite` / `concat_fallback`), `foldFallbackReason` (concat only), `cardKind` on regenerate, and `activityWindowStart` / `activityWindowEnd` (UTC dates). Never query or log overflow text, card bodies, message excerpts, or marker strings.

@@ -290,6 +290,7 @@ export {
 } from './codexConstants';
 export {
   classifyCodexMediaType,
+  classifyCodexStreamSettled,
   describeOpenAICodexErrorClass,
   isOpenAICodexDebugEnabled,
   logOpenAICodexDebugSafe,

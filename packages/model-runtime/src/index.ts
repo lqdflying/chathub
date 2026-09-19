@@ -24,6 +24,7 @@ export { isMimoTokenPlanBaseURL } from './providers/mimo';
 export { LobeMoonshotAI } from './providers/moonshot';
 export {
   classifyCodexMediaType,
+  classifyCodexStreamSettled,
   describeOpenAICodexErrorClass,
   isOpenAICodexDebugEnabled,
   LobeOpenAI,

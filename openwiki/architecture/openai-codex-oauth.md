@@ -96,9 +96,13 @@ version). Static fallback if the fetch fails.
 `CHATHUB_OPENAI_CODEX_DEBUG=1` emits prefixed JSON
 `[chathub-openai-codex-debug:<event>]`. Safe fields only: HTTP status,
 media-type class, durations, SSE event counts, allowlisted outcomes
-(`ok` / `empty` / `pending` / `connected` / `denied` / `live` / `missing` /
-`codex` / `platform` / `transient`). Tokens, device codes, emails, and
-prompt/response text are never logged. Platform
+(`ok` / `empty` / `failed` / `incomplete` / `unexpected_end` /
+`parse_error` / `cancelled` / `error` / `pending` / `connected` /
+`denied` / `live` / `missing` / `codex` / `platform` / `transient`).
+`chat_request_settled` `ok` is HTTP 200 only. `chat_stream_settled`
+follows the Responses lifecycle (`onCompletion` / `onError` terminal
+reason / cancel), not whether any SSE frame parsed. Tokens, device
+codes, emails, and prompt/response text are never logged. Platform
 `DEBUG_OPENAI_CHAT_COMPLETION` / `DEBUG_OPENAI_RESPONSES` do **not** cover
 this path — `LobeOpenAI.chat` bypasses the factory when
 `authMode === 'codex-oauth'`.
