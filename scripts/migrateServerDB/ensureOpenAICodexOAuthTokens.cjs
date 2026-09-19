@@ -21,10 +21,25 @@ CREATE TABLE IF NOT EXISTS "openai_codex_oauth_tokens" (
 );
 
 DO $$ BEGIN
-  ALTER TABLE "openai_codex_oauth_tokens"
-    ADD CONSTRAINT "openai_codex_oauth_tokens_user_id_unique" UNIQUE ("user_id");
+  -- Drizzle 0058 already creates this UNIQUE constraint and its backing
+  -- index of the same name. ADD CONSTRAINT then raises 42P07
+  -- (duplicate_table, "relation already exists"), not 42710
+  -- (duplicate_object). See PostgreSQL errcodes appendix and
+  -- ddl-constraints: a UNIQUE constraint always creates a same-named index.
+  IF EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'openai_codex_oauth_tokens_user_id_unique'
+      AND conrelid = 'public.openai_codex_oauth_tokens'::regclass
+  ) OR to_regclass('public.openai_codex_oauth_tokens_user_id_unique') IS NOT NULL THEN
+    NULL;
+  ELSE
+    ALTER TABLE "openai_codex_oauth_tokens"
+      ADD CONSTRAINT "openai_codex_oauth_tokens_user_id_unique" UNIQUE ("user_id");
+  END IF;
 EXCEPTION
   WHEN duplicate_object THEN null;
+  WHEN duplicate_table THEN null;
   WHEN unique_violation THEN null;
 END $$;
 

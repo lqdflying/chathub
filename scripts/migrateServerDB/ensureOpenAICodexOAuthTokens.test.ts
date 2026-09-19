@@ -18,6 +18,13 @@ describe('ensureOpenAICodexOAuthTokensTable', () => {
       'openai_codex_oauth_tokens_user_id_unique',
     );
     expect(OPENAI_CODEX_OAUTH_TOKENS_SQL).toContain(
+      "conname = 'openai_codex_oauth_tokens_user_id_unique'",
+    );
+    expect(OPENAI_CODEX_OAUTH_TOKENS_SQL).toContain(
+      "to_regclass('public.openai_codex_oauth_tokens_user_id_unique')",
+    );
+    expect(OPENAI_CODEX_OAUTH_TOKENS_SQL).toContain('WHEN duplicate_table THEN null');
+    expect(OPENAI_CODEX_OAUTH_TOKENS_SQL).toContain(
       'DROP CONSTRAINT IF EXISTS "openai_codex_oauth_tokens_user_id_fkey"',
     );
     expect(OPENAI_CODEX_OAUTH_TOKENS_SQL).toContain(

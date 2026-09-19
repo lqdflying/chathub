@@ -19,6 +19,10 @@ decrypted into the browser.
 Migrations `0058_openai_codex_oauth_tokens` and
 `0059_openai_codex_oauth_refresh_lock`, plus
 `scripts/migrateServerDB/ensureOpenAICodexOAuthTokens.cjs`.
+The ensure helper must not re-add
+`openai_codex_oauth_tokens_user_id_unique` when Drizzle already created
+that constraint and its backing index: PostgreSQL then raises `42P07`
+(`duplicate_table`), which is distinct from `42710` (`duplicate_object`).
 
 ## Login
 
