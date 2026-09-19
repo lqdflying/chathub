@@ -83,8 +83,20 @@ describe('provider settings detail shell', () => {
     expect(form).not.toContain('min-width: min(100%, 320px)');
     expect(form).toContain('display: grid !important');
     expect(form).toContain('grid-template-columns: minmax(0, 1fr)');
-    expect(form).toContain('<Segmented');
+    expect(form).toContain('<ProviderRouteToggle');
+    expect(form).not.toContain('<Segmented');
     expect(form).not.toContain('<Radio.Group');
+
+    const routeToggle = readFileSync(
+      join(
+        root,
+        'src/app/[variants]/(main)/settings/provider/features/ProviderConfig/ProviderRouteToggle.tsx',
+      ),
+      'utf8',
+    );
+    expect(routeToggle).toContain('repeat(2, minmax(0, 1fr))');
+    expect(routeToggle).not.toContain('<Segmented');
+    expect(routeToggle).not.toContain('<Radio');
     expect(form).toContain("getValueFromEvent: (value: string) => value === 'responses'");
     expect(form).toContain('min-width: 0 !important');
     expect(form).toContain('.${prefixCls}-row > .${prefixCls}-form-item-label');

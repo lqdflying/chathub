@@ -5,7 +5,6 @@ import {
   type FormGroupItemType,
   type FormItemProps,
   Icon,
-  Segmented,
   Tooltip,
 } from '@lobehub/ui';
 import { useDebounceFn } from 'ahooks';
@@ -42,6 +41,9 @@ import {
 import { KeyVaultsConfigKey, LLMProviderApiTokenKey, LLMProviderBaseUrlKey } from '../../const';
 import Checker, { CheckErrorRender } from './Checker';
 import EnableSwitch from './EnableSwitch';
+import ProviderRouteToggle, {
+  type ProviderRouteToggleOption,
+} from './ProviderRouteToggle';
 import { SkeletonInput } from './SkeletonInput';
 import {
   PROVIDER_CONFIG_TITLE_ICON_SIZE,
@@ -111,11 +113,11 @@ const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
        CSS Grid 1fr cannot invent a second column.
        @see https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Flexible_box_layout/Basic_concepts
        @see https://ant.design/components/form
-       Route control is Segmented (same as Settings Chat Appearance), not
-       Radio.Group block — antd injects radio-group-block flex ~1s after paint
-       and the selected Chat Completions button eats the row.
+       Route control is ProviderRouteToggle (CSS grid), not Radio.Group or
+       Segmented block. antd injects those flex layouts ~1s after paint and the
+       selected Chat Completions control eats the row.
        @see https://ant.design/components/segmented
-       @see https://ant.design/components/radio (block fits parent; late CSS) */
+       @see https://ant.design/docs/blog/hydrate-cssinjs */
     .${prefixCls}-form-item,
     .${prefixCls}-form-item-control-input,
     .${prefixCls}-form-item-control-input-content {
@@ -218,23 +220,6 @@ const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
     &:hover {
       color: ${token.colorText};
       background: ${token.colorFill};
-    }
-  `,
-  routeSegment: css`
-    width: 100% !important;
-    max-width: 100% !important;
-    min-width: 0 !important;
-
-    .${prefixCls}-segmented,
-    .${prefixCls}-segmented-group {
-      width: 100% !important;
-      max-width: 100% !important;
-      min-width: 0 !important;
-    }
-
-    .${prefixCls}-segmented-item {
-      min-width: 0 !important;
-      overflow: hidden;
     }
   `,
   switchLoading: css`
@@ -435,7 +420,7 @@ const ProviderConfig = memo<ProviderConfigProps>(
       : 'custom';
     const showOpenAICompatCacheMatrix =
       supportOpenAICompatCache && resolvedOpenAICompatCachePreset === 'custom';
-    const responseApiRouteOptions = [
+    const responseApiRouteOptions: ProviderRouteToggleOption[] = [
       {
         label: t('providerModels.config.responsesApi.options.chatCompletions'),
         value: 'chatCompletions',
@@ -799,14 +784,10 @@ const ProviderConfig = memo<ProviderConfigProps>(
             children: isLoading ? (
               <Skeleton.Button active />
             ) : (
-              <div className={styles.routeSegment}>
-                <Segmented
-                  block
-                  disabled={configUpdating}
-                  options={responseApiRouteOptions}
-                  style={{ maxWidth: '100%', minWidth: 0, width: '100%' }}
-                />
-              </div>
+              <ProviderRouteToggle
+                disabled={configUpdating}
+                options={responseApiRouteOptions}
+              />
             ),
             desc: t('providerModels.config.responsesApi.desc'),
             getValueFromEvent: (value: string) => value === 'responses',
