@@ -53,6 +53,8 @@ type RefreshOutcome =
   | { type: 'invalid' }
   | { status: number; type: 'transient' };
 
+// Wall-clock TTL is only a liveness hint. A held refreshLockId is exclusive
+// until that owner persists or releases; expiry must not authorize another redeem.
 const OPENAI_CODEX_REFRESH_LOCK_TTL_MS = 30_000;
 
 const userLocks = new Map<string, Promise<unknown>>();
@@ -351,7 +353,7 @@ export class OpenAICodexOAuthService {
           !latestAccess.plaintext ||
           !latestRefresh.plaintext
         ) {
-          await this.tokenStore.deleteIfRefreshMatches(userId, latest.refreshToken);
+          await this.tokenStore.deleteIfRefreshMatches(userId, latest.refreshToken, lockId);
           return null;
         }
 
@@ -374,12 +376,18 @@ export class OpenAICodexOAuthService {
           const deleted = await this.tokenStore.deleteIfRefreshMatches(
             userId,
             latest.refreshToken,
+            lockId,
           );
           if (deleted) return null;
           return this.loadCurrentSession(userId);
         }
 
-        const rotated = await this.rotateTokens(userId, latest.refreshToken, refreshed.tokens);
+        const rotated = await this.rotateTokens(
+          userId,
+          latest.refreshToken,
+          refreshed.tokens,
+          lockId,
+        );
         if (rotated) return toLiveSession(refreshed.tokens.accessToken, rotated);
 
         return this.loadCurrentSession(userId);
@@ -559,12 +567,14 @@ export class OpenAICodexOAuthService {
     userId: string,
     expectedRefreshCiphertext: string,
     tokens: { accessToken: string; expiresAt: Date; refreshToken: string },
+    lockId: string,
   ) {
     const insert = await this.encryptTokenRow(userId, tokens);
     const updated = await this.tokenStore.updateIfRefreshMatches(
       userId,
       expectedRefreshCiphertext,
       insert,
+      lockId,
     );
     if (!updated) return null;
 

@@ -41,6 +41,36 @@ describe('createMemoryOpenAICodexTokenStore', () => {
     expect(store.rows.size).toBe(0);
   });
 
+  it('rotates and deletes only while the caller still owns the lease', async () => {
+    const store = createMemoryOpenAICodexTokenStore();
+    await store.upsert(row('user-1', 'enc:old-refresh'));
+    await expect(store.tryAcquireRefreshLock('user-1', 'lock-a', 30_000)).resolves.toBe(true);
+
+    await expect(
+      store.updateIfRefreshMatches(
+        'user-1',
+        'enc:old-refresh',
+        row('user-1', 'enc:stolen-refresh'),
+        'lock-b',
+      ),
+    ).resolves.toBe(false);
+    await expect(store.deleteIfRefreshMatches('user-1', 'enc:old-refresh', 'lock-b')).resolves.toBe(
+      false,
+    );
+    expect(store.rows.get('user-1')?.refreshToken).toBe('enc:old-refresh');
+
+    await expect(
+      store.updateIfRefreshMatches(
+        'user-1',
+        'enc:old-refresh',
+        row('user-1', 'enc:new-refresh'),
+        'lock-a',
+      ),
+    ).resolves.toBe(true);
+    expect(store.rows.get('user-1')?.refreshToken).toBe('enc:new-refresh');
+    expect(store.rows.get('user-1')?.refreshLockId).toBeNull();
+  });
+
   it('acquires a refresh lease only when none is held', async () => {
     const store = createMemoryOpenAICodexTokenStore();
     await store.upsert(row('user-1', 'enc:old-refresh'));
@@ -57,10 +87,14 @@ describe('createMemoryOpenAICodexTokenStore', () => {
     await expect(store.tryAcquireRefreshLock('user-1', 'lock-b', 30_000)).resolves.toBe(true);
   });
 
-  it('lets an expired refresh lease be taken by another worker', async () => {
+  it('does not let wall-clock expiry transfer a held refresh lease', async () => {
     const store = createMemoryOpenAICodexTokenStore();
     await store.upsert(row('user-1', 'enc:old-refresh'));
     await expect(store.tryAcquireRefreshLock('user-1', 'lock-a', 0)).resolves.toBe(true);
+    await expect(store.tryAcquireRefreshLock('user-1', 'lock-b', 30_000)).resolves.toBe(false);
+    expect(store.rows.get('user-1')?.refreshLockId).toBe('lock-a');
+
+    await store.releaseRefreshLock('user-1', 'lock-a');
     await expect(store.tryAcquireRefreshLock('user-1', 'lock-b', 30_000)).resolves.toBe(true);
     expect(store.rows.get('user-1')?.refreshLockId).toBe('lock-b');
   });

@@ -1,4 +1,4 @@
-import { and, eq, isNull, lt, or } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 
 import type { LobeChatDatabase } from '@lobechat/database';
 import {
@@ -9,7 +9,11 @@ import {
 
 export type OpenAICodexTokenStore = {
   deleteByUserId: (userId: string) => Promise<void>;
-  deleteIfRefreshMatches: (userId: string, expectedRefreshToken: string) => Promise<boolean>;
+  deleteIfRefreshMatches: (
+    userId: string,
+    expectedRefreshToken: string,
+    lockId?: string,
+  ) => Promise<boolean>;
   findByUserId: (userId: string) => Promise<OpenAICodexOAuthTokenItem | undefined>;
   releaseRefreshLock: (userId: string, lockId: string) => Promise<void>;
   tryAcquireRefreshLock: (userId: string, lockId: string, ttlMs: number) => Promise<boolean>;
@@ -17,6 +21,7 @@ export type OpenAICodexTokenStore = {
     userId: string,
     expectedRefreshToken: string,
     row: NewOpenAICodexOAuthTokenItem,
+    lockId?: string,
   ) => Promise<boolean>;
   upsert: (row: NewOpenAICodexOAuthTokenItem) => Promise<void>;
 };
@@ -34,6 +39,18 @@ const tokenUpdateFields = (row: NewOpenAICodexOAuthTokenItem) => ({
   updatedAt: new Date(),
 });
 
+const matchingRefresh = (userId: string, expectedRefreshToken: string, lockId?: string) =>
+  lockId
+    ? and(
+        eq(openaiCodexOAuthTokens.userId, userId),
+        eq(openaiCodexOAuthTokens.refreshToken, expectedRefreshToken),
+        eq(openaiCodexOAuthTokens.refreshLockId, lockId),
+      )
+    : and(
+        eq(openaiCodexOAuthTokens.userId, userId),
+        eq(openaiCodexOAuthTokens.refreshToken, expectedRefreshToken),
+      );
+
 export const createDrizzleOpenAICodexTokenStore = (
   db: LobeChatDatabase,
 ): OpenAICodexTokenStore => ({
@@ -41,15 +58,10 @@ export const createDrizzleOpenAICodexTokenStore = (
     await db.delete(openaiCodexOAuthTokens).where(eq(openaiCodexOAuthTokens.userId, userId));
   },
 
-  deleteIfRefreshMatches: async (userId, expectedRefreshToken) => {
+  deleteIfRefreshMatches: async (userId, expectedRefreshToken, lockId) => {
     const removed = await db
       .delete(openaiCodexOAuthTokens)
-      .where(
-        and(
-          eq(openaiCodexOAuthTokens.userId, userId),
-          eq(openaiCodexOAuthTokens.refreshToken, expectedRefreshToken),
-        ),
-      )
+      .where(matchingRefresh(userId, expectedRefreshToken, lockId))
       .returning({ id: openaiCodexOAuthTokens.id });
 
     return removed.length > 0;
@@ -90,29 +102,18 @@ export const createDrizzleOpenAICodexTokenStore = (
         updatedAt: now,
       })
       .where(
-        and(
-          eq(openaiCodexOAuthTokens.userId, userId),
-          or(
-            isNull(openaiCodexOAuthTokens.refreshLockUntil),
-            lt(openaiCodexOAuthTokens.refreshLockUntil, now),
-          ),
-        ),
+        and(eq(openaiCodexOAuthTokens.userId, userId), isNull(openaiCodexOAuthTokens.refreshLockId)),
       )
       .returning({ id: openaiCodexOAuthTokens.id });
 
     return updated.length > 0;
   },
 
-  updateIfRefreshMatches: async (userId, expectedRefreshToken, row) => {
+  updateIfRefreshMatches: async (userId, expectedRefreshToken, row, lockId) => {
     const updated = await db
       .update(openaiCodexOAuthTokens)
       .set(tokenUpdateFields(row))
-      .where(
-        and(
-          eq(openaiCodexOAuthTokens.userId, userId),
-          eq(openaiCodexOAuthTokens.refreshToken, expectedRefreshToken),
-        ),
-      )
+      .where(matchingRefresh(userId, expectedRefreshToken, lockId))
       .returning({ id: openaiCodexOAuthTokens.id });
 
     return updated.length > 0;
@@ -167,9 +168,10 @@ export const createMemoryOpenAICodexTokenStore = () => {
     deleteByUserId: async (userId) => {
       rows.delete(userId);
     },
-    deleteIfRefreshMatches: async (userId, expectedRefreshToken) => {
+    deleteIfRefreshMatches: async (userId, expectedRefreshToken, lockId) => {
       const existing = rows.get(userId);
       if (!existing || existing.refreshToken !== expectedRefreshToken) return false;
+      if (lockId && existing.refreshLockId !== lockId) return false;
       rows.delete(userId);
       return true;
     },
@@ -187,9 +189,8 @@ export const createMemoryOpenAICodexTokenStore = () => {
     rows,
     tryAcquireRefreshLock: async (userId, lockId, ttlMs) => {
       const existing = rows.get(userId);
-      if (!existing) return false;
+      if (!existing || existing.refreshLockId) return false;
       const now = Date.now();
-      if (existing.refreshLockUntil && existing.refreshLockUntil.getTime() > now) return false;
       rows.set(userId, {
         ...existing,
         refreshLockId: lockId,
@@ -198,9 +199,10 @@ export const createMemoryOpenAICodexTokenStore = () => {
       });
       return true;
     },
-    updateIfRefreshMatches: async (userId, expectedRefreshToken, row) => {
+    updateIfRefreshMatches: async (userId, expectedRefreshToken, row, lockId) => {
       const existing = rows.get(userId);
       if (!existing || existing.refreshToken !== expectedRefreshToken) return false;
+      if (lockId && existing.refreshLockId !== lockId) return false;
       rows.set(userId, toRow({ ...row, refreshLockId: null, refreshLockUntil: null }, existing));
       return true;
     },

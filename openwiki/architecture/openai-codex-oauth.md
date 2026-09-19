@@ -34,19 +34,25 @@ tRPC `openaiCodex` (lambda, authed):
 6. `logout` deletes the token row; API key vaults are untouched
 
 Refresh uses `grant_type=refresh_token` about five minutes before expiry.
-Before any vendor redeem, the worker must take the row's refresh lease
-(`refresh_lock_id` / `refresh_lock_until`) and re-read the ciphertext.
-Same-process resolvers also take an in-memory per-user lock; that map is
-not shared across Node workers, so the database lease is the exclusion
-that prevents two processes from redeeming the same refresh token.
-Rotation is then versioned on the stored refresh ciphertext: `UPDATE`/`DELETE`
-only when that ciphertext still matches. A stale refresh cannot recreate a
-logged-out row or overwrite a newer login. Confirmed `invalid_grant` /
-reused refresh deletes only the matching version. HTTP 429/5xx, transport
-failures, and malformed 2xx responses keep the row; if the access token is
-still valid, chat continues on Codex, and if it has expired, resolve throws
-`OpenAICodexTransientRefreshError` so chat cannot silently use the Platform
-key.
+Before any vendor redeem, the worker must take a free refresh lease
+(`refresh_lock_id` is null), then re-read the ciphertext. A held lease
+stays exclusive through the token request, response-body read, and
+credential write. `refresh_lock_until` is a liveness hint only: wall-clock
+expiry does not let another worker steal the lease or redeem the same
+refresh token. Same-process resolvers also take an in-memory per-user
+lock; that map is not shared across Node workers.
+Rotation and `invalid_grant` deletion are versioned on the stored refresh
+ciphertext **and** the caller's `refresh_lock_id`. A stale owner that lost
+the lease cannot delete or overwrite a newer login or an in-flight
+successor. A later worker may redeem only after the owner releases
+(persist, confirmed invalid delete, logout, or an explicit release of a
+still-valid row). A crashed owner that never reaches `finally` leaves the
+lease held; contenders keep a still-valid access token or throw
+`OpenAICodexTransientRefreshError` instead of redeeming. User logout
+clears a stuck row. HTTP 429/5xx, transport failures, and malformed 2xx
+responses keep the row; if the access token is still valid, chat continues
+on Codex, and if it has expired, resolve throws so chat cannot silently
+use the Platform key.
 
 ## Server-only credential resolve
 

@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { oauthHandoffs } from '@/database/schemas/oidc';
 
@@ -457,5 +457,179 @@ describe('OpenAICodexOAuthService', () => {
       OpenAICodexTransientRefreshError,
     );
     expect(tokenStore.rows.size).toBe(1);
+  });
+
+  describe('refresh lease lifetime', () => {
+    const disableProcessLock = async <T>(_userId: string, fn: () => Promise<T>) => fn();
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    const startHeldRefresh = async () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-09-19T09:00:00Z'));
+      await seedExpiringSession();
+
+      let finishFirst!: (value: unknown) => void;
+      const firstResponse = new Promise((resolve) => {
+        finishFirst = resolve;
+      });
+      let firstStarted!: () => void;
+      const firstStartedPromise = new Promise<void>((resolve) => {
+        firstStarted = resolve;
+      });
+
+      fetchFn.mockImplementation(async () => {
+        if (fetchFn.mock.calls.length === 1) {
+          firstStarted();
+          return firstResponse;
+        }
+        return {
+          ok: false,
+          status: 400,
+          text: async () => JSON.stringify({ error: 'refresh_token_reused' }),
+        };
+      });
+
+      const first = service({ lockUser: disableProcessLock });
+      const second = service({ lockUser: disableProcessLock });
+      const pendingA = first.resolveLiveSession('user-1');
+      await firstStartedPromise;
+
+      return {
+        finishRejection: () =>
+          finishFirst({
+            ok: false,
+            status: 400,
+            text: async () => JSON.stringify({ error: 'refresh_token_reused' }),
+          }),
+        finishSuccess: () =>
+          finishFirst({
+            ok: true,
+            status: 200,
+            text: async () =>
+              JSON.stringify({
+                access_token: accessToken,
+                expires_in: 3600,
+                refresh_token: 'new-refresh',
+              }),
+          }),
+        pendingA,
+        second,
+      };
+    };
+
+    it('keeps exclusion after the lease timestamp expires during a delayed fetch', async () => {
+      const { finishSuccess, pendingA, second } = await startHeldRefresh();
+      vi.setSystemTime(Date.now() + 31_000);
+
+      await expect(second.resolveLiveSession('user-1')).resolves.toMatchObject({
+        accessToken: 'old-access',
+      });
+      expect(fetchFn).toHaveBeenCalledTimes(1);
+      finishSuccess();
+
+      await expect(pendingA).resolves.toMatchObject({ accessToken });
+      expect(tokenStore.rows.size).toBe(1);
+      expect(tokenStore.rows.get('user-1')?.refreshToken).toBe('enc:new-refresh');
+      expect(fetchFn).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps exclusion while the owner is still reading a delayed response body', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-09-19T09:00:00Z'));
+      await seedExpiringSession();
+
+      let resolveBody!: (value: string) => void;
+      const body = new Promise<string>((resolve) => {
+        resolveBody = resolve;
+      });
+      let bodyStarted!: () => void;
+      const bodyStartedPromise = new Promise<void>((resolve) => {
+        bodyStarted = resolve;
+      });
+
+      fetchFn.mockImplementation(async () => {
+        if (fetchFn.mock.calls.length === 1) {
+          return {
+            ok: true,
+            status: 200,
+            text: async () => {
+              bodyStarted();
+              return body;
+            },
+          };
+        }
+        return {
+          ok: false,
+          status: 400,
+          text: async () => JSON.stringify({ error: 'refresh_token_reused' }),
+        };
+      });
+
+      const first = service({ lockUser: disableProcessLock });
+      const second = service({ lockUser: disableProcessLock });
+      const pendingA = first.resolveLiveSession('user-1');
+      await bodyStartedPromise;
+      vi.setSystemTime(Date.now() + 31_000);
+
+      await expect(second.resolveLiveSession('user-1')).resolves.toMatchObject({
+        accessToken: 'old-access',
+      });
+      expect(fetchFn).toHaveBeenCalledTimes(1);
+
+      resolveBody(
+        JSON.stringify({
+          access_token: accessToken,
+          expires_in: 3600,
+          refresh_token: 'new-refresh',
+        }),
+      );
+
+      await expect(pendingA).resolves.toMatchObject({ accessToken });
+      expect(tokenStore.rows.size).toBe(1);
+      expect(tokenStore.rows.get('user-1')?.refreshToken).toBe('enc:new-refresh');
+      expect(fetchFn).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not let a stale owner erase credentials after losing the lease', async () => {
+      const { finishRejection, pendingA } = await startHeldRefresh();
+      const held = tokenStore.rows.get('user-1');
+      expect(held?.refreshLockId).toBeTruthy();
+      await tokenStore.releaseRefreshLock('user-1', held!.refreshLockId!);
+      await expect(
+        tokenStore.tryAcquireRefreshLock('user-1', 'replacement-lock', 30_000),
+      ).resolves.toBe(true);
+
+      finishRejection();
+      await expect(pendingA).resolves.toMatchObject({ accessToken: 'old-access' });
+      expect(tokenStore.rows.size).toBe(1);
+      expect(tokenStore.rows.get('user-1')?.refreshToken).toBe('enc:old-refresh');
+      expect(tokenStore.rows.get('user-1')?.refreshLockId).toBe('replacement-lock');
+    });
+
+    it('lets a later worker redeem only after the previous owner releases', async () => {
+      await seedExpiringSession();
+      await expect(tokenStore.tryAcquireRefreshLock('user-1', 'abandoned-lock', 30_000)).resolves.toBe(
+        true,
+      );
+      await tokenStore.releaseRefreshLock('user-1', 'abandoned-lock');
+      fetchFn.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            access_token: accessToken,
+            expires_in: 3600,
+            refresh_token: 'new-refresh',
+          }),
+      });
+
+      await expect(
+        service({ lockUser: disableProcessLock }).resolveLiveSession('user-1'),
+      ).resolves.toMatchObject({ accessToken });
+      expect(tokenStore.rows.get('user-1')?.refreshToken).toBe('enc:new-refresh');
+    });
   });
 });
