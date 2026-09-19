@@ -20,7 +20,6 @@ import { z } from 'zod';
 
 import { FormInput, FormPassword } from '@/components/FormInput';
 import { ProviderBrandCombine, ProviderBrandIcon } from '@/components/ProviderBrandIcon';
-import { FORM_STYLE } from '@/const/layoutTokens';
 import { AES_GCM_URL, BASE_PROVIDER_DOC_URL } from '@/const/url';
 import { aiProviderSelectors, useAiInfraStore } from '@/store/aiInfra';
 import {
@@ -105,15 +104,21 @@ const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
     max-width: 100%;
     min-width: 0;
 
-    .${prefixCls}-row {
+    /* @lobehub/ui Form desktop (Form/style.js + FormItem root):
+       label flex 1, control flex 0, ant-row justify-content space-between,
+       and row > div flex unset. That parks API Key / proxy / Check on the far
+       right and leaves the left half empty. Beat those exact selectors.
+       @see https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Properties/flex
+       @see https://ant.design/components/form (horizontal item row) */
+    .${prefixCls}-form-item .${prefixCls}-row,
+    .${prefixCls}-form-item .${prefixCls}-form-item-row {
       align-items: flex-start;
+      justify-content: flex-start !important;
       flex-wrap: wrap;
     }
 
-    /* Labels must not grow. flex: 1 1 220px ate leftover space and parked
-       API Key / proxy / route / Check on the far right of the pane.
-       MDN flex initial is 0 1 auto — only the control absorbs free space.
-       @see https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Properties/flex */
+    .${prefixCls}-form-item .${prefixCls}-row > .${prefixCls}-form-item-label,
+    .${prefixCls}-form-item .${prefixCls}-form-item-row > .${prefixCls}-form-item-label,
     .${prefixCls}-form-item-label {
       flex: 0 1 220px !important;
       max-width: 100%;
@@ -145,9 +150,11 @@ const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
       overflow-wrap: anywhere;
     }
 
+    .${prefixCls}-form-item .${prefixCls}-row > .${prefixCls}-form-item-control,
+    .${prefixCls}-form-item .${prefixCls}-form-item-row > .${prefixCls}-form-item-control,
     .${prefixCls}-form-item-control {
       flex: 1 1 12rem !important;
-      width: auto;
+      width: auto !important;
       max-width: 100%;
       min-width: 0 !important;
     }
@@ -179,13 +186,18 @@ const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
        280px provider menu). Query this form, not @media mobile.
        @see https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Containment/Container_size_and_style_queries */
     @container provider-config (max-width: 36rem) {
-      .${prefixCls}-row {
+      .${prefixCls}-form-item .${prefixCls}-row,
+      .${prefixCls}-form-item .${prefixCls}-form-item-row {
         flex-direction: column;
         gap: 4px;
         align-items: stretch;
-        justify-content: flex-start;
+        justify-content: flex-start !important;
       }
 
+      .${prefixCls}-form-item .${prefixCls}-row > .${prefixCls}-form-item-label,
+      .${prefixCls}-form-item .${prefixCls}-form-item-row > .${prefixCls}-form-item-label,
+      .${prefixCls}-form-item .${prefixCls}-row > .${prefixCls}-form-item-control,
+      .${prefixCls}-form-item .${prefixCls}-form-item-row > .${prefixCls}-form-item-control,
       .${prefixCls}-form-item-label,
       .${prefixCls}-form-item-control {
         flex: none !important;
@@ -202,13 +214,18 @@ const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
       /* On mobile the lobehub Form switches antd Form.Item to layout="vertical",
          so the item row is a COLUMN flex — leftover flex-basis would become
          vertical height. Neutralize them entirely. */
-      .${prefixCls}-row {
+      .${prefixCls}-form-item .${prefixCls}-row,
+      .${prefixCls}-form-item .${prefixCls}-form-item-row {
         flex-direction: column;
         gap: 4px;
         align-items: stretch;
-        justify-content: flex-start;
+        justify-content: flex-start !important;
       }
 
+      .${prefixCls}-form-item .${prefixCls}-row > .${prefixCls}-form-item-label,
+      .${prefixCls}-form-item .${prefixCls}-form-item-row > .${prefixCls}-form-item-label,
+      .${prefixCls}-form-item .${prefixCls}-row > .${prefixCls}-form-item-control,
+      .${prefixCls}-form-item .${prefixCls}-form-item-row > .${prefixCls}-form-item-control,
       .${prefixCls}-form-item-label,
       .${prefixCls}-form-item-control {
         flex: none !important;
@@ -929,7 +946,6 @@ const ProviderConfig = memo<ProviderConfigProps>(
     return (
       <Flexbox gap={16} style={{ maxWidth: '100%', minWidth: 0, width: '100%' }}>
         <Form
-          {...FORM_STYLE}
           className={cx(styles.form, className)}
           form={form}
           itemMinWidth={undefined}
@@ -946,7 +962,7 @@ const ProviderConfig = memo<ProviderConfigProps>(
 
             debouncedHandleValueChange(id, nextValues);
           }}
-          style={{ ...FORM_STYLE.style, maxWidth: '100%', minWidth: 0, width: '100%' }}
+          style={{ maxWidth: '100%', minWidth: 0, width: '100%' }}
           variant={'borderless'}
         />
         {extra ? (
