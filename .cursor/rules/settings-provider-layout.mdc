@@ -7,10 +7,11 @@ alwaysApply: false
 # Settings provider detail layout
 
 How Settings → provider (native OpenAI, native xAI, and OpenAI Compatible)
-finally stayed inside the pane: two equal API-route pills, stacked Check,
-visible enable switch at 768–800px. Apply this stack. Do not revive the
-failed approaches. Native xAI reuses the same shrink stack plus a Codex-style
-SuperGrok OAuth extra card (`min-width: 0`, stacked Sign out, wrap meters).
+finally stayed inside the pane: two equal API-route pills, Check on the same
+row as the model select (`minmax(0, 1fr) auto`), visible enable switch at
+768–800px. Apply this stack. Do not revive the failed approaches. Native xAI
+reuses the same shrink stack plus a Codex-style SuperGrok OAuth extra card
+(`min-width: 0`, stacked Sign out, wrap meters).
 
 ## What actually works (keep)
 
@@ -40,6 +41,14 @@ not enough.
    not enough.
 5. **Drop `FORM_STYLE.itemMinWidth`.** `max(34%, 240px)` shrink-wraps the
    control. Keep `itemMinWidth={undefined}` and `layout="vertical"`.
+6. **Connectivity Check one-row grid.** Shared `CheckerActionRow` is
+   `grid-template-columns: minmax(0, 1fr) auto`. Bare `1fr` is
+   `minmax(auto, 1fr)` ([CSS Grid §7.2.3](https://www.w3.org/TR/css-grid-1/#valdef-grid-template-columns-flex)),
+   so a long model id still shoves Check. react-layout-kit `Flexbox` defaults
+   to a column and puts Check on the next line. Select fills the first track
+   (`width: 100%`, `min-width: 0`, wrap `overflow: hidden`); Check is the
+   `auto` track (`white-space: nowrap`). Codex Sign out stays stacked — that
+   card has a paragraph, not a shrinking select.
 
 Map boolean `enableResponseApi` with `getValueFromEvent` /
 `getValueProps`. Keyboard on the owned toggle follows the WAI-ARIA radio
@@ -57,6 +66,9 @@ pattern (roving tabindex, arrows move and check).
   (~1s / after `setFieldsValue`) before claiming the toggle is stable.
 - Add a second topic branch for another Settings layout pass; stay on the
   current pre-GA branch.
+- Stack Connectivity Check under the model select. That was a workaround for
+  a naive horizontal flex; the one-row `minmax(0, 1fr) auto` grid keeps Check
+  visible without wrapping.
 
 ## Wrong-direction history (do not revert the working commits)
 
@@ -84,6 +96,9 @@ Prune only leftover Radio/Segmented markup or dead radio-group CSS.
 ## Sources
 
 - [CSS Flexbox min-size:auto](https://www.w3.org/TR/css-flexbox-1/#min-size-auto)
+- [CSS Grid `fr` = `minmax(auto, <flex>)`](https://www.w3.org/TR/css-grid-1/#valdef-grid-template-columns-flex)
+- [Preventing a Grid Blowout](https://css-tricks.com/preventing-a-grid-blowout/)
+- [MDN `minmax()`](https://developer.mozilla.org/en-US/docs/Web/CSS/minmax)
 - [MDN `min-width`](https://developer.mozilla.org/en-US/docs/Web/CSS/min-width)
 - [Why flex items don’t shrink past content size](https://stackoverflow.com/questions/36247140/why-dont-flex-items-shrink-past-content-size)
 - [Ant Design Form](https://ant.design/components/form)

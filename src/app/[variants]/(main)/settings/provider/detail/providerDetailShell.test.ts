@@ -23,6 +23,7 @@ describe('provider settings detail shell', () => {
       'minimax',
       'moonshot',
       'openaicompatible',
+      'xai',
       'zhipu',
     ]);
 
@@ -121,5 +122,16 @@ describe('provider settings detail shell', () => {
     expect(form).toContain('.${prefixCls}-collapse-header-text');
     expect(form).toContain('flex: 1 1 0 !important');
     expect(form).toContain('.${prefixCls}-collapse-extra');
+
+    const checkerRow = readFileSync(
+      join(
+        root,
+        'src/app/[variants]/(main)/settings/provider/features/ProviderConfig/checkerActionRow.tsx',
+      ),
+      'utf8',
+    );
+    expect(checkerRow).toContain("gridTemplateColumns: 'minmax(0, 1fr) auto'");
+    expect(checkerRow).not.toContain('<Flexbox');
   });
 });
+

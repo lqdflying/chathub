@@ -152,8 +152,10 @@ const useStyles = createStyles(({ css, token }) => ({
     font-size: 12px;
     line-height: 1.4;
   `,
-  /* Same stack as Connectivity Check: text above the action so overflow-x
-     hidden cannot park Sign Out / Open ChatGPT off the right edge.
+  /* Status copy above Sign out so overflow-x hidden cannot park the action
+     off the right edge. Connectivity Check is a one-row
+     minmax(0, 1fr) auto grid; this card stays stacked because the status
+     text is a full-width paragraph, not a shrinking select.
      @see https://developer.mozilla.org/en-US/docs/Web/CSS/min-width
      @see https://stackoverflow.com/questions/36230944/prevent-flex-items-from-overflowing-a-container */
   statusRow: css`
