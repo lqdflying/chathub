@@ -7,6 +7,7 @@ import SettingContainer from '@/features/Setting/SettingContainer';
 const Container = memo<PropsWithChildren>(({ children }) => {
   return (
     <SettingContainer
+      maxWidth={'100%'}
       style={{
         minWidth: 0,
         paddingBlock: 24,

@@ -65,6 +65,7 @@ describe('provider settings detail shell', () => {
       'utf8',
     );
     expect(container).toContain('minWidth: 0');
+    expect(container).toContain("maxWidth={'100%'}");
 
     const settingContainer = readFileSync(
       join(root, 'src/features/Setting/SettingContainer.tsx'),
@@ -80,9 +81,10 @@ describe('provider settings detail shell', () => {
     expect(form).toContain('itemMinWidth={undefined}');
     expect(form).not.toContain('{...FORM_STYLE}');
     expect(form).not.toContain('min-width: min(100%, 320px)');
-    expect(form).toContain('flex-direction: column !important');
-    expect(form).toContain('align-items: stretch !important');
-    expect(form).toContain('width: 100% !important');
+    expect(form).toContain('display: grid !important');
+    expect(form).toContain('grid-template-columns: minmax(0, 1fr)');
+    expect(form).toContain('repeat(2, minmax(0, 1fr))');
+    expect(form).toContain('                block\n                buttonStyle="solid"');
     expect(form).toContain('min-width: 0 !important');
     expect(form).toContain('.${prefixCls}-row > .${prefixCls}-form-item-label');
     expect(form).toContain('.${prefixCls}-form-item-row > .${prefixCls}-form-item-label');

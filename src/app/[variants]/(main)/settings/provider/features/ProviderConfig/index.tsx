@@ -99,25 +99,36 @@ const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
     overflow-wrap: anywhere;
   `,
   form: css`
-    max-width: 100%;
-    min-width: 0;
+    box-sizing: border-box;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
 
-    /* Match OpenAI Compatible: label above, control full pane width.
-       @lobehub/ui Form defaults to layout=horizontal on desktop (Form.js) and
-       then parks shrink-wrapped controls on the far right (label flex 1,
-       control flex 0, row space-between, row > div flex unset). Native OpenAI
-       kept that row; Compatible only looked stacked when long labels wrapped.
-       Ant Design Form Layout: vertical = label above control.
-       Same explicit layout as Settings RAG provider and Skills.
+    /* One-column grid, not flex + width 100% on both children. Two 100% flex
+       items in a still-horizontal LobeHub row become ~2x the pane; overflow-x
+       hidden then clips Responses API and Check (canary.8 screenshot).
+       CSS Grid 1fr cannot invent a second column.
+       @see https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Flexible_box_layout/Basic_concepts
        @see https://ant.design/components/form
-       @see https://github.com/ant-design/ant-design/blob/master/components/form/style/index.ts */
+       @see https://ant.design/components/radio (Radio.Group block, 5.21+) */
+    .${prefixCls}-form-item,
+    .${prefixCls}-form-item-control-input,
+    .${prefixCls}-form-item-control-input-content {
+      box-sizing: border-box;
+      max-width: 100%;
+      min-width: 0;
+    }
+
     .${prefixCls}-form-item .${prefixCls}-row,
     .${prefixCls}-form-item .${prefixCls}-form-item-row {
-      flex-direction: column !important;
-      flex-wrap: nowrap;
+      display: grid !important;
+      grid-template-columns: minmax(0, 1fr);
       gap: 4px;
       align-items: stretch !important;
-      justify-content: flex-start !important;
+      justify-content: stretch !important;
+      width: 100% !important;
+      max-width: 100% !important;
+      min-width: 0 !important;
     }
 
     .${prefixCls}-form-item .${prefixCls}-row > .${prefixCls}-form-item-label,
@@ -127,8 +138,8 @@ const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
     .${prefixCls}-form-item-label,
     .${prefixCls}-form-item-control {
       flex: none !important;
-      width: 100% !important;
-      max-width: 100%;
+      width: auto !important;
+      max-width: 100% !important;
       min-width: 0 !important;
       overflow: visible;
     }
@@ -168,8 +179,10 @@ const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
     }
 
     .${prefixCls}-form-item-control .${prefixCls}-radio-group {
-      width: 100%;
-      max-width: 100%;
+      width: 100% !important;
+      max-width: 100% !important;
+      min-width: 0 !important;
+      white-space: normal !important;
     }
 
     .${prefixCls}-form-item-control .${prefixCls}-input-affix-wrapper,
@@ -203,17 +216,21 @@ const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
     }
   `,
   routeSegment: css`
-    display: flex !important;
-    flex-wrap: wrap;
-    width: 100%;
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    white-space: normal !important;
 
     .${prefixCls}-radio-button-wrapper {
       display: inline-flex;
-      flex: 1 1 140px;
       align-items: center;
       justify-content: center;
 
-      min-width: 0;
+      width: auto !important;
+      max-width: 100%;
+      min-width: 0 !important;
       height: auto;
       min-height: 32px;
       padding-block: 4px;
@@ -787,6 +804,7 @@ const ProviderConfig = memo<ProviderConfigProps>(
               <Skeleton.Button active />
             ) : (
               <Radio.Group
+                block
                 buttonStyle="solid"
                 className={styles.routeSegment}
                 disabled={configUpdating}

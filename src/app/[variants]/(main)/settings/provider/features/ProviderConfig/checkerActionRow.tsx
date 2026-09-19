@@ -4,19 +4,18 @@ import React, { CSSProperties, ReactNode, memo } from 'react';
 import { Flexbox } from 'react-layout-kit';
 
 /**
- * Flex items default to min-width: auto (min-content). Antd/lobehub Select is
- * typically width 100% of the row, so a sibling Check button overflows and
- * SettingContainer's overflow-x: hidden clips it.
+ * Do not put Select and Check on one horizontal flex row. The select's
+ * min-content width plus the button overflows SettingContainer overflow-x
+ * hidden and clips Check (canary.8 OpenAI screenshot). Stack them so Check
+ * stays in the pane.
  *
- * Wrap the Select so it shrinks; keep the button at intrinsic width.
  * @see https://developer.mozilla.org/en-US/docs/Web/CSS/min-width
+ * @see https://stackoverflow.com/questions/36230944/prevent-flex-items-from-overflowing-a-container
  */
 export const CHECKER_SELECT_WRAP_STYLE: CSSProperties = {
-  flexBasis: 160,
-  flexGrow: 1,
-  flexShrink: 1,
+  maxWidth: '100%',
   minWidth: 0,
-  overflow: 'hidden',
+  width: '100%',
 };
 
 export const CHECKER_BUTTON_STYLE: CSSProperties = {
@@ -31,12 +30,9 @@ export interface CheckerActionRowProps {
 
 export const CheckerActionRow = memo<CheckerActionRowProps>(({ button, select }) => (
   <Flexbox
-    align={'center'}
     data-testid={'checker-action-row'}
     gap={8}
-    horizontal
-    style={{ flexWrap: 'wrap', minWidth: 0, width: '100%' }}
-    wrap={'wrap'}
+    style={{ maxWidth: '100%', minWidth: 0, width: '100%' }}
   >
     <div data-testid={'checker-select-wrap'} style={CHECKER_SELECT_WRAP_STYLE}>
       {select}
