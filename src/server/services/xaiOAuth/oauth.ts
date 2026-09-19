@@ -412,8 +412,7 @@ export class XaiOAuthService {
     }
 
     const waitMs = Math.max(0, payload.nextPollAt - now);
-    const owned =
-      !!payload.pollOwner && (payload.pollUntil ?? 0) > now;
+    const owned = !!payload.pollOwner;
     if (waitMs > 0 || owned) {
       const nextDelayMs = resolveXaiDevicePollDelayMs(
         waitMs > 0 ? waitMs : payload.intervalMs,
@@ -428,7 +427,7 @@ export class XaiOAuthService {
       return { intervalMs: payload.intervalMs, nextDelayMs, status: 'pending' };
     }
 
-    const reserved = await this.handoffStore.claimPoll(handoffId, now, this.tokenTimeoutMs);
+    const reserved = await this.handoffStore.claimPoll(handoffId, now);
     if (!reserved?.pollOwner) {
       const nextDelayMs = resolveXaiDevicePollDelayMs(payload.intervalMs, payload.expiresAt, this.now());
       logXaiOAuthDebugSafe('device_poll_settled', {
@@ -531,6 +530,16 @@ export class XaiOAuthService {
         return { message: error || 'token_exchange_failed', status: 'denied' };
       }
 
+      const retained = await this.handoffStore.saveIfOwner(handoffId, owner, reserved);
+      if (!retained) {
+        logXaiOAuthDebugSafe('device_poll_settled', {
+          httpStatus: tokenResponse.status,
+          outcome: 'expired',
+          reason: 'lost_owner',
+        });
+        return { status: 'expired' };
+      }
+
       const stored = await this.persistLoginTokens(userId, {
         accessToken,
         expiresAt: computeExpiresAt(
@@ -541,8 +550,9 @@ export class XaiOAuthService {
         refreshToken,
         tokenEndpoint: payload.tokenEndpoint,
       });
-      await this.handoffStore.deleteIfOwner(handoffId, owner);
+      const deleted = await this.handoffStore.deleteIfOwner(handoffId, owner);
       logXaiOAuthDebugSafe('device_poll_settled', {
+        deleted,
         httpStatus: tokenResponse.status,
         outcome: 'connected',
       });

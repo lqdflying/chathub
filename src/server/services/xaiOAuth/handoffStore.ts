@@ -25,11 +25,7 @@ export type XaiDeviceHandoffRow = {
 };
 
 export type XaiDeviceHandoffStore = {
-  claimPoll: (
-    id: string,
-    now: number,
-    tokenTimeoutMs: number,
-  ) => Promise<XaiDeviceHandoffPayload | null>;
+  claimPoll: (id: string, now: number) => Promise<XaiDeviceHandoffPayload | null>;
   deleteById: (id: string) => Promise<void>;
   deleteIfOwner: (id: string, owner: string) => Promise<boolean>;
   findById: (id: string) => Promise<XaiDeviceHandoffRow | undefined>;
@@ -39,7 +35,7 @@ export type XaiDeviceHandoffStore = {
 
 export const canClaimXaiDevicePoll = (payload: XaiDeviceHandoffPayload, now: number): boolean => {
   if (payload.nextPollAt > now) return false;
-  return !payload.pollOwner || (payload.pollUntil ?? 0) <= now;
+  return !payload.pollOwner;
 };
 
 export const withoutXaiDevicePollOwner = (
@@ -63,7 +59,7 @@ const claimWhere = (id: string, now: number) =>
     eq(oauthHandoffs.id, id),
     eq(oauthHandoffs.client, XAI_OAUTH_HANDOFF_CLIENT),
     sql`COALESCE((${oauthHandoffs.payload}->>'nextPollAt')::bigint, 0) <= ${now}`,
-    sql`(${oauthHandoffs.payload}->>'pollOwner' IS NULL OR ${oauthHandoffs.payload}->>'pollOwner' = '' OR COALESCE((${oauthHandoffs.payload}->>'pollUntil')::bigint, 0) <= ${now})`,
+    sql`(${oauthHandoffs.payload}->>'pollOwner' IS NULL OR ${oauthHandoffs.payload}->>'pollOwner' = '')`,
   );
 
 const ownerWhere = (id: string, owner: string) =>
@@ -76,7 +72,7 @@ const ownerWhere = (id: string, owner: string) =>
 export const createDrizzleXaiDeviceHandoffStore = (
   db: LobeChatDatabase,
 ): XaiDeviceHandoffStore => ({
-  claimPoll: async (id, now, tokenTimeoutMs) => {
+  claimPoll: async (id, now) => {
     const current = await db.select().from(oauthHandoffs).where(eq(oauthHandoffs.id, id));
     const row = current[0];
     if (!row || row.client !== XAI_OAUTH_HANDOFF_CLIENT) return null;
@@ -84,12 +80,10 @@ export const createDrizzleXaiDeviceHandoffStore = (
     const payload = asPayload(row.payload);
     if (!canClaimXaiDevicePoll(payload, now)) return null;
 
-    const claimed: XaiDeviceHandoffPayload = {
-      ...payload,
+    const claimed = withoutXaiDevicePollOwner(payload, {
       nextPollAt: now + payload.intervalMs,
       pollOwner: randomUUID(),
-      pollUntil: now + tokenTimeoutMs,
-    };
+    });
 
     const updated = await db
       .update(oauthHandoffs)
@@ -143,7 +137,7 @@ export const createMemoryXaiDeviceHandoffStore = () => {
     getRow: (id: string) => XaiDeviceHandoffRow | undefined;
     seed: (row: XaiDeviceHandoffRow) => void;
   } = {
-    claimPoll: async (id, now, tokenTimeoutMs) => {
+    claimPoll: async (id, now) => {
       if (pendingClaimError) {
         const error = pendingClaimError;
         pendingClaimError = undefined;
@@ -154,12 +148,10 @@ export const createMemoryXaiDeviceHandoffStore = () => {
       if (!row || row.client !== XAI_OAUTH_HANDOFF_CLIENT) return null;
       if (!canClaimXaiDevicePoll(row.payload, now)) return null;
 
-      const claimed: XaiDeviceHandoffPayload = {
-        ...row.payload,
+      const claimed = withoutXaiDevicePollOwner(row.payload, {
         nextPollAt: now + row.payload.intervalMs,
         pollOwner: randomUUID(),
-        pollUntil: now + tokenTimeoutMs,
-      };
+      });
       rows.set(id, { ...row, payload: claimed });
       return claimed;
     },

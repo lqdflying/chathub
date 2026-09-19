@@ -234,6 +234,87 @@ describe('XaiOAuthService device polling', () => {
     expect(fetchFn).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps the owner through claim latency and a near-timeout token request', async () => {
+    seedHandoff({ intervalMs: 5_000 });
+    let complete!: (value: { ok: false; status: number; text: () => Promise<string> }) => void;
+    fetchFn.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          complete = resolve;
+        }),
+    );
+    fetchFn.mockResolvedValue({
+      ok: false,
+      status: 400,
+      text: async () => JSON.stringify({ error: 'authorization_pending' }),
+    });
+
+    const originalClaim = handoffStore.claimPoll.bind(handoffStore);
+    handoffStore.claimPoll = async (id, claimNow) => {
+      const claimed = await originalClaim(id, claimNow);
+      now += 2_000;
+      return claimed;
+    };
+
+    const first = service().pollDeviceLogin('user-1', 'handoff-1');
+    await vi.waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(1));
+    now += 13_500;
+    await expect(service().pollDeviceLogin('user-1', 'handoff-1')).resolves.toMatchObject({
+      status: 'pending',
+    });
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+
+    complete({
+      ok: false,
+      status: 400,
+      text: async () => JSON.stringify({ error: 'authorization_pending' }),
+    });
+    await expect(first).resolves.toMatchObject({ status: 'pending' });
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not let a second worker redeem while tokens are still being saved', async () => {
+    seedHandoff({ intervalMs: 5_000 });
+    const accessToken = makeJwt({ email: 'grok@example.com', exp: Math.floor(now / 1000) + 3600 });
+    fetchFn.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({
+          access_token: accessToken,
+          expires_in: 3600,
+          refresh_token: 'refresh-1',
+        }),
+    });
+    fetchFn.mockResolvedValue({
+      ok: false,
+      status: 400,
+      text: async () => JSON.stringify({ error: 'invalid_grant' }),
+    });
+
+    const realUpsert = tokenStore.upsert.bind(tokenStore);
+    let releaseWrite!: () => void;
+    tokenStore.upsert = async (row) => {
+      await new Promise<void>((resolve) => {
+        releaseWrite = resolve;
+      });
+      await realUpsert(row);
+    };
+
+    const first = service().pollDeviceLogin('user-1', 'handoff-1');
+    await vi.waitFor(() => expect(releaseWrite).toBeTypeOf('function'));
+    now += 16_000;
+    await expect(service().pollDeviceLogin('user-1', 'handoff-1')).resolves.toMatchObject({
+      status: 'pending',
+    });
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+
+    releaseWrite();
+    await expect(first).resolves.toMatchObject({ connected: true, status: 'connected' });
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(await tokenStore.findByUserId('user-1')).toBeTruthy();
+  });
+
   it('increases and persists backoff after repeated token request timeouts', async () => {
     seedHandoff({ intervalMs: 5_000 });
     fetchFn.mockImplementation(async () => {

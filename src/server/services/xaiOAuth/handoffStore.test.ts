@@ -43,12 +43,11 @@ const payload = {
 describe('xAI device handoff ownership', () => {
   it('rejects a claim while the interval or live owner is still active', () => {
     expect(canClaimXaiDevicePoll({ ...payload, nextPollAt: 1_001 }, 1_000)).toBe(false);
-    expect(
-      canClaimXaiDevicePoll({ ...payload, pollOwner: 'owner-a', pollUntil: 1_001 }, 1_000),
-    ).toBe(false);
+    expect(canClaimXaiDevicePoll({ ...payload, pollOwner: 'owner-a' }, 1_000)).toBe(false);
     expect(
       canClaimXaiDevicePoll({ ...payload, pollOwner: 'owner-a', pollUntil: 1_000 }, 1_000),
-    ).toBe(true);
+    ).toBe(false);
+    expect(canClaimXaiDevicePoll(payload, 1_000)).toBe(true);
   });
 
   it('lets only one of two due claims win on a shared memory store', async () => {
@@ -56,14 +55,14 @@ describe('xAI device handoff ownership', () => {
     store.seed({ client: 'xai-oauth', id: 'handoff-1', payload });
 
     const [first, second] = await Promise.all([
-      store.claimPoll('handoff-1', 1_000, 15_000),
-      store.claimPoll('handoff-1', 1_000, 15_000),
+      store.claimPoll('handoff-1', 1_000),
+      store.claimPoll('handoff-1', 1_000),
     ]);
 
     const winners = [first, second].filter(Boolean);
     expect(winners).toHaveLength(1);
     expect(winners[0]?.pollOwner).toBeTruthy();
-    expect(winners[0]?.pollUntil).toBe(16_000);
+    expect(winners[0]?.pollUntil).toBeUndefined();
     expect(store.getRow('handoff-1')?.payload.pollOwner).toBe(winners[0]?.pollOwner);
   });
 
@@ -84,19 +83,20 @@ describe('xAI device handoff ownership', () => {
       update,
     } as any);
 
-    await store.claimPoll('handoff-1', 1_000, 15_000);
+    await store.claimPoll('handoff-1', 1_000);
     expect(set).toHaveBeenCalledWith(
       expect.objectContaining({
         payload: expect.objectContaining({
           nextPollAt: 6_000,
-          pollUntil: 16_000,
+          pollOwner: expect.any(String),
         }),
       }),
     );
+    expect(set.mock.calls[0]?.[0]?.payload).not.toHaveProperty('pollUntil');
     const claimTexts = collectStrings(where.mock.calls[0]?.[0]).join('\n');
     expect(claimTexts).toContain('nextPollAt');
     expect(claimTexts).toContain('pollOwner');
-    expect(claimTexts).toContain('pollUntil');
+    expect(claimTexts).not.toContain('pollUntil');
 
     await store.saveIfOwner('handoff-1', 'owner-a', payload);
     const ownerTexts = collectStrings(where.mock.calls[1]?.[0]).join('\n');
