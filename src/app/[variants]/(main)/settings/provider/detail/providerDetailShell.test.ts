@@ -79,5 +79,10 @@ describe('provider settings detail shell', () => {
     expect(form).toContain('itemMinWidth={undefined}');
     expect(form).not.toContain('min-width: min(100%, 320px)');
     expect(form).toContain('min-width: 0 !important');
+    expect(form).toContain('flex: 0 1 220px !important');
+    expect(form).not.toContain('flex: 1 1 220px !important');
+    expect(form).toContain('container-name: provider-config');
+    expect(form).toContain('@container provider-config (max-width: 36rem)');
+    expect(form).toContain("style={{ maxWidth: '100%', minWidth: 0, width: '100%' }}>{extra}</Flexbox>");
   });
 });

@@ -17,6 +17,9 @@ import { authSelectors } from '@/store/user/selectors';
 
 const useStyles = createStyles(({ css, token }) => ({
   card: css`
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
     padding: 16px;
     border: 1px solid ${token.colorBorderSecondary};
     border-radius: ${token.borderRadiusLG}px;
@@ -24,16 +27,39 @@ const useStyles = createStyles(({ css, token }) => ({
   `,
   code: css`
     margin-block: 8px;
+    min-width: 0;
+    overflow-wrap: anywhere;
+
     font-size: 22px;
     font-weight: 600;
     letter-spacing: 0.16em;
   `,
   hint: css`
+    min-width: 0;
+    overflow-wrap: anywhere;
+
     color: ${token.colorTextSecondary};
     font-size: 12px;
     line-height: 1.6;
   `,
+  statusRow: css`
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: flex-start;
+
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  `,
+  statusText: css`
+    flex: 1 1 12rem;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  `,
   title: css`
+    min-width: 0;
+    overflow-wrap: anywhere;
     font-size: 14px;
     font-weight: 600;
   `,
@@ -171,28 +197,30 @@ const OpenAICodexSignIn = () => {
       <div className={styles.hint}>{t('openaiCodex.unofficial')}</div>
 
       {connected ? (
-        <>
-          <div>
-            {statusQuery.data?.email
-              ? t('openaiCodex.connected', { email: statusQuery.data.email })
-              : t('openaiCodex.connectedAnonymous')}
+        <div className={styles.statusRow}>
+          <div className={styles.statusText}>
+            <div>
+              {statusQuery.data?.email
+                ? t('openaiCodex.connected', { email: statusQuery.data.email })
+                : t('openaiCodex.connectedAnonymous')}
+            </div>
+            {statusQuery.data?.chatgptPlanType && (
+              <div className={styles.hint}>
+                {t('openaiCodex.connectedPlan', { plan: statusQuery.data.chatgptPlanType })}
+              </div>
+            )}
+            {statusQuery.data?.expiresAt && (
+              <div className={styles.hint}>
+                {t('openaiCodex.expires', {
+                  time: new Date(statusQuery.data.expiresAt).toLocaleString(),
+                })}
+              </div>
+            )}
           </div>
-          {statusQuery.data?.chatgptPlanType && (
-            <div className={styles.hint}>
-              {t('openaiCodex.connectedPlan', { plan: statusQuery.data.chatgptPlanType })}
-            </div>
-          )}
-          {statusQuery.data?.expiresAt && (
-            <div className={styles.hint}>
-              {t('openaiCodex.expires', {
-                time: new Date(statusQuery.data.expiresAt).toLocaleString(),
-              })}
-            </div>
-          )}
           <Button loading={logout.isPending} onClick={handleLogout}>
             {t('openaiCodex.signOut')}
           </Button>
-        </>
+        </div>
       ) : waiting && userCode ? (
         <>
           <div className={styles.hint}>{t('openaiCodex.waiting')}</div>

@@ -100,6 +100,7 @@ const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
     overflow-wrap: anywhere;
   `,
   form: css`
+    container-name: provider-config;
     container-type: inline-size;
     max-width: 100%;
     min-width: 0;
@@ -109,9 +110,14 @@ const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
       flex-wrap: wrap;
     }
 
+    /* Labels must not grow. flex: 1 1 220px ate leftover space and parked
+       API Key / proxy / route / Check on the far right of the pane.
+       MDN flex initial is 0 1 auto — only the control absorbs free space.
+       @see https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Properties/flex */
     .${prefixCls}-form-item-label {
-      flex: 1 1 220px !important;
-      min-width: min(100%, 220px);
+      flex: 0 1 220px !important;
+      max-width: 100%;
+      min-width: 0;
       overflow: visible;
     }
 
@@ -140,8 +146,10 @@ const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
     }
 
     .${prefixCls}-form-item-control {
+      flex: 1 1 12rem !important;
+      width: auto;
       max-width: 100%;
-      min-width: 0;
+      min-width: 0 !important;
     }
 
     /* Shared by every provider detail page. Long Select values must shrink inside
@@ -160,24 +168,17 @@ const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
       max-width: 100%;
     }
 
-    .${prefixCls}-form-item-control:has(
-        .${prefixCls}-input,
-        .${prefixCls}-radio-group,
-        .${prefixCls}-select
-      ) {
-      flex: 1 1 200px !important;
-      width: auto;
-      max-width: 100%;
-      min-width: 0 !important;
-    }
-    ${responsive.mobile} {
+    .${prefixCls}-form-item-control .${prefixCls}-input-affix-wrapper,
+    .${prefixCls}-form-item-control .${prefixCls}-input {
       width: 100%;
-      min-width: unset !important;
+      max-width: 100%;
+      min-width: 0;
+    }
 
-      /* On mobile the lobehub Form switches antd Form.Item to layout="vertical",
-         so the item row is a COLUMN flex — the desktop flex-basis overrides
-         above (1 1 220px / 1 1 200px) would become vertical heights and open a
-         huge void between label and control. Neutralize them entirely. */
+    /* The detail pane is often narrower than the viewport (settings nav +
+       280px provider menu). Query this form, not @media mobile.
+       @see https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Containment/Container_size_and_style_queries */
+    @container provider-config (max-width: 36rem) {
       .${prefixCls}-row {
         flex-direction: column;
         gap: 4px;
@@ -186,12 +187,30 @@ const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
       }
 
       .${prefixCls}-form-item-label,
-      .${prefixCls}-form-item-control,
-      .${prefixCls}-form-item-control:has(
-          .${prefixCls}-input,
-          .${prefixCls}-radio-group,
-          .${prefixCls}-select
-        ) {
+      .${prefixCls}-form-item-control {
+        flex: none !important;
+        width: 100%;
+        max-width: 100%;
+        min-width: 0 !important;
+      }
+    }
+
+    ${responsive.mobile} {
+      width: 100%;
+      min-width: unset !important;
+
+      /* On mobile the lobehub Form switches antd Form.Item to layout="vertical",
+         so the item row is a COLUMN flex — leftover flex-basis would become
+         vertical height. Neutralize them entirely. */
+      .${prefixCls}-row {
+        flex-direction: column;
+        gap: 4px;
+        align-items: stretch;
+        justify-content: flex-start;
+      }
+
+      .${prefixCls}-form-item-label,
+      .${prefixCls}-form-item-control {
         flex: none !important;
         width: 100%;
         max-width: 100%;
@@ -930,7 +949,9 @@ const ProviderConfig = memo<ProviderConfigProps>(
           style={{ ...FORM_STYLE.style, maxWidth: '100%', minWidth: 0, width: '100%' }}
           variant={'borderless'}
         />
-        {extra}
+        {extra ? (
+          <Flexbox style={{ maxWidth: '100%', minWidth: 0, width: '100%' }}>{extra}</Flexbox>
+        ) : null}
       </Flexbox>
     );
   },
