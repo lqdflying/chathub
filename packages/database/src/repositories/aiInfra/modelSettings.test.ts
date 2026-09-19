@@ -159,10 +159,10 @@ describe('injectModelSettings', () => {
     },
   );
 
-  it('keeps xAI native search on fetched and leftover false-capability Grok cards', () => {
+  it('keeps xAI native search on fetched Grok cards and honors an explicit search disable', () => {
     expect(
       injectModelSettings('xai', {
-        abilities: { functionCall: true, reasoning: true, search: false },
+        abilities: { functionCall: true, reasoning: true },
         id: 'grok-4.6',
         type: 'chat',
       }),
@@ -177,6 +177,22 @@ describe('injectModelSettings', () => {
         type: 'chat',
       }).settings,
     ).toMatchObject({ searchImpl: 'params' });
+    expect(
+      injectModelSettings('xai', {
+        abilities: { functionCall: true, reasoning: true, search: false },
+        id: 'grok-4.6',
+        type: 'chat',
+      }),
+    ).toMatchObject({
+      abilities: { search: false },
+    });
+    expect(
+      injectModelSettings('xai', {
+        abilities: { functionCall: true, reasoning: true, search: false },
+        id: 'grok-4.6',
+        type: 'chat',
+      }).settings,
+    ).not.toHaveProperty('searchImpl');
   });
 
   it('still injects enableReasoning plus effort for fetched glm-5.2', () => {

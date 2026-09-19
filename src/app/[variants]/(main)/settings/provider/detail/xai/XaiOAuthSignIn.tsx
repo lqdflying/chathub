@@ -207,6 +207,7 @@ const XaiOAuthSignIn = () => {
   const [verificationUrl, setVerificationUrl] = useState<string>();
   const [waiting, setWaiting] = useState(false);
   const [error, setError] = useState<string>();
+  const loginGeneration = useRef(0);
   const pollTimer = useRef<number | undefined>(undefined);
 
   const stopPolling = useCallback(() => {
@@ -214,15 +215,20 @@ const XaiOAuthSignIn = () => {
     pollTimer.current = undefined;
   }, []);
 
-  const resetDeviceLogin = useCallback(() => {
+  const invalidateDeviceLogin = useCallback(() => {
+    loginGeneration.current += 1;
     stopPolling();
+  }, [stopPolling]);
+
+  const resetDeviceLogin = useCallback(() => {
+    invalidateDeviceLogin();
     setWaiting(false);
     setUserCode(undefined);
     setVerificationUrl(undefined);
     setError(undefined);
-  }, [stopPolling]);
+  }, [invalidateDeviceLogin]);
 
-  useEffect(() => () => stopPolling(), [stopPolling]);
+  useEffect(() => () => invalidateDeviceLogin(), [invalidateDeviceLogin]);
 
   useEffect(() => {
     resetDeviceLogin();
@@ -241,16 +247,22 @@ const XaiOAuthSignIn = () => {
     const snapshot = captureSensitiveAccountMutationSnapshot(useUserStore.getState());
     if (!snapshot) return;
 
+    invalidateDeviceLogin();
+    const generation = loginGeneration.current;
+    const isCurrentAttempt = () =>
+      loginGeneration.current === generation &&
+      isAccountMutationCurrent(useUserStore.getState(), snapshot);
+
     setError(undefined);
     let started: Awaited<ReturnType<typeof startLogin.mutateAsync>>;
     try {
       started = await startLogin.mutateAsync({ accountScope: snapshot.scope });
     } catch {
-      if (!isAccountMutationCurrent(useUserStore.getState(), snapshot)) return;
+      if (!isCurrentAttempt()) return;
       setError(t('xaiOAuth.denied'));
       return;
     }
-    if (!isAccountMutationCurrent(useUserStore.getState(), snapshot)) return;
+    if (!isCurrentAttempt()) return;
     setUserCode(started.userCode);
     setVerificationUrl(started.verificationUrl);
     setWaiting(true);
@@ -258,6 +270,7 @@ const XaiOAuthSignIn = () => {
     const expiresAtMs = Date.parse(started.expiresAt);
     const schedulePoll = (delayMs: number) => {
       stopPolling();
+      if (!isCurrentAttempt()) return;
       if (!Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now() || delayMs <= 0) {
         setWaiting(false);
         setUserCode(undefined);
@@ -269,7 +282,7 @@ const XaiOAuthSignIn = () => {
 
       pollTimer.current = window.setTimeout(() => {
         void (async () => {
-          if (!isAccountMutationCurrent(useUserStore.getState(), snapshot)) {
+          if (!isCurrentAttempt()) {
             stopPolling();
             return;
           }
@@ -278,7 +291,7 @@ const XaiOAuthSignIn = () => {
               accountScope: snapshot.scope,
               handoffId: started.handoffId,
             });
-            if (!isAccountMutationCurrent(useUserStore.getState(), snapshot)) return;
+            if (!isCurrentAttempt()) return;
             if (result.status === 'pending') {
               schedulePoll(result.nextDelayMs || result.intervalMs);
               return;
@@ -298,6 +311,7 @@ const XaiOAuthSignIn = () => {
             setError(result.status === 'expired' ? t('xaiOAuth.expired') : t('xaiOAuth.denied'));
             updateXaiOAuthConnected(false);
           } catch {
+            if (!isCurrentAttempt()) return;
             schedulePoll(started.intervalMs);
           }
         })();
@@ -310,7 +324,7 @@ const XaiOAuthSignIn = () => {
   const handleLogout = async () => {
     const snapshot = captureSensitiveAccountMutationSnapshot(useUserStore.getState());
     if (!snapshot) return;
-    stopPolling();
+    invalidateDeviceLogin();
     await logout.mutateAsync({ accountScope: snapshot.scope });
     if (!isAccountMutationCurrent(useUserStore.getState(), snapshot)) return;
     updateXaiOAuthConnected(false);

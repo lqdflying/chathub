@@ -194,9 +194,11 @@ const isXaiNativeSearchModel = (providerId: string, modelId: string) =>
 const injectSearchSettings = (providerId: string, item: any) => {
   const abilities = item?.abilities || {};
 
-  // xAI Grok native search is advertised and opt-in. A leftover `search:
-  // false` catalog flag must not strip `searchImpl` after model customization.
-  if (isXaiNativeSearchModel(providerId, item?.id)) {
+  // xAI Grok native search is advertised and opt-in. Infer it when the
+  // capability is missing so a leftover catalog omission cannot strip
+  // `searchImpl` after model customization. An explicit `search: false`
+  // from the model settings form is a user override and must be kept.
+  if (isXaiNativeSearchModel(providerId, item?.id) && abilities.search !== false) {
     const searchSettings = inferProviderSearchDefaults(providerId, item.id);
     return {
       ...item,

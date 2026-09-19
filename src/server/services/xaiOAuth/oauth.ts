@@ -28,14 +28,18 @@ import {
   XAI_OAUTH_USER_AGENT,
 } from '@lobechat/model-runtime';
 import { TRPCError } from '@trpc/server';
-import { eq } from 'drizzle-orm';
 
 import { NewXaiOAuthTokenItem } from '@/database/schemas/xaiOAuth';
-import { oauthHandoffs } from '@/database/schemas/oidc';
 import { generateState } from '@/libs/mcp/pkce';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
 
 import { XaiOAuthTransientRefreshError } from './errors';
+import {
+  createDrizzleXaiDeviceHandoffStore,
+  type XaiDeviceHandoffPayload,
+  type XaiDeviceHandoffStore,
+  withoutXaiDevicePollOwner,
+} from './handoffStore';
 import { resolveXaiOAuthJwtIdentity } from './jwt';
 import { createDrizzleXaiOAuthTokenStore, type XaiOAuthTokenStore } from './tokenStore';
 import type {
@@ -53,16 +57,6 @@ type TokenCrypto = {
   encrypt: (value: string) => Promise<string>;
 };
 
-type DeviceAuthHandoffPayload = {
-  deviceCode: string;
-  expiresAt: number;
-  intervalMs: number;
-  nextPollAt: number;
-  tokenEndpoint: string;
-  userCode: string;
-  userId: string;
-};
-
 type RefreshOutcome =
   | { tokens: { accessToken: string; expiresAt: Date; refreshToken: string }; type: 'success' }
   | { type: 'invalid' }
@@ -71,7 +65,6 @@ type RefreshOutcome =
 const XAI_OAUTH_REFRESH_LOCK_TTL_MS = 30_000;
 
 const userLocks = new Map<string, Promise<unknown>>();
-const devicePollInFlight = new Set<string>();
 
 export const withXaiOAuthUserLock = async <T>(userId: string, fn: () => Promise<T>): Promise<T> => {
   const previous = userLocks.get(userId) ?? Promise.resolve();
@@ -257,6 +250,7 @@ const sessionOrTransientRefresh = (
 export class XaiOAuthService {
   private readonly db: LobeChatDatabase;
   private readonly fetchFn: FetchFn;
+  private readonly handoffStore: XaiDeviceHandoffStore;
   private readonly lockUser: <T>(userId: string, fn: () => Promise<T>) => Promise<T>;
   private readonly now: () => number;
   private readonly refreshTimeoutMs: number;
@@ -269,6 +263,7 @@ export class XaiOAuthService {
     options?: {
       crypto?: TokenCrypto;
       fetchFn?: FetchFn;
+      handoffStore?: XaiDeviceHandoffStore;
       lockUser?: <T>(userId: string, fn: () => Promise<T>) => Promise<T>;
       now?: () => number;
       refreshTimeoutMs?: number;
@@ -278,6 +273,7 @@ export class XaiOAuthService {
   ) {
     this.db = db;
     this.fetchFn = options?.fetchFn ?? fetch;
+    this.handoffStore = options?.handoffStore ?? createDrizzleXaiDeviceHandoffStore(db);
     this.lockUser = options?.lockUser ?? withXaiOAuthUserLock;
     this.now = options?.now ?? Date.now;
     this.refreshTimeoutMs = options?.refreshTimeoutMs ?? XAI_OAUTH_REFRESH_TIMEOUT_MS;
@@ -363,7 +359,7 @@ export class XaiOAuthService {
     const now = this.now();
     const expiresAt = now + expiresIn;
     const intervalMs = resolveXaiDevicePollIntervalMs(body.interval);
-    const payload: DeviceAuthHandoffPayload = {
+    const payload: XaiDeviceHandoffPayload = {
       deviceCode,
       expiresAt,
       intervalMs,
@@ -373,7 +369,7 @@ export class XaiOAuthService {
       userId,
     };
 
-    await this.db.insert(oauthHandoffs).values({
+    await this.handoffStore.insert({
       client: XAI_OAUTH_HANDOFF_CLIENT,
       id: handoffId,
       payload,
@@ -396,27 +392,29 @@ export class XaiOAuthService {
   }
 
   async pollDeviceLogin(userId: string, handoffId: string): Promise<XaiOAuthDeviceLoginPoll> {
-    const [handoff] = await this.db.select().from(oauthHandoffs).where(eq(oauthHandoffs.id, handoffId));
+    const handoff = await this.handoffStore.findById(handoffId);
 
-    if (!handoff || handoff.client !== XAI_OAUTH_HANDOFF_CLIENT) {
+    if (!handoff) {
       logXaiOAuthDebugSafe('device_poll_settled', { outcome: 'expired', reason: 'missing_handoff' });
       return { status: 'expired' };
     }
 
-    const payload = handoff.payload as DeviceAuthHandoffPayload;
+    const payload = handoff.payload;
     if (payload.userId !== userId) {
       throw new TRPCError({ code: 'FORBIDDEN', message: 'Device login does not belong to this user.' });
     }
 
     const now = this.now();
     if (payload.expiresAt <= now) {
-      await this.db.delete(oauthHandoffs).where(eq(oauthHandoffs.id, handoffId));
+      await this.handoffStore.deleteById(handoffId);
       logXaiOAuthDebugSafe('device_poll_settled', { outcome: 'expired', reason: 'handoff_timeout' });
       return { status: 'expired' };
     }
 
     const waitMs = Math.max(0, payload.nextPollAt - now);
-    if (waitMs > 0 || devicePollInFlight.has(handoffId)) {
+    const owned =
+      !!payload.pollOwner && (payload.pollUntil ?? 0) > now;
+    if (waitMs > 0 || owned) {
       const nextDelayMs = resolveXaiDevicePollDelayMs(
         waitMs > 0 ? waitMs : payload.intervalMs,
         payload.expiresAt,
@@ -425,19 +423,31 @@ export class XaiOAuthService {
       logXaiOAuthDebugSafe('device_poll_settled', {
         nextDelayMs,
         outcome: 'pending',
-        reason: devicePollInFlight.has(handoffId) ? 'in_flight' : 'interval',
+        reason: owned ? 'in_flight' : 'interval',
       });
       return { intervalMs: payload.intervalMs, nextDelayMs, status: 'pending' };
     }
 
-    devicePollInFlight.add(handoffId);
-    const reserved: DeviceAuthHandoffPayload = {
-      ...payload,
-      nextPollAt: now + payload.intervalMs,
-    };
-    await this.saveDeviceHandoff(handoffId, reserved);
+    const reserved = await this.handoffStore.claimPoll(handoffId, now, this.tokenTimeoutMs);
+    if (!reserved?.pollOwner) {
+      const nextDelayMs = resolveXaiDevicePollDelayMs(payload.intervalMs, payload.expiresAt, this.now());
+      logXaiOAuthDebugSafe('device_poll_settled', {
+        nextDelayMs,
+        outcome: 'pending',
+        reason: 'claim_lost',
+      });
+      return { intervalMs: payload.intervalMs, nextDelayMs, status: 'pending' };
+    }
+
+    const owner = reserved.pollOwner;
 
     try {
+      if (reserved.expiresAt <= this.now()) {
+        await this.handoffStore.deleteIfOwner(handoffId, owner);
+        logXaiOAuthDebugSafe('device_poll_settled', { outcome: 'expired', reason: 'handoff_timeout' });
+        return { status: 'expired' };
+      }
+
       requireTrustedXaiOAuthEndpoint(payload.tokenEndpoint, 'token_endpoint');
       const { bodyText: tokenText, response: tokenResponse } = await fetchTextWithTimeout(
         this.fetchFn,
@@ -459,6 +469,7 @@ export class XaiOAuthService {
       const refreshToken = asOptionalString(tokenBody.refresh_token);
 
       if (isXaiDeviceAuthorizationPending(error)) {
+        await this.handoffStore.saveIfOwner(handoffId, owner, withoutXaiDevicePollOwner(reserved));
         const nextDelayMs = resolveXaiDevicePollDelayMs(reserved.intervalMs, reserved.expiresAt, this.now());
         logXaiOAuthDebugSafe('device_poll_settled', {
           httpStatus: tokenResponse.status,
@@ -470,13 +481,16 @@ export class XaiOAuthService {
 
       if (isXaiDeviceSlowDown(error)) {
         const intervalMs = increaseXaiDevicePollIntervalMs(reserved.intervalMs);
-        const slowed: DeviceAuthHandoffPayload = {
-          ...reserved,
-          intervalMs,
-          nextPollAt: now + intervalMs,
-        };
-        await this.saveDeviceHandoff(handoffId, slowed);
-        const nextDelayMs = resolveXaiDevicePollDelayMs(intervalMs, slowed.expiresAt, this.now());
+        const handledAt = this.now();
+        await this.handoffStore.saveIfOwner(
+          handoffId,
+          owner,
+          withoutXaiDevicePollOwner(reserved, {
+            intervalMs,
+            nextPollAt: handledAt + intervalMs,
+          }),
+        );
+        const nextDelayMs = resolveXaiDevicePollDelayMs(intervalMs, reserved.expiresAt, handledAt);
         logXaiOAuthDebugSafe('device_poll_settled', {
           httpStatus: tokenResponse.status,
           intervalMs,
@@ -488,7 +502,7 @@ export class XaiOAuthService {
       }
 
       if (isXaiDeviceExpiredToken(error)) {
-        await this.db.delete(oauthHandoffs).where(eq(oauthHandoffs.id, handoffId));
+        await this.handoffStore.deleteIfOwner(handoffId, owner);
         logXaiOAuthDebugSafe('device_poll_settled', {
           httpStatus: tokenResponse.status,
           outcome: 'expired',
@@ -498,7 +512,7 @@ export class XaiOAuthService {
       }
 
       if (isXaiDeviceDenied(error)) {
-        await this.db.delete(oauthHandoffs).where(eq(oauthHandoffs.id, handoffId));
+        await this.handoffStore.deleteIfOwner(handoffId, owner);
         logXaiOAuthDebugSafe('device_poll_settled', {
           httpStatus: tokenResponse.status,
           outcome: 'denied',
@@ -508,7 +522,7 @@ export class XaiOAuthService {
       }
 
       if (!tokenResponse.ok || !accessToken || !refreshToken) {
-        await this.db.delete(oauthHandoffs).where(eq(oauthHandoffs.id, handoffId));
+        await this.handoffStore.deleteIfOwner(handoffId, owner);
         logXaiOAuthDebugSafe('device_poll_settled', {
           httpStatus: tokenResponse.status,
           outcome: 'denied',
@@ -527,7 +541,7 @@ export class XaiOAuthService {
         refreshToken,
         tokenEndpoint: payload.tokenEndpoint,
       });
-      await this.db.delete(oauthHandoffs).where(eq(oauthHandoffs.id, handoffId));
+      await this.handoffStore.deleteIfOwner(handoffId, owner);
       logXaiOAuthDebugSafe('device_poll_settled', {
         httpStatus: tokenResponse.status,
         outcome: 'connected',
@@ -536,23 +550,32 @@ export class XaiOAuthService {
       return { ...sanitizeStatus(stored), status: 'connected' };
     } catch (error) {
       if (isTimeoutError(error)) {
-        const nextDelayMs = resolveXaiDevicePollDelayMs(reserved.intervalMs, reserved.expiresAt, this.now());
+        const handledAt = this.now();
+        const intervalMs = increaseXaiDevicePollIntervalMs(reserved.intervalMs);
+        await this.handoffStore.saveIfOwner(
+          handoffId,
+          owner,
+          withoutXaiDevicePollOwner(reserved, {
+            intervalMs,
+            nextPollAt: handledAt + intervalMs,
+          }),
+        );
+        const nextDelayMs = resolveXaiDevicePollDelayMs(intervalMs, reserved.expiresAt, handledAt);
         logXaiOAuthDebugSafe('device_poll_settled', {
           httpStatus: 0,
+          intervalMs,
           nextDelayMs,
           outcome: 'pending',
           reason: 'token_timeout',
         });
-        return { intervalMs: reserved.intervalMs, nextDelayMs, status: 'pending' };
+        return { intervalMs, nextDelayMs, status: 'pending' };
       }
-      throw error;
-    } finally {
-      devicePollInFlight.delete(handoffId);
-    }
-  }
 
-  private async saveDeviceHandoff(handoffId: string, payload: DeviceAuthHandoffPayload) {
-    await this.db.update(oauthHandoffs).set({ payload }).where(eq(oauthHandoffs.id, handoffId));
+      await this.handoffStore
+        .saveIfOwner(handoffId, owner, withoutXaiDevicePollOwner(reserved))
+        .catch(() => undefined);
+      throw error;
+    }
   }
 
   async getStatus(userId: string): Promise<XaiOAuthConnectionStatus> {

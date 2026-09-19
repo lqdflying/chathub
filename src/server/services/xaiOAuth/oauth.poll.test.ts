@@ -1,8 +1,7 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { oauthHandoffs } from '@/database/schemas/oidc';
-
+import { createMemoryXaiDeviceHandoffStore } from './handoffStore';
 import { XaiOAuthService } from './oauth';
 import { createMemoryXaiOAuthTokenStore } from './tokenStore';
 
@@ -13,7 +12,6 @@ const makeJwt = (payload: Record<string, unknown>) => {
 };
 
 describe('XaiOAuthService device polling', () => {
-  const handoffs: any[] = [];
   const fetchFn = vi.fn();
   let now = 1_700_000_000_000;
   const crypto = {
@@ -23,43 +21,20 @@ describe('XaiOAuthService device polling', () => {
     })),
     encrypt: vi.fn(async (value: string) => `enc:${value}`),
   };
+  let handoffStore: ReturnType<typeof createMemoryXaiDeviceHandoffStore>;
   let tokenStore: ReturnType<typeof createMemoryXaiOAuthTokenStore>;
 
-  const db = {
-    delete: vi.fn((table: unknown) => ({
-      where: async () => {
-        if (table === oauthHandoffs) handoffs.length = 0;
-      },
-    })),
-    insert: vi.fn((table: unknown) => ({
-      values: async (row: any) => {
-        if (table === oauthHandoffs) handoffs.push(row);
-      },
-    })),
-    select: vi.fn(() => ({
-      from: (table: unknown) => ({
-        where: async () => (table === oauthHandoffs ? [...handoffs] : []),
-      }),
-    })),
-    update: vi.fn((table: unknown) => ({
-      set: (values: any) => ({
-        where: async () => {
-          if (table === oauthHandoffs && handoffs[0]) Object.assign(handoffs[0], values);
-        },
-      }),
-    })),
-  };
-
   const service = () =>
-    new XaiOAuthService(db as any, {
+    new XaiOAuthService({} as any, {
       crypto,
       fetchFn: fetchFn as any,
+      handoffStore,
       now: () => now,
       tokenStore,
     });
 
   const seedHandoff = (overrides?: Record<string, unknown>) => {
-    handoffs.push({
+    handoffStore.seed({
       client: 'xai-oauth',
       id: 'handoff-1',
       payload: {
@@ -76,9 +51,9 @@ describe('XaiOAuthService device polling', () => {
   };
 
   beforeEach(() => {
-    handoffs.length = 0;
     now = 1_700_000_000_000;
     fetchFn.mockReset();
+    handoffStore = createMemoryXaiDeviceHandoffStore();
     tokenStore = createMemoryXaiOAuthTokenStore();
   });
 
@@ -204,6 +179,84 @@ describe('XaiOAuthService device polling', () => {
     await expect(first).resolves.toMatchObject({ status: 'pending' });
   });
 
+  it('releases the claim when the reservation write fails so a later poll can retry', async () => {
+    seedHandoff();
+    handoffStore.failNextClaim(new Error('temporary database failure'));
+    fetchFn.mockResolvedValue({
+      ok: false,
+      status: 400,
+      text: async () => JSON.stringify({ error: 'authorization_pending' }),
+    });
+
+    await expect(service().pollDeviceLogin('user-1', 'handoff-1')).rejects.toThrow(
+      'temporary database failure',
+    );
+    expect(fetchFn).not.toHaveBeenCalled();
+    expect(handoffStore.getRow('handoff-1')?.payload.pollOwner).toBeUndefined();
+
+    now += 60_000;
+    await expect(service().pollDeviceLogin('user-1', 'handoff-1')).resolves.toMatchObject({
+      status: 'pending',
+    });
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps redemption exclusive across distinct service instances sharing one store', async () => {
+    seedHandoff({ intervalMs: 5_000 });
+    let complete!: (value: { ok: false; status: number; text: () => Promise<string> }) => void;
+    fetchFn.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          complete = resolve;
+        }),
+    );
+    fetchFn.mockResolvedValue({
+      ok: false,
+      status: 400,
+      text: async () => JSON.stringify({ error: 'authorization_pending' }),
+    });
+
+    const first = service().pollDeviceLogin('user-1', 'handoff-1');
+    await vi.waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(1));
+
+    now += 6_000;
+    await expect(service().pollDeviceLogin('user-1', 'handoff-1')).resolves.toMatchObject({
+      status: 'pending',
+    });
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+
+    complete({
+      ok: false,
+      status: 400,
+      text: async () => JSON.stringify({ error: 'authorization_pending' }),
+    });
+    await first;
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('increases and persists backoff after repeated token request timeouts', async () => {
+    seedHandoff({ intervalMs: 5_000 });
+    fetchFn.mockImplementation(async () => {
+      throw Object.assign(new Error('timeout'), { name: 'TimeoutError' });
+    });
+
+    const first = await service().pollDeviceLogin('user-1', 'handoff-1');
+    expect(first).toEqual({ intervalMs: 10_000, nextDelayMs: 10_000, status: 'pending' });
+    expect(handoffStore.getRow('handoff-1')?.payload.intervalMs).toBe(10_000);
+    expect(handoffStore.getRow('handoff-1')?.payload.nextPollAt).toBe(now + 10_000);
+    expect(handoffStore.getRow('handoff-1')?.payload.pollOwner).toBeUndefined();
+
+    const early = await service().pollDeviceLogin('user-1', 'handoff-1');
+    expect(early.status).toBe('pending');
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+
+    now += 10_000;
+    const second = await service().pollDeviceLogin('user-1', 'handoff-1');
+    expect(second).toEqual({ intervalMs: 15_000, nextDelayMs: 15_000, status: 'pending' });
+    expect(handoffStore.getRow('handoff-1')?.payload.intervalMs).toBe(15_000);
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+  });
+
   it.each([
     ['access_denied', 'denied', 'access_denied'],
     ['authorization_denied', 'denied', 'authorization_denied'],
@@ -220,7 +273,7 @@ describe('XaiOAuthService device polling', () => {
     await expect(service().pollDeviceLogin('user-1', 'handoff-1')).resolves.toEqual(
       message ? { message, status } : { status },
     );
-    expect(handoffs).toHaveLength(0);
+    expect(handoffStore.getRow('handoff-1')).toBeUndefined();
   });
 
   it('keeps authorization_pending as pending and retains the handoff', async () => {
@@ -234,7 +287,7 @@ describe('XaiOAuthService device polling', () => {
     await expect(service().pollDeviceLogin('user-1', 'handoff-1')).resolves.toMatchObject({
       status: 'pending',
     });
-    expect(handoffs).toHaveLength(1);
+    expect(handoffStore.getRow('handoff-1')).toBeTruthy();
   });
 
   it('expires the handoff when the vendor deadline elapses', async () => {
@@ -243,7 +296,7 @@ describe('XaiOAuthService device polling', () => {
       status: 'expired',
     });
     expect(fetchFn).not.toHaveBeenCalled();
-    expect(handoffs).toHaveLength(0);
+    expect(handoffStore.getRow('handoff-1')).toBeUndefined();
   });
 
   it('stores tokens when the device grant succeeds', async () => {
@@ -264,7 +317,7 @@ describe('XaiOAuthService device polling', () => {
       connected: true,
       status: 'connected',
     });
-    expect(handoffs).toHaveLength(0);
+    expect(handoffStore.getRow('handoff-1')).toBeUndefined();
     expect(await tokenStore.findByUserId('user-1')).toBeTruthy();
   });
 });

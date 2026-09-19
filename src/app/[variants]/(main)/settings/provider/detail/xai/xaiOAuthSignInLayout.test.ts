@@ -56,5 +56,8 @@ describe('XaiOAuthSignIn layout', () => {
     expect(src).toContain('nextDelayMs');
     expect(src).not.toContain('setInterval');
     expect(src).not.toContain('POLL_INTERVAL_MS');
+    expect(src).toContain('loginGeneration');
+    expect(src).toContain('invalidateDeviceLogin');
+    expect(src).toContain('isCurrentAttempt');
   });
 });

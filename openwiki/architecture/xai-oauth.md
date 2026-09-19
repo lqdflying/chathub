@@ -15,7 +15,7 @@ decrypted into the browser.
 | Store | Contents |
 | --- | --- |
 | `xai_oauth_tokens` | One row per `userId`. AES-GCM `KeyVaultsGateKeeper` ciphertext for access + refresh. `expiresAt`, optional email / plan / `tokenEndpoint`, public `clientId`. Nullable `refreshLockId` / `refreshLockUntil`. The timestamp is informational: acquire only when `refresh_lock_id IS NULL`. An abandoned owner is not reclaimed by expiry. Operators recover with SuperGrok sign-out / sign-in; do not steal the refresh token. |
-| `oauth_handoffs` (`client: xai-oauth`) | In-flight RFC 8628 device-code state: `deviceCode`, `userCode`, `tokenEndpoint`, `userId`, `intervalMs`, `nextPollAt`, expiry. No tokens. |
+| `oauth_handoffs` (`client: xai-oauth`) | In-flight RFC 8628 device-code state: `deviceCode`, `userCode`, `tokenEndpoint`, `userId`, `intervalMs`, `nextPollAt`, optional `pollOwner` / `pollUntil`, expiry. No tokens. |
 
 Migration `0060_xai_oauth_tokens` plus
 `scripts/migrateServerDB/ensureXaiOAuthTokens.cjs`.
@@ -31,11 +31,19 @@ tRPC `xaiOAuth` (lambda, authed, Settings UI only):
 2. UI shows the verification URL + `user_code`.
 3. `pollDeviceLogin` honors RFC 8628 pacing. The start response stores the
    vendor `interval` (5s default) and `nextPollAt`. Early polls return
-   `pending` without a token request. `authorization_pending` stays pending;
-   `slow_down` adds 5 seconds and persists the new interval. `expired_token`
-   expires the handoff; `access_denied` / `authorization_denied` /
-   `invalid_client` deny it. Token redemption is serialized per handoff and
-   bounded by `XAI_DEVICE_CODE_TOKEN_TIMEOUT_MS`.
+   `pending` without a token request. A worker claims the grant atomically in
+   `oauth_handoffs` (`pollOwner` + `pollUntil` for the token-request timeout,
+   plus the next `nextPollAt`). Concurrent workers or replicas lose that
+   compare-and-set and do not start a second exchange. A failed reservation
+   write leaves no owner, so the next poll can retry. `authorization_pending`
+   stays pending and releases the owner. `slow_down` and token-request
+   timeouts add 5 seconds, persist the new interval and deadline, then
+   release. `expired_token` expires the handoff; `access_denied` /
+   `authorization_denied` / `invalid_client` deny it. An abandoned poll owner
+   may be claimed after `pollUntil`; that is device-grant recovery only. Do
+   not apply timed takeover to SuperGrok refresh locks. The Settings page
+   invalidates its login generation on unmount, so leaving xAI settings does
+   not keep a browser poll loop alive.
 4. Token and device hosts must be HTTPS `*.x.ai`.
 5. `status` live-resolves the session, then fail-soft
    `GET https://cli-chat-proxy.grok.com/v1/billing?format=credits` with

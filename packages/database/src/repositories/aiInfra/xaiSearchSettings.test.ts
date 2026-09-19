@@ -37,4 +37,27 @@ describe('xAI native search after model customization', () => {
     expect(customizedGrok?.abilities.search).toBe(true);
     expect(customizedGrok?.settings?.searchImpl).toBe('params');
   });
+
+  it('preserves an explicitly disabled Search capability from the model settings form', async () => {
+    const repo = new AiInfraRepos({} as any, 'user-1', { xai: { enabled: true } });
+    vi.spyOn(repo, 'getAiProviderList').mockResolvedValue([
+      { enabled: true, id: 'xai', name: 'xAI', source: 'builtin' },
+    ] as AiProviderListItem[]);
+    vi.spyOn(repo as any, 'fetchBuiltinModels').mockResolvedValue(xaiChatModels);
+    vi.spyOn(repo.aiModelModel, 'getAllModels').mockResolvedValue([
+      {
+        abilities: { search: false },
+        enabled: true,
+        id: 'grok-4.6',
+        providerId: 'xai',
+        type: 'chat',
+      },
+    ] as EnabledAiModel[]);
+
+    const customized = (await repo.getEnabledModels()).find(
+      (model) => model.id === 'grok-4.6' && model.providerId === 'xai',
+    );
+    expect(customized?.abilities.search).toBe(false);
+    expect(customized?.settings?.searchImpl).toBeUndefined();
+  });
 });
