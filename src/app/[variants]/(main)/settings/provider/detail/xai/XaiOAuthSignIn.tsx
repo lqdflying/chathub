@@ -176,7 +176,6 @@ const useStyles = createStyles(({ css, token }) => ({
   `,
 }));
 
-const POLL_INTERVAL_MS = 2500;
 const STATUS_STALE_MS = 30_000;
 
 const formatUsageReset = (iso?: string) => (iso ? new Date(iso).toLocaleString() : undefined);
@@ -211,7 +210,7 @@ const XaiOAuthSignIn = () => {
   const pollTimer = useRef<number | undefined>(undefined);
 
   const stopPolling = useCallback(() => {
-    if (pollTimer.current) window.clearInterval(pollTimer.current);
+    if (pollTimer.current) window.clearTimeout(pollTimer.current);
     pollTimer.current = undefined;
   }, []);
 
@@ -256,39 +255,56 @@ const XaiOAuthSignIn = () => {
     setVerificationUrl(started.verificationUrl);
     setWaiting(true);
 
-    stopPolling();
-    pollTimer.current = window.setInterval(() => {
-      void (async () => {
-        if (!isAccountMutationCurrent(useUserStore.getState(), snapshot)) {
-          stopPolling();
-          return;
-        }
-        try {
-          const result = await pollLogin.mutateAsync({
-            accountScope: snapshot.scope,
-            handoffId: started.handoffId,
-          });
-          if (!isAccountMutationCurrent(useUserStore.getState(), snapshot)) return;
-          if (result.status === 'pending') return;
+    const expiresAtMs = Date.parse(started.expiresAt);
+    const schedulePoll = (delayMs: number) => {
+      stopPolling();
+      if (!Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now() || delayMs <= 0) {
+        setWaiting(false);
+        setUserCode(undefined);
+        setVerificationUrl(undefined);
+        setError(t('xaiOAuth.expired'));
+        updateXaiOAuthConnected(false);
+        return;
+      }
 
-          stopPolling();
-          setWaiting(false);
-          setUserCode(undefined);
-          setVerificationUrl(undefined);
-
-          if (result.status === 'connected') {
-            updateXaiOAuthConnected(true);
-            await statusQuery.refetch();
+      pollTimer.current = window.setTimeout(() => {
+        void (async () => {
+          if (!isAccountMutationCurrent(useUserStore.getState(), snapshot)) {
+            stopPolling();
             return;
           }
+          try {
+            const result = await pollLogin.mutateAsync({
+              accountScope: snapshot.scope,
+              handoffId: started.handoffId,
+            });
+            if (!isAccountMutationCurrent(useUserStore.getState(), snapshot)) return;
+            if (result.status === 'pending') {
+              schedulePoll(result.nextDelayMs || result.intervalMs);
+              return;
+            }
 
-          setError(result.status === 'expired' ? t('xaiOAuth.expired') : t('xaiOAuth.denied'));
-          updateXaiOAuthConnected(false);
-        } catch {
-          // Keep polling until the handoff expires or the user starts again.
-        }
-      })();
-    }, POLL_INTERVAL_MS);
+            stopPolling();
+            setWaiting(false);
+            setUserCode(undefined);
+            setVerificationUrl(undefined);
+
+            if (result.status === 'connected') {
+              updateXaiOAuthConnected(true);
+              await statusQuery.refetch();
+              return;
+            }
+
+            setError(result.status === 'expired' ? t('xaiOAuth.expired') : t('xaiOAuth.denied'));
+            updateXaiOAuthConnected(false);
+          } catch {
+            schedulePoll(started.intervalMs);
+          }
+        })();
+      }, delayMs);
+    };
+
+    schedulePoll(started.intervalMs);
   };
 
   const handleLogout = async () => {

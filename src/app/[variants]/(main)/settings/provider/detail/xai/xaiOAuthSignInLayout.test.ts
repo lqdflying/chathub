@@ -47,4 +47,14 @@ describe('XaiOAuthSignIn layout', () => {
     expect(src).toContain('weeklyTitle');
     expect(src).toContain('remainingPercent');
   });
+
+  it('schedules device polls with the vendor interval instead of a fixed interval', () => {
+    const src = readFileSync(join(dir, 'XaiOAuthSignIn.tsx'), 'utf8');
+
+    expect(src).toContain('setTimeout');
+    expect(src).toContain('started.intervalMs');
+    expect(src).toContain('nextDelayMs');
+    expect(src).not.toContain('setInterval');
+    expect(src).not.toContain('POLL_INTERVAL_MS');
+  });
 });

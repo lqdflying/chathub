@@ -43,8 +43,25 @@ describe('buildXaiPayload', () => {
       temperature: 0.2,
     } as any);
 
-    expect(payload.reasoning_effort).toBeUndefined();
+    expect(payload.reasoning_effort).toBe('none');
     expect(payload.temperature).toBe(0.2);
+  });
+
+  it('normalizes invalid Grok 4.6 and 4.5 leftover efforts', () => {
+    expect(
+      buildXaiPayload({
+        messages: [],
+        model: 'grok-4.6',
+        reasoning_effort: 'none',
+      } as any).reasoning_effort,
+    ).toBe('high');
+    expect(
+      buildXaiPayload({
+        messages: [],
+        model: 'grok-4.5',
+        reasoning_effort: 'xhigh',
+      } as any).reasoning_effort,
+    ).toBe('high');
   });
 
   it('adds Responses web_search only when search is enabled', () => {
@@ -122,6 +139,36 @@ describe('LobeXaiAI cache and OAuth headers', () => {
     expect(requestPayload.prompt_cache_key).toBe('ch_testcachekey000000000000000002');
     expect(requestOptions.headers).not.toHaveProperty('Session_id');
     expect(requestOptions.headers).not.toHaveProperty('x-grok-conv-id');
+  });
+
+  it('sends Grok 4.3 none on Chat Completions and Responses', async () => {
+    const instance = new LobeXaiAI({ apiKey: 'test-key' });
+    const mockStream = (async function* () {})();
+    const chatSpy = vi
+      .spyOn(instance['client'].chat.completions, 'create')
+      .mockResolvedValue(mockStream as any);
+    const responsesSpy = vi
+      .spyOn(instance['client'].responses, 'create')
+      .mockResolvedValue(mockStream as any);
+
+    await (
+      await instance.chat({
+        messages: [{ content: 'Hello', role: 'user' }],
+        model: 'grok-4.3',
+        reasoning_effort: 'none',
+      } as any)
+    ).text();
+    expect((chatSpy.mock.calls[0][0] as any).reasoning_effort).toBe('none');
+
+    await (
+      await instance.chat({
+        apiMode: 'responses',
+        messages: [{ content: 'Hello', role: 'user' }],
+        model: 'grok-4.3',
+        reasoning_effort: 'none',
+      } as any)
+    ).text();
+    expect((responsesSpy.mock.calls[0][0] as any).reasoning).toMatchObject({ effort: 'none' });
   });
 
   it('attaches SuperGrok CLI headers only for OAuth', () => {

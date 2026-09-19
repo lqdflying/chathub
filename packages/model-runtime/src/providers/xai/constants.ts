@@ -25,6 +25,7 @@ export const XAI_DEVICE_CODE_GRANT_TYPE = 'urn:ietf:params:oauth:grant-type:devi
 export const XAI_DEVICE_CODE_DEFAULT_INTERVAL_MS = 5 * 1000;
 export const XAI_DEVICE_CODE_MIN_INTERVAL_MS = 1 * 1000;
 export const XAI_DEVICE_CODE_SLOW_DOWN_INCREMENT_MS = 5 * 1000;
+export const XAI_DEVICE_CODE_TOKEN_TIMEOUT_MS = 15 * 1000;
 
 export const XAI_OAUTH_CLIENT_HEADERS = {
   'x-grok-client-mode': XAI_OAUTH_CLIENT_MODE,

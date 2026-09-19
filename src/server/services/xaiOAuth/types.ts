@@ -19,13 +19,14 @@ export type XaiOAuthConnectionStatus = {
 export type XaiOAuthDeviceLoginStart = {
   expiresAt: string;
   handoffId: string;
+  intervalMs: number;
   userCode: string;
   verificationUrl: string;
 };
 
 export type XaiOAuthDeviceLoginPoll =
   | { status: 'expired' }
-  | { status: 'pending' }
+  | { intervalMs: number; nextDelayMs: number; status: 'pending' }
   | { message?: string; status: 'denied' }
   | (XaiOAuthConnectionStatus & { status: 'connected' });
 

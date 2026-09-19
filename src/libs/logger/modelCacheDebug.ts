@@ -23,8 +23,8 @@ const CACHE_DEBUG_ENV_BY_PROVIDER: Readonly<Record<string, string>> = {
   moonshot: 'DEBUG_MOONSHOT_CACHE',
   openai: 'DEBUG_OPENAI_CACHE',
   openaicompatible: 'DEBUG_OPENAICOMPATIBLE_CACHE',
-  xai: 'DEBUG_XAI_CACHE',
   vertexai: 'DEBUG_GOOGLE_CACHE',
+  xai: 'DEBUG_XAI_CACHE',
   zhipu: 'DEBUG_ZHIPU_CACHE',
 };
 

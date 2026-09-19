@@ -14,11 +14,13 @@ import {
 } from './constants';
 
 export {
+  isTrustedXaiOAuthHost,
   XAI_API_BASE_URL,
   XAI_DEVICE_CODE_DEFAULT_INTERVAL_MS,
   XAI_DEVICE_CODE_GRANT_TYPE,
   XAI_DEVICE_CODE_MIN_INTERVAL_MS,
   XAI_DEVICE_CODE_SLOW_DOWN_INCREMENT_MS,
+  XAI_DEVICE_CODE_TOKEN_TIMEOUT_MS,
   XAI_OAUTH_AUTH_MODE,
   XAI_OAUTH_BASE_URL,
   XAI_OAUTH_BILLING_URL,
@@ -36,7 +38,6 @@ export {
   XAI_OAUTH_SCOPE,
   XAI_OAUTH_USAGE_TIMEOUT_MS,
   XAI_OAUTH_USER_AGENT,
-  isTrustedXaiOAuthHost,
 } from './constants';
 export {
   describeXaiOAuthErrorClass,
@@ -44,6 +45,15 @@ export {
   logXaiOAuthDebugSafe,
   XAI_OAUTH_DEBUG_NAMESPACE,
 } from './debug';
+export {
+  increaseXaiDevicePollIntervalMs,
+  isXaiDeviceAuthorizationPending,
+  isXaiDeviceDenied,
+  isXaiDeviceExpiredToken,
+  isXaiDeviceSlowDown,
+  resolveXaiDevicePollDelayMs,
+  resolveXaiDevicePollIntervalMs,
+} from './devicePoll';
 
 const XAI_WEB_SEARCH_TOOL = { type: 'web_search' } as const;
 
@@ -63,31 +73,39 @@ const isXaiReasoningRequest = (model: string, effort?: string) => {
 export const buildXaiPayload = (
   payload: ChatStreamPayload,
 ): OpenAI.ChatCompletionCreateParamsStreaming => {
+  const requestPayload = { ...payload } as ChatStreamPayload & { stop?: unknown };
   const {
     apiMode,
     enabledSearch,
     frequency_penalty,
     model,
-    openAICompatCache: _openAICompatCache,
-    openAICompatResponsesParams: _openAICompatResponsesParams,
     presence_penalty,
-    provider: _provider,
     reasoning_effort: requestedEffort,
-    reasoning_split: _reasoningSplit,
-    responseMode: _responseMode,
-    responseStateMode: _responseStateMode,
+    stop,
     temperature,
-    thinkingBudget: _thinkingBudget,
     top_p,
-    urlContext: _urlContext,
-    ...rest
-  } = payload;
+  } = requestPayload;
+
+  delete requestPayload.enabledSearch;
+  delete requestPayload.frequency_penalty;
+  delete requestPayload.openAICompatCache;
+  delete requestPayload.openAICompatResponsesParams;
+  delete requestPayload.presence_penalty;
+  delete (requestPayload as { provider?: unknown }).provider;
+  delete requestPayload.reasoning_effort;
+  delete requestPayload.reasoning_split;
+  delete requestPayload.responseMode;
+  delete requestPayload.responseStateMode;
+  delete requestPayload.stop;
+  delete requestPayload.temperature;
+  delete requestPayload.thinkingBudget;
+  delete requestPayload.top_p;
+  delete requestPayload.urlContext;
 
   const resolution = resolveXaiReasoningEffort(model, requestedEffort as any);
   const effort = resolution.effort;
   const thinkingOn = isXaiReasoningRequest(model, effort);
-  const { stop, ...restWithoutStop } = rest as typeof rest & { stop?: unknown };
-  const tools = [...((restWithoutStop.tools as any[]) ?? [])];
+  const tools = [...((requestPayload.tools as any[]) ?? [])];
 
   if (enabledSearch && apiMode === 'responses') {
     const alreadyHasSearch = tools.some((tool) => tool?.type === 'web_search');
@@ -95,7 +113,7 @@ export const buildXaiPayload = (
   }
 
   return {
-    ...restWithoutStop,
+    ...requestPayload,
     ...(apiMode ? { apiMode } : {}),
     model,
     ...(thinkingOn
@@ -107,7 +125,7 @@ export const buildXaiPayload = (
           ...(temperature === undefined ? {} : { temperature }),
           ...(top_p === undefined ? {} : { top_p }),
         }),
-    ...(effort && effort !== 'none' ? { reasoning_effort: effort } : {}),
+    ...(effort === undefined ? {} : { reasoning_effort: effort }),
     stream: payload.stream ?? true,
     ...(tools.length > 0 ? { tools } : {}),
   } as OpenAI.ChatCompletionCreateParamsStreaming;

@@ -333,7 +333,7 @@ export const AgentChatConfigSchema = z.object({
     .optional(),
   searchMode: z.enum(['off', 'on', 'auto']).optional(),
   textVerbosity: z.enum(['low', 'medium', 'high']).optional(),
-  zhipuPreservedThinking: z.boolean().optional(),
   xaiReasoningEffort: z.enum(['none', 'low', 'medium', 'high', 'xhigh']).optional(),
+  zhipuPreservedThinking: z.boolean().optional(),
   zhipuReasoningEffort: z.enum(['max', 'high', 'low', 'skip']).optional(),
 });

@@ -31,11 +31,11 @@ export interface AIProviderState {
   initAiProviderList: boolean;
   isInitAiProviderRuntimeState: boolean;
   openaiCodexConnected: boolean;
-  xaiOAuthConnected: boolean;
   providerSearchKeyword: string;
   runtimeStateInitializationFailure?: AiProviderRuntimeInitializationFailure;
   runtimeStateRequestScope?: string;
   runtimeStateScope?: string;
+  xaiOAuthConnected: boolean;
 }
 
 export const initialAIProviderState: AIProviderState = {
@@ -47,9 +47,9 @@ export const initialAIProviderState: AIProviderState = {
   initAiProviderList: false,
   isInitAiProviderRuntimeState: false,
   openaiCodexConnected: false,
-  xaiOAuthConnected: false,
   providerSearchKeyword: '',
   runtimeStateInitializationFailure: undefined,
   runtimeStateRequestScope: undefined,
   runtimeStateScope: undefined,
+  xaiOAuthConnected: false,
 };

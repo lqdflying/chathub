@@ -159,6 +159,26 @@ describe('injectModelSettings', () => {
     },
   );
 
+  it('keeps xAI native search on fetched and leftover false-capability Grok cards', () => {
+    expect(
+      injectModelSettings('xai', {
+        abilities: { functionCall: true, reasoning: true, search: false },
+        id: 'grok-4.6',
+        type: 'chat',
+      }),
+    ).toMatchObject({
+      abilities: { search: true },
+      settings: { extendParams: ['xaiReasoningEffort'], searchImpl: 'params' },
+    });
+    expect(
+      injectModelSettings('xai', {
+        abilities: { functionCall: true, reasoning: false },
+        id: 'grok-4.20-0309-non-reasoning',
+        type: 'chat',
+      }).settings,
+    ).toMatchObject({ searchImpl: 'params' });
+  });
+
   it('still injects enableReasoning plus effort for fetched glm-5.2', () => {
     const model = injectModelSettings('zhipu', {
       abilities: { functionCall: true, reasoning: true },

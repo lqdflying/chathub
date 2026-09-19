@@ -188,8 +188,28 @@ const injectExtendParamSettings = (providerId: string, item: any) => {
 };
 
 // 仅在读取时注入 settings; 根据 abilities.search 来添加或删去settings 中的 search 相关字段
+const isXaiNativeSearchModel = (providerId: string, modelId: string) =>
+  providerId === ModelProvider.Xai && modelId.toLowerCase().includes('grok');
+
 const injectSearchSettings = (providerId: string, item: any) => {
   const abilities = item?.abilities || {};
+
+  // xAI Grok native search is advertised and opt-in. A leftover `search:
+  // false` catalog flag must not strip `searchImpl` after model customization.
+  if (isXaiNativeSearchModel(providerId, item?.id)) {
+    const searchSettings = inferProviderSearchDefaults(providerId, item.id);
+    return {
+      ...item,
+      abilities: { ...abilities, search: true },
+      settings: {
+        ...item.settings,
+        searchImpl: item.settings?.searchImpl ?? searchSettings.searchImpl,
+        ...(item.settings?.searchProvider || searchSettings.searchProvider
+          ? { searchProvider: item.settings?.searchProvider ?? searchSettings.searchProvider }
+          : {}),
+      },
+    };
+  }
 
   // 模型显式关闭搜索能力：移除 settings 中的 search 相关字段，确保 UI 不显示启用模型内置搜索
   if (abilities.search === false) {

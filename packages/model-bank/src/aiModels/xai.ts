@@ -43,7 +43,7 @@ const grokBuildPricing: Pricing = {
 const grokChatAbilities = {
   functionCall: true,
   reasoning: true,
-  search: false,
+  search: true,
   structuredOutput: true,
   vision: true,
 } as const;
@@ -120,7 +120,7 @@ const xaiChatModels: AIChatModelCard[] = [
     abilities: {
       functionCall: true,
       reasoning: false,
-      search: false,
+      search: true,
       structuredOutput: true,
       vision: true,
     },

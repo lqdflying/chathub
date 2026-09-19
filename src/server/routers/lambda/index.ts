@@ -62,7 +62,6 @@ export const lambdaRouter = router({
   market: marketRouter,
   message: messageRouter,
   openaiCodex: openaiCodexRouter,
-  xaiOAuth: xaiOAuthRouter,
   picbed: picbedRouter,
   plugin: pluginRouter,
   ragEval: ragEvalRouter,
@@ -74,6 +73,7 @@ export const lambdaRouter = router({
   topic: topicRouter,
   upload: uploadRouter,
   user: userRouter,
+  xaiOAuth: xaiOAuthRouter,
 });
 
 export type LambdaRouter = typeof lambdaRouter;
