@@ -5,10 +5,11 @@ import {
   type FormGroupItemType,
   type FormItemProps,
   Icon,
+  Segmented,
   Tooltip,
 } from '@lobehub/ui';
 import { useDebounceFn } from 'ahooks';
-import { Form as AntdForm, Radio, Select, Skeleton, Switch } from 'antd';
+import { Form as AntdForm, Select, Skeleton, Switch } from 'antd';
 import { createStyles } from 'antd-style';
 import { CircleHelpIcon, Loader2Icon, LockIcon } from 'lucide-react';
 import Link from 'next/link';
@@ -110,7 +111,11 @@ const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
        CSS Grid 1fr cannot invent a second column.
        @see https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Flexible_box_layout/Basic_concepts
        @see https://ant.design/components/form
-       @see https://ant.design/components/radio (Radio.Group block, 5.21+) */
+       Route control is Segmented (same as Settings Chat Appearance), not
+       Radio.Group block — antd injects radio-group-block flex ~1s after paint
+       and the selected Chat Completions button eats the row.
+       @see https://ant.design/components/segmented
+       @see https://ant.design/components/radio (block fits parent; late CSS) */
     .${prefixCls}-form-item,
     .${prefixCls}-form-item-control-input,
     .${prefixCls}-form-item-control-input-content {
@@ -216,29 +221,20 @@ const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
     }
   `,
   routeSegment: css`
-    display: grid !important;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
     width: 100% !important;
     max-width: 100% !important;
     min-width: 0 !important;
-    white-space: normal !important;
 
-    .${prefixCls}-radio-button-wrapper {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-
-      width: auto !important;
-      max-width: 100%;
+    .${prefixCls}-segmented,
+    .${prefixCls}-segmented-group {
+      width: 100% !important;
+      max-width: 100% !important;
       min-width: 0 !important;
-      height: auto;
-      min-height: 32px;
-      padding-block: 4px;
-      padding-inline: 8px;
+    }
 
-      line-height: 1.3;
-      text-align: center;
-      white-space: normal;
+    .${prefixCls}-segmented-item {
+      min-width: 0 !important;
+      overflow: hidden;
     }
   `,
   switchLoading: css`
@@ -442,11 +438,11 @@ const ProviderConfig = memo<ProviderConfigProps>(
     const responseApiRouteOptions = [
       {
         label: t('providerModels.config.responsesApi.options.chatCompletions'),
-        value: false,
+        value: 'chatCompletions',
       },
       {
         label: t('providerModels.config.responsesApi.options.responses'),
-        value: true,
+        value: 'responses',
       },
     ];
     const openAICompatCachePresetOptions = OPENAI_COMPAT_CACHE_PRESETS.map((preset) => ({
@@ -803,17 +799,20 @@ const ProviderConfig = memo<ProviderConfigProps>(
             children: isLoading ? (
               <Skeleton.Button active />
             ) : (
-              <Radio.Group
-                block
-                buttonStyle="solid"
-                className={styles.routeSegment}
-                disabled={configUpdating}
-                optionType="button"
-                options={responseApiRouteOptions}
-              />
+              <div className={styles.routeSegment}>
+                <Segmented
+                  block
+                  disabled={configUpdating}
+                  options={responseApiRouteOptions}
+                  style={{ maxWidth: '100%', minWidth: 0, width: '100%' }}
+                />
+              </div>
             ),
             desc: t('providerModels.config.responsesApi.desc'),
-            getValueProps: (value?: boolean) => ({ value: !!value }),
+            getValueFromEvent: (value: string) => value === 'responses',
+            getValueProps: (value?: boolean) => ({
+              value: value ? 'responses' : 'chatCompletions',
+            }),
             label: t('providerModels.config.responsesApi.title'),
             name: ['config', 'enableResponseApi'],
           }

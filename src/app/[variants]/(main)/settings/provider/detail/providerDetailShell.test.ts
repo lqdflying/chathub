@@ -83,8 +83,9 @@ describe('provider settings detail shell', () => {
     expect(form).not.toContain('min-width: min(100%, 320px)');
     expect(form).toContain('display: grid !important');
     expect(form).toContain('grid-template-columns: minmax(0, 1fr)');
-    expect(form).toContain('repeat(2, minmax(0, 1fr))');
-    expect(form).toContain('                block\n                buttonStyle="solid"');
+    expect(form).toContain('<Segmented');
+    expect(form).not.toContain('<Radio.Group');
+    expect(form).toContain("getValueFromEvent: (value: string) => value === 'responses'");
     expect(form).toContain('min-width: 0 !important');
     expect(form).toContain('.${prefixCls}-row > .${prefixCls}-form-item-label');
     expect(form).toContain('.${prefixCls}-form-item-row > .${prefixCls}-form-item-label');
