@@ -1406,6 +1406,141 @@ describe('conversationGeneration store actions', () => {
     expect(ops['cgo_old']).toBeUndefined();
   });
 
+  it('does not detach an attach that landed while listActive was in flight', async () => {
+    let release!: (value: unknown[]) => void;
+    const gate = new Promise<unknown[]>((resolve) => {
+      release = resolve;
+    });
+    vi.spyOn(conversationGenerationService, 'listActive').mockImplementation(
+      async () => (await gate) as any,
+    );
+    const logSpy = vi
+      .spyOn(generationDebugClient, 'logGenerationDebugClientSafe')
+      .mockImplementation(() => undefined);
+    const { result } = renderHook(() => useChatStore());
+    const topicKey = messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID);
+
+    let syncPromise: Promise<void> = Promise.resolve();
+    await act(async () => {
+      syncPromise = result.current.syncActiveConversationGenerations({ reason: 'topic_change' });
+      result.current.attachConversationGeneration({
+        assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        clearGeneration: 0,
+        generation: 0,
+        kind: 'chat',
+        lane: 'lane-new',
+        operationId: 'cgo_new',
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
+        userScope: 'current',
+      });
+      release([]);
+      await syncPromise;
+    });
+
+    expect(useChatStore.getState().serverGenerationOperations[topicKey]?.cgo_new?.operationId).toBe(
+      'cgo_new',
+    );
+    expect(useChatStore.getState().chatLoadingIds).toContain(TEST_IDS.ASSISTANT_MESSAGE_ID);
+    expect(logSpy).toHaveBeenCalledWith(
+      'sync_summary',
+      expect.objectContaining({
+        detachedCount: 0,
+        keptPostStartAttachCount: 1,
+        reason: 'topic_change',
+      }),
+    );
+
+    act(() => {
+      result.current.applyConversationGenerationEvent({
+        createdAt: new Date().toISOString(),
+        id: 2,
+        operationId: 'cgo_new',
+        payload: { status: 'succeeded' },
+        revision: 1,
+        type: 'done',
+        userId: 'user-1',
+      });
+    });
+
+    await vi.waitFor(() => {
+      expect(logSpy).toHaveBeenCalledWith(
+        'event_applied_terminal',
+        expect.objectContaining({ type: 'done' }),
+      );
+    });
+  });
+
+  it('still detaches a leftover attach that was present before listActive', async () => {
+    vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValue([]);
+    const logSpy = vi
+      .spyOn(generationDebugClient, 'logGenerationDebugClientSafe')
+      .mockImplementation(() => undefined);
+    const { result } = renderHook(() => useChatStore());
+    const topicKey = messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID);
+
+    act(() => {
+      result.current.attachConversationGeneration({
+        assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        clearGeneration: 0,
+        generation: 0,
+        kind: 'chat',
+        lane: 'lane-old',
+        operationId: 'cgo_old',
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
+        userScope: 'current',
+      });
+    });
+    expect(useChatStore.getState().chatLoadingIds).toContain(TEST_IDS.ASSISTANT_MESSAGE_ID);
+
+    await act(async () => {
+      await result.current.syncActiveConversationGenerations({ reason: 'topic_change' });
+    });
+
+    expect(useChatStore.getState().serverGenerationOperations[topicKey]?.cgo_old).toBeUndefined();
+    expect(useChatStore.getState().chatLoadingIds).not.toContain(TEST_IDS.ASSISTANT_MESSAGE_ID);
+    expect(useChatStore.getState().refreshMessages).toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(
+      'sync_summary',
+      expect.objectContaining({
+        detachedCount: 1,
+        keptPostStartAttachCount: 0,
+        reason: 'topic_change',
+      }),
+    );
+  });
+
+  it('still attaches a processing job returned by listActive', async () => {
+    vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValue([
+      {
+        assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        id: 'cgo_live',
+        kind: 'chat',
+        lane: 'lane-live',
+        laneGeneration: 1,
+        sessionId: TEST_IDS.SESSION_ID,
+        status: 'processing',
+        topicId: TEST_IDS.TOPIC_ID,
+      },
+    ] as any);
+
+    await act(async () => {
+      await useChatStore.getState().syncActiveConversationGenerations();
+    });
+
+    const operations =
+      useChatStore.getState().serverGenerationOperations[
+        messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)
+      ];
+    expect(operations.cgo_live).toMatchObject({
+      kind: 'chat',
+      lane: 'lane-live',
+      operationId: 'cgo_live',
+    });
+    expect(useChatStore.getState().chatLoadingIds).toContain(TEST_IDS.ASSISTANT_MESSAGE_ID);
+  });
+
   it('does not cancel a topic title when Stop uses the default chat family', async () => {
     const cancel = vi.spyOn(conversationGenerationService, 'cancel').mockResolvedValue({} as any);
     const { result } = renderHook(() => useChatStore());

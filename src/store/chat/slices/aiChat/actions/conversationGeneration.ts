@@ -878,6 +878,23 @@ export const conversationGeneration: StateCreator<
     }),
 
   syncActiveConversationGenerations: async (input) => {
+    // Snapshot the visible lane before listActive. A first-send adopt flips
+    // activeTopicId and starts this sync; attach can land while the snapshot
+    // is in flight. Evicting those post-start ids drops the terminal `done`.
+    const startedState = get();
+    const startedSessionId = startedState.activeId;
+    const startedTopicId = startedState.activeTopicId ?? null;
+    const startedThreadId = visibleConversationThreadId(startedState);
+    const attachedAtStart = new Set(
+      Object.values(
+        startedState.serverGenerationOperations[
+          conversationKeyFor(startedSessionId, startedTopicId)
+        ] || {},
+      )
+        .filter((operation) => (operation.threadId ?? null) === startedThreadId)
+        .map((operation) => operation.operationId),
+    );
+
     const operations = (await conversationGenerationService.listActive()) as Array<
       ConversationGenerationOperation & { assistantMessageId?: string | null }
     >;
@@ -970,8 +987,13 @@ export const conversationGeneration: StateCreator<
     ).filter((operation) => (operation.threadId ?? null) === visibleThreadId);
     let detachedTerminal = false;
     let detachedCount = 0;
+    let keptPostStartAttachCount = 0;
     for (const operation of attachedForCurrentLane) {
       if (activeOperationIds.has(operation.operationId)) continue;
+      if (!attachedAtStart.has(operation.operationId)) {
+        keptPostStartAttachCount += 1;
+        continue;
+      }
       detachedTerminal = true;
       detachedCount += 1;
       if (operation.assistantMessageId) {
@@ -1151,6 +1173,7 @@ export const conversationGeneration: StateCreator<
       deferredLaneCount,
       detachedCount,
       fencedCancelCount,
+      keptPostStartAttachCount,
       orphanDeleted: orphanedPlaceholders.length,
       reason: input?.reason,
       resumedModel,
