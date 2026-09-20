@@ -1059,15 +1059,58 @@ describe('executeConversationGeneration chat resume', () => {
 
     expect(messageMocks.update).toHaveBeenCalledWith(
       assistant.id,
-      expect.objectContaining({ metadata: usage }),
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          ...usage,
+          latency: expect.any(Number),
+        }),
+      }),
     );
     expect(assistant.metadata).toEqual(
       expect.objectContaining({
         ...usage,
+        latency: expect.any(Number),
         [CONVERSATION_GENERATION_TURN_COMPLETE]: true,
       }),
     );
     expect(assistant.metadata).not.toHaveProperty('usage');
+    expect(assistant.metadata).not.toHaveProperty('ttft');
+    expect(assistant.metadata).not.toHaveProperty('duration');
+    expect(assistant.metadata).not.toHaveProperty('tps');
+  });
+
+  it('persists stream performance with flat usage metadata', async () => {
+    const usage = {
+      totalInputTokens: 18_788,
+      totalTokens: 18_869,
+    };
+    const performance = {
+      duration: 12_000,
+      latency: 40_100,
+      tps: 1.7,
+      ttft: 800,
+    };
+    vi.mocked(consumeProtocolResponse).mockResolvedValue({
+      content: 'timed answer',
+      performance,
+      usage,
+    });
+
+    await runOperation(buildOperation({ id: 'cgo_usage_speed' }));
+
+    expect(messageMocks.update).toHaveBeenCalledWith(
+      assistant.id,
+      expect.objectContaining({
+        metadata: { ...usage, ...performance },
+      }),
+    );
+    expect(assistant.metadata).toEqual(
+      expect.objectContaining({
+        ...usage,
+        ...performance,
+        [CONVERSATION_GENERATION_TURN_COMPLETE]: true,
+      }),
+    );
   });
 
   it('emits planning before the first model call and logs model_stop on success', async () => {

@@ -1,7 +1,12 @@
 /** @vitest-environment node */
 import { describe, expect, it, vi } from 'vitest';
 
-import { consumeProtocolResponse, isEmptyCompletionAtContextCeiling, isIncompleteLengthStop } from './stream';
+import {
+  consumeProtocolResponse,
+  isEmptyCompletionAtContextCeiling,
+  isIncompleteLengthStop,
+  mergeAssistantGenerationMetadata,
+} from './stream';
 
 const sseResponse = (chunks: string[]) => {
   const encoder = new TextEncoder();
@@ -34,8 +39,27 @@ describe('consumeProtocolResponse', () => {
     expect(result.content).toBe('Hello world');
     expect(result.reasoning).toEqual({ content: 'think' });
     expect(result.usage).toEqual({ totalInputTokens: 3 });
+    expect(result.performance).toBeUndefined();
     expect(onText).toHaveBeenCalledTimes(2);
     expect(onReasoning).toHaveBeenCalledTimes(1);
+  });
+
+  it('accumulates speed after usage as performance', async () => {
+    const result = await consumeProtocolResponse(
+      sseResponse([
+        'event: text\ndata: "Hello"\n\n',
+        'event: usage\ndata: {"totalOutputTokens":4,"totalTokens":7}\n\n',
+        'event: speed\ndata: {"duration":1200,"latency":1800,"tps":3.3,"ttft":600}\n\n',
+      ]),
+    );
+
+    expect(result.usage).toEqual({ totalOutputTokens: 4, totalTokens: 7 });
+    expect(result.performance).toEqual({
+      duration: 1200,
+      latency: 1800,
+      tps: 3.3,
+      ttft: 600,
+    });
   });
 
   it('captures stream errors without throwing', async () => {
@@ -115,6 +139,31 @@ describe('consumeProtocolResponse', () => {
       expect(isIncompleteLengthStop(result.stopReason)).toBe(false);
     },
   );
+});
+
+describe('mergeAssistantGenerationMetadata', () => {
+  it('keeps usage flat and merges stream performance', () => {
+    expect(
+      mergeAssistantGenerationMetadata(
+        { totalTokens: 10 },
+        { duration: 1000, latency: 1500, tps: 4, ttft: 500 },
+        9999,
+      ),
+    ).toEqual({
+      duration: 1000,
+      latency: 1500,
+      totalTokens: 10,
+      tps: 4,
+      ttft: 500,
+    });
+  });
+
+  it('falls back to measured latency when speed never arrived', () => {
+    expect(mergeAssistantGenerationMetadata({ totalTokens: 10 }, undefined, 40100)).toEqual({
+      latency: 40100,
+      totalTokens: 10,
+    });
+  });
 });
 
 describe('isEmptyCompletionAtContextCeiling', () => {

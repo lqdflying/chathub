@@ -120,7 +120,7 @@ import {
   createConversationRuntimeChatOptions,
 } from './runtimeChatOptions';
 import { ConversationGenerationService, enqueueConversationGenerationJob } from './service';
-import { consumeProtocolResponse } from './stream';
+import { consumeProtocolResponse, mergeAssistantGenerationMetadata } from './stream';
 import { loadConversationThreadMessages } from './threadScope';
 import {
   createConversationToolBatchCorrelation,
@@ -1386,6 +1386,7 @@ const executeChat = async (
           reasoning = undefined;
           await messageModel.update(assistantId, { content: LOADING_FLAT, reasoning: undefined });
         }
+        const modelCallStartedAt = Date.now();
         const response = await runtime.chat(
           currentPayload as any,
           createConversationRuntimeChatOptions({
@@ -1409,6 +1410,11 @@ const executeChat = async (
           },
           signal: abortController.signal,
         });
+        const generationMetadata = mergeAssistantGenerationMetadata(
+          result.usage,
+          result.performance,
+          Date.now() - modelCallStartedAt,
+        );
 
         const postStreamStopReason = await shouldStopGeneration(
           db,
@@ -1450,15 +1456,15 @@ const executeChat = async (
         content = result.content;
         reasoning = result.reasoning;
         await flush(true);
-        if (result.grounding || result.usage) {
+        if (result.grounding || generationMetadata) {
           await messageModel.update(assistantId, {
             content,
             reasoning: reasoning ?? undefined,
             ...(result.grounding ? { search: result.grounding as any } : {}),
-            // Flatten ModelUsage onto MessageMetadata (same as browser
-            // generateAIChat onFinish). Nested `{ usage }` is unread by the
-            // token popover and per-bubble Usage extras.
-            ...(result.usage ? { metadata: result.usage } : {}),
+            // Flatten ModelUsage + ModelPerformance onto MessageMetadata
+            // (same as browser generateAIChat onFinish). Nested `{ usage }`
+            // is unread by the token popover and per-bubble Usage extras.
+            ...(generationMetadata ? { metadata: generationMetadata } : {}),
           });
         }
 
@@ -1493,7 +1499,7 @@ const executeChat = async (
             content: content || '',
             error: error as any,
             reasoning: reasoning ?? undefined,
-            ...(result.usage ? { metadata: result.usage } : {}),
+            ...(generationMetadata ? { metadata: generationMetadata } : {}),
           });
           if (!options?.skipFinalize)
             await finalize(model, operation, 'failed', error, db, assistantId);

@@ -75,10 +75,13 @@ rows resume tool execution, rows with an explicit
 `conversationGenerationTurnComplete` metadata marker skip a new model call,
 and an unmarked partial checkpoint is regenerated (never treated as a finished
 answer). After a successful model stream, `execute.ts` writes converted
-`ModelUsage` **flat** onto the assistant `metadata` column (the same shape as
-browser `generateAIChat` `onFinish`: `inputCachedTokens`, `totalInputTokens`,
-…). Nested `{ usage: … }` is unread by the token popover and per-bubble Usage
-extras. The owned assistant is never sent back as history. Standalone portal
+`ModelUsage` **flat** onto the assistant `metadata` column and merges
+`ModelPerformance` when the protocol stream emits `speed` (`latency`,
+`duration`, `ttft`, `tps` — the same `{ ...usage, ...speed }` merge as
+browser `generateAIChat` `onFinish`). If `speed` never arrived, persist only
+measured end-to-end `latency` from just before `runtime.chat`. Nested
+`{ usage: … }` is unread by the token popover and per-bubble Usage extras.
+The owned assistant is never sent back as history. Standalone portal
 threads send only the source message plus that thread’s children.
 
 Job payload is `{ operationId, userId }` only. Credentials are resolved from

@@ -369,6 +369,14 @@ export default {
       outputTitle: '输出明细',
       reasoning: '深度思考',
       speed: {
+        duration: {
+          title: '生成耗时',
+          tooltip: '从首个 Token 到最后一个 Token 的模型生成时间。',
+        },
+        latency: {
+          title: '总耗时',
+          tooltip: '从发送/开始到最后一个 Token 的端到端时间。',
+        },
         tps: {
           title: 'TPS',
           tooltip:

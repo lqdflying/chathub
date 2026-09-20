@@ -1,11 +1,9 @@
 import { MessageMetadata } from '@lobechat/types';
-import { Icon } from '@lobehub/ui';
 import { Divider, Popover } from 'antd';
 import { useTheme } from 'antd-style';
-import { BadgeCent, CoinsIcon } from 'lucide-react';
-import { memo } from 'react';
+import { memo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Center, Flexbox } from 'react-layout-kit';
+import { Flexbox } from 'react-layout-kit';
 
 import InfoTooltip from '@/components/InfoTooltip';
 import { aiModelSelectors, useAiInfraStore } from '@/store/aiInfra';
@@ -13,17 +11,19 @@ import { useGlobalStore } from '@/store/global';
 import { systemStatusSelectors } from '@/store/global/selectors';
 import { formatNumber } from '@/utils/format';
 
+import { formatGenerationDuration } from '../formatGenerationDuration';
 import ModelCard from './ModelCard';
 import TokenProgress, { TokenProgressItem } from './TokenProgress';
 import { getDetailsToken } from './tokens';
 
 interface TokenDetailProps {
+  children?: ReactNode;
   meta: MessageMetadata;
   model: string;
   provider: string;
 }
 
-const TokenDetail = memo<TokenDetailProps>(({ meta, model, provider }) => {
+const TokenDetail = memo<TokenDetailProps>(({ children, meta, model, provider }) => {
   const { t } = useTranslation('chat');
   const theme = useTheme();
 
@@ -111,18 +111,24 @@ const TokenDetail = memo<TokenDetailProps>(({ meta, model, provider }) => {
     },
   ].filter(Boolean) as TokenProgressItem[];
 
-  const displayTotal =
-    isShowCredit && !!detailTokens.totalTokens
+  const displayTotal = detailTokens.totalTokens
+    ? isShowCredit
       ? formatNumber(detailTokens.totalTokens.credit)
-      : formatNumber(detailTokens.totalTokens!.token);
+      : formatNumber(detailTokens.totalTokens.token)
+    : undefined;
 
-  const averagePricing = formatNumber(
-    detailTokens.totalTokens!.credit / detailTokens.totalTokens!.token,
-    2,
-  );
+  const averagePricing =
+    isShowCredit && detailTokens.totalTokens && detailTokens.totalTokens.token
+      ? formatNumber(detailTokens.totalTokens.credit / detailTokens.totalTokens.token, 2)
+      : undefined;
 
+  const latency = formatGenerationDuration(meta?.latency);
+  const duration = formatGenerationDuration(meta?.duration);
   const tps = meta?.tps ? formatNumber(meta.tps, 2) : undefined;
   const ttft = meta?.ttft ? formatNumber(meta.ttft / 1000, 2) : undefined;
+  const hasTiming = Boolean(latency || duration || tps || ttft);
+  const hasTokenBody =
+    inputDetails.length > 1 || outputDetails.length > 1 || totalDetail.length > 0 || !!displayTotal;
 
   return (
     <Popover
@@ -164,56 +170,86 @@ const TokenDetail = memo<TokenDetailProps>(({ meta, model, provider }) => {
                 <TokenProgress data={outputDetails} showIcon />
               </Flexbox>
             )}
-            <Flexbox>
-              <TokenProgress data={totalDetail} showIcon />
-              <Divider style={{ marginBlock: 8 }} />
-              <Flexbox align={'center'} gap={4} horizontal justify={'space-between'}>
-                <div style={{ color: theme.colorTextSecondary }}>
-                  {t('messages.tokenDetails.total')}
-                </div>
-                <div style={{ fontWeight: 500 }}>{displayTotal}</div>
+            {hasTokenBody && (
+              <Flexbox>
+                {totalDetail.length > 0 && <TokenProgress data={totalDetail} showIcon />}
+                {displayTotal && (
+                  <>
+                    <Divider style={{ marginBlock: 8 }} />
+                    <Flexbox align={'center'} gap={4} horizontal justify={'space-between'}>
+                      <div style={{ color: theme.colorTextSecondary }}>
+                        {t('messages.tokenDetails.total')}
+                      </div>
+                      <div style={{ fontWeight: 500 }}>{displayTotal}</div>
+                    </Flexbox>
+                  </>
+                )}
+                {averagePricing && (
+                  <Flexbox align={'center'} gap={4} horizontal justify={'space-between'}>
+                    <div style={{ color: theme.colorTextSecondary }}>
+                      {t('messages.tokenDetails.average')}
+                    </div>
+                    <div style={{ fontWeight: 500 }}>{averagePricing}</div>
+                  </Flexbox>
+                )}
               </Flexbox>
-              {isShowCredit && (
-                <Flexbox align={'center'} gap={4} horizontal justify={'space-between'}>
-                  <div style={{ color: theme.colorTextSecondary }}>
-                    {t('messages.tokenDetails.average')}
-                  </div>
-                  <div style={{ fontWeight: 500 }}>{averagePricing}</div>
-                </Flexbox>
-              )}
-              {tps && (
-                <Flexbox align={'center'} gap={4} horizontal justify={'space-between'}>
-                  <Flexbox gap={8} horizontal>
-                    <div style={{ color: theme.colorTextSecondary }}>
-                      {t('messages.tokenDetails.speed.tps.title')}
-                    </div>
-                    <InfoTooltip title={t('messages.tokenDetails.speed.tps.tooltip')} />
+            )}
+            {hasTiming && (
+              <Flexbox>
+                {hasTokenBody && <Divider style={{ marginBlock: 8 }} />}
+                {latency && (
+                  <Flexbox align={'center'} gap={4} horizontal justify={'space-between'}>
+                    <Flexbox gap={8} horizontal>
+                      <div style={{ color: theme.colorTextSecondary }}>
+                        {t('messages.tokenDetails.speed.latency.title')}
+                      </div>
+                      <InfoTooltip title={t('messages.tokenDetails.speed.latency.tooltip')} />
+                    </Flexbox>
+                    <div style={{ fontWeight: 500 }}>{latency}</div>
                   </Flexbox>
-                  <div style={{ fontWeight: 500 }}>{tps}</div>
-                </Flexbox>
-              )}
-              {ttft && (
-                <Flexbox align={'center'} gap={4} horizontal justify={'space-between'}>
-                  <Flexbox gap={8} horizontal>
-                    <div style={{ color: theme.colorTextSecondary }}>
-                      {t('messages.tokenDetails.speed.ttft.title')}
-                    </div>
-                    <InfoTooltip title={t('messages.tokenDetails.speed.ttft.tooltip')} />
+                )}
+                {duration && (
+                  <Flexbox align={'center'} gap={4} horizontal justify={'space-between'}>
+                    <Flexbox gap={8} horizontal>
+                      <div style={{ color: theme.colorTextSecondary }}>
+                        {t('messages.tokenDetails.speed.duration.title')}
+                      </div>
+                      <InfoTooltip title={t('messages.tokenDetails.speed.duration.tooltip')} />
+                    </Flexbox>
+                    <div style={{ fontWeight: 500 }}>{duration}</div>
                   </Flexbox>
-                  <div style={{ fontWeight: 500 }}>{ttft}s</div>
-                </Flexbox>
-              )}
-            </Flexbox>
+                )}
+                {ttft && (
+                  <Flexbox align={'center'} gap={4} horizontal justify={'space-between'}>
+                    <Flexbox gap={8} horizontal>
+                      <div style={{ color: theme.colorTextSecondary }}>
+                        {t('messages.tokenDetails.speed.ttft.title')}
+                      </div>
+                      <InfoTooltip title={t('messages.tokenDetails.speed.ttft.tooltip')} />
+                    </Flexbox>
+                    <div style={{ fontWeight: 500 }}>{ttft}s</div>
+                  </Flexbox>
+                )}
+                {tps && (
+                  <Flexbox align={'center'} gap={4} horizontal justify={'space-between'}>
+                    <Flexbox gap={8} horizontal>
+                      <div style={{ color: theme.colorTextSecondary }}>
+                        {t('messages.tokenDetails.speed.tps.title')}
+                      </div>
+                      <InfoTooltip title={t('messages.tokenDetails.speed.tps.tooltip')} />
+                    </Flexbox>
+                    <div style={{ fontWeight: 500 }}>{tps}</div>
+                  </Flexbox>
+                )}
+              </Flexbox>
+            )}
           </Flexbox>
         </Flexbox>
       }
       placement={'top'}
       trigger={['hover', 'click']}
     >
-      <Center gap={2} horizontal style={{ cursor: 'default' }}>
-        <Icon icon={isShowCredit ? BadgeCent : CoinsIcon} />
-        {displayTotal}
-      </Center>
+      {children}
     </Popover>
   );
 });

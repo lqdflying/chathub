@@ -344,6 +344,14 @@
       "outputTitle": "Output Details",
       "reasoning": "Deep Thinking",
       "speed": {
+        "duration": {
+          "title": "Response",
+          "tooltip": "Time from the first token to the last token (generation only)."
+        },
+        "latency": {
+          "title": "Total",
+          "tooltip": "Time from send/start to the last token (end-to-end)."
+        },
         "tps": {
           "title": "TPS",
           "tooltip": "Tokens Per Second (TPS). This indicates the average speed of AI-generated content (Tokens/second), calculated from the moment the first Token is received."

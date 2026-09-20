@@ -1,5 +1,11 @@
 import { parseToolCalls } from '@lobechat/model-runtime';
-import type { MessageToolCall, ModelReasoning, ModelUsage } from '@lobechat/types';
+import type {
+  MessageMetadata,
+  MessageToolCall,
+  ModelPerformance,
+  ModelReasoning,
+  ModelUsage,
+} from '@lobechat/types';
 
 export {
   createEmptyCompletionAtContextCeilingError,
@@ -10,6 +16,7 @@ export interface ProtocolStreamResult {
   content: string;
   error?: { body?: unknown; message: string; type: string };
   grounding?: unknown;
+  performance?: ModelPerformance;
   reasoning?: ModelReasoning;
   stopReason?: string;
   toolCalls?: MessageToolCall[];
@@ -21,6 +28,37 @@ const TOKEN_LIMIT_STOP_REASONS = new Set(['length', 'max_tokens', 'max_output_to
 /** OpenAI `length`, Anthropic `max_tokens`, Gemini `MAX_TOKENS` — incomplete generation. */
 export const isIncompleteLengthStop = (reason?: string): boolean =>
   !!reason && TOKEN_LIMIT_STOP_REASONS.has(reason.trim().toLowerCase());
+
+const hasFinitePerformanceField = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value);
+
+export const hasModelPerformance = (
+  performance?: ModelPerformance,
+): performance is ModelPerformance =>
+  !!performance &&
+  (hasFinitePerformanceField(performance.latency) ||
+    hasFinitePerformanceField(performance.duration) ||
+    hasFinitePerformanceField(performance.ttft) ||
+    hasFinitePerformanceField(performance.tps));
+
+/**
+ * Flatten provider usage + stream speed the same way browser `onFinish` does.
+ * If `speed` never arrived, keep only a measured end-to-end `latency`.
+ */
+export const mergeAssistantGenerationMetadata = (
+  usage?: ModelUsage,
+  performance?: ModelPerformance,
+  fallbackLatencyMs?: number,
+): MessageMetadata | undefined => {
+  const resolvedPerformance = hasModelPerformance(performance)
+    ? performance
+    : hasFinitePerformanceField(fallbackLatencyMs) && fallbackLatencyMs >= 0
+      ? { latency: fallbackLatencyMs }
+      : undefined;
+
+  if (!usage && !resolvedPerformance) return undefined;
+  return { ...usage, ...resolvedPerformance };
+};
 
 export interface ProtocolStreamHandlers {
   onReasoning?: (text: string, reasoning: ModelReasoning) => void | Promise<void>;
@@ -63,6 +101,7 @@ export const consumeProtocolResponse = async (
   const redactedSignatures: string[] = [];
   let toolCalls: MessageToolCall[] | undefined;
   let usage: ModelUsage | undefined;
+  let performance: ModelPerformance | undefined;
   let grounding: unknown;
   let error: ProtocolStreamResult['error'];
   let stopReason: string | undefined;
@@ -110,6 +149,12 @@ export const consumeProtocolResponse = async (
         }
         case 'usage': {
           usage = data;
+          break;
+        }
+        case 'speed': {
+          if (data && typeof data === 'object' && !Array.isArray(data)) {
+            performance = data as ModelPerformance;
+          }
           break;
         }
         case 'grounding': {
@@ -168,5 +213,5 @@ export const consumeProtocolResponse = async (
       }
     : undefined;
 
-  return { content, error, grounding, reasoning, stopReason, toolCalls, usage };
+  return { content, error, grounding, performance, reasoning, stopReason, toolCalls, usage };
 };
