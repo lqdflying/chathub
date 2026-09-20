@@ -98,7 +98,11 @@ class ConversationGenerationClient {
         try {
           const data = JSON.parse(ev.data);
           if (ev.event === 'reset' || data?.reset) {
-            onEvent({ reset: true, type: 'reset' });
+            onEvent({
+              cursor: typeof data?.cursor === 'number' ? data.cursor : undefined,
+              reset: true,
+              type: 'reset',
+            });
             continue;
           }
           onEvent(data as ConversationGenerationEvent);

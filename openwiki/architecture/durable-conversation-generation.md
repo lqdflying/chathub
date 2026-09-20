@@ -211,10 +211,13 @@ The active-lane unique index covers only `pending` and `processing`, so a
 `useConversationGenerationSync` (ChatList `Content.tsx`) opens
 `GET /webapi/conversation-generation/stream` with auth headers. Native
 `EventSource` is not used because it cannot send those headers. The hook keeps a
-per-user event cursor across topic switches. A `reset` event (cursor ahead of
-the retained stream) replays from cursor `0` and resyncs active operations. If
-SSE ends or fails, the hook polls `conversationGeneration.listEvents` while it
-reconnects the stream with backoff instead of staying on poll-only.
+per-user event cursor across topic switches. A missing `Last-Event-ID` (cursor
+`0`) live-tails at the latest event id; it does **not** replay the per-user
+event log. A `reset` event (cursor ahead of the stream, or a resume gap above
+`CONVERSATION_GENERATION_SSE_REPLAY_GAP_MAX`) carries that latest cursor,
+resyncs active operations, and does **not** `listEvents(0)`. If SSE ends or
+fails, the hook polls `conversationGeneration.listEvents` while it reconnects
+the stream with backoff instead of staying on poll-only.
 
 Attached operations receive snapshots and `done` even when the user is looking
 at another topic. Dispatch writes into that operation’s session/topic
@@ -239,7 +242,9 @@ as `operationId` is known (after the send refresh). Adopting the topic flips
 snapshot can be empty for a brand-new operation, so sync must not evict
 attaches that appeared after the request started
 (`sync_summary.keptPostStartAttachCount`). Leftover attaches that were already
-present and missing from the snapshot are still detached. Unattached SSE events that
+present and missing from the snapshot are reconciled (`getOperation`): still
+`pending`/`processing` stays attached; terminal or missing detaches and
+refreshes that conversation. Unattached SSE events that
 arrive while `durableInFlightEnqueues` is non-empty are buffered (capped) and
 replayed on attach in revision order, so early snapshots are not discarded.
 Context assembly stays on the Graphile worker
@@ -606,22 +611,30 @@ Semantics that matter when reading the stream:
   `execute_started.queueAgeMs` (operation `createdAt` → claim) separate queue
   backlog from stuck execution.
 - Delivery: the SSE route (`webapi/conversation-generation/stream`) brackets
-  each connection with `sse_opened`/`sse_closed` and counts delivered events;
-  the client hook reports reconnect episodes (`sse_client_stream_ended` /
-  `sse_client_stream_failed`), throttled poll failures, and cursor-reset
-  replays. `event_dropped` in `applyConversationGenerationEvent` names why an
-  event was not applied (`not_attached`, `stale_revision`) **and this tab had
-  attached that operation** (`hadAttached=true`). SSE replay of other
-  conversations' history is counted into `event_drop_summary` instead of one
-  line per event. Snapshot/`status` drops for an attached-then-left operation
-  stay throttled to one per operation+reason (LRU, no full-set clear);
-  `done`/`error` drops for those operations always log. A terminal
-  `not_attached` that arrives before `attachConversationGeneration` waits
-  300ms so a sync/SSE race can still emit `hadAttached=true`. Flush the
-  summary at 50 suppressed drops, SSE stream end, cursor-reset replay, or
-  `pagehide` (settle unresolved attach-race timers as suppressed, then drain
-  the client debug queue in the same hide turn). `event_applied_terminal` is the positive end-to-end proof that a
-  terminal event reached and was applied by the browser.
+  each connection with `sse_opened`/`sse_closed` and counts delivered events.
+  `listEvents(0)` is a live tail (`cursor: latest`, no historical page).
+  `sse_reset` means the cursor was expired or the resume gap exceeded
+  `CONVERSATION_GENERATION_SSE_REPLAY_GAP_MAX`; the frame includes
+  `cursor: latest` and the route does **not** replay from 0.
+  `sse_closed.deliveredCount` should stay small after a container recreate or
+  PWA reload — thousands of frames plus a missing `event_applied_terminal` was
+  the old full-history flood. The client hook reports reconnect episodes
+  (`sse_client_stream_ended` / `sse_client_stream_failed`), throttled poll
+  failures, and cursor-reset resyncs (`sse_client_reset_replay` with
+  `eventCount: 0`). `event_dropped` in `applyConversationGenerationEvent`
+  names why an event was not applied (`not_attached`, `stale_revision`) **and
+  this tab had attached that operation** (`hadAttached=true`). SSE frames for
+  operations this tab never attached are counted into `event_drop_summary`
+  instead of one line per event. Snapshot/`status` drops for an
+  attached-then-left operation stay throttled to one per operation+reason
+  (LRU, no full-set clear); `done`/`error` drops for those operations always
+  log. A terminal `not_attached` that arrives before
+  `attachConversationGeneration` waits 300ms so a sync/SSE race can still
+  emit `hadAttached=true`. Flush the summary at 50 suppressed drops, SSE
+  stream end, cursor-reset resync, or `pagehide` (settle unresolved
+  attach-race timers as suppressed, then drain the client debug queue in the
+  same hide turn). `event_applied_terminal` is the positive end-to-end proof
+  that a terminal event reached and was applied by the browser.
 - `execute_transcript_loaded` is emitted from `loadScopedMessages` for chat,
   title, and supervisor loads. Compaction does **not** use that helper; it
   loads candidates through `AiChatService.getMessagesAndTopics` and has no

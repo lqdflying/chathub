@@ -827,10 +827,26 @@ export const conversationGeneration: StateCreator<
     ) {
       get().attachConversationGeneration(existingAttached);
     }
-    const operation = (await conversationGenerationService.getOperation(
-      operationId,
-    )) as ConversationGenerationOperation;
+    let operation: ConversationGenerationOperation | undefined;
+    try {
+      operation = (await conversationGenerationService.getOperation(
+        operationId,
+      )) as ConversationGenerationOperation;
+    } catch {
+      operation = undefined;
+    }
     const attached = findAttachedOperation(get().serverGenerationOperations, operationId);
+    if (!operation) {
+      if (attached?.assistantMessageId) {
+        get().internal_markDurableGenerating(attached.assistantMessageId, false);
+      }
+      if (attached?.groupId) {
+        get().internal_toggleSupervisorLoading(false, attached.groupId);
+      }
+      get().detachConversationGeneration(operationId);
+      await refreshAttachedConversation(get, attached);
+      return;
+    }
     if (operation.status === 'cancelling') {
       if (attached?.assistantMessageId) {
         get().internal_markDurableGenerating(attached.assistantMessageId, false);
@@ -994,12 +1010,15 @@ export const conversationGeneration: StateCreator<
         keptPostStartAttachCount += 1;
         continue;
       }
-      detachedTerminal = true;
-      detachedCount += 1;
-      if (operation.assistantMessageId) {
-        get().internal_markDurableGenerating(operation.assistantMessageId, false);
+      // Leftover: reconcile instead of detach. Still-running jobs stay
+      // attached; finished or missing jobs refresh the persisted answer.
+      await get().reconcileConversationGeneration(operation.operationId);
+      if (
+        !findAttachedOperation(get().serverGenerationOperations, operation.operationId)
+      ) {
+        detachedTerminal = true;
+        detachedCount += 1;
       }
-      get().detachConversationGeneration(operation.operationId);
     }
     if (detachedTerminal) {
       await Promise.all([get().refreshMessages(), get().refreshTopic()]);

@@ -3,7 +3,10 @@ import { LOADING_FLAT } from '@lobechat/const';
 import { TRPCError } from '@trpc/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { CONVERSATION_GENERATION_CLEANUP_PAGE_SIZE } from './constants';
+import {
+  CONVERSATION_GENERATION_CLEANUP_PAGE_SIZE,
+  CONVERSATION_GENERATION_SSE_REPLAY_GAP_MAX,
+} from './constants';
 import { resolveConversationRuntimePayload } from './credentials';
 import {
   ConversationGenerationService,
@@ -1027,8 +1030,55 @@ describe('ConversationGenerationService cancellation and event cursors', () => {
 
     await expect(
       new ConversationGenerationService({} as any, 'user-1').listEvents(11),
-    ).resolves.toEqual({ cursor: 0, events: [], reset: true });
+    ).resolves.toEqual({ cursor: 10, events: [], reset: true });
     expect(modelMocks.listEventsAfter).not.toHaveBeenCalled();
+  });
+
+  it('live-tails a missing Last-Event-ID instead of replaying history', async () => {
+    modelMocks.latestEventId.mockResolvedValue(50);
+
+    await expect(
+      new ConversationGenerationService({} as any, 'user-1').listEvents(0),
+    ).resolves.toEqual({ cursor: 50, events: [], reset: false });
+    expect(modelMocks.listEventsAfter).not.toHaveBeenCalled();
+  });
+
+  it('resets when the resume gap exceeds the replay cap', async () => {
+    const latest = CONVERSATION_GENERATION_SSE_REPLAY_GAP_MAX + 2;
+    modelMocks.latestEventId.mockResolvedValue(latest);
+
+    await expect(
+      new ConversationGenerationService({} as any, 'user-1').listEvents(1),
+    ).resolves.toEqual({ cursor: latest, events: [], reset: true });
+    expect(modelMocks.listEventsAfter).not.toHaveBeenCalled();
+  });
+
+  it('pages events after a valid Last-Event-ID', async () => {
+    modelMocks.latestEventId.mockResolvedValue(50);
+    modelMocks.listEventsAfter.mockResolvedValue([{ id: 11, type: 'status' }]);
+
+    await expect(
+      new ConversationGenerationService({} as any, 'user-1').listEvents(10),
+    ).resolves.toEqual({
+      cursor: 11,
+      events: [{ id: 11, type: 'status' }],
+      reset: false,
+    });
+    expect(modelMocks.listEventsAfter).toHaveBeenCalledWith(10, 200);
+  });
+
+  it('can page from zero after an empty live-tail on the same connection', async () => {
+    modelMocks.latestEventId.mockResolvedValue(3);
+    modelMocks.listEventsAfter.mockResolvedValue([{ id: 1, type: 'status' }]);
+
+    await expect(
+      new ConversationGenerationService({} as any, 'user-1').listEvents(0, { liveTail: false }),
+    ).resolves.toEqual({
+      cursor: 1,
+      events: [{ id: 1, type: 'status' }],
+      reset: false,
+    });
+    expect(modelMocks.listEventsAfter).toHaveBeenCalledWith(0, 200);
   });
 });
 

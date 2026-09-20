@@ -137,19 +137,15 @@ export const useConversationGenerationSync = () => {
       cursorByUser.set(userId, nextCursor);
     };
 
-    const replayFromStart = async () => {
-      persistCursor(0);
+    const resyncFromReset = async (resetCursor?: number) => {
       await syncActive().catch(console.error);
       if (abortController.signal.aborted) return;
-      const replay = await conversationGenerationService.listEvents(0);
-      if (abortController.signal.aborted) return;
-      for (const event of replay.events) {
-        applyEvent(event);
-        if (typeof event.id === 'number') persistCursor(event.id);
+      if (typeof resetCursor === 'number' && Number.isFinite(resetCursor) && resetCursor >= 0) {
+        persistCursor(resetCursor);
       }
-      persistCursor(replay.cursor);
       logGenerationDebugClientSafe('sse_client_reset_replay', {
-        eventCount: replay.events.length,
+        cursor: typeof resetCursor === 'number' ? resetCursor : cursor,
+        eventCount: 0,
       });
       flushEventDropSummary();
     };
@@ -157,9 +153,9 @@ export const useConversationGenerationSync = () => {
     const handleEvent = (event: ConversationGenerationStreamEvent) => {
       reconnectAttempts = 0;
       if (event.type === 'reset') {
-        void replayFromStart().catch((error) => {
+        void resyncFromReset(event.cursor).catch((error) => {
           if (process.env.NODE_ENV !== 'production') {
-            console.warn('[conversation-generation] reset replay failed', error);
+            console.warn('[conversation-generation] reset resync failed', error);
           }
         });
         return;
@@ -177,7 +173,7 @@ export const useConversationGenerationSync = () => {
           if (abortController.signal.aborted) return;
           pollFailedLogged = false;
           if (page.reset) {
-            await replayFromStart();
+            await resyncFromReset(page.cursor);
             return;
           }
           for (const event of page.events) handleEvent(event);

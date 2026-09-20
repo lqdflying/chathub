@@ -107,6 +107,6 @@ describe('conversationGenerationService.subscribe', () => {
 
     await conversationGenerationService.subscribe({ onEvent });
 
-    expect(onEvent).toHaveBeenCalledWith({ reset: true, type: 'reset' });
+    expect(onEvent).toHaveBeenCalledWith({ cursor: undefined, reset: true, type: 'reset' });
   });
 });

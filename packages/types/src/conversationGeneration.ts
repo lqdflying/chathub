@@ -179,6 +179,7 @@ export interface ConversationGenerationEvent {
 }
 
 export interface ConversationGenerationResetEvent {
+  cursor?: number;
   reset: true;
   type: 'reset';
 }

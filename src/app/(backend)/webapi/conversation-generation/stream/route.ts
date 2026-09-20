@@ -81,6 +81,7 @@ export const GET = async (req: NextRequest) => {
       };
 
       let inFlight = false;
+      let liveTailed = false;
       const poll = async () => {
         if (closed || req.signal.aborted) {
           close();
@@ -89,20 +90,18 @@ export const GET = async (req: NextRequest) => {
         if (inFlight) return;
         inFlight = true;
         try {
-          const page = await service.listEvents(cursor);
+          const page = await service.listEvents(
+            cursor,
+            cursor === 0 && liveTailed ? { liveTail: false } : undefined,
+          );
+          if (cursor === 0) liveTailed = true;
           if (page.reset) {
             logGenerationDebugSafe('sse_reset', { cursor });
-            writeSse(controller, { data: { reset: true }, type: 'reset' });
-            const replay = await service.listEvents(0);
-            for (const event of replay.events) {
-              writeSse(controller, {
-                data: event,
-                id: event.id,
-                type: event.type,
-              });
-            }
-            deliveredCount += replay.events.length;
-            cursor = replay.cursor;
+            writeSse(controller, {
+              data: { cursor: page.cursor, reset: true },
+              type: 'reset',
+            });
+            cursor = page.cursor;
           } else {
             for (const event of page.events) {
               writeSse(controller, {

@@ -1471,8 +1471,14 @@ describe('conversationGeneration store actions', () => {
     });
   });
 
-  it('still detaches a leftover attach that was present before listActive', async () => {
+  it('reconciles a leftover attach that finished while listActive was empty', async () => {
     vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValue([]);
+    vi.spyOn(conversationGenerationService, 'getOperation').mockResolvedValue({
+      id: 'cgo_old',
+      sessionId: TEST_IDS.SESSION_ID,
+      status: 'succeeded',
+      topicId: TEST_IDS.TOPIC_ID,
+    } as any);
     const logSpy = vi
       .spyOn(generationDebugClient, 'logGenerationDebugClientSafe')
       .mockImplementation(() => undefined);
@@ -1500,13 +1506,64 @@ describe('conversationGeneration store actions', () => {
 
     expect(useChatStore.getState().serverGenerationOperations[topicKey]?.cgo_old).toBeUndefined();
     expect(useChatStore.getState().chatLoadingIds).not.toContain(TEST_IDS.ASSISTANT_MESSAGE_ID);
-    expect(useChatStore.getState().refreshMessages).toHaveBeenCalled();
+    expect(useChatStore.getState().refreshMessages).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
+      }),
+    );
     expect(logSpy).toHaveBeenCalledWith(
       'sync_summary',
       expect.objectContaining({
         detachedCount: 1,
         keptPostStartAttachCount: 0,
         reason: 'topic_change',
+      }),
+    );
+  });
+
+  it('keeps a leftover attach that is still processing when listActive is empty', async () => {
+    vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValue([]);
+    vi.spyOn(conversationGenerationService, 'getOperation').mockResolvedValue({
+      id: 'cgo_live',
+      sessionId: TEST_IDS.SESSION_ID,
+      status: 'processing',
+      topicId: TEST_IDS.TOPIC_ID,
+    } as any);
+    const logSpy = vi
+      .spyOn(generationDebugClient, 'logGenerationDebugClientSafe')
+      .mockImplementation(() => undefined);
+    const { result } = renderHook(() => useChatStore());
+    const topicKey = messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID);
+
+    act(() => {
+      result.current.attachConversationGeneration({
+        assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        clearGeneration: 0,
+        generation: 0,
+        kind: 'chat',
+        lane: 'lane-live',
+        operationId: 'cgo_live',
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
+        userScope: 'current',
+      });
+    });
+
+    await act(async () => {
+      await result.current.syncActiveConversationGenerations({ reason: 'visibility' });
+    });
+
+    expect(useChatStore.getState().serverGenerationOperations[topicKey]?.cgo_live?.operationId).toBe(
+      'cgo_live',
+    );
+    expect(useChatStore.getState().chatLoadingIds).toContain(TEST_IDS.ASSISTANT_MESSAGE_ID);
+    expect(logSpy).toHaveBeenCalledWith(
+      'sync_summary',
+      expect.objectContaining({
+        detachedCount: 0,
+        keptPostStartAttachCount: 0,
+        reason: 'visibility',
       }),
     );
   });

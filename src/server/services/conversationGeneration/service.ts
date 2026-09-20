@@ -27,6 +27,7 @@ import {
   CONVERSATION_GENERATION_CLEANUP_PAGE_SIZE,
   CONVERSATION_GENERATION_EVENT_PAGE_SIZE,
   CONVERSATION_GENERATION_MAX_ATTEMPTS,
+  CONVERSATION_GENERATION_SSE_REPLAY_GAP_MAX,
   CONVERSATION_GENERATION_STALE_PROCESSING_MS,
   CONVERSATION_GENERATION_TASK,
 } from './constants';
@@ -409,11 +410,18 @@ export class ConversationGenerationService {
     );
   };
 
-  listEvents = async (cursor = 0) => {
+  listEvents = async (cursor = 0, options?: { liveTail?: boolean }) => {
     const model = new ConversationGenerationModel(this.db, this.userId);
     const latest = await model.latestEventId();
+    const liveTail = options?.liveTail ?? cursor === 0;
     if (cursor > latest) {
-      return { cursor: 0, events: [], reset: true };
+      return { cursor: latest, events: [], reset: true };
+    }
+    if (cursor > 0 && latest - cursor > CONVERSATION_GENERATION_SSE_REPLAY_GAP_MAX) {
+      return { cursor: latest, events: [], reset: true };
+    }
+    if (liveTail && cursor === 0) {
+      return { cursor: latest, events: [], reset: false };
     }
     const events = await model.listEventsAfter(cursor, CONVERSATION_GENERATION_EVENT_PAGE_SIZE);
     return {
