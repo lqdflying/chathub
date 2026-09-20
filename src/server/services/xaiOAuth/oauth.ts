@@ -603,8 +603,14 @@ export class XaiOAuthService {
       }
       return { ...sanitizeStatus(session), ...(await this.fetchUsageWindows(session)) };
     } catch {
-      const latest = (await this.tokenStore.findByUserId(userId)) ?? record;
-      return this.attachUsageIfPossible(latest, sanitizeStatus(latest));
+      try {
+        const latest = await this.tokenStore.findByUserId(userId);
+        if (latest) return this.attachUsageIfPossible(latest, sanitizeStatus(latest));
+      } catch {
+        // Best-effort reread only. A later store failure must not hide the
+        // already-known connected status from the first successful lookup.
+      }
+      return status;
     }
   }
 

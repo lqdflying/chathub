@@ -143,6 +143,22 @@ describe('XaiOAuthService.getStatus usage windows', () => {
     expect(status.weekly?.remainingPercent).toBeUndefined();
   });
 
+  it('keeps the known connection when a later token-store read fails', async () => {
+    await seedSession();
+    const row = await tokenStore.findByUserId('user-1');
+    vi.spyOn(tokenStore, 'findByUserId')
+      .mockResolvedValueOnce(row)
+      .mockRejectedValue(new Error('token-store read unavailable'));
+
+    await expect(service().getStatus('user-1')).resolves.toEqual(
+      expect.objectContaining({
+        connected: true,
+        email: 'lqdflying@gmail.com',
+      }),
+    );
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
   it('still fetches usage after a transient refresh error while the access token is valid', async () => {
     await seedSession();
     fetchFn.mockResolvedValueOnce({
