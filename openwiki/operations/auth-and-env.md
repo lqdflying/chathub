@@ -294,6 +294,21 @@ the normal loopback/`APP_URL` fallback instead.
 This keeps background image, file-processing, and RAG jobs away from external
 CDNs/proxies when a container-local route is available.
 
+### GitHub OAuth issuer
+
+ChatHub pins `next-auth@5.0.0-beta.30`. That package's GitHub provider does
+not set `issuer`. GitHub now returns RFC 9207
+`iss=https://github.com/login/oauth` on authorization callbacks. Auth.js then
+expects the placeholder `https://authjs.dev` and rejects the callback
+(`CallbackRouteError` / `Configuration`).
+
+[`src/libs/next-auth/sso-providers/github.ts`](../../src/libs/next-auth/sso-providers/github.ts)
+therefore sets `issuer: "https://github.com/login/oauth"`, matching the value
+Auth.js shipped in 5.0.0-beta.31
+([next-auth#13410](https://github.com/nextauthjs/next-auth/pull/13410)). This
+is GitHub's authorization-server identifier, not `APP_URL` or `AUTH_URL`. Do
+not use `https://github.com`, and do not strip `iss` from the callback.
+
 ## Provider debug environment variables
 
 Provider runtime debugging is opt-in and should be used only for active troubleshooting. The provider chat-completion flags emit raw request payloads and stream chunks, and some providers also emit a redacted structured request-shape line:
