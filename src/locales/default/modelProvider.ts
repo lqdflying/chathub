@@ -320,7 +320,7 @@ export default {
         desc: '客户端请求模式将从浏览器直接发起会话请求，可提升响应速度',
         title: '使用客户端请求模式',
       },
-      helpDoc: '配置教程',
+      helpDoc: '官方网站',
       openAICompatCache: {
         chatPromptCacheKey: {
           desc: '为 /v1/chat/completions 请求生成并发送 prompt_cache_key',

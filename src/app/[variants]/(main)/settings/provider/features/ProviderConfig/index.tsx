@@ -15,12 +15,11 @@ import Link from 'next/link';
 import { ReactNode, memo, useCallback, useLayoutEffect, useRef } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 import { Center, Flexbox } from 'react-layout-kit';
-import urlJoin from 'url-join';
 import { z } from 'zod';
 
 import { FormInput, FormPassword } from '@/components/FormInput';
 import { ProviderBrandCombine, ProviderBrandIcon } from '@/components/ProviderBrandIcon';
-import { AES_GCM_URL, BASE_PROVIDER_DOC_URL } from '@/const/url';
+import { AES_GCM_URL } from '@/const/url';
 import { aiProviderSelectors, useAiInfraStore } from '@/store/aiInfra';
 import {
   AiProviderDetailItem,
@@ -45,6 +44,7 @@ import ProviderRouteToggle, {
   type ProviderRouteToggleOption,
 } from './ProviderRouteToggle';
 import { SkeletonInput } from './SkeletonInput';
+import { resolveProviderTitleHelpUrl } from './resolveProviderTitleHelpUrl';
 import {
   PROVIDER_CONFIG_TITLE_ICON_SIZE,
   ProviderConfigCustomLogo,
@@ -296,6 +296,7 @@ export interface ProviderConfigProps extends Omit<AiProviderDetailItem, 'enabled
   showAceGcm?: boolean;
   source?: AiProviderSourceType;
   title?: ReactNode;
+  url?: string;
 }
 
 const openAICompatCacheResponseStateMode = (cache: OpenAICompatCacheConfig) =>
@@ -382,6 +383,7 @@ const ProviderConfig = memo<ProviderConfigProps>(
     extra,
     source = AiProviderSourceEnum.Builtin,
     apiKeyUrl,
+    url,
   }) => {
     const {
       proxyUrl,
@@ -398,6 +400,7 @@ const ProviderConfig = memo<ProviderConfigProps>(
       form,
     ) as OpenAICompatCachePreset | undefined;
     const { cx, styles, theme } = useStyles();
+    const titleHelpUrl = resolveProviderTitleHelpUrl(id, url);
 
     const [
       data,
@@ -925,17 +928,19 @@ const ProviderConfig = memo<ProviderConfigProps>(
                 size={PROVIDER_CONFIG_TITLE_ICON_SIZE}
                 title={name}
               />
-              <Tooltip title={t('providerModels.config.helpDoc')}>
-                <Link
-                  href={urlJoin(BASE_PROVIDER_DOC_URL, id)}
-                  onClick={(e) => e.stopPropagation()}
-                  target={'_blank'}
-                >
-                  <Center className={styles.help} height={20} width={20}>
-                    ?
-                  </Center>
-                </Link>
-              </Tooltip>
+              {titleHelpUrl && (
+                <Tooltip title={t('providerModels.config.helpDoc')}>
+                  <Link
+                    href={titleHelpUrl}
+                    onClick={(e) => e.stopPropagation()}
+                    target={'_blank'}
+                  >
+                    <Center className={styles.help} height={20} width={20}>
+                      ?
+                    </Center>
+                  </Link>
+                </Tooltip>
+              )}
             </>
           )}
         </Flexbox>

@@ -341,7 +341,7 @@
         "desc": "Client request mode will initiate session requests directly from the browser, which can improve response speed",
         "title": "Use Client Request Mode"
       },
-      "helpDoc": "Configuration Guide",
+      "helpDoc": "Official website",
       "responsesApi": {
         "desc": "Choose the OpenAI-compatible request route; some proxy providers only support one route or parameter shape",
         "options": {
