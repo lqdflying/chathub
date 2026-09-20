@@ -16,11 +16,11 @@ import { getFooterTimeChipLabel } from './formatGenerationDuration';
 import TokenDetail from './UsageDetail';
 import { getDetailsToken } from './UsageDetail/tokens';
 
-export const useStyles = createStyles(({ token, css, cx }) => ({
-  container: cx(css`
+export const useStyles = createStyles(({ token, css }) => ({
+  container: css`
     font-size: 12px;
     color: ${token.colorTextQuaternary};
-  `),
+  `,
   trigger: css`
     cursor: pointer;
   `,
@@ -33,7 +33,7 @@ interface UsageProps {
 }
 
 const Usage = memo<UsageProps>(({ model, metadata, provider }) => {
-  const { cx, styles } = useStyles();
+  const { styles } = useStyles();
   const usage = resolveStoredMessageUsage(metadata) ?? metadata;
   const timeLabel = getFooterTimeChipLabel(usage);
   const modelCard = useAiInfraStore(aiModelSelectors.getModelCard(model, provider));
@@ -44,28 +44,35 @@ const Usage = memo<UsageProps>(({ model, metadata, provider }) => {
       ? formatNumber(detailTokens.totalTokens.credit)
       : formatNumber(detailTokens.totalTokens.token)
     : undefined;
+  const hasChips = Boolean(timeLabel || displayTotal);
+
+  const chips = (
+    <Center gap={8} horizontal>
+      {timeLabel ? <span>{timeLabel}</span> : null}
+      {displayTotal ? (
+        <Center gap={2} horizontal>
+          <Icon icon={isShowCredit ? BadgeCent : CoinsIcon} />
+          {displayTotal}
+        </Center>
+      ) : null}
+    </Center>
+  );
 
   return (
-    <TokenDetail meta={usage} model={model} provider={provider}>
-      <div className={cx(styles.container, styles.trigger)}>
-        <Flexbox align={'center'} gap={12} horizontal justify={'space-between'}>
-          <Center gap={4} horizontal style={{ fontSize: 12 }}>
-            <ModelIcon model={model as string} type={'mono'} />
-            {model}
-          </Center>
+    <div className={styles.container}>
+      <Flexbox align={'center'} gap={12} horizontal justify={'space-between'}>
+        <Center gap={4} horizontal style={{ fontSize: 12 }}>
+          <ModelIcon model={model as string} type={'mono'} />
+          {model}
+        </Center>
 
-          <Center gap={8} horizontal>
-            {timeLabel ? <span>{timeLabel}</span> : null}
-            {displayTotal ? (
-              <Center gap={2} horizontal>
-                <Icon icon={isShowCredit ? BadgeCent : CoinsIcon} />
-                {displayTotal}
-              </Center>
-            ) : null}
-          </Center>
-        </Flexbox>
-      </div>
-    </TokenDetail>
+        {hasChips ? (
+          <TokenDetail meta={usage} model={model} provider={provider}>
+            <span className={styles.trigger}>{chips}</span>
+          </TokenDetail>
+        ) : null}
+      </Flexbox>
+    </div>
   );
 });
 

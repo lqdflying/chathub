@@ -246,8 +246,8 @@ const TokenDetail = memo<TokenDetailProps>(({ children, meta, model, provider })
           </Flexbox>
         </Flexbox>
       }
-      placement={'top'}
-      trigger={['hover', 'click']}
+      placement={'topRight'}
+      trigger={'click'}
     >
       {children}
     </Popover>
