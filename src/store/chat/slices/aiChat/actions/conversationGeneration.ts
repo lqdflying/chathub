@@ -50,6 +50,14 @@ import { logEventDropped, noteConversationGenerationAttached } from './eventDrop
 
 const n = setNamespace('durableGeneration');
 
+/**
+ * Each `syncActiveConversationGenerations` call claims a generation. After
+ * `listActive` returns, a stale snapshot is discarded if a newer sync has
+ * already started. Otherwise a delayed initial discovery can attach a
+ * processing row that finished during SSE bootstrap.
+ */
+let conversationGenerationSyncGeneration = 0;
+
 const isAuthoritativeMissingOperationError = (error: unknown): boolean => {
   if (error instanceof TRPCClientError) {
     const code = (error.data as { code?: string } | undefined)?.code;
@@ -905,6 +913,7 @@ export const conversationGeneration: StateCreator<
     }),
 
   syncActiveConversationGenerations: async (input) => {
+    const syncGeneration = ++conversationGenerationSyncGeneration;
     // Snapshot the visible lane before listActive. A first-send adopt flips
     // activeTopicId and starts this sync; attach can land while the snapshot
     // is in flight. Evicting those post-start ids drops the terminal `done`.
@@ -925,6 +934,9 @@ export const conversationGeneration: StateCreator<
     const operations = (await conversationGenerationService.listActive()) as Array<
       ConversationGenerationOperation & { assistantMessageId?: string | null }
     >;
+    if (syncGeneration !== conversationGenerationSyncGeneration) {
+      return;
+    }
     const { activeId, activeTopicId, conversationNavigationGeneration, topicMaps } = get();
     const accountSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
     const currentScope = accountSnapshot?.scope;

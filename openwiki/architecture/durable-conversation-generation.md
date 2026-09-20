@@ -232,6 +232,14 @@ A leftover attached job is reconciled by `getOperation`. Confirmed
 lookup failure keeps the attachment so later snapshot/`done` frames still
 apply.
 
+Overlapping `syncActive` calls do not share a `listActive` snapshot. Each
+call increments a generation; after the request returns, an older snapshot
+is discarded if a newer sync has started. That stops a delayed initial
+discovery from attaching a processing row that finished during SSE
+bootstrap, including when the stale response arrives while the newer empty
+resync is still in flight. A send that attaches after this sync's own
+`listActive` began is still kept by `attachedAtStart`.
+
 Attached operations receive snapshots and `done` even when the user is looking
 at another topic. Dispatch writes into that operation’s session/topic
 `messagesMap`. Events are refused when `conversationClearGeneration` (destructive

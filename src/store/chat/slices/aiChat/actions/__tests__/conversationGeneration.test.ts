@@ -1523,6 +1523,134 @@ describe('conversationGeneration store actions', () => {
     );
   });
 
+  it('discards a stale listActive snapshot after a newer sync has started', async () => {
+    const processing = {
+      assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+      id: 'cgo_stale',
+      kind: 'chat',
+      lane: 'lane-stale',
+      sessionId: TEST_IDS.SESSION_ID,
+      status: 'processing',
+      topicId: TEST_IDS.TOPIC_ID,
+    };
+    let releaseInitial!: () => void;
+    const initialGate = new Promise<void>((resolve) => {
+      releaseInitial = resolve;
+    });
+    vi.spyOn(conversationGenerationService, 'listActive')
+      .mockImplementationOnce(async () => {
+        await initialGate;
+        return [processing] as any;
+      })
+      .mockResolvedValue([]);
+    vi.spyOn(conversationGenerationService, 'getOperation').mockResolvedValue({
+      ...processing,
+      status: 'succeeded',
+    } as any);
+    const { result } = renderHook(() => useChatStore());
+    const topicKey = messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID);
+    act(() => {
+      useChatStore.setState({
+        messagesMap: {
+          [topicKey]: [
+            {
+              content: LOADING_FLAT,
+              createdAt: Date.now(),
+              id: TEST_IDS.ASSISTANT_MESSAGE_ID,
+              role: 'assistant',
+            },
+          ],
+        },
+      });
+    });
+
+    let initialSync: Promise<void> = Promise.resolve();
+    await act(async () => {
+      initialSync = result.current.syncActiveConversationGenerations({ reason: 'initial' });
+    });
+    await act(async () => {
+      await result.current.syncActiveConversationGenerations({ reason: 'visibility' });
+    });
+    await act(async () => {
+      releaseInitial();
+      await initialSync;
+    });
+
+    expect(useChatStore.getState().serverGenerationOperations[topicKey]?.cgo_stale).toBeUndefined();
+    expect(useChatStore.getState().chatLoadingIds).not.toContain(TEST_IDS.ASSISTANT_MESSAGE_ID);
+    expect(useChatStore.getState().refreshMessages).toHaveBeenCalled();
+  });
+
+  it('discards a stale snapshot that arrives while a newer listActive is still pending', async () => {
+    const processing = {
+      assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+      id: 'cgo_overlap',
+      kind: 'chat',
+      lane: 'lane-overlap',
+      sessionId: TEST_IDS.SESSION_ID,
+      status: 'processing',
+      topicId: TEST_IDS.TOPIC_ID,
+    };
+    let releaseInitial!: () => void;
+    let releaseNewer!: () => void;
+    const initialGate = new Promise<void>((resolve) => {
+      releaseInitial = resolve;
+    });
+    const newerGate = new Promise<void>((resolve) => {
+      releaseNewer = resolve;
+    });
+    vi.spyOn(conversationGenerationService, 'listActive')
+      .mockImplementationOnce(async () => {
+        await initialGate;
+        return [processing] as any;
+      })
+      .mockImplementationOnce(async () => {
+        await newerGate;
+        return [];
+      });
+    vi.spyOn(conversationGenerationService, 'getOperation').mockResolvedValue({
+      ...processing,
+      status: 'succeeded',
+    } as any);
+    const { result } = renderHook(() => useChatStore());
+    const topicKey = messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID);
+    act(() => {
+      useChatStore.setState({
+        messagesMap: {
+          [topicKey]: [
+            {
+              content: LOADING_FLAT,
+              createdAt: Date.now(),
+              id: TEST_IDS.ASSISTANT_MESSAGE_ID,
+              role: 'assistant',
+            },
+          ],
+        },
+      });
+    });
+
+    let initialSync: Promise<void> = Promise.resolve();
+    let newerSync: Promise<void> = Promise.resolve();
+    await act(async () => {
+      initialSync = result.current.syncActiveConversationGenerations({ reason: 'initial' });
+      newerSync = result.current.syncActiveConversationGenerations({ reason: 'visibility' });
+    });
+    await act(async () => {
+      releaseInitial();
+      await initialSync;
+    });
+    expect(useChatStore.getState().serverGenerationOperations[topicKey]?.cgo_overlap).toBeUndefined();
+
+    await act(async () => {
+      releaseNewer();
+      await newerSync;
+    });
+
+    expect(useChatStore.getState().serverGenerationOperations[topicKey]?.cgo_overlap).toBeUndefined();
+    expect(useChatStore.getState().chatLoadingIds).not.toContain(TEST_IDS.ASSISTANT_MESSAGE_ID);
+    expect(useChatStore.getState().refreshMessages).toHaveBeenCalled();
+  });
+
   it('keeps a leftover attach that is still processing when listActive is empty', async () => {
     vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValue([]);
     vi.spyOn(conversationGenerationService, 'getOperation').mockResolvedValue({
