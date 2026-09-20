@@ -51,8 +51,15 @@ tRPC `xaiOAuth` (lambda, authed, Settings UI only):
 4. Token and device hosts must be HTTPS `*.x.ai`.
 5. `status` live-resolves the session, then fail-soft
    `GET https://cli-chat-proxy.grok.com/v1/billing?format=credits` with
-   `x-grok-client-mode: cli` and `x-grok-client-version: 1.0.4`. Usage HTTP
-   errors do not disconnect.
+   `x-grok-client-mode: cli`, `x-grok-client-version: 1.0.4`, and
+   `x-xai-token-auth: xai-grok-cli`. Parser order is
+   `config.creditUsagePercent`, then `used / monthlyLimit`, then
+   `onDemandUsed.val / onDemandCap.val` when the cap is `> 0`. A current
+   weekly/monthly period without any of those values still returns a
+   `weekly` window with no percent (UI shows “not reported”). Do not map a
+   missing percent to `0`. If live refresh throws or returns null while
+   the access token is still valid, `getStatus` still attempts billing with
+   that token. Usage HTTP errors do not disconnect.
 
 ## Chat overlay
 

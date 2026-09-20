@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   logout: vi.fn(),
   poll: vi.fn(),
   start: vi.fn(),
+  statusData: { connected: false } as Record<string, unknown>,
 }));
 
 vi.mock('@lobehub/ui', () => ({
@@ -79,7 +80,7 @@ vi.mock('@/libs/trpc/client', () => ({
       pollDeviceLogin: { useMutation: () => ({ mutateAsync: mocks.poll }) },
       startDeviceLogin: { useMutation: () => ({ isPending: false, mutateAsync: mocks.start }) },
       status: {
-        useQuery: () => ({ data: { connected: false }, refetch: vi.fn() }),
+        useQuery: () => ({ data: mocks.statusData, refetch: vi.fn() }),
       },
     },
   },
@@ -114,6 +115,37 @@ describe('XaiOAuthSignIn device login lifecycle', () => {
     mocks.poll.mockReset();
     mocks.logout.mockReset();
     mocks.connected.mockReset();
+    mocks.statusData = { connected: false };
+  });
+
+  it('renders the weekly SuperGrok remaining bar when status includes a percent', () => {
+    mocks.statusData = {
+      connected: true,
+      email: 'lqdflying@gmail.com',
+      expiresAt: '2026-09-21T03:06:10.000Z',
+      weekly: { label: 'Weekly', remainingPercent: 63, usedPercent: 37 },
+    };
+
+    render(<XaiOAuthSignIn />);
+
+    expect(screen.getByText('xaiOAuth.weeklyTitle')).toBeTruthy();
+    expect(screen.getByText('xaiOAuth.remainingPercent')).toBeTruthy();
+    expect(screen.queryByText('xaiOAuth.usageUnavailable')).toBeNull();
+  });
+
+  it('keeps the weekly SuperGrok row when billing omitted the percent', () => {
+    mocks.statusData = {
+      connected: true,
+      email: 'lqdflying@gmail.com',
+      expiresAt: '2026-09-21T03:06:10.000Z',
+      weekly: { label: 'Weekly', resetsAt: '2026-09-26T00:00:00.000Z' },
+    };
+
+    render(<XaiOAuthSignIn />);
+
+    expect(screen.getByText('xaiOAuth.weeklyTitle')).toBeTruthy();
+    expect(screen.getByText('xaiOAuth.usageUnavailable')).toBeTruthy();
+    expect(screen.queryByText('xaiOAuth.remainingPercent')).toBeNull();
   });
 
   it('does not resume device polling after Settings unmounts during a pending poll', async () => {

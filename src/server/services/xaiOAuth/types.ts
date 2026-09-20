@@ -1,8 +1,8 @@
 export type XaiOAuthUsageWindow = {
   label: 'Monthly' | 'Usage' | 'Weekly';
-  remainingPercent: number;
+  remainingPercent?: number;
   resetsAt?: string;
-  usedPercent: number;
+  usedPercent?: number;
   windowMinutes?: number;
   windowSeconds?: number;
 };

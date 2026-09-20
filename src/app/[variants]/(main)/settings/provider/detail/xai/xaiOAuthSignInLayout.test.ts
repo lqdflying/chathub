@@ -46,6 +46,7 @@ describe('XaiOAuthSignIn layout', () => {
     expect(src).toContain('fiveHourTitle');
     expect(src).toContain('weeklyTitle');
     expect(src).toContain('remainingPercent');
+    expect(src).toContain("t('xaiOAuth.usageUnavailable')");
   });
 
   it('schedules device polls with the vendor interval instead of a fixed interval', () => {

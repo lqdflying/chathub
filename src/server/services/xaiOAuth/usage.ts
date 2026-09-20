@@ -23,6 +23,13 @@ const asFiniteNumber = (value: unknown): number | undefined => {
   return undefined;
 };
 
+/** SuperGrok billing often wraps scalars as `{ val: number }`. */
+const asValNumber = (value: unknown): number | undefined => {
+  const direct = asFiniteNumber(value);
+  if (direct !== undefined) return direct;
+  return asFiniteNumber(asRecord(value).val);
+};
+
 const clampPercent = (value: number) => Math.max(0, Math.min(100, value));
 
 export const remainingPercentFromUsed = (usedPercent: number): number =>
@@ -61,25 +68,34 @@ const parsePercent = (value: unknown): number | undefined => {
   return clampPercent(parsed);
 };
 
+const ratioPercent = (used?: number, cap?: number): number | undefined => {
+  if (used === undefined || cap === undefined || cap <= 0 || used < 0) return undefined;
+  return parsePercent((used / cap) * 100);
+};
+
 const parseWindowFromConfig = (config: Record<string, unknown>): XaiOAuthUsageWindow | undefined => {
   const currentPeriod = asRecord(config.currentPeriod ?? config.current_period);
   const explicitPercent = parsePercent(config.creditUsagePercent ?? config.credit_usage_percent);
-  const used = asFiniteNumber(config.used);
-  const monthlyLimit = asFiniteNumber(config.monthlyLimit ?? config.monthly_limit);
-  const legacyPercent =
-    used !== undefined && monthlyLimit !== undefined && monthlyLimit > 0 && used >= 0
-      ? parsePercent((used / monthlyLimit) * 100)
-      : undefined;
-  const percent = explicitPercent ?? legacyPercent;
-  if (percent === undefined) return undefined;
+  const used = asValNumber(config.used);
+  const monthlyLimit = asValNumber(config.monthlyLimit ?? config.monthly_limit);
+  const onDemandUsed = asValNumber(config.onDemandUsed ?? config.on_demand_used);
+  const onDemandCap = asValNumber(config.onDemandCap ?? config.on_demand_cap);
+  const percent =
+    explicitPercent ??
+    ratioPercent(used, monthlyLimit) ??
+    ratioPercent(onDemandUsed, onDemandCap);
+  const resetsAt = parseDate(
+    currentPeriod.end ?? config.billingPeriodEnd ?? config.billing_period_end,
+  );
+  const hasPeriod = !!asOptionalString(currentPeriod.type) || !!resetsAt;
+  if (percent === undefined && !hasPeriod) return undefined;
 
   return {
     label: periodLabel(asOptionalString(currentPeriod.type), monthlyLimit),
-    remainingPercent: remainingPercentFromUsed(percent),
-    resetsAt: parseDate(
-      currentPeriod.end ?? config.billingPeriodEnd ?? config.billing_period_end,
-    ),
-    usedPercent: percent,
+    resetsAt,
+    ...(percent === undefined
+      ? {}
+      : { remainingPercent: remainingPercentFromUsed(percent), usedPercent: percent }),
   };
 };
 

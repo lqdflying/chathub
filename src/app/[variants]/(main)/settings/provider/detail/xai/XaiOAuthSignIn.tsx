@@ -338,8 +338,14 @@ const XaiOAuthSignIn = () => {
   );
   const helpTrigger = resolveCodexHelpTrigger(coarsePointer);
   const connected = canFetch && !!statusQuery.data?.connected;
-  const fiveHourPercent = clampCodexUsagePercent(statusQuery.data?.fiveHour?.remainingPercent);
-  const weeklyPercent = clampCodexUsagePercent(statusQuery.data?.weekly?.remainingPercent);
+  const fiveHourReported = typeof statusQuery.data?.fiveHour?.remainingPercent === 'number';
+  const weeklyReported = typeof statusQuery.data?.weekly?.remainingPercent === 'number';
+  const fiveHourPercent = fiveHourReported
+    ? clampCodexUsagePercent(statusQuery.data?.fiveHour?.remainingPercent)
+    : undefined;
+  const weeklyPercent = weeklyReported
+    ? clampCodexUsagePercent(statusQuery.data?.weekly?.remainingPercent)
+    : undefined;
   const fiveHourReset = formatUsageReset(statusQuery.data?.fiveHour?.resetsAt);
   const weeklyReset = formatUsageReset(statusQuery.data?.weekly?.resetsAt);
   const planLabel = formatCodexPlanLabel(statusQuery.data?.plan);
@@ -386,17 +392,23 @@ const XaiOAuthSignIn = () => {
             <div className={styles.meter}>
               <div className={styles.meterHeading}>
                 <span className={styles.meterLabel}>{t('xaiOAuth.fiveHourTitle')}</span>
-                <span className={styles.meterValue}>
-                  {t('xaiOAuth.remainingPercent', { percent: fiveHourPercent })}
-                </span>
+                {fiveHourPercent !== undefined && (
+                  <span className={styles.meterValue}>
+                    {t('xaiOAuth.remainingPercent', { percent: fiveHourPercent })}
+                  </span>
+                )}
               </div>
-              <Progress
-                aria-label={t('xaiOAuth.fiveHourLeft', { percent: fiveHourPercent })}
-                percent={fiveHourPercent}
-                showInfo={false}
-                size="small"
-                status={resolveCodexUsageStroke(fiveHourPercent)}
-              />
+              {fiveHourPercent !== undefined ? (
+                <Progress
+                  aria-label={t('xaiOAuth.fiveHourLeft', { percent: fiveHourPercent })}
+                  percent={fiveHourPercent}
+                  showInfo={false}
+                  size="small"
+                  status={resolveCodexUsageStroke(fiveHourPercent)}
+                />
+              ) : (
+                <div className={styles.meterReset}>{t('xaiOAuth.usageUnavailable')}</div>
+              )}
               {fiveHourReset && (
                 <div className={styles.meterReset}>
                   {t('xaiOAuth.usageResets', { time: fiveHourReset })}
@@ -408,23 +420,32 @@ const XaiOAuthSignIn = () => {
             <div className={styles.meter}>
               <div className={styles.meterHeading}>
                 <span className={styles.meterLabel}>{weeklyTitle}</span>
-                <span className={styles.meterValue}>
-                  {t('xaiOAuth.remainingPercent', { percent: weeklyPercent })}
-                </span>
+                {weeklyPercent !== undefined && (
+                  <span className={styles.meterValue}>
+                    {t('xaiOAuth.remainingPercent', { percent: weeklyPercent })}
+                  </span>
+                )}
               </div>
-              <Progress
-                aria-label={t('xaiOAuth.weeklyLeft', { percent: weeklyPercent })}
-                percent={weeklyPercent}
-                showInfo={false}
-                size="small"
-                status={resolveCodexUsageStroke(weeklyPercent)}
-              />
+              {weeklyPercent !== undefined ? (
+                <Progress
+                  aria-label={t('xaiOAuth.weeklyLeft', { percent: weeklyPercent })}
+                  percent={weeklyPercent}
+                  showInfo={false}
+                  size="small"
+                  status={resolveCodexUsageStroke(weeklyPercent)}
+                />
+              ) : (
+                <div className={styles.meterReset}>{t('xaiOAuth.usageUnavailable')}</div>
+              )}
               {weeklyReset && (
                 <div className={styles.meterReset}>
                   {t('xaiOAuth.usageResets', { time: weeklyReset })}
                 </div>
               )}
             </div>
+          )}
+          {connected && !statusQuery.data?.fiveHour && !statusQuery.data?.weekly && (
+            <div className={styles.hint}>{t('xaiOAuth.usageUnavailable')}</div>
           )}
           {statusQuery.data?.expiresAt && (
             <div className={styles.session}>

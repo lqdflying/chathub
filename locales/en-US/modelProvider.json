@@ -307,6 +307,7 @@
     "title": "SuperGrok",
     "unofficial": "This is an unofficial shared Grok CLI client path and can break if xAI changes the client or endpoints.",
     "usageResets": "resets {{time}}",
+    "usageUnavailable": "SuperGrok did not report a usage percent for this session.",
     "waiting": "Enter this code on the xAI device page to finish authorization.",
     "weeklyLeft": "Weekly limit: {{percent}}% left",
     "weeklyTitle": "Weekly limit"

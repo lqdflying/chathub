@@ -597,9 +597,40 @@ export class XaiOAuthService {
       const session = await this.resolveLiveSession(userId);
       if (!session) {
         const latest = await this.tokenStore.findByUserId(userId);
-        return latest ? sanitizeStatus(latest) : { connected: false };
+        return latest
+          ? this.attachUsageIfPossible(latest, sanitizeStatus(latest))
+          : { connected: false };
       }
       return { ...sanitizeStatus(session), ...(await this.fetchUsageWindows(session)) };
+    } catch {
+      const latest = (await this.tokenStore.findByUserId(userId)) ?? record;
+      return this.attachUsageIfPossible(latest, sanitizeStatus(latest));
+    }
+  }
+
+  /**
+   * Billing still works with a non-expired access token when live refresh
+   * throws or returns null. Fail-soft: connection stays even if usage is empty.
+   */
+  private async attachUsageIfPossible(
+    record: {
+      accessToken: string;
+      email?: string | null;
+      expiresAt: Date;
+      plan?: string | null;
+      tokenEndpoint?: string | null;
+    },
+    status: XaiOAuthConnectionStatus,
+  ): Promise<XaiOAuthConnectionStatus> {
+    if (record.expiresAt.getTime() <= Date.now()) return status;
+    try {
+      const crypto = await this.getCrypto();
+      const access = await crypto.decrypt(record.accessToken);
+      if (!access.wasAuthentic || !access.plaintext) return status;
+      return {
+        ...status,
+        ...(await this.fetchUsageWindows(toLiveSession(access.plaintext, record))),
+      };
     } catch {
       return status;
     }
@@ -615,6 +646,8 @@ export class XaiOAuthService {
           Accept: 'application/json',
           Authorization: `Bearer ${session.accessToken}`,
           'User-Agent': XAI_OAUTH_USER_AGENT,
+          // Same billing auth header used by Grok CLI / CodexBar.
+          'x-xai-token-auth': 'xai-grok-cli',
           ...XAI_OAUTH_CLIENT_HEADERS,
         },
         method: 'GET',

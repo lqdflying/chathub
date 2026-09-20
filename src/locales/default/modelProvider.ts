@@ -598,6 +598,7 @@ export default {
     title: 'SuperGrok',
     unofficial: '这是非官方共享 Grok CLI 客户端路径，xAI 变更端点或客户端后可能失效。',
     usageResets: '将于 {{time}} 重置',
+    usageUnavailable: '当前会话未返回额度百分比。部分 SuperGrok 账单响应会省略该字段。',
     waiting: '在 xAI 设备页输入此代码以完成授权。',
     weeklyLeft: '每周额度剩余 {{percent}}%',
     weeklyTitle: '每周额度',

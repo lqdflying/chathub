@@ -58,4 +58,46 @@ describe('parseXaiUsageWindows', () => {
     expect(parsed.fiveHour?.usedPercent).toBe(55);
     expect(parsed.fiveHour?.windowSeconds).toBe(18_000);
   });
+
+  it('uses the on-demand ratio when creditUsagePercent is omitted', () => {
+    const parsed = parseXaiUsageWindows({
+      config: {
+        currentPeriod: {
+          end: '2026-09-26T00:00:00Z',
+          type: 'USAGE_PERIOD_TYPE_WEEKLY',
+        },
+        onDemandCap: { val: 100 },
+        onDemandUsed: { val: 25 },
+      },
+    });
+
+    expect(parsed.weekly).toEqual({
+      label: 'Weekly',
+      remainingPercent: remainingPercentFromUsed(25),
+      resetsAt: '2026-09-26T00:00:00.000Z',
+      usedPercent: 25,
+    });
+  });
+
+  it('keeps the weekly window without inventing 0% when only the period is present', () => {
+    const parsed = parseXaiUsageWindows({
+      config: {
+        currentPeriod: {
+          end: '2026-09-26T00:00:00Z',
+          type: 'USAGE_PERIOD_TYPE_WEEKLY',
+        },
+        isUnifiedBillingUser: true,
+        monthlyLimit: { val: 0 },
+        onDemandCap: { val: 0 },
+        onDemandUsed: { val: 0 },
+      },
+    });
+
+    expect(parsed.weekly).toEqual({
+      label: 'Weekly',
+      resetsAt: '2026-09-26T00:00:00.000Z',
+    });
+    expect(parsed.weekly?.remainingPercent).toBeUndefined();
+    expect(parsed.fiveHour).toBeUndefined();
+  });
 });
