@@ -227,10 +227,13 @@ On the first send of an empty auto-created topic the client adopts a
 `pendingTopicClientIds` topic id, switches the list onto that key, and sends
 `newTopic.id` / `clientId` with the enqueue. The server must create the topic
 with that id. That pending id stays the create-intent marker until persistence
-is confirmed, so a failed first send retries the same id with `newTopic` instead
-of posting to a phantom topic. Message fetches for an unpersisted pending topic
-are suppressed; an empty SWR snapshot cannot replace in-flight optimistic rows
-or a conversation that already has an attached operation. Attach runs as soon
+is confirmed, including the original `topicMessageIds` to migrate. A failed
+first send retries the same id with `newTopic` even when the adopted topic is
+empty and the auto-create threshold would no longer fire. Message fetches for
+an unpersisted pending topic are suppressed; an empty SWR snapshot cannot
+replace in-flight optimistic rows or a conversation that already has an
+attached operation. Named-topic fetches write into that topic's `messagesMap`
+using the hook's session/topic (SWR's success key is a serialized string). Attach runs as soon
 as `operationId` is known (after the send refresh). Unattached SSE events that
 arrive while `durableInFlightEnqueues` is non-empty are buffered (capped) and
 replayed on attach in revision order, so early snapshots are not discarded.

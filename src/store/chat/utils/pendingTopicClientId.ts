@@ -5,20 +5,35 @@ export const buildPendingTopicClientIdKey = (
   clearGeneration: number,
 ): string => `${userScope}:${containerId}:${clearGeneration}`;
 
-export const isPendingUncreatedTopicId = (
-  pendingTopicClientIds: Record<string, string>,
+export interface PendingTopicClientIntent {
+  id: string;
+  topicMessageIds: string[];
+}
+
+export type PendingTopicClientIds = Record<string, PendingTopicClientIntent>;
+
+export const findPendingTopicClientIntent = (
+  pendingTopicClientIds: PendingTopicClientIds,
   topicId?: string | null,
-): topicId is string => !!topicId && Object.values(pendingTopicClientIds).includes(topicId);
+): PendingTopicClientIntent | undefined => {
+  if (!topicId) return undefined;
+  return Object.values(pendingTopicClientIds).find((intent) => intent.id === topicId);
+};
+
+export const isPendingUncreatedTopicId = (
+  pendingTopicClientIds: PendingTopicClientIds,
+  topicId?: string | null,
+): topicId is string => !!findPendingTopicClientIntent(pendingTopicClientIds, topicId);
 
 export const findPendingTopicClientId = (
-  pendingTopicClientIds: Record<string, string>,
+  pendingTopicClientIds: PendingTopicClientIds,
   topicId?: string | null,
-): string | undefined => (isPendingUncreatedTopicId(pendingTopicClientIds, topicId) ? topicId : undefined);
+): string | undefined => findPendingTopicClientIntent(pendingTopicClientIds, topicId)?.id;
 
 export const shouldIgnoreEmptyFetchedMessages = (
   state: {
     mainSendMessageOperations: Record<string, { isLoading?: boolean } | undefined>;
-    pendingTopicClientIds: Record<string, string>;
+    pendingTopicClientIds: PendingTopicClientIds;
     serverGenerationOperations: Record<string, Record<string, unknown>>;
   },
   input: {

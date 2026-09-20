@@ -267,14 +267,22 @@ export const chatTopic: StateCreator<
       requestedGeneration,
     );
     const pendingTopicClientIds = get().pendingTopicClientIds;
+    const messages = chatSelectors.activeBaseChats(get());
+    const reusedIntent = pendingTopicClientIds[pendingKey];
     const stableClientTopicId =
-      clientTopicId ?? pendingTopicClientIds[pendingKey] ?? idGenerator('topics');
+      clientTopicId ?? reusedIntent?.id ?? idGenerator('topics');
+    const topicMessageIds = reusedIntent?.topicMessageIds.length
+      ? reusedIntent.topicMessageIds
+      : messages.map((item) => item.id);
     if (!pendingTopicClientIds[pendingKey]) {
       set(
         {
           pendingTopicClientIds: {
             ...pendingTopicClientIds,
-            [pendingKey]: stableClientTopicId,
+            [pendingKey]: {
+              id: stableClientTopicId,
+              topicMessageIds,
+            },
           },
         },
         false,
@@ -290,8 +298,6 @@ export const chatTopic: StateCreator<
       set({ creatingTopic: false, creatingTopicId: undefined }, false, n('creatingTopic/end'));
     };
 
-    const messages = chatSelectors.activeBaseChats(get());
-
     set({ creatingTopic: true, creatingTopicId }, false, n('creatingTopic/start'));
     try {
       const topicId = await internal_createTopic(
@@ -299,7 +305,7 @@ export const chatTopic: StateCreator<
           clientId: stableClientTopicId,
           id: stableClientTopicId,
           title: t('defaultTitle', { ns: 'topic' }),
-          messages: messages.map((m) => m.id),
+          messages: topicMessageIds,
           ...(activeSessionType === 'group'
             ? { groupId: groupId || activeId }
             : { sessionId: sessionId || activeId }),

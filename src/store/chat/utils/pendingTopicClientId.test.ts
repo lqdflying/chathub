@@ -3,17 +3,25 @@ import { describe, expect, it } from 'vitest';
 import {
   buildPendingTopicClientIdKey,
   findPendingTopicClientId,
+  findPendingTopicClientIntent,
   isPendingUncreatedTopicId,
   shouldIgnoreEmptyFetchedMessages,
 } from './pendingTopicClientId';
 
 describe('pendingTopicClientId', () => {
   const pending = {
-    [buildPendingTopicClientIdKey('current', 'session-1', 0)]: 'tpc_pending1',
+    [buildPendingTopicClientIdKey('current', 'session-1', 0)]: {
+      id: 'tpc_pending1',
+      topicMessageIds: ['old-0', 'old-1'],
+    },
   };
 
   it('finds a pending client topic id by value across fence keys', () => {
     expect(findPendingTopicClientId(pending, 'tpc_pending1')).toBe('tpc_pending1');
+    expect(findPendingTopicClientIntent(pending, 'tpc_pending1')?.topicMessageIds).toEqual([
+      'old-0',
+      'old-1',
+    ]);
     expect(findPendingTopicClientId(pending, 'tpc_other')).toBeUndefined();
     expect(isPendingUncreatedTopicId(pending, 'tpc_pending1')).toBe(true);
   });

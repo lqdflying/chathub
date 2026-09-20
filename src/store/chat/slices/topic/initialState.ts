@@ -1,5 +1,6 @@
 import type { ConversationGenerationKind, ConversationGenerationPhase } from '@lobechat/types';
 
+import type { PendingTopicClientIds } from '@/store/chat/utils/pendingTopicClientId';
 import { ChatTopic } from '@/types/topic';
 
 import type { TitleSummaryOperation } from '../../types';
@@ -30,7 +31,7 @@ export interface ChatTopicState {
   inSearchingMode?: boolean;
   isSearchingTopic: boolean;
   /** In-flight idempotent topic-create identities keyed by account scope + container + clear fence. */
-  pendingTopicClientIds: Record<string, string>;
+  pendingTopicClientIds: PendingTopicClientIds;
   searchTopics: ChatTopic[];
   serverGenerationOperations: Record<string, Record<string, ServerGenerationOperation>>;
   topicLoadingIds: string[];

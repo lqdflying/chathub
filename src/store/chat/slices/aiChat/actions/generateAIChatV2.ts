@@ -102,7 +102,7 @@ import { chatSelectors, topicSelectors } from '../../../selectors';
 import { messageMapKey } from '../../../utils/messageMapKey';
 import {
   buildPendingTopicClientIdKey,
-  findPendingTopicClientId,
+  findPendingTopicClientIntent,
 } from '../../../utils/pendingTopicClientId';
 import { notifyToolCallPersistenceFailure } from './persistenceNotification';
 
@@ -277,14 +277,16 @@ export const generateAIChatV2: StateCreator<
     const chatConfig = agentChatConfigSelectors.currentChatConfig(getAgentStoreState());
     const autoCreateThreshold =
       chatConfig.autoCreateTopicThreshold ?? DEFAULT_AGENT_CHAT_CONFIG.autoCreateTopicThreshold;
-    const pendingUncreatedTopicId = findPendingTopicClientId(
+    const pendingUncreatedIntent = findPendingTopicClientIntent(
       get().pendingTopicClientIds,
       activeTopicId,
     );
+    const pendingUncreatedTopicId = pendingUncreatedIntent?.id;
     const shouldCreateNewTopic =
-      (!activeTopicId || pendingUncreatedTopicId === activeTopicId) &&
-      !!chatConfig.enableAutoCreateTopic &&
-      messages.length + 2 >= autoCreateThreshold;
+      Boolean(pendingUncreatedTopicId && pendingUncreatedTopicId === activeTopicId) ||
+      (!activeTopicId &&
+        !!chatConfig.enableAutoCreateTopic &&
+        messages.length + 2 >= autoCreateThreshold);
     const compactionEligible =
       activeSessionType !== 'group' &&
       !activeThreadId &&
@@ -293,6 +295,10 @@ export const generateAIChatV2: StateCreator<
     let sendTopicId = activeTopicId ?? null;
     let createNewTopicOnSend = shouldCreateNewTopic;
     let forceGeneratedTopicTitle = false;
+    let newTopicMessageIds =
+      pendingUncreatedIntent?.topicMessageIds.length
+        ? pendingUncreatedIntent.topicMessageIds
+        : messages.map((item) => item.id);
 
     const reportPreCreateFailure = (error: unknown) => {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -320,8 +326,8 @@ export const generateAIChatV2: StateCreator<
         (state) => {
           const nextPendingTopicClientIds = { ...state.pendingTopicClientIds };
           let changed = false;
-          for (const [key, pendingId] of Object.entries(nextPendingTopicClientIds)) {
-            if (pendingId === topicId) {
+          for (const [key, pendingIntent] of Object.entries(nextPendingTopicClientIds)) {
+            if (pendingIntent.id === topicId) {
               delete nextPendingTopicClientIds[key];
               changed = true;
             }
@@ -391,7 +397,7 @@ export const generateAIChatV2: StateCreator<
             conversationContext.sessionId,
             sourceClearContext.clearGeneration,
           )
-        ];
+        ]?.id;
       try {
         createdTopicId = await get().createTopic(
           undefined,
@@ -480,16 +486,23 @@ export const generateAIChatV2: StateCreator<
         sourceClearContext.clearGeneration,
       );
       const pendingTopicClientIds = get().pendingTopicClientIds;
-      const clientTopicId =
+      const reusedIntent =
         pendingTopicClientIds[pendingKey] ??
-        findPendingTopicClientId(pendingTopicClientIds, activeTopicId) ??
-        idGenerator('topics');
+        findPendingTopicClientIntent(pendingTopicClientIds, activeTopicId);
+      const clientTopicId = reusedIntent?.id ?? idGenerator('topics');
+      const pendingTopicMessageIds = reusedIntent?.topicMessageIds.length
+        ? reusedIntent.topicMessageIds
+        : messages.map((item) => item.id);
+      newTopicMessageIds = pendingTopicMessageIds;
       if (!pendingTopicClientIds[pendingKey]) {
         set(
           {
             pendingTopicClientIds: {
               ...pendingTopicClientIds,
-              [pendingKey]: clientTopicId,
+              [pendingKey]: {
+                id: clientTopicId,
+                topicMessageIds: pendingTopicMessageIds,
+              },
             },
           },
           false,
@@ -959,7 +972,7 @@ export const generateAIChatV2: StateCreator<
             ? {
                 clientId: sendTopicId ?? undefined,
                 id: sendTopicId ?? undefined,
-                topicMessageIds: messages.map((m) => m.id),
+                topicMessageIds: newTopicMessageIds,
                 title: t('defaultTitle', { ns: 'topic' }),
               }
             : undefined,

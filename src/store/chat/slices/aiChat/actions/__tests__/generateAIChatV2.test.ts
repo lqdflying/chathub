@@ -1456,6 +1456,72 @@ describe('generateAIChatV2 actions', () => {
         );
       });
 
+      it.each([false, true])(
+        'retries a pending auto-topic with original history (threshold lowered: %s)',
+        async (lowerThreshold) => {
+          const realSwitchTopic = useChatStore.getInitialState().switchTopic;
+          vi.mocked(isClientDurableConversationGenerationEnabled).mockReturnValue(true);
+          vi.spyOn(aiProviderSelectors, 'isProviderFetchOnClient').mockImplementation(
+            () => () => false,
+          );
+          vi.mocked(agentChatConfigSelectors.currentChatConfig).mockReturnValue({
+            ...DEFAULT_AGENT_CHAT_CONFIG,
+            autoCreateTopicThreshold: 8,
+            enableAutoCreateTopic: true,
+            enableCompressHistory: false,
+          });
+
+          const historyIds = ['old-0', 'old-1', 'old-2', 'old-3', 'old-4', 'old-5'];
+          const sendMock = vi.mocked(aiChatService.sendMessageInServer);
+          sendMock.mockRejectedValueOnce(new TRPCClientError('transaction rolled back'));
+          sendMock.mockRejectedValueOnce(new TRPCClientError('foreign key violation'));
+
+          act(() => {
+            useChatStore.setState({
+              activeTopicId: undefined,
+              messagesMap: {
+                [messageMapKey(TEST_IDS.SESSION_ID)]: historyIds.map((id, index) =>
+                  createMockMessage({
+                    id,
+                    role: index % 2 ? 'assistant' : 'user',
+                    topicId: undefined,
+                  }),
+                ),
+              },
+              switchTopic: realSwitchTopic,
+              topicMaps: {},
+            });
+          });
+
+          await act(async () => {
+            await useChatStore.getState().sendMessageInServer({ message: 'first topic send' });
+          });
+
+          const first = sendMock.mock.calls[0][0];
+          expect(first.newTopic?.id).toBeTruthy();
+          expect(first.newTopic?.topicMessageIds).toEqual(historyIds);
+          expect(useChatStore.getState().activeTopicId).toBe(first.topicId);
+
+          if (lowerThreshold) {
+            vi.mocked(agentChatConfigSelectors.currentChatConfig).mockReturnValue({
+              ...DEFAULT_AGENT_CHAT_CONFIG,
+              autoCreateTopicThreshold: 1,
+              enableAutoCreateTopic: true,
+              enableCompressHistory: false,
+            });
+          }
+
+          await act(async () => {
+            await useChatStore.getState().sendMessageInServer({ message: 'retry' });
+          });
+
+          const retry = sendMock.mock.calls[1][0];
+          expect(retry.topicId).toBe(first.topicId);
+          expect(retry.newTopic?.id).toBe(first.newTopic?.id);
+          expect(retry.newTopic?.topicMessageIds).toEqual(historyIds);
+        },
+      );
+
       it('retries a failed first send with the same pending newTopic id', async () => {
         const realSwitchTopic = useChatStore.getInitialState().switchTopic;
         vi.mocked(isClientDurableConversationGenerationEnabled).mockReturnValue(true);

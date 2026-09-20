@@ -33,6 +33,7 @@ vi.mock('@/services/message', () => ({
   messageService: {
     createMessage: vi.fn(() => Promise.resolve('new-message-id')),
     getMessageById: vi.fn(),
+    getGroupMessages: vi.fn(),
     getMessages: vi.fn(),
     removeAllTopicsHistory: vi.fn(() => Promise.resolve()),
     removeMessage: vi.fn(),
@@ -1788,7 +1789,9 @@ describe('chatMessage actions', () => {
               { content: '...', id: 'tmp_assistant', role: 'assistant' },
             ] as any,
           },
-          pendingTopicClientIds: { 'current:session-id:0': topicId },
+          pendingTopicClientIds: {
+            'current:session-id:0': { id: topicId, topicMessageIds: [] },
+          },
         });
       });
       (messageService.getMessages as Mock).mockResolvedValue([]);
@@ -1802,6 +1805,144 @@ describe('chatMessage actions', () => {
 
       expect(messageService.getMessages).not.toHaveBeenCalled();
       expect(useChatStore.getState().messagesMap[mapKey]).toHaveLength(2);
+    });
+
+    it('writes a named-topic fetch into that topic and leaves the default conversation', async () => {
+      const sessionId = 'session-id';
+      const topicId = 'tpc_saved';
+      const topicKey = messageMapKey(sessionId, topicId);
+      const defaultKey = messageMapKey(sessionId);
+      const defaultRows = [{ content: 'inbox', id: 'default-sentinel', role: 'user' }];
+      const fetchedRows = [{ content: 'saved', id: 'saved-row', role: 'user' }];
+      act(() => {
+        useChatStore.setState({
+          activeId: sessionId,
+          activeTopicId: topicId,
+          messagesMap: { [defaultKey]: defaultRows as any },
+        });
+      });
+      vi.spyOn(authSelectors, 'currentUserScope').mockReturnValue('user:review-round2');
+      useUserStore.setState({
+        isUserStateInit: true,
+        userStateScope: 'user:review-round2',
+      });
+      (messageService.getMessages as Mock).mockResolvedValue(fetchedRows);
+
+      const hook = renderHook(() => useChatStore().useFetchMessages(true, sessionId, topicId));
+
+      await waitFor(() => {
+        expect(hook.result.current.data).toEqual(fetchedRows);
+      });
+
+      expect(useChatStore.getState().messagesMap[topicKey]).toEqual(fetchedRows);
+      expect(useChatStore.getState().messagesMap[defaultKey]).toEqual(defaultRows);
+    });
+
+    it('writes a group-topic fetch into that group topic map', async () => {
+      const groupId = 'group-id';
+      const topicId = 'tpc_group';
+      const topicKey = messageMapKey(groupId, topicId);
+      const defaultKey = messageMapKey(groupId);
+      const defaultRows = [{ content: 'group-inbox', id: 'group-default', role: 'user' }];
+      const fetchedRows = [{ content: 'group-saved', id: 'group-saved', role: 'user' }];
+      act(() => {
+        useChatStore.setState({
+          activeId: groupId,
+          activeTopicId: topicId,
+          messagesMap: { [defaultKey]: defaultRows as any },
+        });
+      });
+      vi.spyOn(authSelectors, 'currentUserScope').mockReturnValue('user:review-round2');
+      useUserStore.setState({
+        isUserStateInit: true,
+        userStateScope: 'user:review-round2',
+      });
+      (messageService.getGroupMessages as Mock).mockResolvedValue(fetchedRows);
+
+      const hook = renderHook(() =>
+        useChatStore().useFetchMessages(true, groupId, topicId, 'group'),
+      );
+
+      await waitFor(() => {
+        expect(hook.result.current.data).toEqual(fetchedRows);
+      });
+
+      expect(useChatStore.getState().messagesMap[topicKey]).toEqual(fetchedRows);
+      expect(useChatStore.getState().messagesMap[defaultKey]).toEqual(defaultRows);
+    });
+
+    it('does not apply a stale topic fetch after navigating away', async () => {
+      const sessionId = 'session-id';
+      const topicA = 'topic-a';
+      const topicB = 'topic-b';
+      const fetchedA = createDeferred<any[]>();
+      vi.spyOn(authSelectors, 'currentUserScope').mockReturnValue('user:review-round2');
+      useUserStore.setState({
+        isUserStateInit: true,
+        userStateScope: 'user:review-round2',
+      });
+      (messageService.getMessages as Mock).mockImplementation(async (_sessionId, topicId) => {
+        if (topicId === topicA) return fetchedA.promise;
+        return [{ content: 'b', id: 'b-row', role: 'user' }];
+      });
+
+      const hook = renderHook(
+        ({ topicId }) => useChatStore.getState().useFetchMessages(true, sessionId, topicId),
+        { initialProps: { topicId: topicA } },
+      );
+
+      await waitFor(() => {
+        expect(messageService.getMessages).toHaveBeenCalledWith(sessionId, topicA);
+      });
+
+      hook.rerender({ topicId: topicB });
+      await waitFor(() => {
+        expect(messageService.getMessages).toHaveBeenCalledWith(sessionId, topicB);
+      });
+      await act(async () => {
+        fetchedA.resolve([{ content: 'a', id: 'a-row', role: 'user' }]);
+        await Promise.resolve();
+      });
+
+      expect(useChatStore.getState().messagesMap[messageMapKey(sessionId, topicB)]).toEqual([
+        { content: 'b', id: 'b-row', role: 'user' },
+      ]);
+      expect(useChatStore.getState().messagesMap[messageMapKey(sessionId, topicA)]).not.toEqual([
+        { content: 'a', id: 'a-row', role: 'user' },
+      ]);
+    });
+
+    it('replaces the named topic map on an ordinary empty fetch', async () => {
+      const sessionId = 'session-id';
+      const topicId = 'topic-id';
+      const topicKey = messageMapKey(sessionId, topicId);
+      const defaultKey = messageMapKey(sessionId);
+      const defaultRows = [{ content: 'inbox', id: 'default-sentinel', role: 'user' }];
+      act(() => {
+        useChatStore.setState({
+          activeId: sessionId,
+          activeTopicId: topicId,
+          messagesMap: {
+            [defaultKey]: defaultRows as any,
+            [topicKey]: [{ content: 'stale', id: 'old-row', role: 'user' }] as any,
+          },
+        });
+      });
+      vi.spyOn(authSelectors, 'currentUserScope').mockReturnValue('user:review-round2');
+      useUserStore.setState({
+        isUserStateInit: true,
+        userStateScope: 'user:review-round2',
+      });
+      (messageService.getMessages as Mock).mockResolvedValue([]);
+
+      const hook = renderHook(() => useChatStore().useFetchMessages(true, sessionId, topicId));
+
+      await waitFor(() => {
+        expect(hook.result.current.data).toEqual([]);
+      });
+
+      expect(useChatStore.getState().messagesMap[topicKey]).toEqual([]);
+      expect(useChatStore.getState().messagesMap[defaultKey]).toEqual(defaultRows);
     });
 
     it('does not replace in-flight optimistic rows with an empty topic fetch', async () => {

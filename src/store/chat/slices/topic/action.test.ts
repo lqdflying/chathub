@@ -1896,7 +1896,10 @@ describe('topic action', () => {
             [messageMapKey(sessionA)]: messagesA,
           },
           pendingTopicClientIds: {
-            'user:account-a:account-a-session:0': 'tpc_session_a_pending',
+            'user:account-a:account-a-session:0': {
+              id: 'tpc_session_a_pending',
+              topicMessageIds: ['account-a-message'],
+            },
           },
         });
       });
@@ -1926,7 +1929,7 @@ describe('topic action', () => {
         undefined,
       );
       const pending = useChatStore.getState().pendingTopicClientIds;
-      expect(pending['user:account-a:account-a-session:0']).toBe('tpc_session_a_pending');
+      expect(pending['user:account-a:account-a-session:0']?.id).toBe('tpc_session_a_pending');
       expect(pending['user:account-a:account-a-other-session:0']).toBeUndefined();
     });
 

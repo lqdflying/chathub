@@ -762,17 +762,17 @@ export const chatMessage: StateCreator<
         onSuccess: (messages, key) => {
           if (authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope) return;
 
-          const queryKey = Array.isArray(key) ? key : [];
-          const fetchedSessionId = String(queryKey[2] ?? messageContextId ?? '');
-          const fetchedTopicId = (queryKey[3] as string | undefined) ?? undefined;
-          const mapKey = messageMapKey(fetchedSessionId, fetchedTopicId);
+          // SWR serializes the success key to a string. Bind the write to this
+          // hook instance's session/topic; SWR's key-change safeguard drops
+          // stale callbacks after navigation.
+          const mapKey = messageMapKey(messageContextId || '', activeTopicId);
           const previousMessages = get().messagesMap[mapKey] || [];
           if (
             shouldIgnoreEmptyFetchedMessages(get(), {
               incoming: messages,
               mapKey,
               previous: previousMessages,
-              topicId: fetchedTopicId,
+              topicId: activeTopicId,
             })
           ) {
             return;
