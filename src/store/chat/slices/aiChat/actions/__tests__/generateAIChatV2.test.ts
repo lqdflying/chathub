@@ -84,10 +84,10 @@ vi.mock('@/services/aiChat', () => ({
     sendMessageInServer: vi.fn(async (params: any) => {
       const userId = TEST_IDS.USER_MESSAGE_ID;
       const assistantId = TEST_IDS.ASSISTANT_MESSAGE_ID;
-      const topicId = params.topicId ?? TEST_IDS.TOPIC_ID;
+      const topicId = params.newTopic?.id ?? params.topicId ?? TEST_IDS.TOPIC_ID;
       return {
         assistantMessageId: assistantId,
-        isCreateNewTopic: !params.topicId,
+        isCreateNewTopic: Boolean(params.newTopic),
         messages: [
           {
             content: params.newUserMessage?.content ?? '',
@@ -425,20 +425,23 @@ describe('generateAIChatV2 actions', () => {
         expect(aiChatService.sendMessageInServer).toHaveBeenCalled();
       });
 
-      // Stop while the auto-create send is in flight: bumps the SOURCE (default
-      // topic) lane epoch and records the in-flight idempotency key there.
+      const sentTopicId = (aiChatService.sendMessageInServer as Mock).mock.calls[0][0].topicId;
+
+      // Stop while the auto-create send is in flight: the UI is already on the
+      // adopted topic, so Stop fences that lane (and the in-flight idempotency
+      // key registered there). sourceClearContext still covers the default topic.
       await act(async () => {
         await useChatStore.getState().stopGenerateMessage();
       });
 
-      // The server commits the new topic and operation just before the abort
-      // reaches it; the response relocates the context to the new topic id.
+      // The server commits the adopted topic and operation just before the abort
+      // reaches it; the response must honor the client topic id.
       resolveServerSend!({
         assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
         isCreateNewTopic: true,
         messages: [],
         operationId: 'cgo_auto_topic',
-        topicId: TEST_IDS.NEW_TOPIC_ID,
+        topicId: sentTopicId,
         topics: [],
         userMessageId: TEST_IDS.USER_MESSAGE_ID,
       });
@@ -449,7 +452,7 @@ describe('generateAIChatV2 actions', () => {
       expect(cancel).toHaveBeenCalledWith('cgo_auto_topic');
       expect(
         useChatStore.getState().serverGenerationOperations[
-          messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.NEW_TOPIC_ID)
+          messageMapKey(TEST_IDS.SESSION_ID, sentTopicId)
         ]?.cgo_auto_topic,
       ).toBeUndefined();
       expect(execAgentRuntime).not.toHaveBeenCalled();
@@ -1289,6 +1292,107 @@ describe('generateAIChatV2 actions', () => {
         expect(callArgs.newTopic).toMatchObject({
           topicMessageIds: [],
         });
+        expect(callArgs.newTopic.id).toEqual(callArgs.newTopic.clientId);
+        expect(callArgs.newTopic.id).toMatch(/^tpc_/);
+        expect(callArgs.topicId).toBe(callArgs.newTopic.id);
+      });
+
+      it('adopts a client topic id and optimistic assistant before the first empty auto-create send', async () => {
+        vi.mocked(isClientDurableConversationGenerationEnabled).mockReturnValue(true);
+        vi.spyOn(aiProviderSelectors, 'isProviderFetchOnClient').mockImplementation(
+          () => () => false,
+        );
+        let resolveServerSend: (response: any) => void;
+        const serverSendPromise = new Promise<any>((resolve) => {
+          resolveServerSend = resolve;
+        });
+        (aiChatService.sendMessageInServer as Mock).mockReturnValueOnce(serverSendPromise);
+        const switchTopic = vi.fn(async (id?: string) => {
+          useChatStore.setState({ activeTopicId: id ?? null });
+        });
+
+        act(() => {
+          useChatStore.setState({
+            ...createMockStoreState(),
+            activeTopicId: undefined,
+            messagesMap: {},
+            switchTopic,
+          });
+        });
+
+        const sendPromise = useChatStore
+          .getState()
+          .sendMessageInServer({ message: TEST_CONTENT.USER_MESSAGE });
+        await vi.waitFor(() => {
+          expect(aiChatService.sendMessageInServer).toHaveBeenCalled();
+        });
+
+        const sendArgs = (aiChatService.sendMessageInServer as Mock).mock.calls[0][0];
+        const adoptedTopicId = sendArgs.newTopic.id as string;
+        const topicKey = messageMapKey(TEST_IDS.SESSION_ID, adoptedTopicId);
+        const optimisticRows = useChatStore.getState().messagesMap[topicKey] || [];
+
+        expect(switchTopic).toHaveBeenCalledTimes(1);
+        expect(switchTopic).toHaveBeenCalledWith(adoptedTopicId, true);
+        expect(switchTopic.mock.invocationCallOrder[0]).toBeLessThan(
+          (aiChatService.sendMessageInServer as Mock).mock.invocationCallOrder[0],
+        );
+        expect(sendArgs.topicId).toBe(adoptedTopicId);
+        expect(sendArgs.newTopic).toMatchObject({
+          clientId: adoptedTopicId,
+          id: adoptedTopicId,
+        });
+        expect(optimisticRows).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              content: TEST_CONTENT.USER_MESSAGE,
+              role: 'user',
+              topicId: adoptedTopicId,
+            }),
+            expect.objectContaining({
+              content: LOADING_FLAT,
+              role: 'assistant',
+              topicId: adoptedTopicId,
+            }),
+          ]),
+        );
+        expect(useChatStore.getState().chatLoadingIds.length).toBeGreaterThan(0);
+
+        resolveServerSend!({
+          assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+          isCreateNewTopic: true,
+          messages: [
+            {
+              content: TEST_CONTENT.USER_MESSAGE,
+              id: TEST_IDS.USER_MESSAGE_ID,
+              role: 'user',
+              sessionId: TEST_IDS.SESSION_ID,
+              topicId: adoptedTopicId,
+            },
+            {
+              content: LOADING_FLAT,
+              id: TEST_IDS.ASSISTANT_MESSAGE_ID,
+              role: 'assistant',
+              sessionId: TEST_IDS.SESSION_ID,
+              topicId: adoptedTopicId,
+            },
+          ],
+          operationId: 'cgo_first_send',
+          topicId: adoptedTopicId,
+          topics: [],
+          userMessageId: TEST_IDS.USER_MESSAGE_ID,
+        });
+        await sendPromise;
+
+        expect(switchTopic).toHaveBeenCalledTimes(1);
+        expect(
+          useChatStore.getState().serverGenerationOperations[topicKey]?.cgo_first_send,
+        ).toEqual(
+          expect.objectContaining({
+            operationId: 'cgo_first_send',
+            topicId: adoptedTopicId,
+          }),
+        );
       });
 
       it('creates the auto-topic, compacting overflow before durable enqueue', async () => {
@@ -2856,10 +2960,6 @@ describe('generateAIChatV2 actions', () => {
         useChatStore.setState({ activeTopicId: topicId });
       });
       const sourceSelectionKey = getSkillSelectionKey({ sessionId: TEST_IDS.SESSION_ID });
-      const targetSelectionKey = getSkillSelectionKey({
-        sessionId: TEST_IDS.SESSION_ID,
-        topicId: TEST_IDS.TOPIC_ID,
-      });
 
       await act(async () => {
         useChatStore.setState({
@@ -2871,7 +2971,15 @@ describe('generateAIChatV2 actions', () => {
         await result.current.sendMessage({ message: TEST_CONTENT.USER_MESSAGE });
       });
 
-      expect(mockSwitchTopic).toHaveBeenCalledWith(TEST_IDS.TOPIC_ID, true);
+      expect(mockSwitchTopic).toHaveBeenCalledTimes(1);
+      const adoptedTopicId = mockSwitchTopic.mock.calls[0][0];
+      const targetSelectionKey = getSkillSelectionKey({
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: adoptedTopicId,
+      });
+
+      expect(adoptedTopicId).toMatch(/^tpc_/);
+      expect(mockSwitchTopic).toHaveBeenCalledWith(adoptedTopicId, true);
       expect(useSkillStore.getState().selectedSkillIdsByConversation).toEqual({
         [targetSelectionKey]: ['reviewer'],
       });

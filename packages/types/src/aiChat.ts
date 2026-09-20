@@ -26,6 +26,8 @@ export interface SendMessageServerParams {
     idempotencyKey?: string;
   };
   newTopic?: {
+    clientId?: string;
+    id?: string;
     title?: string;
     topicMessageIds?: string[];
   };
@@ -47,6 +49,8 @@ export const AiSendMessageServerSchema = z.object({
     .optional(),
   newTopic: z
     .object({
+      clientId: z.string().optional(),
+      id: z.string().optional(),
       title: z.string().optional(),
       topicMessageIds: z.array(z.string()).optional(),
     })

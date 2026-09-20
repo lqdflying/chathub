@@ -1,6 +1,11 @@
 /* eslint-disable sort-keys-fix/sort-keys-fix, typescript-sort-keys/interface */
 // Disable the auto sort key eslint rule to make the code more logic and readable
-import { DEFAULT_AGENT_CHAT_CONFIG, INBOX_SESSION_ID, MESSAGE_CANCEL_FLAT } from '@lobechat/const';
+import {
+  DEFAULT_AGENT_CHAT_CONFIG,
+  INBOX_SESSION_ID,
+  LOADING_FLAT,
+  MESSAGE_CANCEL_FLAT,
+} from '@lobechat/const';
 import { knowledgeBaseQAPrompts } from '@lobechat/prompts';
 import {
   ChatImageItem,
@@ -23,6 +28,7 @@ import { t } from 'i18next';
 import { produce } from 'immer';
 import { StateCreator } from 'zustand/vanilla';
 
+import { idGenerator } from '@/database/utils/idGenerator';
 import {
   buildDurableConversationConfig,
   isClientDurableConversationGenerationEnabled,
@@ -78,6 +84,7 @@ import {
   trackDurableEnqueue,
   untrackDurableEnqueue,
 } from '@/store/chat/utils/conversationClearGeneration';
+import { discardInFlightGenerationEvents } from '@/store/chat/utils/inFlightGenerationEventBuffer';
 import {
   deferredBrowserGenerationLaneKey,
   isDeferredBrowserLaneAssistant,
@@ -298,9 +305,14 @@ export const generateAIChatV2: StateCreator<
       }
     };
 
-    const adoptCreatedTopic = (createdTopicId: string) => {
+    const adoptCreatedTopic = (
+      createdTopicId: string,
+      options?: { persistOnSend?: boolean },
+    ) => {
       sendTopicId = createdTopicId;
-      createNewTopicOnSend = false;
+      if (!options?.persistOnSend) {
+        createNewTopicOnSend = false;
+      }
       forceGeneratedTopicTitle = true;
       conversationContext = {
         ...conversationContext,
@@ -433,6 +445,55 @@ export const generateAIChatV2: StateCreator<
           return;
         }
       }
+    } else if (shouldCreateNewTopic) {
+      const pendingKey = buildPendingTopicClientIdKey(
+        requestedScope,
+        conversationContext.sessionId,
+        sourceClearContext.clearGeneration,
+      );
+      const pendingTopicClientIds = get().pendingTopicClientIds;
+      const clientTopicId =
+        pendingTopicClientIds[pendingKey] ?? idGenerator('topics');
+      if (!pendingTopicClientIds[pendingKey]) {
+        set(
+          {
+            pendingTopicClientIds: {
+              ...pendingTopicClientIds,
+              [pendingKey]: clientTopicId,
+            },
+          },
+          false,
+          n('sendMessageInServer/pendingTopicClientId'),
+        );
+      }
+
+      const stillOnSourceConversation =
+        isSameAccount() &&
+        get().activeId === conversationContext.sessionId &&
+        (get().activeTopicId ?? null) === (sourceClearContext.topicId ?? null);
+      if (stillOnSourceConversation) {
+        try {
+          await get().switchTopic(clientTopicId, true);
+          if (isSameAccount() && get().activeId === conversationContext.sessionId) {
+            getSkillStoreState().moveSelectedSkills(
+              getSkillSelectionKey({
+                sessionId: activeId,
+                threadId: activeThreadId,
+                topicId: sourceClearContext.topicId,
+              }),
+              getSkillSelectionKey({
+                sessionId: activeId,
+                threadId: activeThreadId,
+                topicId: clientTopicId,
+              }),
+            );
+          }
+        } catch {
+          // Topic id is adopted locally; continue the send even if the UI switch failed.
+        }
+      }
+
+      adoptCreatedTopic(clientTopicId, { persistOnSend: true });
     }
 
     // 构造服务端模式临时消息的本地媒体预览（优先使用 base64Url）
@@ -479,7 +540,7 @@ export const generateAIChatV2: StateCreator<
       files: fileIdList,
       role: 'user',
       sessionId: activeId,
-      topicId: sendTopicId,
+      topicId: sendTopicId ?? undefined,
       threadId: activeThreadId,
       imageList: tempImages.length > 0 ? tempImages : undefined,
       videoList: tempVideos.length > 0 ? tempVideos : undefined,
@@ -488,10 +549,14 @@ export const generateAIChatV2: StateCreator<
     get().internal_toggleMessageLoading(true, tempId);
 
     const operationKey = messageMapKey(activeId, sendTopicId);
+    let tempAssistantId: string | undefined;
     const discardOptimisticSend = () => {
       get().internal_toggleMessageLoading(false, tempId);
+      if (tempAssistantId) {
+        get().internal_markDurableGenerating(tempAssistantId, false);
+      }
       get().internal_dispatchMessage(
-        { type: 'deleteMessages', ids: [tempId] },
+        { type: 'deleteMessages', ids: [tempId, ...(tempAssistantId ? [tempAssistantId] : [])] },
         { sessionId: conversationContext.sessionId, topicId: sendTopicId },
       );
       get().internal_toggleSendMessageOperation(operationKey, false);
@@ -514,7 +579,18 @@ export const generateAIChatV2: StateCreator<
     const debugSpanId = createGenerationDebugSpanId();
     const agentConfig = agentSelectors.currentAgentConfig(getAgentStoreState());
     const { model, provider } = agentConfig;
-    const enableHistoryCompaction = !!sendTopicId && compactionEligible;
+    tempAssistantId = get().internal_createTmpMessage({
+      content: LOADING_FLAT,
+      fromModel: model,
+      fromProvider: provider,
+      parentId: tempId,
+      role: 'assistant',
+      sessionId: activeId,
+      threadId: activeThreadId,
+      topicId: sendTopicId ?? undefined,
+    });
+    get().internal_markDurableGenerating(tempAssistantId, true);
+    const enableHistoryCompaction = !!sendTopicId && compactionEligible && !createNewTopicOnSend;
     const compactionConversation =
       enableHistoryCompaction && sendTopicId
         ? { sessionId: conversationContext.sessionId, topicId: sendTopicId }
@@ -581,8 +657,14 @@ export const generateAIChatV2: StateCreator<
             totalInputTokens: compactionEstimateForSendGate(tokenCompactResult),
           });
           get().internal_toggleMessageLoading(false, tempId);
+          if (tempAssistantId) {
+            get().internal_markDurableGenerating(tempAssistantId, false);
+          }
           get().internal_dispatchMessage(
-            { type: 'deleteMessages', ids: [tempId] },
+            {
+              type: 'deleteMessages',
+              ids: [tempId, ...(tempAssistantId ? [tempAssistantId] : [])],
+            },
             { sessionId: conversationContext.sessionId, topicId: sendTopicId },
           );
           try {
@@ -593,7 +675,7 @@ export const generateAIChatV2: StateCreator<
                 role: 'user',
                 sessionId: activeId,
                 threadId: activeThreadId,
-                topicId: sendTopicId,
+                topicId: sendTopicId ?? undefined,
                 ...(messageMetadata && { metadata: messageMetadata }),
               },
               { conversationContext },
@@ -608,7 +690,7 @@ export const generateAIChatV2: StateCreator<
                   role: 'assistant',
                   sessionId: activeId,
                   threadId: activeThreadId,
-                  topicId: sendTopicId,
+                  topicId: sendTopicId ?? undefined,
                 },
                 { conversationContext },
               );
@@ -769,6 +851,58 @@ export const generateAIChatV2: StateCreator<
         n('sendMessageInServer/trackDurableEnqueue'),
       );
     }
+    let attachedDurableOperation = false;
+    const isLateDurableAttachCurrent = () =>
+      isSameAccount() &&
+      resolveConversationClearGeneration(
+        get(),
+        sourceClearContext.sessionId,
+        sourceClearContext.topicId,
+        sourceClearContext.threadId,
+      ) === sourceClearContext.clearGeneration &&
+      resolveConversationClearGeneration(
+        get(),
+        conversationContext.sessionId,
+        conversationContext.topicId,
+        conversationContext.threadId ?? null,
+      ) === conversationContext.clearGeneration;
+    const attachDurableOperation = () => {
+      if (!data?.operationId || attachedDurableOperation) return false;
+      if (!isLateDurableAttachCurrent()) return false;
+      if (tempAssistantId) {
+        get().internal_markDurableGenerating(tempAssistantId, false);
+      }
+      const durableOperation = data.operation;
+      logGenerationDebugClientSafe('durable_attach', {
+        kind: durableOperation?.kind || 'chat',
+        operationId: data.operationId,
+        spanId: debugSpanId,
+      });
+      get().attachConversationGeneration({
+        assistantMessageId: durableOperation?.assistantMessageId || data.assistantMessageId,
+        clearGeneration: conversationContext.clearGeneration,
+        generation: conversationContext.generation,
+        kind: durableOperation?.kind || 'chat',
+        lane:
+          durableOperation?.lane ||
+          buildConversationGenerationLane({
+            kind: durableOperation?.kind || 'chat',
+            sessionId: activeId === INBOX_SESSION_ID ? undefined : activeId,
+            threadId: activeThreadId,
+            topicId: data.topicId,
+            userId: requestedScope,
+          }),
+        laneGeneration: durableOperation?.laneGeneration,
+        operationId: data.operationId,
+        revision: durableOperation?.revision,
+        sessionId: conversationContext.sessionId,
+        threadId: durableOperation?.threadId || activeThreadId,
+        topicId: data.topicId,
+        userScope: requestedScope,
+      });
+      attachedDurableOperation = true;
+      return true;
+    };
     try {
       logGenerationDebugClientSafe('send_started', {
         durableRequested: Boolean(generation),
@@ -790,6 +924,8 @@ export const generateAIChatV2: StateCreator<
           threadId: activeThreadId ?? undefined,
           newTopic: createNewTopicOnSend
             ? {
+                clientId: sendTopicId ?? undefined,
+                id: sendTopicId ?? undefined,
                 topicMessageIds: messages.map((m) => m.id),
                 title: t('defaultTitle', { ns: 'topic' }),
               }
@@ -826,7 +962,11 @@ export const generateAIChatV2: StateCreator<
       if (data.isCreateNewTopic && data.topicId) {
         const stillOnSendingConversation = isCurrentConversation();
         conversationContext = { ...conversationContext, topicId: data.topicId };
-        if (stillOnSendingConversation) {
+        const alreadyOnTopic =
+          isSameAccount() &&
+          get().activeId === conversationContext.sessionId &&
+          (get().activeTopicId ?? null) === data.topicId;
+        if (stillOnSendingConversation && !alreadyOnTopic) {
           await get().switchTopic(data.topicId, true);
           if (isCurrentConversation()) {
             getSkillStoreState().moveSelectedSkills(
@@ -844,6 +984,26 @@ export const generateAIChatV2: StateCreator<
           }
         }
       }
+
+      if (data.topicId && data.topicId === sendTopicId) {
+        const pendingKey = buildPendingTopicClientIdKey(
+          requestedScope,
+          conversationContext.sessionId,
+          sourceClearContext.clearGeneration,
+        );
+        set(
+          (state) => {
+            if (!state.pendingTopicClientIds[pendingKey]) return state;
+            const nextPendingTopicClientIds = { ...state.pendingTopicClientIds };
+            delete nextPendingTopicClientIds[pendingKey];
+            return { pendingTopicClientIds: nextPendingTopicClientIds };
+          },
+          false,
+          n('sendMessageInServer/pendingTopicClientId/clear'),
+        );
+      }
+
+      attachDurableOperation();
 
       // D2/T1: associate the already-captured sent settings with the
       // assistant id. Durable evidence was frozen before the RPC; do not
@@ -911,6 +1071,7 @@ export const generateAIChatV2: StateCreator<
               userMessageId: recovered.userMessageId,
             };
             await get().refreshMessages(conversationContext);
+            attachDurableOperation();
           }
         } catch {
           // The reconciliation request is itself ambiguous; retain the optimistic row.
@@ -968,12 +1129,24 @@ export const generateAIChatV2: StateCreator<
       (recoveryChecked || sendFailure instanceof TRPCClientError)
     ) {
       get().internal_dispatchMessage(
-        { id: tempId, type: 'deleteMessage' },
+        {
+          type: 'deleteMessages',
+          ids: [tempId, ...(tempAssistantId ? [tempAssistantId] : [])],
+        },
         { sessionId: activeId, topicId: sendTopicId },
       );
     }
 
     if (sendFailure && !data) {
+      const hasRemainingInFlight = Object.values(get().durableInFlightEnqueues).some(
+        (entries) => entries.length > 0,
+      );
+      if (!hasRemainingInFlight) {
+        discardInFlightGenerationEvents();
+      }
+      if (tempAssistantId) {
+        get().internal_markDurableGenerating(tempAssistantId, false);
+      }
       logGenerationDebugClientSafe('send_failure_ui', {
         errorShown: failureErrorShown,
         spanId: debugSpanId,
@@ -987,12 +1160,18 @@ export const generateAIChatV2: StateCreator<
 
     if (data?.isCreateNewTopic) {
       get().internal_dispatchMessage(
-        { type: 'deleteMessage', id: tempId },
+        {
+          type: 'deleteMessages',
+          ids: [tempId, ...(tempAssistantId ? [tempAssistantId] : [])],
+        },
         { topicId: activeTopicId, sessionId: activeId },
       );
     }
 
     get().internal_toggleMessageLoading(false, tempId);
+    if (tempAssistantId && !attachedDurableOperation) {
+      get().internal_markDurableGenerating(tempAssistantId, false);
+    }
 
     if (!data) return;
 
@@ -1030,51 +1209,9 @@ export const generateAIChatV2: StateCreator<
       }
     };
 
-    const isLateDurableAttachCurrent = () =>
-      isSameAccount() &&
-      resolveConversationClearGeneration(
-        get(),
-        sourceClearContext.sessionId,
-        sourceClearContext.topicId,
-        sourceClearContext.threadId,
-      ) === sourceClearContext.clearGeneration &&
-      resolveConversationClearGeneration(
-        get(),
-        conversationContext.sessionId,
-        conversationContext.topicId,
-        conversationContext.threadId ?? null,
-      ) === conversationContext.clearGeneration;
-
     if (data.operationId) {
       if (isLateDurableAttachCurrent()) {
-        const durableOperation = data.operation;
-        logGenerationDebugClientSafe('durable_attach', {
-          kind: durableOperation?.kind || 'chat',
-          operationId: data.operationId,
-          spanId: debugSpanId,
-        });
-        get().attachConversationGeneration({
-          assistantMessageId: durableOperation?.assistantMessageId || data.assistantMessageId,
-          clearGeneration: conversationContext.clearGeneration,
-          generation: conversationContext.generation,
-          kind: durableOperation?.kind || 'chat',
-          lane:
-            durableOperation?.lane ||
-            buildConversationGenerationLane({
-              kind: durableOperation?.kind || 'chat',
-              sessionId: activeId === INBOX_SESSION_ID ? undefined : activeId,
-              threadId: activeThreadId,
-              topicId: data.topicId,
-              userId: requestedScope,
-            }),
-          laneGeneration: durableOperation?.laneGeneration,
-          operationId: data.operationId,
-          revision: durableOperation?.revision,
-          sessionId: conversationContext.sessionId,
-          threadId: durableOperation?.threadId || activeThreadId,
-          topicId: data.topicId,
-          userScope: requestedScope,
-        });
+        attachDurableOperation();
         await get().reconcileConversationGeneration(data.operationId).catch(console.error);
         if (isCurrentConversation()) {
           const userFiles = chatSelectors.currentUserFiles(get()).map((f) => f.id);
@@ -1090,6 +1227,7 @@ export const generateAIChatV2: StateCreator<
           reason: 'fenced',
           spanId: debugSpanId,
         });
+        discardInFlightGenerationEvents(data.operationId);
         await conversationGenerationService.cancel(data.operationId).catch(() => undefined);
       } else {
         logGenerationDebugClientSafe('durable_attach_skipped', {

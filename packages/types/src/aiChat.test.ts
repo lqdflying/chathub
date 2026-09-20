@@ -16,6 +16,24 @@ describe('AiSendMessageServerSchema', () => {
     expect(parsed.threadId).toBeUndefined();
     expect(parsed.topicId).toBeUndefined();
   });
+
+  it('accepts an adopted client topic id on newTopic', () => {
+    const parsed = AiSendMessageServerSchema.parse({
+      ...base,
+      newTopic: {
+        clientId: 'tpc_clientTopic1',
+        id: 'tpc_clientTopic1',
+        title: 'New Topic',
+        topicMessageIds: [],
+      },
+    });
+    expect(parsed.newTopic).toEqual({
+      clientId: 'tpc_clientTopic1',
+      id: 'tpc_clientTopic1',
+      title: 'New Topic',
+      topicMessageIds: [],
+    });
+  });
 });
 
 describe('AiCreateAssistantMessageSchema', () => {

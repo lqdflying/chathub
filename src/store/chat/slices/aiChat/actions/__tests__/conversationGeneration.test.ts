@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as generationDebugClient from '@/libs/logger/generationDebugClient';
 import { conversationGenerationService } from '@/services/conversationGeneration';
 import { deferredBrowserGenerationLaneKey } from '@/store/chat/utils/deferredBrowserGeneration';
+import { discardInFlightGenerationEvents } from '@/store/chat/utils/inFlightGenerationEventBuffer';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 
 import { useChatStore } from '../../../../store';
@@ -30,6 +31,7 @@ describe('conversationGeneration store actions', () => {
   });
 
   afterEach(() => {
+    discardInFlightGenerationEvents();
     vi.restoreAllMocks();
   });
 
@@ -183,6 +185,55 @@ describe('conversationGeneration store actions', () => {
         id: TEST_IDS.ASSISTANT_MESSAGE_ID,
         type: 'updateMessage',
         value: { content: 'background text' },
+      }),
+      { sessionId: TEST_IDS.SESSION_ID, topicId: TEST_IDS.TOPIC_ID },
+    );
+  });
+
+  it('replays a snapshot that arrived before attach while a send enqueue is in flight', () => {
+    const { result } = renderHook(() => useChatStore());
+    const dispatch = vi.fn();
+    const laneKey = `${messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)}:main`;
+
+    act(() => {
+      useChatStore.setState({
+        durableInFlightEnqueues: {
+          [laneKey]: [{ idempotencyKey: 'chat-send:tmp_first', kind: 'chat' }],
+        },
+        internal_dispatchMessage: dispatch,
+      });
+      result.current.applyConversationGenerationEvent({
+        createdAt: new Date().toISOString(),
+        id: 1,
+        operationId: 'cgo_one',
+        payload: { content: 'early tokens' },
+        revision: 2,
+        type: 'snapshot',
+        userId: 'user-1',
+      });
+    });
+
+    expect(dispatch).not.toHaveBeenCalled();
+
+    act(() => {
+      result.current.attachConversationGeneration({
+        assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        clearGeneration: 0,
+        generation: 0,
+        kind: 'chat',
+        lane: 'lane-main',
+        operationId: 'cgo_one',
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
+        userScope: 'current',
+      });
+    });
+
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        type: 'updateMessage',
+        value: { content: 'early tokens' },
       }),
       { sessionId: TEST_IDS.SESSION_ID, topicId: TEST_IDS.TOPIC_ID },
     );

@@ -116,6 +116,8 @@ describe('aiChatRouter', () => {
     const res = await caller.sendMessageInServer(input);
 
     expect(mockCreateTopic).toHaveBeenCalledWith({
+      clientId: undefined,
+      id: undefined,
       messages: ['a', 'b'],
       sessionId: 's1',
       title: 'T',
@@ -138,6 +140,39 @@ describe('aiChatRouter', () => {
     expect(res.topicId).toBe('t1');
     expect(res.messages?.length).toBe(1);
     expect(res.topics?.length).toBe(1);
+  });
+
+  it('creates the topic with the supplied client id', async () => {
+    const mockCreateTopic = vi.fn().mockResolvedValue({ id: 'tpc_clientTopic1' });
+    const mockCreateMessage = vi.fn().mockResolvedValueOnce({ id: 'm-user' });
+    const mockGet = vi.fn().mockResolvedValue({ messages: [{ id: 'm-user' }], topics: [{}] });
+
+    vi.mocked(TopicModel).mockImplementation(() => ({ create: mockCreateTopic }) as any);
+    vi.mocked(MessageModel).mockImplementation(() => ({ create: mockCreateMessage }) as any);
+    vi.mocked(AiChatService).mockImplementation(() => ({ getMessagesAndTopics: mockGet }) as any);
+
+    const caller = aiChatRouter.createCaller(mockCtx as any);
+
+    const res = await caller.sendMessageInServer({
+      newTopic: {
+        clientId: 'tpc_clientTopic1',
+        id: 'tpc_clientTopic1',
+        title: 'T',
+        topicMessageIds: [],
+      },
+      newUserMessage: { content: 'hi' },
+      sessionId: 's1',
+    } as any);
+
+    expect(mockCreateTopic).toHaveBeenCalledWith({
+      clientId: 'tpc_clientTopic1',
+      id: 'tpc_clientTopic1',
+      messages: [],
+      sessionId: 's1',
+      title: 'T',
+    });
+    expect(res.topicId).toBe('tpc_clientTopic1');
+    expect(res.isCreateNewTopic).toBe(true);
   });
 
   it('should reuse existing topic when topicId provided', async () => {

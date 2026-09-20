@@ -30,6 +30,10 @@ import {
   resolveConversationClearGeneration,
 } from '@/store/chat/utils/conversationClearGeneration';
 import {
+  bufferInFlightGenerationEvent,
+  takeInFlightGenerationEvents,
+} from '@/store/chat/utils/inFlightGenerationEventBuffer';
+import {
   deferredBrowserGenerationLaneKey,
   deferredBrowserGenerationLaneKeysForTopic,
   hasActiveToolCallingStream,
@@ -110,6 +114,9 @@ export interface ConversationGenerationScope {
 
 const conversationKeyFor = (sessionId?: string | null, topicId?: string | null) =>
   messageMapKey(sessionId || '', topicId);
+
+const hasDurableInFlightEnqueue = (state: Pick<ChatStore, 'durableInFlightEnqueues'>) =>
+  Object.values(state.durableInFlightEnqueues).some((entries) => entries.length > 0);
 
 const findAttachedOperation = (
   serverGenerationOperations: ChatStore['serverGenerationOperations'],
@@ -281,6 +288,10 @@ export const conversationGeneration: StateCreator<
     const state = get();
     const attached = findAttachedOperation(state.serverGenerationOperations, event.operationId);
     if (!attached) {
+      if (hasDurableInFlightEnqueue(state)) {
+        bufferInFlightGenerationEvent(event);
+        return;
+      }
       logEventDropped(event.operationId, 'not_attached', event.type);
       return;
     }
@@ -488,6 +499,10 @@ export const conversationGeneration: StateCreator<
     noteConversationGenerationAttached(attached.operationId);
     if (attached.assistantMessageId) {
       get().internal_markDurableGenerating(attached.assistantMessageId, true);
+    }
+    const bufferedEvents = takeInFlightGenerationEvents(attached.operationId);
+    for (const bufferedEvent of bufferedEvents) {
+      get().applyConversationGenerationEvent(bufferedEvent);
     }
   },
 
