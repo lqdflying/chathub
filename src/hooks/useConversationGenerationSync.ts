@@ -138,11 +138,14 @@ export const useConversationGenerationSync = () => {
     };
 
     const resyncFromReset = async (resetCursor?: number) => {
-      await syncActive().catch(console.error);
-      if (abortController.signal.aborted) return;
+      // Persist the reset boundary before awaiting sync so later frames
+      // can advance past it. Do not write the stale reset cursor after
+      // sync — that would rewind over events delivered during the wait.
       if (typeof resetCursor === 'number' && Number.isFinite(resetCursor) && resetCursor >= 0) {
         persistCursor(resetCursor);
       }
+      await syncActive().catch(console.error);
+      if (abortController.signal.aborted) return;
       logGenerationDebugClientSafe('sse_client_reset_replay', {
         cursor: typeof resetCursor === 'number' ? resetCursor : cursor,
         eventCount: 0,
@@ -168,7 +171,7 @@ export const useConversationGenerationSync = () => {
       if (pollInFlight || abortController.signal.aborted) return;
       pollInFlight = true;
       void conversationGenerationService
-        .listEvents(cursor)
+        .listEvents(cursor, cursorByUser.has(userId) ? { liveTail: false } : undefined)
         .then(async (page) => {
           if (abortController.signal.aborted) return;
           pollFailedLogged = false;
@@ -215,6 +218,7 @@ export const useConversationGenerationSync = () => {
       void conversationGenerationService
         .subscribe({
           cursor,
+          established: cursorByUser.has(userId),
           onEvent: handleEvent,
           signal: abortController.signal,
         })

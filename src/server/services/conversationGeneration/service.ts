@@ -421,7 +421,9 @@ export class ConversationGenerationService {
       return { cursor: latest, events: [], reset: true };
     }
     if (liveTail && cursor === 0) {
-      return { cursor: latest, events: [], reset: false };
+      // Announce the tail boundary so the client resyncs. A silent jump
+      // would skip a `done` that landed between listActive and this poll.
+      return { cursor: latest, events: [], reset: true };
     }
     const events = await model.listEventsAfter(cursor, CONVERSATION_GENERATION_EVENT_PAGE_SIZE);
     return {

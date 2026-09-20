@@ -1,4 +1,5 @@
 import { LOADING_FLAT } from '@lobechat/const';
+import { TRPCClientError } from '@trpc/client';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -1564,6 +1565,74 @@ describe('conversationGeneration store actions', () => {
         detachedCount: 0,
         keptPostStartAttachCount: 0,
         reason: 'visibility',
+      }),
+    );
+  });
+
+  it('keeps an attached job when status lookup fails transiently', async () => {
+    vi.spyOn(conversationGenerationService, 'getOperation').mockRejectedValue(
+      new TypeError('Failed to fetch'),
+    );
+    const { result } = renderHook(() => useChatStore());
+    const topicKey = messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID);
+
+    act(() => {
+      result.current.attachConversationGeneration({
+        assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        clearGeneration: 0,
+        generation: 0,
+        kind: 'chat',
+        lane: 'lane-live',
+        operationId: 'cgo_probe',
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
+        userScope: 'current',
+      });
+    });
+
+    await act(async () => {
+      await result.current.reconcileConversationGeneration('cgo_probe');
+    });
+
+    expect(useChatStore.getState().serverGenerationOperations[topicKey]?.cgo_probe?.operationId).toBe(
+      'cgo_probe',
+    );
+    expect(useChatStore.getState().chatLoadingIds).toContain(TEST_IDS.ASSISTANT_MESSAGE_ID);
+    expect(useChatStore.getState().refreshMessages).not.toHaveBeenCalled();
+  });
+
+  it('detaches a confirmed missing operation after NOT_FOUND', async () => {
+    const notFound = Object.assign(new TRPCClientError('Generation operation was not found.'), {
+      data: { code: 'NOT_FOUND' },
+    });
+    vi.spyOn(conversationGenerationService, 'getOperation').mockRejectedValue(notFound);
+    const { result } = renderHook(() => useChatStore());
+    const topicKey = messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID);
+
+    act(() => {
+      result.current.attachConversationGeneration({
+        assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        clearGeneration: 0,
+        generation: 0,
+        kind: 'chat',
+        lane: 'lane-gone',
+        operationId: 'cgo_gone',
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
+        userScope: 'current',
+      });
+    });
+
+    await act(async () => {
+      await result.current.reconcileConversationGeneration('cgo_gone');
+    });
+
+    expect(useChatStore.getState().serverGenerationOperations[topicKey]?.cgo_gone).toBeUndefined();
+    expect(useChatStore.getState().chatLoadingIds).not.toContain(TEST_IDS.ASSISTANT_MESSAGE_ID);
+    expect(useChatStore.getState().refreshMessages).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
       }),
     );
   });

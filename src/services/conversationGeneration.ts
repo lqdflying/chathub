@@ -62,23 +62,28 @@ class ConversationGenerationClient {
     });
   };
 
-  listEvents = async (cursor = 0) => {
-    return lambdaClient.conversationGeneration.listEvents.query({ cursor });
+  listEvents = async (cursor = 0, options?: { liveTail?: boolean }) => {
+    return lambdaClient.conversationGeneration.listEvents.query({
+      cursor,
+      ...(options?.liveTail === undefined ? {} : { liveTail: options.liveTail }),
+    });
   };
 
   subscribe = async ({
     cursor = 0,
+    established = false,
     onEvent,
     signal,
   }: {
     cursor?: number;
+    established?: boolean;
     onEvent: (event: ConversationGenerationStreamEvent) => void;
     signal?: AbortSignal;
   }) => {
     const headers = new Headers(await createHeaderWithAuth());
     const snapshot = captureAccountMutationSnapshot(useUserStore.getState());
     if (snapshot) headers.set(CHATHUB_ACCOUNT_SCOPE_HEADER, snapshot.scope);
-    if (cursor > 0) headers.set('Last-Event-ID', String(cursor));
+    if (cursor > 0 || established) headers.set('Last-Event-ID', String(cursor));
 
     const response = await fetch('/webapi/conversation-generation/stream', {
       headers,

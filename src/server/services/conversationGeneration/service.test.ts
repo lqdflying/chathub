@@ -1039,7 +1039,7 @@ describe('ConversationGenerationService cancellation and event cursors', () => {
 
     await expect(
       new ConversationGenerationService({} as any, 'user-1').listEvents(0),
-    ).resolves.toEqual({ cursor: 50, events: [], reset: false });
+    ).resolves.toEqual({ cursor: 50, events: [], reset: true });
     expect(modelMocks.listEventsAfter).not.toHaveBeenCalled();
   });
 

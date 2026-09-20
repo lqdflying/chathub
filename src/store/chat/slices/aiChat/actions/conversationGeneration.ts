@@ -7,6 +7,7 @@ import {
   type ConversationGenerationOperation,
   type ConversationGenerationPhase,
 } from '@lobechat/types';
+import { TRPCClientError } from '@trpc/client';
 import { StateCreator } from 'zustand/vanilla';
 
 import { resolveSyncedPlanningPhaseEnteredAt } from '@/helpers/planningPhaseEnteredAt';
@@ -48,6 +49,14 @@ import type { ServerGenerationOperation } from '../../topic/initialState';
 import { logEventDropped, noteConversationGenerationAttached } from './eventDroppedDebug';
 
 const n = setNamespace('durableGeneration');
+
+const isAuthoritativeMissingOperationError = (error: unknown): boolean => {
+  if (error instanceof TRPCClientError) {
+    const code = (error.data as { code?: string } | undefined)?.code;
+    return code === 'NOT_FOUND';
+  }
+  return false;
+};
 
 // Orphaned `...` placeholders (interrupted browser turns) are only removed once
 // older than this, so a live producer in another tab can still finalize them.
@@ -832,8 +841,10 @@ export const conversationGeneration: StateCreator<
       operation = (await conversationGenerationService.getOperation(
         operationId,
       )) as ConversationGenerationOperation;
-    } catch {
-      operation = undefined;
+    } catch (error) {
+      if (!isAuthoritativeMissingOperationError(error)) {
+        return;
+      }
     }
     const attached = findAttachedOperation(get().serverGenerationOperations, operationId);
     if (!operation) {

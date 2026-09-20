@@ -70,10 +70,20 @@ export const conversationGenerationRouter = router({
   }),
 
   listEvents: conversationGenerationProcedure
-    .input(z.object({ cursor: z.number().int().min(0).optional() }).optional())
+    .input(
+      z
+        .object({
+          cursor: z.number().int().min(0).optional(),
+          liveTail: z.boolean().optional(),
+        })
+        .optional(),
+    )
     .query(async ({ ctx, input }) => {
       await assertEnabled(ctx.userId);
-      return ctx.conversationGenerationService.listEvents(input?.cursor ?? 0);
+      return ctx.conversationGenerationService.listEvents(
+        input?.cursor ?? 0,
+        input?.liveTail === undefined ? undefined : { liveTail: input.liveTail },
+      );
     }),
 
   /**

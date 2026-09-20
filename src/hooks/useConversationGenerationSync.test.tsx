@@ -200,6 +200,63 @@ describe('useConversationGenerationSync', () => {
     expect(vi.mocked(conversationGenerationService.subscribe).mock.calls[1][0].cursor).toBe(12);
   });
 
+  it.each([
+    [100, 101],
+    [0, 1],
+  ])(
+    'does not overwrite delivered cursor %s -> %s when reset sync finishes late',
+    async (resetCursor, deliveredCursor) => {
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const syncActive = vi
+        .fn()
+        .mockResolvedValueOnce(undefined)
+        .mockImplementationOnce(() => gate)
+        .mockResolvedValue(undefined);
+      useChatStore.setState({
+        applyConversationGenerationEvent: vi.fn(),
+        syncActiveConversationGenerations: syncActive,
+      });
+      const userId = `reset-cursor-user-${resetCursor}`;
+      useUserStore.setState({ user: { id: userId } as any });
+
+      const first = renderHook(() => useConversationGenerationSync());
+      await waitFor(() => {
+        expect(conversationGenerationService.subscribe).toHaveBeenCalledTimes(1);
+      });
+
+      const subscription = vi.mocked(conversationGenerationService.subscribe).mock.calls[0][0];
+      act(() => {
+        subscription.onEvent({ cursor: resetCursor, reset: true, type: 'reset' });
+        subscription.onEvent({
+          createdAt: new Date().toISOString(),
+          id: deliveredCursor,
+          operationId: 'operation-later',
+          payload: {},
+          revision: 1,
+          type: 'done',
+          userId,
+        });
+      });
+
+      await act(async () => {
+        release();
+        await gate;
+      });
+      first.unmount();
+
+      renderHook(() => useConversationGenerationSync());
+      await waitFor(() => {
+        expect(conversationGenerationService.subscribe).toHaveBeenCalledTimes(2);
+      });
+      expect(vi.mocked(conversationGenerationService.subscribe).mock.calls[1][0].cursor).toBe(
+        deliveredCursor,
+      );
+    },
+  );
+
   it('does not rewind the cursor when reset omits cursor', async () => {
     const { unmount } = renderHook(() => useConversationGenerationSync());
     await waitFor(() => {

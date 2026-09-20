@@ -45,8 +45,11 @@ export const GET = async (req: NextRequest) => {
 
   const db = await getServerDB();
   const service = new ConversationGenerationService(db, ctx.userId);
-  const lastEventId = req.headers.get('last-event-id') || req.nextUrl.searchParams.get('cursor');
-  let cursor = Number(lastEventId || 0);
+  const lastEventId = req.headers.get('last-event-id');
+  const queryCursor = req.nextUrl.searchParams.get('cursor');
+  const rawCursor = lastEventId || queryCursor;
+  const hasCursor = rawCursor !== null && rawCursor !== '';
+  let cursor = hasCursor ? Number(rawCursor) : 0;
   if (!Number.isFinite(cursor) || cursor < 0) cursor = 0;
 
   const stream = new ReadableStream<Uint8Array>({
@@ -92,7 +95,9 @@ export const GET = async (req: NextRequest) => {
         try {
           const page = await service.listEvents(
             cursor,
-            cursor === 0 && liveTailed ? { liveTail: false } : undefined,
+            cursor === 0 && (liveTailed || Boolean(lastEventId))
+              ? { liveTail: false }
+              : undefined,
           );
           if (cursor === 0) liveTailed = true;
           if (page.reset) {

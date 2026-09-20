@@ -109,4 +109,25 @@ describe('conversationGenerationService.subscribe', () => {
 
     expect(onEvent).toHaveBeenCalledWith({ cursor: undefined, reset: true, type: 'reset' });
   });
+
+  it('sends Last-Event-ID for an established zero cursor', async () => {
+    const fetchMock = vi.fn(async () => {
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.close();
+        },
+      });
+      return new Response(body, { status: 200 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await conversationGenerationService.subscribe({
+      cursor: 0,
+      established: true,
+      onEvent: vi.fn(),
+    });
+
+    const headers = (fetchMock.mock.calls[0]?.[1] as { headers?: Headers } | undefined)?.headers;
+    expect(headers?.get('Last-Event-ID')).toBe('0');
+  });
 });

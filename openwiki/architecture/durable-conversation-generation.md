@@ -214,13 +214,23 @@ The active-lane unique index covers only `pending` and `processing`, so a
 `useConversationGenerationSync` (ChatList `Content.tsx`) opens
 `GET /webapi/conversation-generation/stream` with auth headers. Native
 `EventSource` is not used because it cannot send those headers. The hook keeps a
-per-user event cursor across topic switches. A missing `Last-Event-ID` (cursor
-`0`) live-tails at the latest event id; it does **not** replay the per-user
-event log. A `reset` event (cursor ahead of the stream, or a resume gap above
-`CONVERSATION_GENERATION_SSE_REPLAY_GAP_MAX`) carries that latest cursor,
-resyncs active operations, and does **not** `listEvents(0)`. If SSE ends or
-fails, the hook polls `conversationGeneration.listEvents` while it reconnects
-the stream with backoff instead of staying on poll-only.
+per-user event cursor across topic switches. A missing `Last-Event-ID`
+live-tails at the latest event id and returns `reset: true` so the client
+resyncs active operations; it does **not** replay the per-user event log. An
+established cursor of `0` (`Last-Event-ID: 0` after that bootstrap, or the
+same-connection follow-up poll) pages from zero. A `reset` event (live-tail
+boundary, cursor ahead of the stream, or a resume gap above
+`CONVERSATION_GENERATION_SSE_REPLAY_GAP_MAX`) persists that latest cursor
+when the frame arrives, resyncs, and does **not** `listEvents(0)` or rewrite
+a later delivered cursor after sync. If SSE ends or fails, the hook polls
+`conversationGeneration.listEvents` (`liveTail: false` once a cursor is
+established) while it reconnects the stream with backoff instead of staying
+on poll-only.
+
+A leftover attached job is reconciled by `getOperation`. Confirmed
+`NOT_FOUND` or a terminal status detaches and refreshes. A transport or 5xx
+lookup failure keeps the attachment so later snapshot/`done` frames still
+apply.
 
 Attached operations receive snapshots and `done` even when the user is looking
 at another topic. Dispatch writes into that operation’s session/topic
@@ -615,8 +625,9 @@ Semantics that matter when reading the stream:
   backlog from stuck execution.
 - Delivery: the SSE route (`webapi/conversation-generation/stream`) brackets
   each connection with `sse_opened`/`sse_closed` and counts delivered events.
-  `listEvents(0)` is a live tail (`cursor: latest`, no historical page).
-  `sse_reset` means the cursor was expired or the resume gap exceeded
+  `listEvents(0)` is a live tail (`cursor: latest`, no historical page,
+  `reset: true` so the client resyncs). `sse_reset` means live-tail
+  bootstrap, an expired cursor, or a resume gap above
   `CONVERSATION_GENERATION_SSE_REPLAY_GAP_MAX`; the frame includes
   `cursor: latest` and the route does **not** replay from 0.
   `sse_closed.deliveredCount` should stay small after a container recreate or
