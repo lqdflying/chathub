@@ -100,7 +100,10 @@ import { setNamespace } from '@/utils/storeDebug';
 
 import { chatSelectors, topicSelectors } from '../../../selectors';
 import { messageMapKey } from '../../../utils/messageMapKey';
-import { buildPendingTopicClientIdKey } from '../../../utils/pendingTopicClientId';
+import {
+  buildPendingTopicClientIdKey,
+  findPendingTopicClientId,
+} from '../../../utils/pendingTopicClientId';
 import { notifyToolCallPersistenceFailure } from './persistenceNotification';
 
 const n = setNamespace('ai');
@@ -274,8 +277,12 @@ export const generateAIChatV2: StateCreator<
     const chatConfig = agentChatConfigSelectors.currentChatConfig(getAgentStoreState());
     const autoCreateThreshold =
       chatConfig.autoCreateTopicThreshold ?? DEFAULT_AGENT_CHAT_CONFIG.autoCreateTopicThreshold;
+    const pendingUncreatedTopicId = findPendingTopicClientId(
+      get().pendingTopicClientIds,
+      activeTopicId,
+    );
     const shouldCreateNewTopic =
-      !activeTopicId &&
+      (!activeTopicId || pendingUncreatedTopicId === activeTopicId) &&
       !!chatConfig.enableAutoCreateTopic &&
       messages.length + 2 >= autoCreateThreshold;
     const compactionEligible =
@@ -303,6 +310,27 @@ export const generateAIChatV2: StateCreator<
       if (stillOnSourceConversation) {
         get().mainInputEditor?.setJSONState(jsonState);
       }
+    };
+
+    // Uses the send action's `set`; keeping it here avoids a store-wide helper.
+    // eslint-disable-next-line unicorn/consistent-function-scoping
+    const clearPendingTopicClientId = (topicId?: string | null) => {
+      if (!topicId) return;
+      set(
+        (state) => {
+          const nextPendingTopicClientIds = { ...state.pendingTopicClientIds };
+          let changed = false;
+          for (const [key, pendingId] of Object.entries(nextPendingTopicClientIds)) {
+            if (pendingId === topicId) {
+              delete nextPendingTopicClientIds[key];
+              changed = true;
+            }
+          }
+          return changed ? { pendingTopicClientIds: nextPendingTopicClientIds } : state;
+        },
+        false,
+        n('sendMessageInServer/pendingTopicClientId/clear'),
+      );
     };
 
     const adoptCreatedTopic = (
@@ -453,7 +481,9 @@ export const generateAIChatV2: StateCreator<
       );
       const pendingTopicClientIds = get().pendingTopicClientIds;
       const clientTopicId =
-        pendingTopicClientIds[pendingKey] ?? idGenerator('topics');
+        pendingTopicClientIds[pendingKey] ??
+        findPendingTopicClientId(pendingTopicClientIds, activeTopicId) ??
+        idGenerator('topics');
       if (!pendingTopicClientIds[pendingKey]) {
         set(
           {
@@ -589,7 +619,6 @@ export const generateAIChatV2: StateCreator<
       threadId: activeThreadId,
       topicId: sendTopicId ?? undefined,
     });
-    get().internal_markDurableGenerating(tempAssistantId, true);
     const enableHistoryCompaction = !!sendTopicId && compactionEligible && !createNewTopicOnSend;
     const compactionConversation =
       enableHistoryCompaction && sendTopicId
@@ -748,6 +777,10 @@ export const generateAIChatV2: StateCreator<
     if (!isPersistenceCurrent()) {
       discardOptimisticSend();
       return;
+    }
+
+    if (tempAssistantId) {
+      get().internal_markDurableGenerating(tempAssistantId, true);
     }
 
     const hydrateSendTopic = async () => {
@@ -986,21 +1019,7 @@ export const generateAIChatV2: StateCreator<
       }
 
       if (data.topicId && data.topicId === sendTopicId) {
-        const pendingKey = buildPendingTopicClientIdKey(
-          requestedScope,
-          conversationContext.sessionId,
-          sourceClearContext.clearGeneration,
-        );
-        set(
-          (state) => {
-            if (!state.pendingTopicClientIds[pendingKey]) return state;
-            const nextPendingTopicClientIds = { ...state.pendingTopicClientIds };
-            delete nextPendingTopicClientIds[pendingKey];
-            return { pendingTopicClientIds: nextPendingTopicClientIds };
-          },
-          false,
-          n('sendMessageInServer/pendingTopicClientId/clear'),
-        );
+        clearPendingTopicClientId(data.topicId);
       }
 
       attachDurableOperation();
@@ -1174,6 +1193,10 @@ export const generateAIChatV2: StateCreator<
     }
 
     if (!data) return;
+
+    if (data.topicId && data.topicId === sendTopicId) {
+      clearPendingTopicClientId(data.topicId);
+    }
 
     if (data.deferReason && data.assistantMessageId && isSameAccount()) {
       get().internal_markDurableLaneDeferred({

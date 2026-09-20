@@ -1774,6 +1774,73 @@ describe('chatMessage actions', () => {
       });
     });
 
+    it('does not fetch messages for a pending uncreated topic', async () => {
+      const topicId = 'tpc_pending';
+      const sessionId = 'session-id';
+      const mapKey = messageMapKey(sessionId, topicId);
+      act(() => {
+        useChatStore.setState({
+          activeId: sessionId,
+          activeTopicId: topicId,
+          messagesMap: {
+            [mapKey]: [
+              { content: 'hello', id: 'tmp_user', role: 'user' },
+              { content: '...', id: 'tmp_assistant', role: 'assistant' },
+            ] as any,
+          },
+          pendingTopicClientIds: { 'current:session-id:0': topicId },
+        });
+      });
+      (messageService.getMessages as Mock).mockResolvedValue([]);
+
+      renderHook(() => useChatStore().useFetchMessages(true, sessionId, topicId));
+
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(messageService.getMessages).not.toHaveBeenCalled();
+      expect(useChatStore.getState().messagesMap[mapKey]).toHaveLength(2);
+    });
+
+    it('does not replace in-flight optimistic rows with an empty topic fetch', async () => {
+      const topicId = 'topic-id';
+      const sessionId = 'session-id';
+      const mapKey = messageMapKey(sessionId, topicId);
+      act(() => {
+        useChatStore.setState({
+          activeId: sessionId,
+          activeTopicId: topicId,
+          mainSendMessageOperations: {
+            [mapKey]: { isLoading: true },
+          },
+          messagesMap: {
+            [mapKey]: [
+              { content: 'hello', id: 'tmp_user', role: 'user' },
+              { content: '...', id: 'tmp_assistant', role: 'assistant' },
+            ] as any,
+          },
+        });
+      });
+      (messageService.getMessages as Mock).mockResolvedValue([]);
+
+      renderHook(() => useChatStore().useFetchMessages(true, sessionId, topicId));
+
+      await waitFor(() => {
+        expect(messageService.getMessages).toHaveBeenCalledWith(sessionId, topicId);
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(useChatStore.getState().messagesMap[mapKey]).toHaveLength(2);
+      expect(useChatStore.getState().messagesMap[mapKey]?.map((row) => row.id)).toEqual([
+        'tmp_user',
+        'tmp_assistant',
+      ]);
+    });
+
     it('does not revalidate agent config for ordinary message fetches', async () => {
       const refreshIncludingSiblings = vi.fn(async () => undefined);
       vi.spyOn(agentStore, 'getAgentStoreState').mockReturnValue({

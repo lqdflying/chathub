@@ -55,6 +55,10 @@ import {
   findDeferredBrowserGenerationLaneForConversation,
 } from '@/store/chat/utils/deferredBrowserGeneration';
 import { findMessageInMessagesMap, messageMapKey } from '@/store/chat/utils/messageMapKey';
+import {
+  isPendingUncreatedTopicId,
+  shouldIgnoreEmptyFetchedMessages,
+} from '@/store/chat/utils/pendingTopicClientId';
 import { useSessionStore } from '@/store/session';
 import { sessionSelectors } from '@/store/session/selectors';
 import { useToolStore } from '@/store/tool';
@@ -736,9 +740,13 @@ export const chatMessage: StateCreator<
    */
   useFetchMessages: (enable, messageContextId, activeTopicId, type = 'session') => {
     const requestedScope = useUserStore(authSelectors.currentUserScope);
+    const pendingUncreated = isPendingUncreatedTopicId(
+      get().pendingTopicClientIds,
+      activeTopicId,
+    );
 
     return useClientDataSWR<UIChatMessage[]>(
-      enable && requestedScope
+      enable && requestedScope && !pendingUncreated
         ? [SWR_USE_FETCH_MESSAGES, requestedScope, messageContextId, activeTopicId, type]
         : null,
       async (cacheKey: [string, string, string, string | undefined, string]) => {
@@ -754,8 +762,21 @@ export const chatMessage: StateCreator<
         onSuccess: (messages, key) => {
           if (authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope) return;
 
-          const mapKey = messageMapKey(messageContextId || '', activeTopicId);
+          const queryKey = Array.isArray(key) ? key : [];
+          const fetchedSessionId = String(queryKey[2] ?? messageContextId ?? '');
+          const fetchedTopicId = (queryKey[3] as string | undefined) ?? undefined;
+          const mapKey = messageMapKey(fetchedSessionId, fetchedTopicId);
           const previousMessages = get().messagesMap[mapKey] || [];
+          if (
+            shouldIgnoreEmptyFetchedMessages(get(), {
+              incoming: messages,
+              mapKey,
+              previous: previousMessages,
+              topicId: fetchedTopicId,
+            })
+          ) {
+            return;
+          }
           const nextMap = {
             ...get().messagesMap,
             [mapKey]: preserveChatImageToolContentOnFetch(

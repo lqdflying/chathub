@@ -226,12 +226,16 @@ no longer matches the attached operation. The SSE/poll cursor is advanced **afte
 On the first send of an empty auto-created topic the client adopts a
 `pendingTopicClientIds` topic id, switches the list onto that key, and sends
 `newTopic.id` / `clientId` with the enqueue. The server must create the topic
-with that id. Attach runs as soon as `operationId` is known (after the send
-refresh). Unattached SSE events that arrive while `durableInFlightEnqueues` is
-non-empty are buffered (capped) and replayed on attach in revision order, so
-early snapshots are not discarded. Context assembly stays on the Graphile
-worker (`buildConversationChatPayload`); this path does not pre-warm empty
-threads.
+with that id. That pending id stays the create-intent marker until persistence
+is confirmed, so a failed first send retries the same id with `newTopic` instead
+of posting to a phantom topic. Message fetches for an unpersisted pending topic
+are suppressed; an empty SWR snapshot cannot replace in-flight optimistic rows
+or a conversation that already has an attached operation. Attach runs as soon
+as `operationId` is known (after the send refresh). Unattached SSE events that
+arrive while `durableInFlightEnqueues` is non-empty are buffered (capped) and
+replayed on attach in revision order, so early snapshots are not discarded.
+Context assembly stays on the Graphile worker
+(`buildConversationChatPayload`); this path does not pre-warm empty threads.
 
 `sendMessageInServer` still refreshes the sending conversation and attaches a
 returned `operationId` after leave (PC topic switch, mobile back, PWA abort).

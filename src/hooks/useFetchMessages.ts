@@ -1,16 +1,19 @@
 import { useEffect } from 'react';
 
 import { useChatStore } from '@/store/chat';
+import { isPendingUncreatedTopicId } from '@/store/chat/utils/pendingTopicClientId';
 import { useSessionStore } from '@/store/session';
 import { sessionSelectors } from '@/store/session/selectors';
 
 export const useFetchMessages = () => {
   const sessionId = useSessionStore((s) => s.activeId);
-  const [activeTopicId, useFetchMessages, internal_updateActiveSessionType] = useChatStore((s) => [
-    s.activeTopicId,
-    s.useFetchMessages,
-    s.internal_updateActiveSessionType,
-  ]);
+  const [activeTopicId, useFetchMessages, internal_updateActiveSessionType, pendingUncreated] =
+    useChatStore((s) => [
+      s.activeTopicId,
+      s.useFetchMessages,
+      s.internal_updateActiveSessionType,
+      isPendingUncreatedTopicId(s.pendingTopicClientIds, s.activeTopicId),
+    ]);
 
   const [currentSession, isGroupSession] = useSessionStore((s) => [
     sessionSelectors.currentSession(s),
@@ -26,5 +29,10 @@ export const useFetchMessages = () => {
     }
   }, [currentSession?.id, currentSession?.type, internal_updateActiveSessionType]);
 
-  useFetchMessages(true, sessionId, activeTopicId, isGroupSession ? 'group' : 'session');
+  useFetchMessages(
+    !pendingUncreated,
+    sessionId,
+    activeTopicId,
+    isGroupSession ? 'group' : 'session',
+  );
 };

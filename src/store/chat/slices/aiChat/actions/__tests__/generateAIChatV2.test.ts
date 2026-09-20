@@ -21,6 +21,7 @@ import { chatService } from '@/services/chat';
 import { conversationGenerationService } from '@/services/conversationGeneration';
 import { messageService } from '@/services/message';
 import { ragService } from '@/services/rag';
+import { topicService } from '@/services/topic';
 import { useAgentStore } from '@/store/agent';
 import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selectors';
 import { resolveConversationAgentRuntime } from '@/store/chat/helpers/resolveConversationAgentRuntime';
@@ -807,6 +808,66 @@ describe('generateAIChatV2 actions', () => {
         expect(messageService.updateMessageError).not.toHaveBeenCalled();
         expect(result.current.internal_execAgentRuntime).toHaveBeenCalled();
       });
+
+      it('runs real pre-send compaction before the optimistic assistant is marked generating', async () => {
+        vi.mocked(agentChatConfigSelectors.currentChatConfig).mockReturnValue({
+          ...DEFAULT_AGENT_CHAT_CONFIG,
+          enableCompressHistory: true,
+          enableHistoryCount: true,
+          enableTokenThresholdAutoCompact: true,
+          historyCount: 4,
+        });
+        vi.spyOn(agentChatConfigSelectors, 'enableHistoryCount').mockReturnValue(true);
+        vi.spyOn(agentChatConfigSelectors, 'historyCount').mockReturnValue(4);
+
+        const key = messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID);
+        const real = useChatStore.getInitialState();
+        const outcomes: Array<{ reason?: string; status: string }> = [];
+        const fetchPresetTaskResult = vi
+          .spyOn(chatService, 'fetchPresetTaskResult')
+          .mockImplementation(async ({ onFinish }: any) => {
+            await onFinish?.('updated cumulative summary', {});
+          });
+        const persistMemoryCompaction = vi
+          .spyOn(topicService, 'persistMemoryCompaction')
+          .mockResolvedValue({ accepted: true, metadata: {} } as any);
+
+        act(() => {
+          useChatStore.setState({
+            messagesMap: {
+              [key]: [
+                createMockMessage({ id: 'u1', role: 'user' }),
+                createMockMessage({ id: 'a1', role: 'assistant' }),
+                createMockMessage({ id: 'u2', role: 'user' }),
+                createMockMessage({ id: 'a2', role: 'assistant' }),
+                createMockMessage({ id: 'u3', role: 'user' }),
+                createMockMessage({ id: 'a3', role: 'assistant' }),
+              ],
+            },
+            triggerMessageCountMemoryCompaction: async (...args) => {
+              const result = await real.triggerMessageCountMemoryCompaction(...args);
+              outcomes.push(result);
+              return result;
+            },
+            triggerTokenThresholdMemoryCompaction: async (...args) => {
+              const result = await real.triggerTokenThresholdMemoryCompaction(...args);
+              outcomes.push(result);
+              return result;
+            },
+          });
+        });
+
+        await act(async () => {
+          await useChatStore.getState().sendMessageInServer({ message: 'next turn' });
+        });
+
+        expect(outcomes.length).toBeGreaterThanOrEqual(2);
+        expect(outcomes.slice(0, 2)).not.toContainEqual(
+          expect.objectContaining({ reason: 'generation_in_progress' }),
+        );
+        expect(fetchPresetTaskResult).toHaveBeenCalled();
+        expect(persistMemoryCompaction).toHaveBeenCalled();
+      });
     });
 
     describe('message creation', () => {
@@ -1393,6 +1454,172 @@ describe('generateAIChatV2 actions', () => {
             topicId: adoptedTopicId,
           }),
         );
+      });
+
+      it('retries a failed first send with the same pending newTopic id', async () => {
+        const realSwitchTopic = useChatStore.getInitialState().switchTopic;
+        vi.mocked(isClientDurableConversationGenerationEnabled).mockReturnValue(true);
+        vi.spyOn(aiProviderSelectors, 'isProviderFetchOnClient').mockImplementation(
+          () => () => false,
+        );
+        vi.mocked(agentChatConfigSelectors.currentChatConfig).mockReturnValue({
+          ...DEFAULT_AGENT_CHAT_CONFIG,
+          autoCreateTopicThreshold: 1,
+          enableAutoCreateTopic: true,
+          enableCompressHistory: false,
+        });
+
+        const persistedTopicIds = new Set<string>();
+        const sendMock = vi.mocked(aiChatService.sendMessageInServer);
+        sendMock.mockImplementationOnce(async () => {
+          throw new TRPCClientError('transaction rolled back');
+        });
+        sendMock.mockImplementation(async (params: any) => {
+          if (!params.newTopic?.id) {
+            throw new TRPCClientError('foreign key violation');
+          }
+          persistedTopicIds.add(params.newTopic.id);
+          return {
+            assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+            isCreateNewTopic: true,
+            messages: [
+              {
+                content: params.newUserMessage?.content ?? '',
+                id: TEST_IDS.USER_MESSAGE_ID,
+                role: 'user',
+                sessionId: TEST_IDS.SESSION_ID,
+                topicId: params.newTopic.id,
+              },
+            ],
+            topicId: params.newTopic.id,
+            topics: [],
+            userMessageId: TEST_IDS.USER_MESSAGE_ID,
+          } as any;
+        });
+
+        act(() => {
+          useChatStore.setState({
+            activeTopicId: undefined,
+            messagesMap: {},
+            switchTopic: realSwitchTopic,
+            topicMaps: {},
+          });
+        });
+
+        await act(async () => {
+          await useChatStore.getState().sendMessageInServer({ message: 'first send' });
+        });
+
+        const first = sendMock.mock.calls[0][0];
+        expect(first.newTopic?.id).toBeTruthy();
+        expect(useChatStore.getState().activeTopicId).toBe(first.topicId);
+        expect(persistedTopicIds.size).toBe(0);
+
+        await act(async () => {
+          await useChatStore.getState().sendMessageInServer({ message: 'retry' });
+        });
+
+        const retry = sendMock.mock.calls[1][0];
+        expect(retry.newTopic?.id).toBe(first.newTopic?.id);
+        expect(persistedTopicIds.has(retry.newTopic.id)).toBe(true);
+      });
+
+      it('keeps optimistic rows when a pending-topic fetch returns empty', async () => {
+        const realSwitchTopic = useChatStore.getInitialState().switchTopic;
+        vi.mocked(isClientDurableConversationGenerationEnabled).mockReturnValue(true);
+        vi.spyOn(aiProviderSelectors, 'isProviderFetchOnClient').mockImplementation(
+          () => () => false,
+        );
+        vi.mocked(agentChatConfigSelectors.currentChatConfig).mockReturnValue({
+          ...DEFAULT_AGENT_CHAT_CONFIG,
+          autoCreateTopicThreshold: 1,
+          enableAutoCreateTopic: true,
+          enableCompressHistory: false,
+        });
+
+        const enqueue = createDeferred<any>();
+        let returnEmptyFetch = false;
+        vi.mocked(aiChatService.sendMessageInServer).mockReturnValueOnce(enqueue.promise);
+        vi.spyOn(messageService, 'getMessages').mockImplementation(async (_sessionId, topicId) => {
+          if (!topicId || !returnEmptyFetch) return [];
+          return [];
+        });
+
+        act(() => {
+          useChatStore.setState({
+            activeTopicId: undefined,
+            messagesMap: {},
+            switchTopic: realSwitchTopic,
+            topicMaps: {},
+          });
+        });
+
+        const hook = renderHook(() => {
+          const topicId = useChatStore((s) => s.activeTopicId);
+          return useChatStore.getState().useFetchMessages(true, TEST_IDS.SESSION_ID, topicId);
+        });
+
+        let send!: Promise<void>;
+        await act(async () => {
+          send = useChatStore.getState().sendMessageInServer({ message: 'first send' });
+        });
+        await vi.waitFor(() => expect(aiChatService.sendMessageInServer).toHaveBeenCalledTimes(1));
+
+        const params = vi.mocked(aiChatService.sendMessageInServer).mock.calls[0][0];
+        const key = messageMapKey(TEST_IDS.SESSION_ID, params.topicId);
+        expect(useChatStore.getState().messagesMap[key]).toHaveLength(2);
+        expect(messageService.getMessages).not.toHaveBeenCalledWith(
+          TEST_IDS.SESSION_ID,
+          params.topicId,
+        );
+
+        const persisted = [
+          {
+            content: 'first send',
+            id: TEST_IDS.USER_MESSAGE_ID,
+            role: 'user',
+            sessionId: TEST_IDS.SESSION_ID,
+            topicId: params.topicId,
+          },
+          {
+            content: LOADING_FLAT,
+            id: TEST_IDS.ASSISTANT_MESSAGE_ID,
+            role: 'assistant',
+            sessionId: TEST_IDS.SESSION_ID,
+            topicId: params.topicId,
+          },
+        ];
+        enqueue.resolve({
+          assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+          isCreateNewTopic: true,
+          messages: persisted,
+          operationId: 'cgo_review',
+          topicId: params.topicId,
+          topics: [],
+          userMessageId: TEST_IDS.USER_MESSAGE_ID,
+        });
+        await act(async () => {
+          await send;
+        });
+
+        const rowsAfterSend = useChatStore.getState().messagesMap[key] || [];
+        expect(rowsAfterSend).toHaveLength(2);
+        const idsAfterSend = rowsAfterSend.map((row) => row.id);
+
+        returnEmptyFetch = true;
+        hook.rerender();
+        await vi.waitFor(() => {
+          expect(messageService.getMessages).toHaveBeenCalledWith(
+            TEST_IDS.SESSION_ID,
+            params.topicId,
+          );
+        });
+        await act(async () => {
+          await Promise.resolve();
+        });
+
+        expect(useChatStore.getState().messagesMap[key]?.map((row) => row.id)).toEqual(idsAfterSend);
+        hook.unmount();
       });
 
       it('creates the auto-topic, compacting overflow before durable enqueue', async () => {
