@@ -319,6 +319,56 @@ describe('useConversationGenerationSync', () => {
     expect(vi.mocked(conversationGenerationService.subscribe).mock.calls[1][0].cursor).toBe(0);
   });
 
+  it('acknowledges a stale-fence drop so a later event can advance the cursor', async () => {
+    const applyEvent = vi
+      .fn()
+      .mockReturnValueOnce({
+        applied: false,
+        buffered: false,
+        owned: true,
+        recoverable: false,
+      })
+      .mockReturnValue({ applied: true, buffered: false, owned: true });
+    useChatStore.setState({
+      applyConversationGenerationEvent: applyEvent,
+      syncActiveConversationGenerations: vi.fn(async () => {}),
+    });
+    const userId = 'fence-drop-cursor-user';
+    useUserStore.setState({ user: { id: userId } as any });
+
+    const { unmount } = renderHook(() => useConversationGenerationSync());
+    await waitFor(() => {
+      expect(conversationGenerationService.subscribe).toHaveBeenCalledTimes(1);
+    });
+
+    const subscription = vi.mocked(conversationGenerationService.subscribe).mock.calls[0][0];
+    subscription.onEvent({
+      createdAt: new Date().toISOString(),
+      id: 9,
+      operationId: 'cgo_fenced',
+      payload: { status: 'succeeded' },
+      revision: 1,
+      type: 'done',
+      userId,
+    });
+    subscription.onEvent({
+      createdAt: new Date().toISOString(),
+      id: 10,
+      operationId: 'cgo_later',
+      payload: { status: 'succeeded' },
+      revision: 2,
+      type: 'done',
+      userId,
+    });
+    unmount();
+
+    renderHook(() => useConversationGenerationSync());
+    await waitFor(() => {
+      expect(conversationGenerationService.subscribe).toHaveBeenCalledTimes(2);
+    });
+    expect(vi.mocked(conversationGenerationService.subscribe).mock.calls[1][0].cursor).toBe(10);
+  });
+
   it('persists the SSE cursor for a never-attached foreign done', async () => {
     const applyEvent = vi.fn(() => ({ applied: false, buffered: false, owned: false }));
     useChatStore.setState({

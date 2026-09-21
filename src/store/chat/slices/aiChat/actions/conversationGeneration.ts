@@ -46,7 +46,11 @@ import { useUserStore } from '@/store/user';
 import { setNamespace } from '@/utils/storeDebug';
 
 import type { ServerGenerationOperation } from '../../topic/initialState';
+import type { ConversationGenerationApplyResult } from './conversationGenerationApply';
 import { logEventDropped, noteConversationGenerationAttached } from './eventDroppedDebug';
+
+export type { ConversationGenerationApplyResult } from './conversationGenerationApply';
+export { shouldPersistConversationGenerationCursor } from './conversationGenerationApply';
 
 const n = setNamespace('durableGeneration');
 
@@ -69,19 +73,6 @@ const isAuthoritativeMissingOperationError = (error: unknown): boolean => {
 // Orphaned `...` placeholders (interrupted browser turns) are only removed once
 // older than this, so a live producer in another tab can still finalize them.
 const ORPHAN_PLACEHOLDER_GRACE_MS = 5 * 60 * 1000;
-
-export interface ConversationGenerationApplyResult {
-  applied: boolean;
-  buffered: boolean;
-  owned: boolean;
-}
-
-export const shouldPersistConversationGenerationCursor = (
-  result: ConversationGenerationApplyResult | void | undefined,
-) => {
-  if (!result) return true;
-  return result.applied || result.buffered || !result.owned;
-};
 
 export interface ConversationGenerationAction {
   applyConversationGenerationEvent: (
@@ -192,21 +183,17 @@ const attachedOperationApplyBlocker = (
   return undefined;
 };
 
-const shouldApplyAttachedOperation = (
-  attached: ServerGenerationOperation | undefined,
-  state: ChatStore,
-) => !attachedOperationApplyBlocker(attached, state);
-
 const APPLIED_OWNED_RESULT: ConversationGenerationApplyResult = {
   applied: true,
   buffered: false,
   owned: true,
 };
 
-const DROPPED_OWNED_RESULT: ConversationGenerationApplyResult = {
+const DROPPED_OWNED_TERMINAL_RESULT: ConversationGenerationApplyResult = {
   applied: false,
   buffered: false,
   owned: true,
+  recoverable: false,
 };
 
 const DROPPED_FOREIGN_RESULT: ConversationGenerationApplyResult = {
@@ -347,7 +334,7 @@ export const conversationGeneration: StateCreator<
   [],
   ConversationGenerationAction
 > = (set, get) => ({
-  applyConversationGenerationEvent: (event) => {
+  applyConversationGenerationEvent: (event): ConversationGenerationApplyResult => {
     const state = get();
     let attached = findAttachedOperation(state.serverGenerationOperations, event.operationId);
     if (!attached) {
@@ -369,11 +356,11 @@ export const conversationGeneration: StateCreator<
       if (isTerminal && (applyBlocker === 'stale_fence' || applyBlocker === 'stale_generation')) {
         logEventDropped(event.operationId, applyBlocker, event.type, event.revision);
       }
-      return DROPPED_OWNED_RESULT;
+      return DROPPED_OWNED_TERMINAL_RESULT;
     }
     if (attached.revision !== undefined && event.revision <= attached.revision) {
       logEventDropped(event.operationId, 'stale_revision', event.type, event.revision);
-      return DROPPED_OWNED_RESULT;
+      return DROPPED_OWNED_TERMINAL_RESULT;
     }
 
     const payload = event.payload || {};

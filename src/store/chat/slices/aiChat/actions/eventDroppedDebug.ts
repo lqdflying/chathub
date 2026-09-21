@@ -65,10 +65,10 @@ const recordDropShape = (
   distinctOps.add(operationId);
   if (emitted) emittedCount += 1;
   else suppressedCount += 1;
-    if (reason === 'stale_revision' || reason === 'stale_generation' || reason === 'stale_fence') {
-      staleRevisionCount += 1;
-      return;
-    }
+  if (reason === 'stale_revision' || reason === 'stale_generation' || reason === 'stale_fence') {
+    staleRevisionCount += 1;
+    return;
+  }
   notAttachedCount += 1;
   switch (type) {
     case 'done': {

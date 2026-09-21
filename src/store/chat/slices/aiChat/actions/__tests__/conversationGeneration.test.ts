@@ -2475,6 +2475,14 @@ describe('conversationGeneration store actions', () => {
         owned: true,
       }),
     ).toBe(false);
+    expect(
+      shouldPersistConversationGenerationCursor({
+        applied: false,
+        buffered: false,
+        owned: true,
+        recoverable: false,
+      }),
+    ).toBe(true);
     expect(shouldPersistConversationGenerationCursor(undefined)).toBe(true);
   });
 
@@ -2625,7 +2633,12 @@ describe('conversationGeneration store actions', () => {
       });
     });
 
-    expect(refused).toEqual({ applied: false, buffered: false, owned: true });
+    expect(refused).toEqual({
+      applied: false,
+      buffered: false,
+      owned: true,
+      recoverable: false,
+    });
     expect(
       useChatStore.getState().serverGenerationOperations[
         messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)

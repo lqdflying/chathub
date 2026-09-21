@@ -245,12 +245,14 @@ at another topic. Dispatch writes into that operation’s session/topic
 `messagesMap`. A still-attached `done`/`error` whose **navigation** generation
 drifted is rebased via `attachConversationGeneration` and applied once. A
 **clear** fence drift (Stop / delete / reset) still refuses the frame and logs
-`event_dropped` with `stale_fence`. The SSE/poll cursor is persisted only when
-`applyConversationGenerationEvent` reports `applied`, `buffered`, or `!owned`
+`event_dropped` with `stale_fence`. The SSE/poll cursor is persisted when
+`applyConversationGenerationEvent` reports `applied`, `buffered`, `!owned`
 (foreign account events, including a superseded lane op after
-`cancelAndDetachDurableOps`). An owned drop (`not_attached` after untrack,
-`stale_revision`, or a refused clear fence) does **not** advance the cursor, so
-poll/live-tail can redeliver it.
+`cancelAndDetachDurableOps`), or a **terminal** owned drop (`recoverable:
+false`: clear fence, already-superseded revision). A recoverable owned drop
+(attach-race while this tab still expects the frame) does **not** advance the
+cursor, so poll/live-tail can redeliver it. A refused clear fence is
+acknowledged so later ids do not stall.
 
 On the first send of an empty auto-created topic the client adopts a
 `pendingTopicClientIds` topic id, switches the list onto that key, and sends

@@ -76,6 +76,7 @@ import {
   recordAnchorDispatchWitness,
 } from '@/store/chat/helpers/recordAnchorDispatchWitness';
 import { resolveConversationAgentRuntime } from '@/store/chat/helpers/resolveConversationAgentRuntime';
+import type { ChatStoreState } from '@/store/chat/initialState';
 import { ChatStore } from '@/store/chat/store';
 import type { ConversationContext } from '@/store/chat/types';
 import { preventLeavingFn, toggleBooleanList } from '@/store/chat/utils';
@@ -136,6 +137,30 @@ const RETRY_LOADING_KEYS = [
   'searchWorkflowLoadingIds',
   'pluginApiLoadingIds',
 ] as const;
+
+type RetryMessageDraft = Pick<
+  ChatStoreState,
+  | (typeof RETRY_LOADING_KEYS)[number]
+  | 'activeThreadId'
+  | 'chatLoadingAbortControllersByLane'
+  | 'chatLoadingIdsAbortController'
+  | 'chatLoadingLaneByMessageId'
+  | 'mainSendMessageOperations'
+  | 'messageInToolsCallingIdsAbortController'
+  | 'messagesMap'
+  | 'pluginApiAbortControllers'
+  | 'portalMessageDetail'
+  | 'portalThreadId'
+  | 'portalToolMessage'
+  | 'reasoningLoadingIdsAbortController'
+  | 'searchWorkflowLoadingIdsAbortController'
+  | 'showPortal'
+  | 'supervisorTodos'
+  | 'threadLoadingIds'
+  | 'threadMaps'
+  | 'threadStartMessageId'
+  | 'toolCallingStreamIds'
+>;
 
 /**
  * Auxiliary loading lists share one bookkeeping-only controller per list (no
@@ -1831,7 +1856,7 @@ export const generateAIChat: StateCreator<
           .catch(console.error);
       }
       set(
-        produce((draft: ChatStore) => {
+        produce((draft: RetryMessageDraft) => {
           draft.messagesMap[chatKey] = (draft.messagesMap[chatKey] || []).filter(
             ({ id }) => !discardedIds.has(id),
           );
@@ -1911,7 +1936,7 @@ export const generateAIChat: StateCreator<
         const isOriginalChatActive =
           get().activeId === activeId && get().activeTopicId === activeTopicId;
         set(
-          produce((draft: ChatStore) => {
+          produce((draft: RetryMessageDraft) => {
             draft.messagesMap[chatKey] = (draft.messagesMap[chatKey] || []).filter(
               ({ id }) => !persistedMessageIds.has(id),
             );
@@ -2133,7 +2158,7 @@ export const generateAIChat: StateCreator<
         const isOriginalChatActive =
           get().activeId === activeId && get().activeTopicId === activeTopicId;
         set(
-          produce((draft: ChatStore) => {
+          produce((draft: RetryMessageDraft) => {
             draft.messagesMap[chatKey] = originalMessages;
             if (activeTopicId) draft.threadMaps[activeTopicId] = originalThreads;
             if (isOriginalChatActive) {
