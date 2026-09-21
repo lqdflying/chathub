@@ -632,6 +632,45 @@ export const generateAIChat: StateCreator<
           topicId: conversationContext.topicId ?? undefined,
           userMessageId,
         });
+        if (isConversationGenerationDeferred(enqueueResult)) {
+          pendingDeferral = enqueueResult;
+        }
+        const operation = asConversationGenerationOperation(enqueueResult);
+        if (
+          operation &&
+          isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot)
+        ) {
+          // D2/T1: associate the pre-RPC captured sent settings. Do not
+          // re-read live agent config after the await (mid-wait edits
+          // would undercount). Missing evidence or parent → fallback.
+          if (operation.assistantMessageId) {
+            commitAnchorDispatchWitness({
+              assistantMessageId: operation.assistantMessageId,
+              chatState: get(),
+              conversation: {
+                sessionId: conversationContext.sessionId,
+                threadId: conversationContext.threadId,
+                topicId: conversationContext.topicId,
+              },
+              evidence: durableDispatchEvidence,
+              parentMessageId: userMessageId,
+            });
+          }
+          get().attachConversationGeneration({
+            assistantMessageId: operation.assistantMessageId || undefined,
+            clearGeneration: conversationContext.clearGeneration,
+            generation: conversationContext.generation,
+            kind: operation.kind,
+            lane: operation.lane,
+            laneGeneration: operation.laneGeneration,
+            operationId: operation.id,
+            revision: operation.revision,
+            sessionId: conversationContext.sessionId,
+            threadId: operation.threadId || undefined,
+            topicId: conversationContext.topicId ?? undefined,
+            userScope: accountMutationSnapshot.scope,
+          });
+        }
       } finally {
         set(
           (state) => untrackDurableEnqueue(state, enqueueLaneKey, enqueueIdempotencyKey),
@@ -639,41 +678,10 @@ export const generateAIChat: StateCreator<
           n('coreProcessMessage/untrackDurableEnqueue'),
         );
       }
-      if (isConversationGenerationDeferred(enqueueResult)) {
-        pendingDeferral = enqueueResult;
-      }
-      const operation = asConversationGenerationOperation(enqueueResult);
-      if (operation && isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot)) {
-        // D2/T1: associate the pre-RPC captured sent settings. Do not
-        // re-read live agent config after the await (mid-wait edits
-        // would undercount). Missing evidence or parent → fallback.
-        if (operation.assistantMessageId) {
-          commitAnchorDispatchWitness({
-            assistantMessageId: operation.assistantMessageId,
-            chatState: get(),
-            conversation: {
-              sessionId: conversationContext.sessionId,
-              threadId: conversationContext.threadId,
-              topicId: conversationContext.topicId,
-            },
-            evidence: durableDispatchEvidence,
-            parentMessageId: userMessageId,
-          });
-        }
-        get().attachConversationGeneration({
-          assistantMessageId: operation.assistantMessageId || undefined,
-          clearGeneration: conversationContext.clearGeneration,
-          generation: conversationContext.generation,
-          kind: operation.kind,
-          lane: operation.lane,
-          laneGeneration: operation.laneGeneration,
-          operationId: operation.id,
-          revision: operation.revision,
-          sessionId: conversationContext.sessionId,
-          threadId: operation.threadId || undefined,
-          topicId: conversationContext.topicId ?? undefined,
-          userScope: accountMutationSnapshot.scope,
-        });
+      if (
+        asConversationGenerationOperation(enqueueResult) &&
+        isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot)
+      ) {
         if (!isCurrentConversation()) return;
         await refreshMessages();
         return;
@@ -2026,6 +2034,29 @@ export const generateAIChat: StateCreator<
             topicId: activeTopicId ?? undefined,
             userMessageId: anchor.message.id,
           });
+          const operation = asConversationGenerationOperation(enqueueResult);
+          if (operation && isCurrentConversation()) {
+            logGenerationDebugClientSafe('regenerate_enqueue_settled', {
+              fellThroughToBrowser: false,
+              outcome: 'attached',
+              recovered: Boolean(operation),
+              spanId: debugSpanId,
+            });
+            get().attachConversationGeneration({
+              assistantMessageId: operation.assistantMessageId || undefined,
+              clearGeneration: requestedClearFence,
+              generation: get().conversationNavigationGeneration,
+              kind: operation.kind,
+              lane: operation.lane,
+              laneGeneration: operation.laneGeneration,
+              operationId: operation.id,
+              revision: operation.revision,
+              sessionId: activeId,
+              threadId: operation.threadId || undefined,
+              topicId: activeTopicId,
+              userScope: accountMutationSnapshot.scope,
+            });
+          }
         } finally {
           set(
             (state) => untrackDurableEnqueue(state, enqueueLaneKey, regenerateIdempotencyKey),
@@ -2039,6 +2070,7 @@ export const generateAIChat: StateCreator<
           // was in flight: cancel the orphaned operation instead of attaching
           // it or falling through to a legacy regeneration.
           if (operation) {
+            get().detachConversationGeneration(operation.id);
             await conversationGenerationService.cancel(operation.id).catch(() => undefined);
             logGenerationDebugClientSafe('regenerate_enqueue_settled', {
               fellThroughToBrowser: false,
@@ -2069,26 +2101,6 @@ export const generateAIChat: StateCreator<
           }
         }
         if (operation) {
-          logGenerationDebugClientSafe('regenerate_enqueue_settled', {
-            fellThroughToBrowser: false,
-            outcome: 'attached',
-            recovered: Boolean(operation),
-            spanId: debugSpanId,
-          });
-          get().attachConversationGeneration({
-            assistantMessageId: operation.assistantMessageId || undefined,
-            clearGeneration: requestedClearFence,
-            generation: get().conversationNavigationGeneration,
-            kind: operation.kind,
-            lane: operation.lane,
-            laneGeneration: operation.laneGeneration,
-            operationId: operation.id,
-            revision: operation.revision,
-            sessionId: activeId,
-            threadId: operation.threadId || undefined,
-            topicId: activeTopicId,
-            userScope: accountMutationSnapshot.scope,
-          });
           await get().refreshMessages();
           return;
         }

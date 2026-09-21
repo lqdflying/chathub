@@ -2,6 +2,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { LOADING_FLAT } from '@/const/message';
+import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableConversationGeneration';
 import * as generationDebugClient from '@/libs/logger/generationDebugClient';
 import { aiChatService } from '@/services/aiChat';
 import { chatService } from '@/services/chat';
@@ -10,6 +11,7 @@ import { messageService } from '@/services/message';
 import { ragService } from '@/services/rag';
 import { topicService } from '@/services/topic';
 import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selectors';
+import { aiProviderSelectors } from '@/store/aiInfra';
 import { aiChatSelectors, chatSelectors } from '@/store/chat/selectors';
 import { deferredBrowserGenerationLaneKey } from '@/store/chat/utils/deferredBrowserGeneration';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
@@ -3141,6 +3143,148 @@ describe('chatMessage actions', () => {
           expect.any(Array),
           'msg-1', // parentId is the last user message
           expect.objectContaining({ traceId: undefined }),
+        );
+      });
+    });
+
+    it('attaches a regenerate operation before durableInFlightEnqueues is cleared', async () => {
+      vi.mocked(isClientDurableConversationGenerationEnabled).mockReturnValue(true);
+      vi.spyOn(aiProviderSelectors, 'isProviderFetchOnClient').mockImplementation(
+        () => () => false,
+      );
+      let resolveEnqueue!: (value: any) => void;
+      vi.spyOn(conversationGenerationService, 'enqueue').mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            resolveEnqueue = resolve;
+          }),
+      );
+
+      const user = createMockMessage({ id: 'user-1', role: 'user' });
+      const assistant = createMockMessage({
+        id: 'assistant-1',
+        parentId: user.id,
+        role: 'assistant',
+      });
+      const key = chatSelectors.currentChatKey(useChatStore.getState() as any);
+      const laneKey = `${messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)}:main`;
+      const originalAttach = useChatStore.getState().attachConversationGeneration;
+      let attachedWhileTracked = false;
+
+      act(() => {
+        useChatStore.setState({
+          attachConversationGeneration: (operation) => {
+            attachedWhileTracked =
+              (useChatStore.getState().durableInFlightEnqueues[laneKey] ?? []).length > 0;
+            originalAttach(operation);
+          },
+          messagesMap: { [key]: [user, assistant] },
+        });
+      });
+
+      const resendPromise = useChatStore.getState().internal_resendMessage(assistant.id);
+      await waitFor(() => {
+        expect(conversationGenerationService.enqueue).toHaveBeenCalled();
+      });
+      expect(useChatStore.getState().durableInFlightEnqueues[laneKey] ?? []).not.toHaveLength(0);
+
+      resolveEnqueue({
+        assistantMessageId: 'assistant-new',
+        attempt: 1,
+        config: {},
+        id: 'cgo_regen',
+        kind: 'regenerate',
+        lane: 'lane-main',
+        laneGeneration: 1,
+        revision: 0,
+        status: 'processing',
+        userId: 'user-1',
+      });
+      await act(async () => {
+        await resendPromise;
+      });
+
+      expect(attachedWhileTracked).toBe(true);
+      expect(useChatStore.getState().durableInFlightEnqueues[laneKey] ?? []).toHaveLength(0);
+      expect(
+        useChatStore.getState().serverGenerationOperations[
+          messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)
+        ]?.cgo_regen?.operationId,
+      ).toBe('cgo_regen');
+      useChatStore.setState({ attachConversationGeneration: originalAttach });
+    });
+
+    it('applies a done that arrived while the regenerate enqueue was still tracked', async () => {
+      vi.mocked(isClientDurableConversationGenerationEnabled).mockReturnValue(true);
+      vi.spyOn(aiProviderSelectors, 'isProviderFetchOnClient').mockImplementation(
+        () => () => false,
+      );
+      let resolveEnqueue!: (value: any) => void;
+      vi.spyOn(conversationGenerationService, 'enqueue').mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            resolveEnqueue = resolve;
+          }),
+      );
+      const logSpy = vi
+        .spyOn(generationDebugClient, 'logGenerationDebugClientSafe')
+        .mockImplementation(() => undefined);
+
+      const user = createMockMessage({ id: 'user-1', role: 'user' });
+      const assistant = createMockMessage({
+        id: 'assistant-1',
+        parentId: user.id,
+        role: 'assistant',
+      });
+      const key = chatSelectors.currentChatKey(useChatStore.getState() as any);
+      const topicKey = messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID);
+      const laneKey = `${topicKey}:main`;
+
+      act(() => {
+        useChatStore.setState({ messagesMap: { [key]: [user, assistant] } });
+      });
+
+      const resendPromise = useChatStore.getState().internal_resendMessage(assistant.id);
+      await waitFor(() => {
+        expect(conversationGenerationService.enqueue).toHaveBeenCalled();
+      });
+      expect(useChatStore.getState().durableInFlightEnqueues[laneKey] ?? []).not.toHaveLength(0);
+
+      act(() => {
+        useChatStore.getState().applyConversationGenerationEvent({
+          createdAt: new Date().toISOString(),
+          id: 4,
+          operationId: 'cgo_regen_done',
+          payload: { status: 'succeeded' },
+          revision: 1,
+          type: 'done',
+          userId: 'user-1',
+        });
+      });
+      expect(useChatStore.getState().serverGenerationOperations[topicKey]).toBeUndefined();
+
+      resolveEnqueue({
+        assistantMessageId: 'assistant-new',
+        attempt: 1,
+        config: {},
+        id: 'cgo_regen_done',
+        kind: 'regenerate',
+        lane: 'lane-main',
+        laneGeneration: 1,
+        revision: 0,
+        status: 'processing',
+        userId: 'user-1',
+      });
+      await act(async () => {
+        await resendPromise;
+      });
+
+      expect(useChatStore.getState().durableInFlightEnqueues[laneKey] ?? []).toHaveLength(0);
+      expect(useChatStore.getState().serverGenerationOperations[topicKey]).toBeUndefined();
+      await waitFor(() => {
+        expect(logSpy).toHaveBeenCalledWith(
+          'event_applied_terminal',
+          expect.objectContaining({ type: 'done' }),
         );
       });
     });

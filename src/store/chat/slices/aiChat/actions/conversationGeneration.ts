@@ -70,8 +70,23 @@ const isAuthoritativeMissingOperationError = (error: unknown): boolean => {
 // older than this, so a live producer in another tab can still finalize them.
 const ORPHAN_PLACEHOLDER_GRACE_MS = 5 * 60 * 1000;
 
+export interface ConversationGenerationApplyResult {
+  applied: boolean;
+  buffered: boolean;
+  owned: boolean;
+}
+
+export const shouldPersistConversationGenerationCursor = (
+  result: ConversationGenerationApplyResult | void | undefined,
+) => {
+  if (!result) return true;
+  return result.applied || result.buffered || !result.owned;
+};
+
 export interface ConversationGenerationAction {
-  applyConversationGenerationEvent: (event: ConversationGenerationEvent) => void;
+  applyConversationGenerationEvent: (
+    event: ConversationGenerationEvent,
+  ) => ConversationGenerationApplyResult;
   attachConversationGeneration: (operation: ServerGenerationOperation) => void;
   cancelActiveDurableOpsInScope: (options?: ConversationGenerationScope) => Promise<void>;
   cancelAndDetachDurableOps: (options?: ConversationGenerationScope) => Promise<void>;
@@ -146,18 +161,20 @@ const findAttachedOperation = (
 const visibleConversationThreadId = (state: Pick<ChatStore, 'activeThreadId' | 'portalThreadId'>) =>
   state.portalThreadId ?? state.activeThreadId ?? null;
 
-const shouldApplyAttachedOperation = (
+type AttachedOperationApplyBlocker = 'account' | 'stale_fence' | 'stale_generation';
+
+const attachedOperationApplyBlocker = (
   attached: ServerGenerationOperation | undefined,
   state: ChatStore,
-) => {
-  if (!attached) return false;
+): AttachedOperationApplyBlocker | undefined => {
+  if (!attached) return 'account';
   const accountSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
   if (
     !accountSnapshot ||
     !isAccountMutationCurrent(useUserStore.getState(), accountSnapshot) ||
     attached.userScope !== accountSnapshot.scope
   ) {
-    return false;
+    return 'account';
   }
   if (
     attached.clearGeneration !==
@@ -169,10 +186,39 @@ const shouldApplyAttachedOperation = (
       attached.kind,
     )
   ) {
-    return false;
+    return 'stale_fence';
   }
-  if (attached.generation !== state.conversationNavigationGeneration) return false;
-  return true;
+  if (attached.generation !== state.conversationNavigationGeneration) return 'stale_generation';
+  return undefined;
+};
+
+const shouldApplyAttachedOperation = (
+  attached: ServerGenerationOperation | undefined,
+  state: ChatStore,
+) => !attachedOperationApplyBlocker(attached, state);
+
+const APPLIED_OWNED_RESULT: ConversationGenerationApplyResult = {
+  applied: true,
+  buffered: false,
+  owned: true,
+};
+
+const DROPPED_OWNED_RESULT: ConversationGenerationApplyResult = {
+  applied: false,
+  buffered: false,
+  owned: true,
+};
+
+const DROPPED_FOREIGN_RESULT: ConversationGenerationApplyResult = {
+  applied: false,
+  buffered: false,
+  owned: false,
+};
+
+const BUFFERED_OWNED_RESULT: ConversationGenerationApplyResult = {
+  applied: false,
+  buffered: true,
+  owned: true,
 };
 
 const conversationContextFromAttached = (
@@ -303,19 +349,31 @@ export const conversationGeneration: StateCreator<
 > = (set, get) => ({
   applyConversationGenerationEvent: (event) => {
     const state = get();
-    const attached = findAttachedOperation(state.serverGenerationOperations, event.operationId);
+    let attached = findAttachedOperation(state.serverGenerationOperations, event.operationId);
     if (!attached) {
       if (hasDurableInFlightEnqueue(state)) {
         bufferInFlightGenerationEvent(event);
-        return;
+        return BUFFERED_OWNED_RESULT;
       }
       logEventDropped(event.operationId, 'not_attached', event.type);
-      return;
+      return DROPPED_FOREIGN_RESULT;
     }
-    if (!shouldApplyAttachedOperation(attached, state)) return;
+    const isTerminal = event.type === 'done' || event.type === 'error';
+    let applyBlocker = attachedOperationApplyBlocker(attached, state);
+    if (applyBlocker === 'stale_generation' && isTerminal) {
+      get().attachConversationGeneration(attached);
+      attached = findAttachedOperation(get().serverGenerationOperations, event.operationId);
+      applyBlocker = attachedOperationApplyBlocker(attached, get());
+    }
+    if (applyBlocker || !attached) {
+      if (isTerminal && (applyBlocker === 'stale_fence' || applyBlocker === 'stale_generation')) {
+        logEventDropped(event.operationId, applyBlocker, event.type, event.revision);
+      }
+      return DROPPED_OWNED_RESULT;
+    }
     if (attached.revision !== undefined && event.revision <= attached.revision) {
       logEventDropped(event.operationId, 'stale_revision', event.type, event.revision);
-      return;
+      return DROPPED_OWNED_RESULT;
     }
 
     const payload = event.payload || {};
@@ -448,6 +506,7 @@ export const conversationGeneration: StateCreator<
       get().detachConversationGeneration(event.operationId);
       void refreshAttachedConversation(get, attached);
     }
+    return APPLIED_OWNED_RESULT;
   },
 
   attachConversationGeneration: (operation) => {
@@ -885,6 +944,12 @@ export const conversationGeneration: StateCreator<
       get().internal_toggleSupervisorLoading(false, attached.groupId);
     }
     get().detachConversationGeneration(operationId);
+    void hashGenerationDebugClientValue(operationId).then((operationHash) => {
+      logGenerationDebugClientSafe('event_applied_terminal', {
+        operationHash,
+        type: operation.status === 'failed' ? 'error' : 'done',
+      });
+    });
     await refreshAttachedConversation(
       get,
       attached ??

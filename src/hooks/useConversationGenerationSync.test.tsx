@@ -287,6 +287,70 @@ describe('useConversationGenerationSync', () => {
     expect(vi.mocked(conversationGenerationService.subscribe).mock.calls[1][0].cursor).toBe(9);
   });
 
+  it('does not persist the SSE cursor when an owned frame is dropped', async () => {
+    const applyEvent = vi.fn(() => ({ applied: false, buffered: false, owned: true }));
+    useChatStore.setState({
+      applyConversationGenerationEvent: applyEvent,
+      syncActiveConversationGenerations: vi.fn(async () => {}),
+    });
+    const userId = 'owned-drop-cursor-user';
+    useUserStore.setState({ user: { id: userId } as any });
+
+    const { unmount } = renderHook(() => useConversationGenerationSync());
+    await waitFor(() => {
+      expect(conversationGenerationService.subscribe).toHaveBeenCalledTimes(1);
+    });
+
+    vi.mocked(conversationGenerationService.subscribe).mock.calls[0][0].onEvent({
+      createdAt: new Date().toISOString(),
+      id: 7,
+      operationId: 'cgo_owned',
+      payload: { status: 'succeeded' },
+      revision: 1,
+      type: 'done',
+      userId,
+    });
+    unmount();
+
+    renderHook(() => useConversationGenerationSync());
+    await waitFor(() => {
+      expect(conversationGenerationService.subscribe).toHaveBeenCalledTimes(2);
+    });
+    expect(vi.mocked(conversationGenerationService.subscribe).mock.calls[1][0].cursor).toBe(0);
+  });
+
+  it('persists the SSE cursor for a never-attached foreign done', async () => {
+    const applyEvent = vi.fn(() => ({ applied: false, buffered: false, owned: false }));
+    useChatStore.setState({
+      applyConversationGenerationEvent: applyEvent,
+      syncActiveConversationGenerations: vi.fn(async () => {}),
+    });
+    const userId = 'foreign-done-cursor-user';
+    useUserStore.setState({ user: { id: userId } as any });
+
+    const { unmount } = renderHook(() => useConversationGenerationSync());
+    await waitFor(() => {
+      expect(conversationGenerationService.subscribe).toHaveBeenCalledTimes(1);
+    });
+
+    vi.mocked(conversationGenerationService.subscribe).mock.calls[0][0].onEvent({
+      createdAt: new Date().toISOString(),
+      id: 8,
+      operationId: 'cgo_foreign',
+      payload: { status: 'succeeded' },
+      revision: 1,
+      type: 'done',
+      userId,
+    });
+    unmount();
+
+    renderHook(() => useConversationGenerationSync());
+    await waitFor(() => {
+      expect(conversationGenerationService.subscribe).toHaveBeenCalledTimes(2);
+    });
+    expect(vi.mocked(conversationGenerationService.subscribe).mock.calls[1][0].cursor).toBe(8);
+  });
+
   it('reconnects SSE after the stream ends instead of staying on poll-only', async () => {
     vi.mocked(conversationGenerationService.subscribe)
       .mockImplementationOnce(async () => undefined)

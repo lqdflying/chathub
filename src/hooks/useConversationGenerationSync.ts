@@ -7,6 +7,7 @@ import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableC
 import { logGenerationDebugClientSafe } from '@/libs/logger/generationDebugClient';
 import { conversationGenerationService } from '@/services/conversationGeneration';
 import { useChatStore } from '@/store/chat';
+import { shouldPersistConversationGenerationCursor } from '@/store/chat/slices/aiChat/actions/conversationGeneration';
 import {
   flushEventDropSummary,
   resetEventDroppedDebugState,
@@ -137,10 +138,29 @@ export const useConversationGenerationSync = () => {
       cursorByUser.set(userId, nextCursor);
     };
 
+    let withheldOwnedCursor: number | undefined;
+
+    const acknowledgeEvent = (eventId: number | undefined, persistable: boolean) => {
+      if (typeof eventId !== 'number') return persistable;
+      if (!persistable) {
+        if (withheldOwnedCursor === undefined || eventId < withheldOwnedCursor) {
+          withheldOwnedCursor = eventId;
+        }
+        return false;
+      }
+      if (withheldOwnedCursor !== undefined && eventId > withheldOwnedCursor) return false;
+      persistCursor(eventId);
+      if (withheldOwnedCursor !== undefined && eventId >= withheldOwnedCursor) {
+        withheldOwnedCursor = undefined;
+      }
+      return true;
+    };
+
     const resyncFromReset = async (resetCursor?: number) => {
       // Persist the reset boundary before awaiting sync so later frames
       // can advance past it. Do not write the stale reset cursor after
       // sync — that would rewind over events delivered during the wait.
+      withheldOwnedCursor = undefined;
       if (typeof resetCursor === 'number' && Number.isFinite(resetCursor) && resetCursor >= 0) {
         persistCursor(resetCursor);
       }
@@ -161,10 +181,10 @@ export const useConversationGenerationSync = () => {
             console.warn('[conversation-generation] reset resync failed', error);
           }
         });
-        return;
+        return true;
       }
-      applyEvent(event);
-      if (typeof event.id === 'number') persistCursor(event.id);
+      const persistable = shouldPersistConversationGenerationCursor(applyEvent(event));
+      return acknowledgeEvent(typeof event.id === 'number' ? event.id : undefined, persistable);
     };
 
     const pollOnce = () => {
@@ -179,8 +199,11 @@ export const useConversationGenerationSync = () => {
             await resyncFromReset(page.cursor);
             return;
           }
-          for (const event of page.events) handleEvent(event);
-          persistCursor(page.cursor);
+          let persistPageCursor = true;
+          for (const event of page.events) {
+            if (!handleEvent(event)) persistPageCursor = false;
+          }
+          if (persistPageCursor) persistCursor(page.cursor);
         })
         .catch((error) => {
           // Poll runs every 2s; log only the first failure per episode so a

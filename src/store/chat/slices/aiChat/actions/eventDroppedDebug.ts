@@ -15,7 +15,7 @@ export const EVENT_DROP_ATTACH_RACE_MS = 300;
 export const EVENT_DROP_SUMMARY_FLUSH_AT = 50;
 const DROPPED_LOG_MAX_KEYS = 256;
 
-type DropReason = 'not_attached' | 'stale_revision';
+type DropReason = 'not_attached' | 'stale_fence' | 'stale_generation' | 'stale_revision';
 
 const everAttachedOperationIds = new Set<string>();
 /** Insertion-order LRU of already-emitted non-terminal / stale throttle keys. */
@@ -65,10 +65,10 @@ const recordDropShape = (
   distinctOps.add(operationId);
   if (emitted) emittedCount += 1;
   else suppressedCount += 1;
-  if (reason === 'stale_revision') {
-    staleRevisionCount += 1;
-    return;
-  }
+    if (reason === 'stale_revision' || reason === 'stale_generation' || reason === 'stale_fence') {
+      staleRevisionCount += 1;
+      return;
+    }
   notAttachedCount += 1;
   switch (type) {
     case 'done': {
@@ -247,8 +247,8 @@ export const logEventDropped = (
     const hadAttached = everAttachedOperationIds.has(operationId);
     const terminal = isTerminalType(type);
 
-    if (reason === 'stale_revision') {
-      const key = `${operationId}:${type}`;
+    if (reason === 'stale_revision' || reason === 'stale_generation' || reason === 'stale_fence') {
+      const key = `${operationId}:${reason}:${type}`;
       if (droppedLogKeys.has(key)) {
         suppressDrop(operationId, reason, type);
         return;

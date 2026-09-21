@@ -242,10 +242,15 @@ resync is still in flight. A send that attaches after this sync's own
 
 Attached operations receive snapshots and `done` even when the user is looking
 at another topic. Dispatch writes into that operation’s session/topic
-`messagesMap`. Events are refused when `conversationClearGeneration` (destructive
-clear/reset/Stop) or `conversationNavigationGeneration` (topic/session switch)
-no longer matches the attached operation. The SSE/poll cursor is advanced **after**
-`applyEvent`, so a dropped snapshot is not skipped permanently.
+`messagesMap`. A still-attached `done`/`error` whose **navigation** generation
+drifted is rebased via `attachConversationGeneration` and applied once. A
+**clear** fence drift (Stop / delete / reset) still refuses the frame and logs
+`event_dropped` with `stale_fence`. The SSE/poll cursor is persisted only when
+`applyConversationGenerationEvent` reports `applied`, `buffered`, or `!owned`
+(foreign account events, including a superseded lane op after
+`cancelAndDetachDurableOps`). An owned drop (`not_attached` after untrack,
+`stale_revision`, or a refused clear fence) does **not** advance the cursor, so
+poll/live-tail can redeliver it.
 
 On the first send of an empty auto-created topic the client adopts a
 `pendingTopicClientIds` topic id, switches the list onto that key, and sends
@@ -264,10 +269,17 @@ snapshot can be empty for a brand-new operation, so sync must not evict
 attaches that appeared after the request started
 (`sync_summary.keptPostStartAttachCount`). Leftover attaches that were already
 present and missing from the snapshot are reconciled (`getOperation`): still
-`pending`/`processing` stays attached; terminal or missing detaches and
-refreshes that conversation. Unattached SSE events that
+`pending`/`processing` stays attached; terminal or missing detaches, refreshes
+that conversation, and logs `event_applied_terminal` (`done` or `error`) so
+Axiom matches `execute_settled`. Unattached SSE events that
 arrive while `durableInFlightEnqueues` is non-empty are buffered (capped) and
 replayed on attach in revision order, so early snapshots are not discarded.
+Regenerate and `internal_coreProcessMessage` attach **inside** the enqueue
+`try` as soon as `operation.id` exists, then `finally` untracks
+`durableInFlightEnqueues`. Attaching after untrack lets a live `done` drop as
+`not_attached` and (if the cursor advanced) never replay. Overlapping
+regenerate still `cancelAndDetachDurableOps` + server `replaceActive` the
+**previous** lane op; only the latest attach stays owned.
 Context assembly stays on the Graphile worker
 (`buildConversationChatPayload`); this path does not pre-warm empty threads.
 
@@ -644,7 +656,8 @@ Semantics that matter when reading the stream:
   (`sse_client_stream_ended` / `sse_client_stream_failed`), throttled poll
   failures, and cursor-reset resyncs (`sse_client_reset_replay` with
   `eventCount: 0`). `event_dropped` in `applyConversationGenerationEvent`
-  names why an event was not applied (`not_attached`, `stale_revision`) **and
+  names why an event was not applied (`not_attached`, `stale_revision`,
+  `stale_fence`, `stale_generation`) **and
   this tab had attached that operation** (`hadAttached=true`). SSE frames for
   operations this tab never attached are counted into `event_drop_summary`
   instead of one line per event. Snapshot/`status` drops for an

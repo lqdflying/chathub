@@ -10,6 +10,9 @@ import { discardInFlightGenerationEvents } from '@/store/chat/utils/inFlightGene
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 
 import { useChatStore } from '../../../../store';
+import {
+  shouldPersistConversationGenerationCursor,
+} from '../conversationGeneration';
 import { TEST_IDS, createMockStoreState } from './fixtures';
 import { resetTestEnvironment } from './helpers';
 
@@ -1521,6 +1524,12 @@ describe('conversationGeneration store actions', () => {
         reason: 'topic_change',
       }),
     );
+    await vi.waitFor(() => {
+      expect(logSpy).toHaveBeenCalledWith(
+        'event_applied_terminal',
+        expect.objectContaining({ type: 'done' }),
+      );
+    });
   });
 
   it('discards a stale listActive snapshot after a newer sync has started', async () => {
@@ -2435,6 +2444,203 @@ describe('conversationGeneration store actions', () => {
         topicId: TEST_IDS.TOPIC_ID,
       }),
     );
+  });
+
+  it('persists the SSE cursor for applied, buffered, or foreign frames', () => {
+    expect(
+      shouldPersistConversationGenerationCursor({
+        applied: true,
+        buffered: false,
+        owned: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldPersistConversationGenerationCursor({
+        applied: false,
+        buffered: true,
+        owned: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldPersistConversationGenerationCursor({
+        applied: false,
+        buffered: false,
+        owned: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldPersistConversationGenerationCursor({
+        applied: false,
+        buffered: false,
+        owned: true,
+      }),
+    ).toBe(false);
+    expect(shouldPersistConversationGenerationCursor(undefined)).toBe(true);
+  });
+
+  it('applies done on the latest same-lane attach and drops the superseded op', async () => {
+    const logSpy = vi
+      .spyOn(generationDebugClient, 'logGenerationDebugClientSafe')
+      .mockImplementation(() => undefined);
+    const { result } = renderHook(() => useChatStore());
+    const topicKey = messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID);
+    let latest;
+    let superseded;
+
+    act(() => {
+      result.current.attachConversationGeneration({
+        assistantMessageId: 'assistant-old',
+        clearGeneration: 0,
+        generation: 0,
+        kind: 'regenerate',
+        lane: 'lane-main',
+        operationId: 'cgo_old',
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
+        userScope: 'current',
+      });
+      result.current.attachConversationGeneration({
+        assistantMessageId: 'assistant-new',
+        clearGeneration: 0,
+        generation: 0,
+        kind: 'regenerate',
+        lane: 'lane-main',
+        operationId: 'cgo_new',
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
+        userScope: 'current',
+      });
+      latest = result.current.applyConversationGenerationEvent({
+        createdAt: new Date().toISOString(),
+        id: 2,
+        operationId: 'cgo_new',
+        payload: { status: 'succeeded' },
+        revision: 1,
+        type: 'done',
+        userId: 'user-1',
+      });
+      superseded = result.current.applyConversationGenerationEvent({
+        createdAt: new Date().toISOString(),
+        id: 3,
+        operationId: 'cgo_old',
+        payload: { status: 'cancelled' },
+        revision: 2,
+        type: 'done',
+        userId: 'user-1',
+      });
+    });
+
+    expect(latest).toEqual({ applied: true, buffered: false, owned: true });
+    expect(superseded).toEqual({ applied: false, buffered: false, owned: false });
+    expect(useChatStore.getState().serverGenerationOperations[topicKey]).toBeUndefined();
+    await vi.waitFor(() => {
+      expect(logSpy).toHaveBeenCalledWith(
+        'event_applied_terminal',
+        expect.objectContaining({ type: 'done' }),
+      );
+      expect(logSpy).toHaveBeenCalledWith(
+        'event_dropped',
+        expect.objectContaining({
+          hadAttached: true,
+          reason: 'not_attached',
+          type: 'done',
+        }),
+      );
+    });
+  });
+
+  it('rebases a stale navigation generation and applies owned done', async () => {
+    const logSpy = vi
+      .spyOn(generationDebugClient, 'logGenerationDebugClientSafe')
+      .mockImplementation(() => undefined);
+    const { result } = renderHook(() => useChatStore());
+
+    act(() => {
+      result.current.attachConversationGeneration({
+        assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        clearGeneration: 0,
+        generation: 0,
+        kind: 'chat',
+        lane: 'lane-main',
+        operationId: 'cgo_rebased',
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
+        userScope: 'current',
+      });
+    });
+
+    const generation = useChatStore.getState().conversationNavigationGeneration;
+    let applied;
+    act(() => {
+      useChatStore.setState({ conversationNavigationGeneration: generation + 1 });
+      applied = result.current.applyConversationGenerationEvent({
+        createdAt: new Date().toISOString(),
+        id: 8,
+        operationId: 'cgo_rebased',
+        payload: { status: 'succeeded' },
+        revision: 3,
+        type: 'done',
+        userId: 'user-1',
+      });
+    });
+
+    expect(applied).toEqual({ applied: true, buffered: false, owned: true });
+    expect(useChatStore.getState().chatLoadingIds).toEqual([]);
+    await vi.waitFor(() => {
+      expect(logSpy).toHaveBeenCalledWith(
+        'event_applied_terminal',
+        expect.objectContaining({ type: 'done' }),
+      );
+    });
+  });
+
+  it('refuses owned done after a clear-fence bump', async () => {
+    const logSpy = vi
+      .spyOn(generationDebugClient, 'logGenerationDebugClientSafe')
+      .mockImplementation(() => undefined);
+    const { result } = renderHook(() => useChatStore());
+    let refused;
+
+    act(() => {
+      result.current.attachConversationGeneration({
+        assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        clearGeneration: 0,
+        generation: 0,
+        kind: 'chat',
+        lane: 'lane-main',
+        operationId: 'cgo_fenced',
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
+        userScope: 'current',
+      });
+      useChatStore.setState({ conversationClearGeneration: 1 });
+      refused = result.current.applyConversationGenerationEvent({
+        createdAt: new Date().toISOString(),
+        id: 9,
+        operationId: 'cgo_fenced',
+        payload: { status: 'succeeded' },
+        revision: 4,
+        type: 'done',
+        userId: 'user-1',
+      });
+    });
+
+    expect(refused).toEqual({ applied: false, buffered: false, owned: true });
+    expect(
+      useChatStore.getState().serverGenerationOperations[
+        messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)
+      ]?.cgo_fenced,
+    ).toBeDefined();
+    await vi.waitFor(() => {
+      expect(logSpy).toHaveBeenCalledWith(
+        'event_dropped',
+        expect.objectContaining({
+          reason: 'stale_fence',
+          type: 'done',
+        }),
+      );
+    });
+    expect(logSpy).not.toHaveBeenCalledWith('event_applied_terminal', expect.anything());
   });
 
   describe('event_dropped debug throttle', () => {
