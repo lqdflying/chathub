@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { MAIN_PASTED_TEXT_SCOPE } from '@/features/ChatInput/pastedText/scope';
 import { selectPastedTextItems, usePastedTextStore } from '@/features/ChatInput/pastedText/store';
+import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 
 import { useSend, useSendGroupMessage } from './useSend';
 
@@ -20,6 +21,8 @@ const mocks = vi.hoisted(() => {
     cancelSendMessageInServer: vi.fn(),
     inputMessage: '/reviewer',
     mainInputEditor: editor,
+    mainSendMessageOperations: {} as Record<string, { isLoading?: boolean }>,
+    preSendCompactionOperations: {} as Record<string, unknown>,
     sendGroupMessage: vi.fn(),
     sendMessage: vi.fn(),
     stopGenerateMessage: vi.fn(),
@@ -39,6 +42,7 @@ const mocks = vi.hoisted(() => {
     checkGeminiChineseWarning: vi.fn().mockResolvedValue(true),
     editor,
     fileState,
+    replyBusy: false,
     skillState,
   };
 });
@@ -73,22 +77,35 @@ vi.mock('@/store/chat', () => ({
   ),
 }));
 
-vi.mock('@/store/chat/selectors', () => ({
-  aiChatSelectors: {
-    isCurrentPreSendCompacting: () => false,
-    isCurrentSendMessageLoading: () => false,
-  },
-  chatSelectors: {
-    activeBaseChats: () => [],
-    isAIGenerating: () => false,
-    isCreatingMessage: () => false,
-    isSendButtonDisabledByMessage: () => false,
-    isSupervisorLoading: () => () => false,
-  },
-  topicSelectors: {
-    currentActiveTopic: () => undefined,
-  },
-}));
+vi.mock('@/store/chat/selectors', async () => {
+  const { messageMapKey } = await import('@/store/chat/utils/messageMapKey');
+
+  return {
+    aiChatSelectors: {
+      isCurrentPreSendCompacting: () => false,
+      isCurrentSendMessageLoading: (state: typeof mocks.chatState) => {
+        const key = messageMapKey(state.activeId, state.activeTopicId);
+        return Boolean(state.mainSendMessageOperations?.[key]?.isLoading);
+      },
+    },
+    chatSelectors: {
+      activeBaseChats: () => [],
+      isAIGenerating: () => false,
+      isCreatingMessage: () => false,
+      isCurrentChatTurnBusy: (state: typeof mocks.chatState) => {
+        const key = messageMapKey(state.activeId, state.activeTopicId);
+        const sending = Boolean(state.mainSendMessageOperations?.[key]?.isLoading);
+        const preSend = Boolean(state.preSendCompactionOperations?.[key]);
+        return mocks.replyBusy || sending || preSend;
+      },
+      isSendButtonDisabledByMessage: () => false,
+      isSupervisorLoading: () => () => false,
+    },
+    topicSelectors: {
+      currentActiveTopic: () => undefined,
+    },
+  };
+});
 
 vi.mock('@/store/file', () => ({
   fileChatSelectors: {
@@ -130,6 +147,9 @@ describe('workspace skill-aware send hooks', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.chatState.inputMessage = '/reviewer';
+    mocks.chatState.mainSendMessageOperations = {};
+    mocks.chatState.preSendCompactionOperations = {};
+    mocks.replyBusy = false;
     mocks.fileState.files = [];
     mocks.skillState.installedSkills = [{ identifier: 'reviewer' }];
     mocks.skillState.selectedSkillIds = ['reviewer'];
@@ -188,7 +208,9 @@ describe('workspace skill-aware send hooks', () => {
     expect(mocks.chatState.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({ message: 'pasted dump' }),
     );
-    expect(selectPastedTextItems(MAIN_PASTED_TEXT_SCOPE)(usePastedTextStore.getState())).toEqual([]);
+    expect(selectPastedTextItems(MAIN_PASTED_TEXT_SCOPE)(usePastedTextStore.getState())).toEqual(
+      [],
+    );
   });
 
   it('joins the typed prompt before pasted dumps', async () => {
@@ -201,5 +223,40 @@ describe('workspace skill-aware send hooks', () => {
     expect(mocks.chatState.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({ message: 'explain this\n\nLOG DUMP' }),
     );
+  });
+
+  it('keeps the stop control while the reply is still in flight', () => {
+    mocks.replyBusy = true;
+    const { result } = renderHook(() => useSend());
+
+    expect(result.current.generating).toBe(true);
+
+    act(() => result.current.stop());
+
+    expect(mocks.chatState.stopGenerateMessage).toHaveBeenCalledTimes(1);
+    expect(mocks.chatState.cancelSendMessageInServer).not.toHaveBeenCalled();
+  });
+
+  it('does not send another message while the reply is still in flight', async () => {
+    mocks.replyBusy = true;
+    mocks.chatState.inputMessage = 'follow up';
+    const { result } = renderHook(() => useSend());
+
+    await act(() => result.current.send());
+
+    expect(mocks.chatState.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('cancels the create RPC when that is the only in-flight work', () => {
+    const key = messageMapKey('session-1', undefined);
+    mocks.chatState.mainSendMessageOperations = { [key]: { isLoading: true } };
+    const { result } = renderHook(() => useSend());
+
+    expect(result.current.generating).toBe(true);
+
+    act(() => result.current.stop());
+
+    expect(mocks.chatState.cancelSendMessageInServer).toHaveBeenCalledTimes(1);
+    expect(mocks.chatState.stopGenerateMessage).not.toHaveBeenCalled();
   });
 });

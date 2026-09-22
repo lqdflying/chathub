@@ -13,6 +13,7 @@ import { getAgentStoreState } from '@/store/agent';
 import { agentSelectors } from '@/store/agent/selectors';
 import { getChatStoreState, useChatStore } from '@/store/chat';
 import { aiChatSelectors, chatSelectors, topicSelectors } from '@/store/chat/selectors';
+import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { fileChatSelectors, useFileStore } from '@/store/file';
 import { mentionSelectors, useMentionStore } from '@/store/mention';
 import { useSessionStore } from '@/store/session';
@@ -37,20 +38,18 @@ export const useSend = () => {
     addAIMessage,
     stopGenerateMessage,
     cancelSendMessageInServer,
-    generating,
+    turnBusy,
     isSendButtonDisabledByMessage,
     isSendingMessage,
-    isPreSendCompacting,
   ] = useChatStore((s) => [
     !s.inputMessage,
     s.sendMessage,
     s.addAIMessage,
     s.stopGenerateMessage,
     s.cancelSendMessageInServer,
-    chatSelectors.isAIGenerating(s),
+    chatSelectors.isCurrentChatTurnBusy(s),
     chatSelectors.isSendButtonDisabledByMessage(s),
     aiChatSelectors.isCurrentSendMessageLoading(s),
-    aiChatSelectors.isCurrentPreSendCompacting(s),
   ]);
   const { analytics } = useAnalytics();
   const checkGeminiChineseWarning = useGeminiChineseWarning();
@@ -79,7 +78,7 @@ export const useSend = () => {
       return;
     }
 
-    if (chatSelectors.isAIGenerating(store)) return;
+    if (chatSelectors.isCurrentChatTurnBusy(store)) return;
 
     const inputMessage = store.inputMessage;
     const selectionKey = getSkillSelectionKey({
@@ -152,29 +151,46 @@ export const useSend = () => {
 
   const stop = () => {
     const store = getChatStoreState();
-    const generating = chatSelectors.isAIGenerating(store);
+    if (!chatSelectors.isCurrentChatTurnBusy(store)) return;
 
-    // stopGenerateMessage also aborts a running pre-send compaction for this conversation
-    if (generating || aiChatSelectors.isCurrentPreSendCompacting(store)) {
-      void stopGenerateMessage();
-      return;
+    const operationKey = messageMapKey(store.activeId, store.activeTopicId);
+    const sendOperations = store.mainSendMessageOperations ?? {};
+    const preSendOperations = store.preSendCompactionOperations ?? {};
+    const sending = Boolean(sendOperations[operationKey]?.isLoading);
+    const preSend = Boolean(preSendOperations[operationKey]);
+
+    // The create RPC is the only in-flight work: restore the draft. A reply
+    // that is already streaming, calling tools, or compacting uses Stop.
+    if (sending && !preSend) {
+      const remainingPreSend = { ...preSendOperations };
+      delete remainingPreSend[operationKey];
+      const currentSend = sendOperations[operationKey];
+      const withoutCreate = {
+        ...store,
+        mainSendMessageOperations: {
+          ...sendOperations,
+          [operationKey]: currentSend ? { ...currentSend, isLoading: false } : currentSend,
+        },
+        preSendCompactionOperations: remainingPreSend,
+      };
+
+      if (!chatSelectors.isCurrentChatTurnBusy(withoutCreate)) {
+        void cancelSendMessageInServer();
+        return;
+      }
     }
 
-    const isCreatingMessage = aiChatSelectors.isCurrentSendMessageLoading(store);
-
-    if (isCreatingMessage) {
-      void cancelSendMessageInServer();
-    }
+    void stopGenerateMessage();
   };
 
   return useMemo(
     () => ({
       disabled: canNotSend,
-      generating: generating || isSendingMessage || isPreSendCompacting,
+      generating: turnBusy,
       send: handleSend,
       stop,
     }),
-    [canNotSend, generating, isSendingMessage, isPreSendCompacting, stop, handleSend],
+    [canNotSend, turnBusy, stop, handleSend],
   );
 };
 

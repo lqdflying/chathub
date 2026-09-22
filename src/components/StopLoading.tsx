@@ -2,8 +2,12 @@ import type { IconType } from '@lobehub/icons';
 import { cx, useTheme } from 'antd-style';
 import { forwardRef } from 'react';
 
+import { useStyles } from './StopLoading.style';
+
 const StopLoadingIcon: IconType = forwardRef(({ size = 16, className, style, ...rest }, ref) => {
   const theme = useTheme();
+  const { styles } = useStyles();
+
   return (
     <svg
       className={cx('anticon', className)}
@@ -19,23 +23,19 @@ const StopLoadingIcon: IconType = forwardRef(({ size = 16, className, style, ...
       <g fill="none">
         <circle cx="512" cy="512" fill="none" r="426" stroke={theme.colorBorder} strokeWidth="72" />
         <rect fill="currentColor" height="252" rx="24" ry="24" width="252" x="386" y="386" />
-        <path
-          d="M938.667 512C938.667 276.359 747.64 85.333 512 85.333"
-          stroke="currentColor"
-          strokeLinecap="round"
-          strokeWidth="73"
-        >
-          <animateTransform
-            attributeName="transform"
-            dur="1s"
-            from="0 512 512"
-            repeatCount="indefinite"
-            to="360 512 512"
-            type="rotate"
+        <g className={styles.arc} data-testid={'chat-send-stop-arc'}>
+          <path
+            d="M938.667 512C938.667 276.359 747.64 85.333 512 85.333"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeWidth="73"
           />
-        </path>
+        </g>
       </g>
     </svg>
   );
 });
+
+StopLoadingIcon.displayName = 'StopLoadingIcon';
+
 export default StopLoadingIcon;

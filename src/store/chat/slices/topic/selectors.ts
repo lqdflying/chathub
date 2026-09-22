@@ -85,7 +85,7 @@ const topicHasPendingToolLoop = (
   );
 };
 
-const isDeferredBrowserTopicBusy = (
+export const isDeferredBrowserTopicBusy = (
   s: ChatStoreState,
   topicId: string | null,
   mapKey: string,
@@ -207,4 +207,4 @@ export const topicSelectors = {
   topicBusyFlags,
 };
 
-export type { TopicBusyFlags };
+export { type TopicBusyFlags } from '@/libs/logger/generationDebugClient';

@@ -431,6 +431,141 @@ describe('chatSelectors', () => {
     });
   });
 
+  describe('isCurrentChatTurnBusy', () => {
+    const activeId = 'active-session';
+    const topicId = 'topic-1';
+    const mapKey = messageMapKey(activeId, topicId);
+    const messages = [
+      { content: 'hi', id: 'user-1', role: 'user' },
+      { content: 'working', id: 'assistant-1', role: 'assistant' },
+      { content: '{}', id: 'tool-1', parentId: 'assistant-1', role: 'tool' },
+    ] as UIChatMessage[];
+
+    const base = {
+      activeId,
+      activeTopicId: topicId,
+      messagesMap: {
+        [mapKey]: messages,
+      },
+    };
+
+    const durableOp = (
+      kind: 'chat' | 'rag' | 'topic_title' | 'memory_compaction' | 'group_supervisor',
+    ) =>
+      merge(initialStore, {
+        ...base,
+        messagesMap: { [mapKey]: [] },
+        serverGenerationOperations: {
+          [mapKey]: {
+            op1: {
+              clearGeneration: 1,
+              generation: 1,
+              kind,
+              lane: 'lane',
+              operationId: 'op1',
+              sessionId: activeId,
+              topicId,
+              userScope: 'user:a',
+            },
+          },
+        },
+      });
+
+    it('is false when the turn is idle', () => {
+      expect(chatSelectors.isCurrentChatTurnBusy(merge(initialStore, base))).toBe(false);
+    });
+
+    it('is true when a displayed assistant is in chatLoadingIds', () => {
+      const state = merge(initialStore, { ...base, chatLoadingIds: ['assistant-1'] });
+
+      expect(chatSelectors.isCurrentChatTurnBusy(state)).toBe(true);
+    });
+
+    it('ignores a tool-role chatLoadingIds entry', () => {
+      const state = merge(initialStore, { ...base, chatLoadingIds: ['tool-1'] });
+
+      expect(chatSelectors.isCurrentChatTurnBusy(state)).toBe(false);
+    });
+
+    it('stays busy for tool, RAG, reasoning, search, and plugin phases', () => {
+      const phases = [
+        { messageInToolsCallingIds: ['assistant-1'] },
+        { messageRAGLoadingIds: ['user-1'] },
+        { reasoningLoadingIds: ['assistant-1'] },
+        { searchWorkflowLoadingIds: ['assistant-1'] },
+        { pluginApiLoadingIds: ['tool-1'] },
+        { toolCallingStreamIds: { 'assistant-1': [true] } },
+      ];
+
+      for (const phase of phases) {
+        expect(
+          chatSelectors.isCurrentChatTurnBusy(merge(initialStore, { ...base, ...phase })),
+        ).toBe(true);
+      }
+    });
+
+    it('stays busy for a deferred browser lane that still has a tool loop', () => {
+      const state = merge(initialStore, {
+        ...base,
+        deferredBrowserGenerationLanes: {
+          [`${mapKey}:main`]: {
+            assistantMessageId: 'assistant-1',
+            reason: 'unsupported_tool',
+          },
+        },
+        messagesMap: {
+          [mapKey]: [
+            {
+              content: 'calling',
+              id: 'assistant-1',
+              role: 'assistant',
+              tools: [{ id: 'call-1' }],
+            },
+          ],
+        },
+      });
+
+      expect(chatSelectors.isCurrentChatTurnBusy(state)).toBe(true);
+    });
+
+    it('stays busy for a chat-family or rag durable op before the row is displayed', () => {
+      expect(chatSelectors.isCurrentChatTurnBusy(durableOp('chat'))).toBe(true);
+      expect(chatSelectors.isCurrentChatTurnBusy(durableOp('rag'))).toBe(true);
+    });
+
+    it('ignores topic title, memory compaction, group supervisor, and topic CRUD', () => {
+      expect(chatSelectors.isCurrentChatTurnBusy(durableOp('topic_title'))).toBe(false);
+      expect(chatSelectors.isCurrentChatTurnBusy(durableOp('memory_compaction'))).toBe(false);
+      expect(chatSelectors.isCurrentChatTurnBusy(durableOp('group_supervisor'))).toBe(false);
+      expect(
+        chatSelectors.isCurrentChatTurnBusy(
+          merge(initialStore, { ...base, topicLoadingIds: [topicId] }),
+        ),
+      ).toBe(false);
+    });
+
+    it('stays busy during the send RPC and pre-send compaction', () => {
+      expect(
+        chatSelectors.isCurrentChatTurnBusy(
+          merge(initialStore, {
+            ...base,
+            mainSendMessageOperations: { [mapKey]: { isLoading: true } },
+          }),
+        ),
+      ).toBe(true);
+      expect(
+        chatSelectors.isCurrentChatTurnBusy(
+          merge(initialStore, {
+            ...base,
+            preSendCompactionOperations: {
+              [mapKey]: { abortController: new AbortController() },
+            },
+          }),
+        ),
+      ).toBe(true);
+    });
+  });
+
   describe('mainAIChatsRaw', () => {
     it('matches mainAIChats membership without cloning meta', () => {
       const spy = vi.spyOn(userProfileSelectors, 'userAvatar');

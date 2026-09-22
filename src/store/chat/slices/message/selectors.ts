@@ -1,4 +1,4 @@
-import { ChatFileItem, UIChatMessage } from '@lobechat/types';
+import { ChatFileItem, type ConversationGenerationKind, UIChatMessage } from '@lobechat/types';
 
 import { DEFAULT_USER_AVATAR } from '@/const/meta';
 import { INBOX_SESSION_ID } from '@/const/session';
@@ -15,6 +15,7 @@ import { userProfileSelectors } from '@/store/user/selectors';
 
 import { chatHelpers } from '../../helpers';
 import type { ChatStoreState } from '../../initialState';
+import { isDeferredBrowserTopicBusy } from '../topic/selectors';
 
 const EMPTY_CHATS: UIChatMessage[] = [];
 
@@ -289,6 +290,79 @@ const isToolApiNameShining =
 
 const isAIGenerating = (s: ChatStoreState) => hasLoadingIdOnDisplay(s.chatLoadingIds, s);
 
+/**
+ * Durable jobs that belong to the reply itself. Topic title, translation, TTS,
+ * and memory compaction keep their own indicators and must not turn Send into Stop.
+ */
+const SEND_BUTTON_DURABLE_KINDS = new Set<ConversationGenerationKind>([
+  'chat',
+  'continue',
+  'regenerate',
+  'group_agent',
+  'rag',
+]);
+
+const activeConversationMapKey = (s: ChatStoreState) => messageMapKey(s.activeId, s.activeTopicId);
+
+const activeTopicHasMessageIn = (s: ChatStoreState, ids: readonly string[]): boolean => {
+  if (!s.activeId || ids.length === 0) return false;
+
+  const idSet = new Set(ids);
+  return (s.messagesMap[activeConversationMapKey(s)] || []).some((message) =>
+    idSet.has(message.id),
+  );
+};
+
+const activeTopicHasToolStream = (s: ChatStoreState): boolean => {
+  if (!s.activeId) return false;
+
+  return (s.messagesMap[activeConversationMapKey(s)] || []).some((message) => {
+    const flags = s.toolCallingStreamIds?.[message.id];
+    return Array.isArray(flags) && flags.some(Boolean);
+  });
+};
+
+const hasSendButtonDurableOp = (s: ChatStoreState): boolean => {
+  if (!s.activeId) return false;
+
+  return Object.values(s.serverGenerationOperations[activeConversationMapKey(s)] || {}).some(
+    (operation) => SEND_BUTTON_DURABLE_KINDS.has(operation.kind),
+  );
+};
+
+/**
+ * True while the active conversation's reply is still in flight, including the
+ * gaps where `chatLoadingIds` is empty: tool calls, RAG, reasoning, a deferred
+ * browser lane, or a chat-family durable job whose row is not on screen yet.
+ * The main send button uses this to keep the stop spinner up.
+ */
+const isCurrentChatTurnBusy = (s: ChatStoreState): boolean => {
+  if (!s.activeId) return false;
+
+  if (isAIGenerating(s)) return true;
+
+  const mapKey = activeConversationMapKey(s);
+  if (s.mainSendMessageOperations[mapKey]?.isLoading) return true;
+  if (s.preSendCompactionOperations[mapKey]) return true;
+
+  if (
+    activeTopicHasMessageIn(s, [
+      ...(s.reasoningLoadingIds || []),
+      ...(s.messageRAGLoadingIds || []),
+      ...(s.messageInToolsCallingIds || []),
+      ...(s.searchWorkflowLoadingIds || []),
+      ...(s.pluginApiLoadingIds || []),
+    ])
+  ) {
+    return true;
+  }
+
+  if (activeTopicHasToolStream(s)) return true;
+  if (isDeferredBrowserTopicBusy(s, s.activeTopicId ?? null, mapKey)) return true;
+
+  return hasSendButtonDurableOp(s);
+};
+
 const isInRAGFlow = (s: ChatStoreState) => hasLoadingIdOnDisplay(s.messageRAGLoadingIds, s);
 
 const isCreatingMessage = (s: ChatStoreState) => s.isCreatingMessage;
@@ -364,6 +438,8 @@ const getSupervisorTodos = (groupId?: string, topicId?: string | null) => (s: Ch
 export const chatSelectors = {
   activeBaseChats,
   activeBaseChatsWithoutTool,
+  activeRawChats,
+  conversationAIChats,
   countMessagesByThreadId,
   currentChatKey,
   currentChatLoadingState,
@@ -371,8 +447,8 @@ export const chatSelectors = {
   currentUserFiles,
   getBaseChatsByKey,
   getMessageById,
-  getMessageMeta: getMeta,
   getMessageByToolCallId,
+  getMessageMeta: getMeta,
   getRawMessageById,
   getSupervisorTodos,
   getThreadMessageIDs,
@@ -382,6 +458,7 @@ export const chatSelectors = {
   isAIGenerating,
   isCreatingMessage,
   isCurrentChatLoaded,
+  isCurrentChatTurnBusy,
   isHasMessageLoading,
   isInToolsCalling,
   isMessageAwaitingServerGeneration,
@@ -396,11 +473,9 @@ export const chatSelectors = {
   isToolApiNameShining,
   isToolCallStreaming,
   latestMessage,
-  activeRawChats,
-  conversationAIChats,
   mainAIChats,
-  mainAIChatsRaw,
   mainAIChatsMessageString,
+  mainAIChatsRaw,
   mainAIChatsWithHistoryConfig,
   mainAIFollowOutputRevision,
   mainAILatestMessageReasoningContent,
