@@ -86,7 +86,7 @@ describe('injectModelSettings', () => {
     });
   });
 
-  it('injects Xiaomi MiMo enableReasoning for fetched V2.5 models', () => {
+  it('injects Xiaomi MiMo enableReasoning for fetched V2.5 and V2.6 models', () => {
     expect(
       injectModelSettings('mimo', {
         abilities: { functionCall: true, reasoning: true },
@@ -100,6 +100,15 @@ describe('injectModelSettings', () => {
       injectModelSettings('mimo', {
         abilities: { functionCall: true, reasoning: true, video: true, vision: true },
         id: 'mimo-v2.5',
+        type: 'chat',
+      }).settings,
+    ).toEqual({
+      extendParams: ['enableReasoning'],
+    });
+    expect(
+      injectModelSettings('mimo', {
+        abilities: { functionCall: true, reasoning: true, video: true, vision: true },
+        id: 'mimo-v2.6-pro',
         type: 'chat',
       }).settings,
     ).toEqual({

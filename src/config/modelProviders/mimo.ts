@@ -2,9 +2,9 @@ import { ModelProviderCard } from '@/types/llm';
 
 const Mimo: ModelProviderCard = {
   chatModels: [],
-  checkModel: 'mimo-v2.5-pro',
+  checkModel: 'mimo-v2.6-flash',
   description:
-    'Xiaomi MiMo is Xiaomi’s LLM platform. V2.5 Pro and V2.5 support deep thinking, function calling, structured output, and optional built-in web search over an OpenAI-compatible Chat Completions API.',
+    'Xiaomi MiMo is Xiaomi’s LLM platform. V2.6 Pro, V2.6 Flash, and V2.6 Pro UltraSpeed support full-modal input, deep thinking, function calling, structured output, and optional built-in web search over an OpenAI-compatible Chat Completions API. V2.5 Pro and V2.5 remain until 2026-10-21 10:00 UTC+8.',
   disableBrowserRequest: true,
   id: 'mimo',
   modelList: { showModelFetcher: true },

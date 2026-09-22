@@ -251,7 +251,11 @@ describe('modelParse', () => {
     describe('search and imageOutput (processModelList)', () => {
       it('openai: default search keywords should make "*-search" models support search', async () => {
         // openai config does not define searchKeywords, so DEFAULT_SEARCH_KEYWORDS ['-search'] applies
-        const out = await processModelList([{ id: 'gpt-4o-search' }], MODEL_LIST_CONFIGS.openai, 'openai');
+        const out = await processModelList(
+          [{ id: 'gpt-4o-search' }],
+          MODEL_LIST_CONFIGS.openai,
+          'openai',
+        );
         expect(out).toHaveLength(1);
         expect(out[0].search).toBe(true);
       });
@@ -285,7 +289,11 @@ describe('modelParse', () => {
       });
 
       it('google: gemini-* without "-image-" should not infer imageOutput and get search=true via known google model', async () => {
-        const out = await processModelList([{ id: 'gemini-2.5-pro' }], MODEL_LIST_CONFIGS.google, 'google');
+        const out = await processModelList(
+          [{ id: 'gemini-2.5-pro' }],
+          MODEL_LIST_CONFIGS.google,
+          'google',
+        );
         expect(out).toHaveLength(1);
         expect(out[0].displayName).toBe('Gemini 2.5 Pro');
         expect(out[0].search).toBe(true);
@@ -411,6 +419,23 @@ describe('modelParse', () => {
           video: true,
           vision: true,
         });
+      });
+
+      it('mimo: V2.6 Pro, Flash, and UltraSpeed infer full-modal reasoning', async () => {
+        const out = await processModelList(
+          [{ id: 'mimo-v2.6-pro' }, { id: 'mimo-v2.6-flash' }, { id: 'mimo-v2.6-pro-ultraspeed' }],
+          MODEL_LIST_CONFIGS.mimo,
+          'mimo',
+        );
+
+        for (const model of out) {
+          expect(model).toMatchObject({
+            functionCall: true,
+            reasoning: true,
+            video: true,
+            vision: true,
+          });
+        }
       });
 
       it('mimo: asr/tts ids do not inherit chat capability tags', async () => {
@@ -675,7 +700,7 @@ describe('modelParse', () => {
       });
 
       it('default search keywords should make "*-search" models support search', async () => {
-        const out = await processMultiProviderModelList([{ id: 'gpt-4o-search'}]);
+        const out = await processMultiProviderModelList([{ id: 'gpt-4o-search' }]);
         expect(out).toHaveLength(1);
         expect(out[0].search).toBe(true);
       });

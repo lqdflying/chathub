@@ -106,7 +106,7 @@ export default {
       title: '开启深度思考（Kimi）',
     },
     mimoReasoning: {
-      desc: '开启后 MiMo V2.5 会先进行内部链式思考再输出；关闭可更快、更省 Token。官方接口默认开启思考，ChatHub 关闭时会显式发送 thinking.type=disabled。',
+      desc: '开启后 MiMo V2.6 与 V2.5 会先进行内部链式思考再输出；关闭可更快、更省 Token。官方接口默认开启思考，ChatHub 关闭时会显式发送 thinking.type=disabled。',
       title: '开启深度思考（MiMo）',
     },
     minimaxReasoningSplit: {

@@ -104,9 +104,9 @@ describe('context compaction helpers', () => {
     const turns = Array.from({ length: 10 }, (_, index) => [
       message(`u${index}`, 'user'),
       message(`a${index}`, 'assistant'),
-    ]).flat().map((item) =>
-      item.role === 'user' ? { ...item, content: longUser } : item,
-    );
+    ])
+      .flat()
+      .map((item) => (item.role === 'user' ? { ...item, content: longUser } : item));
     const inputTemplate = `${'P'.repeat(2000)}{{text}}`;
     const skillOverhead = Math.ceil('S'.repeat(50_000).length / 2);
 
@@ -157,7 +157,10 @@ describe('context compaction helpers', () => {
       bulky('a1', 'assistant'),
     ];
     const window = 80_000;
-    const budget = getCompactionSummarizerInputBudget(window, CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS);
+    const budget = getCompactionSummarizerInputBudget(
+      window,
+      CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS,
+    );
     expect(estimateCompactionPromptTokens([history[0]])).toBeLessThanOrEqual(budget);
     expect(estimateCompactionPromptTokens(history.slice(0, 2))).toBeGreaterThan(budget);
 
@@ -424,7 +427,7 @@ describe('buildSimpleCompletionSampling', () => {
     expect(sampling).not.toHaveProperty('reasoning_effort');
   });
 
-  it.each(['mimo-v2.5-pro', 'mimo-v2.5'] as const)(
+  it.each(['mimo-v2.5-pro', 'mimo-v2.5', 'mimo-v2.6-flash'] as const)(
     'disables default-on Xiaomi MiMo thinking for %s',
     (model) => {
       const sampling = buildSimpleCompletionSampling({
@@ -487,9 +490,9 @@ describe('buildSimpleCompletionSampling', () => {
     const prefix = selectMessageCountCompactionPrefix(withTail, 2);
     expect(prefix.map(({ id }) => id)).toEqual(['u1', 'a1', 'u2', 'a2']);
     // Inflating the setting with included.length (4) would wrongly drop only u1,a1.
-    expect(selectMessageCountCompactionPrefix(withTail, included.length).map(({ id }) => id)).toEqual(
-      ['u1', 'a1'],
-    );
+    expect(
+      selectMessageCountCompactionPrefix(withTail, included.length).map(({ id }) => id),
+    ).toEqual(['u1', 'a1']);
   });
 
   it('changes the compaction fingerprint when candidate content changes at the same length', () => {

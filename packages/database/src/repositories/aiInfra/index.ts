@@ -4,9 +4,9 @@ import {
   AiModelSourceEnum,
   AiProviderModelListItem,
   EnabledAiModel,
+  type ExtendParamsType,
   ModelProvider,
   OPENAI_COMPATIBLE_CONTEXT_WINDOW_TOKENS,
-  type ExtendParamsType,
 } from 'model-bank';
 import pMap from 'p-map';
 
@@ -119,7 +119,7 @@ const inferProviderExtendParams = (
 
   if (
     providerId === ModelProvider.Mimo &&
-    (modelId.includes('mimo-v2.5') || item.abilities?.reasoning)
+    (modelId.includes('mimo-v2.5') || modelId.includes('mimo-v2.6') || item.abilities?.reasoning)
   ) {
     return ['enableReasoning'];
   }
@@ -329,14 +329,12 @@ export class AiInfraRepos {
     return list
       .filter((item) => item.enabled)
       .sort((a, b) => a.sort! - b.sort!)
-      .map(
-        (item): EnabledProvider => ({
-          id: item.id,
-          logo: item.logo,
-          name: item.name,
-          source: item.source,
-        }),
-      );
+      .map((item): EnabledProvider => ({
+        id: item.id,
+        logo: item.logo,
+        name: item.name,
+        source: item.source,
+      }));
   };
 
   /**
@@ -367,7 +365,10 @@ export class AiInfraRepos {
 
             const mergedModel = {
               ...item,
-              abilities: merge(item.abilities || {}, !isEmpty(user.abilities) ? user.abilities : {}),
+              abilities: merge(
+                item.abilities || {},
+                !isEmpty(user.abilities) ? user.abilities : {},
+              ),
               config: !isEmpty(user.config) ? user.config : item.config,
               contextWindowTokens:
                 typeof user.contextWindowTokens === 'number'
