@@ -7,7 +7,7 @@ import { toLegacyChatModelCards } from './toLegacyChatModelCards';
 const Xai: ModelProviderCard = {
   apiKeyUrl: 'https://console.x.ai/team/default/api-keys',
   chatModels: toLegacyChatModelCards(xaiChatModels),
-  checkModel: 'grok-4.6',
+  checkModel: 'grok-4.7',
   description:
     'xAI builds Grok models for coding, agentic tool calling, and knowledge work. ChatHub talks to the official Console API or an optional SuperGrok device-code session.',
   disableBrowserRequest: true,

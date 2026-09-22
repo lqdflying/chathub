@@ -138,7 +138,12 @@ const inferProviderExtendParams = (
 
   if (providerId === ModelProvider.Xai) {
     if (modelId.includes('non-reasoning')) return undefined;
-    if (modelId.includes('grok-4.6') || modelId.includes('grok-4.5') || modelId.includes('grok-4.3')) {
+    if (
+      modelId.includes('grok-4.7') ||
+      modelId.includes('grok-4.6') ||
+      modelId.includes('grok-4.5') ||
+      modelId.includes('grok-4.3')
+    ) {
       return ['xaiReasoningEffort'];
     }
   }

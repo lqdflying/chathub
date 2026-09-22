@@ -4,6 +4,28 @@ import { describe, expect, it, vi } from 'vitest';
 import { LobeXaiAI, buildXaiPayload, XAI_OAUTH_AUTH_MODE, XAI_OAUTH_CLIENT_HEADERS } from './index';
 
 describe('buildXaiPayload', () => {
+  it.each(['grok-4.7', 'grok-4.7-build-fast'])(
+    'sends %s high effort by default and strips sampling',
+    (model) => {
+      const payload = buildXaiPayload({
+        frequency_penalty: 0.2,
+        messages: [{ content: 'hi', role: 'user' }],
+        model,
+        presence_penalty: 0.1,
+        stop: ['END'],
+        temperature: 0.4,
+        top_p: 0.8,
+      } as any);
+
+      expect(payload.reasoning_effort).toBe('high');
+      expect(payload).not.toHaveProperty('frequency_penalty');
+      expect(payload).not.toHaveProperty('presence_penalty');
+      expect(payload).not.toHaveProperty('stop');
+      expect(payload).not.toHaveProperty('temperature');
+      expect(payload).not.toHaveProperty('top_p');
+    },
+  );
+
   it('sends Grok 4.6 high effort by default and strips sampling', () => {
     const payload = buildXaiPayload({
       frequency_penalty: 0.2,

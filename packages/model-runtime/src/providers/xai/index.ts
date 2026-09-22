@@ -62,6 +62,7 @@ const isXaiReasoningRequest = (model: string, effort?: string) => {
   if (id.includes('non-reasoning')) return false;
   if (id.includes('grok-4.3')) return effort !== 'none';
   return (
+    id.includes('grok-4.7') ||
     id.includes('grok-4.6') ||
     id.includes('grok-4.5') ||
     id.includes('grok-4.20') ||

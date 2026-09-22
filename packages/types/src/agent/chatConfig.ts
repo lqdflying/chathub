@@ -21,9 +21,11 @@ const normalizeXaiModelId = (model: string) => model.trim().toLowerCase();
 
 /**
  * Official Grok reasoning effort by family.
+ * 4.7 and 4.7-build-fast: low|medium|high (default)|xhigh — cannot disable.
  * 4.6: low|medium|high (default)|xhigh — cannot disable.
  * 4.5: low|medium|high; leftover xhigh is sent as high.
  * 4.3: none|low (default)|medium|high.
+ * @see https://docs.x.ai/developers/grok-4-7
  * @see https://docs.x.ai/developers/model-capabilities/text/reasoning
  */
 export const resolveXaiReasoningEffort = (
@@ -35,7 +37,8 @@ export const resolveXaiReasoningEffort = (
     return { effort: undefined, effortValues: [] };
   }
 
-  if (id.includes('grok-4.6')) {
+  // grok-4.7-build-fast contains grok-4.7.
+  if (id.includes('grok-4.7') || id.includes('grok-4.6')) {
     return {
       effort: GROK46_REASONING_EFFORTS.includes(requestedEffort as XaiReasoningEffort)
         ? (requestedEffort as XaiReasoningEffort)
@@ -205,6 +208,7 @@ export interface LobeAgentChatConfig {
   gpt5ReasoningEffort?: GPT5ReasoningEffort;
   /**
    * xAI Grok reasoning effort. Family-specific:
+   * grok-4.7 and grok-4.7-build-fast low|medium|high|xhigh;
    * grok-4.6 low|medium|high|xhigh; grok-4.5 low|medium|high;
    * grok-4.3 none|low|medium|high.
    */

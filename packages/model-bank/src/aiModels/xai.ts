@@ -3,6 +3,8 @@ import type { AIChatModelCard, Pricing } from '../types/aiModel';
 /**
  * Official short-context rates from https://docs.x.ai/developers/pricing
  * (long-context ≥200k doubles input/cached/output).
+ * grok-4.7 short-context rates match grok-4.6 ($2 / $0.50 cached / $6).
+ * grok-4.7-build-fast is 2x those short-context rates ($4 / $1 / $12).
  */
 const grok45Pricing: Pricing = {
   currency: 'USD',
@@ -19,6 +21,15 @@ const grok46Pricing: Pricing = {
     { name: 'textInput_cacheRead', rate: 0.5, strategy: 'fixed', unit: 'millionTokens' },
     { name: 'textInput', rate: 2, strategy: 'fixed', unit: 'millionTokens' },
     { name: 'textOutput', rate: 6, strategy: 'fixed', unit: 'millionTokens' },
+  ],
+};
+
+const grok47BuildFastPricing: Pricing = {
+  currency: 'USD',
+  units: [
+    { name: 'textInput_cacheRead', rate: 1, strategy: 'fixed', unit: 'millionTokens' },
+    { name: 'textInput', rate: 4, strategy: 'fixed', unit: 'millionTokens' },
+    { name: 'textOutput', rate: 12, strategy: 'fixed', unit: 'millionTokens' },
   ],
 };
 
@@ -53,6 +64,38 @@ const grokSearchSettings = {
 };
 
 const xaiChatModels: AIChatModelCard[] = [
+  {
+    abilities: { ...grokChatAbilities },
+    contextWindowTokens: 500_000,
+    description:
+      'xAI flagship for code and agentic work. Reasoning effort low / medium / high (default) / xhigh; thinking cannot be disabled.',
+    displayName: 'Grok 4.7',
+    enabled: true,
+    id: 'grok-4.7',
+    pricing: grok46Pricing,
+    releasedAt: '2026-09-21',
+    settings: {
+      extendParams: ['xaiReasoningEffort'],
+      ...grokSearchSettings,
+    },
+    type: 'chat',
+  },
+  {
+    abilities: { ...grokChatAbilities },
+    contextWindowTokens: 500_000,
+    description:
+      'Same Grok 4.7 model on faster serving, at twice the short-context token rates. Reasoning effort low / medium / high (default) / xhigh; thinking cannot be disabled. SuperGrok can list this id; a Console API key may reject it.',
+    displayName: 'Grok 4.7 Build Fast',
+    enabled: true,
+    id: 'grok-4.7-build-fast',
+    pricing: grok47BuildFastPricing,
+    releasedAt: '2026-09-21',
+    settings: {
+      extendParams: ['xaiReasoningEffort'],
+      ...grokSearchSettings,
+    },
+    type: 'chat',
+  },
   {
     abilities: { ...grokChatAbilities },
     contextWindowTokens: 500_000,

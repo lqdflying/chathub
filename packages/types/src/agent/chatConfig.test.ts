@@ -141,6 +141,19 @@ describe('xAI Grok reasoning effort contract', () => {
     expect(resolveXaiReasoningEffort('grok-4.6', 'xhigh').effort).toBe('xhigh');
   });
 
+  it.each(['grok-4.7', 'grok-4.7-build-fast'])(
+    'defaults %s to high, keeps xhigh, and maps none to high',
+    (model) => {
+      expect(resolveXaiReasoningEffort(model, undefined)).toEqual({
+        effort: 'high',
+        effortValues: ['low', 'medium', 'high', 'xhigh'],
+        sendWhenUnset: true,
+      });
+      expect(resolveXaiReasoningEffort(model, 'xhigh').effort).toBe('xhigh');
+      expect(resolveXaiReasoningEffort(model, 'none').effort).toBe('high');
+    },
+  );
+
   it('maps leftover Grok 4.5 xhigh to high', () => {
     expect(resolveXaiReasoningEffort('grok-4.5', 'xhigh')).toEqual({
       effort: 'high',

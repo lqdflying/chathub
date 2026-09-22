@@ -364,6 +364,20 @@ describe('buildModelExtendParams', () => {
     ).toEqual({ reasoning_effort: 'low' });
   });
 
+  it.each(['grok-4.7', 'grok-4.7-build-fast'])(
+    'sends default %s high when xaiReasoningEffort is unset',
+    (model) => {
+      expect(
+        buildModelExtendParams({
+          chatConfig: {},
+          model,
+          modelExtendParams: ['xaiReasoningEffort'],
+          provider: ModelProvider.Xai,
+        }),
+      ).toEqual({ reasoning_effort: 'high' });
+    },
+  );
+
   it('sends default Grok 4.6 high when xaiReasoningEffort is unset', () => {
     expect(
       buildModelExtendParams({

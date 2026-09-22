@@ -159,6 +159,21 @@ describe('injectModelSettings', () => {
     },
   );
 
+  it.each(['grok-4.7', 'grok-4.7-build-fast'])(
+    'infers xAI reasoning effort for fetched %s',
+    (modelId) => {
+      expect(
+        injectModelSettings('xai', {
+          abilities: { functionCall: true, reasoning: true },
+          id: modelId,
+          type: 'chat',
+        }),
+      ).toMatchObject({
+        settings: { extendParams: ['xaiReasoningEffort'], searchImpl: 'params' },
+      });
+    },
+  );
+
   it('keeps xAI native search on fetched Grok cards and honors an explicit search disable', () => {
     expect(
       injectModelSettings('xai', {
