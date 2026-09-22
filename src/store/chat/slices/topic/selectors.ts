@@ -7,6 +7,7 @@ import { getTopicActivityTimestamp, groupTopicsByTime } from '@/utils/client/top
 
 import { ChatStoreState } from '../../initialState';
 import {
+  deferredBrowserGenerationLaneKey,
   deferredBrowserGenerationLaneKeysForTopic,
   hasPendingModelContinue,
 } from '../../utils/deferredBrowserGeneration';
@@ -89,14 +90,23 @@ export const isDeferredBrowserTopicBusy = (
   s: ChatStoreState,
   topicId: string | null,
   mapKey: string,
+  threadId?: string | null,
 ): boolean => {
   const laneKeys = deferredBrowserGenerationLaneKeysForTopic(
     s.deferredBrowserGenerationLanes,
     s.activeId,
     topicId,
   );
+  // Omit the argument to scan every thread in the topic (topic-row spinner).
+  // Pass null for the main lane, or a thread id, to match one Stop lane.
+  const scopedLaneKeys =
+    threadId === undefined
+      ? laneKeys
+      : laneKeys.filter(
+          (laneKey) => laneKey === deferredBrowserGenerationLaneKey(s.activeId, topicId, threadId),
+        );
 
-  return laneKeys.some((laneKey) => {
+  return scopedLaneKeys.some((laneKey) => {
     const lane = s.deferredBrowserGenerationLanes[laneKey];
     if (!lane) return false;
 

@@ -564,6 +564,106 @@ describe('chatSelectors', () => {
         ),
       ).toBe(true);
     });
+
+    it('ignores a sibling thread while the main lane is idle', () => {
+      const state = merge(initialStore, {
+        ...base,
+        messageInToolsCallingIds: ['thread-assistant'],
+        messagesMap: {
+          [mapKey]: [
+            ...messages,
+            {
+              content: 'thread reply',
+              id: 'thread-assistant',
+              role: 'assistant',
+              threadId: 'thread-b',
+              tools: [{ id: 'call-thread' }],
+            },
+          ],
+        },
+        serverGenerationOperations: {
+          [mapKey]: {
+            opThread: {
+              clearGeneration: 1,
+              generation: 1,
+              kind: 'chat',
+              lane: 'lane-thread',
+              operationId: 'opThread',
+              sessionId: activeId,
+              threadId: 'thread-b',
+              topicId,
+              userScope: 'user:a',
+            },
+          },
+        },
+        deferredBrowserGenerationLanes: {
+          [`${mapKey}:thread-b`]: {
+            assistantMessageId: 'thread-assistant',
+            reason: 'unsupported_tool',
+          },
+        },
+      });
+
+      expect(chatSelectors.isCurrentChatTurnBusy(state)).toBe(false);
+    });
+
+    it('stays busy for the selected thread, including its main-topic prefix', () => {
+      const threadMessages = [
+        { content: 'hi', id: 'user-1', role: 'user' },
+        {
+          content: 'thread reply',
+          id: 'thread-assistant',
+          role: 'assistant',
+          threadId: 'thread-b',
+          tools: [{ id: 'call-thread' }],
+        },
+      ] as UIChatMessage[];
+      const threadMap = {
+        [topicId]: [{ id: 'thread-b', sourceMessageId: 'user-1' }],
+      };
+      const selected = {
+        ...base,
+        activeThreadId: 'thread-b',
+        messageInToolsCallingIds: ['thread-assistant'],
+        messagesMap: { [mapKey]: threadMessages },
+        threadMaps: threadMap,
+      };
+
+      expect(chatSelectors.isCurrentChatTurnBusy(merge(initialStore, selected))).toBe(true);
+      expect(
+        chatSelectors.isCurrentChatTurnBusy(
+          merge(initialStore, {
+            ...selected,
+            messageInToolsCallingIds: [],
+            reasoningLoadingIds: ['user-1'],
+          }),
+        ),
+      ).toBe(true);
+      expect(
+        chatSelectors.isCurrentChatTurnBusy(
+          merge(initialStore, {
+            ...base,
+            messagesMap: { [mapKey]: [] },
+            portalThreadId: 'thread-b',
+            serverGenerationOperations: {
+              [mapKey]: {
+                opThread: {
+                  clearGeneration: 1,
+                  generation: 1,
+                  kind: 'chat',
+                  lane: 'lane-thread',
+                  operationId: 'opThread',
+                  sessionId: activeId,
+                  threadId: 'thread-b',
+                  topicId,
+                  userScope: 'user:a',
+                },
+              },
+            },
+          }),
+        ),
+      ).toBe(true);
+    });
   });
 
   describe('mainAIChatsRaw', () => {

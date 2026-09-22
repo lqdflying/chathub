@@ -304,19 +304,44 @@ const SEND_BUTTON_DURABLE_KINDS = new Set<ConversationGenerationKind>([
 
 const activeConversationMapKey = (s: ChatStoreState) => messageMapKey(s.activeId, s.activeTopicId);
 
-const activeTopicHasMessageIn = (s: ChatStoreState, ids: readonly string[]): boolean => {
+/**
+ * Same lane Stop uses for durable cancel: the open portal thread, otherwise
+ * the active thread, otherwise the main topic lane.
+ */
+const visibleSendButtonThreadId = (s: ChatStoreState): string | null =>
+  s.portalThreadId ?? s.activeThreadId ?? null;
+
+/**
+ * Messages whose in-flight work this send button can stop. The main lane is
+ * messages with no thread. A selected thread also keeps the main prefix up to
+ * its source message, matching the thread transcript.
+ */
+const visibleSendLaneMessages = (s: ChatStoreState): UIChatMessage[] => {
+  const messages = s.messagesMap[activeConversationMapKey(s)] || [];
+  const threadId = visibleSendButtonThreadId(s);
+  if (!threadId) return messages.filter((message) => !message.threadId);
+
+  const thread = s.threadMaps[s.activeTopicId!]?.find((item) => item.id === threadId);
+  if (!thread) return messages.filter((message) => !message.threadId);
+
+  const sourceIndex = messages.findIndex((message) => message.id === thread.sourceMessageId);
+  return [
+    ...messages.slice(0, sourceIndex + 1),
+    ...messages.filter((message) => message.threadId === threadId),
+  ];
+};
+
+const visibleLaneHasMessageIn = (s: ChatStoreState, ids: readonly string[]): boolean => {
   if (!s.activeId || ids.length === 0) return false;
 
   const idSet = new Set(ids);
-  return (s.messagesMap[activeConversationMapKey(s)] || []).some((message) =>
-    idSet.has(message.id),
-  );
+  return visibleSendLaneMessages(s).some((message) => idSet.has(message.id));
 };
 
-const activeTopicHasToolStream = (s: ChatStoreState): boolean => {
+const visibleLaneHasToolStream = (s: ChatStoreState): boolean => {
   if (!s.activeId) return false;
 
-  return (s.messagesMap[activeConversationMapKey(s)] || []).some((message) => {
+  return visibleSendLaneMessages(s).some((message) => {
     const flags = s.toolCallingStreamIds?.[message.id];
     return Array.isArray(flags) && flags.some(Boolean);
   });
@@ -325,16 +350,19 @@ const activeTopicHasToolStream = (s: ChatStoreState): boolean => {
 const hasSendButtonDurableOp = (s: ChatStoreState): boolean => {
   if (!s.activeId) return false;
 
+  const visibleThreadId = visibleSendButtonThreadId(s);
   return Object.values(s.serverGenerationOperations[activeConversationMapKey(s)] || {}).some(
-    (operation) => SEND_BUTTON_DURABLE_KINDS.has(operation.kind),
+    (operation) =>
+      (operation.threadId ?? null) === visibleThreadId &&
+      SEND_BUTTON_DURABLE_KINDS.has(operation.kind),
   );
 };
 
 /**
- * True while the active conversation's reply is still in flight, including the
- * gaps where `chatLoadingIds` is empty: tool calls, RAG, reasoning, a deferred
+ * True while the visible lane's reply is still in flight, including the gaps
+ * where `chatLoadingIds` is empty: tool calls, RAG, reasoning, a deferred
  * browser lane, or a chat-family durable job whose row is not on screen yet.
- * The main send button uses this to keep the stop spinner up.
+ * Sibling portal/thread work does not count — Stop only cancels this lane.
  */
 const isCurrentChatTurnBusy = (s: ChatStoreState): boolean => {
   if (!s.activeId) return false;
@@ -342,11 +370,14 @@ const isCurrentChatTurnBusy = (s: ChatStoreState): boolean => {
   if (isAIGenerating(s)) return true;
 
   const mapKey = activeConversationMapKey(s);
-  if (s.mainSendMessageOperations[mapKey]?.isLoading) return true;
-  if (s.preSendCompactionOperations[mapKey]) return true;
+  const visibleThreadId = visibleSendButtonThreadId(s);
+  // The create RPC is stored per topic and Stop aborts it from the main lane.
+  if (!visibleThreadId && s.mainSendMessageOperations[mapKey]?.isLoading) return true;
+  const preSend = s.preSendCompactionOperations[mapKey];
+  if (preSend && (preSend.threadId ?? null) === visibleThreadId) return true;
 
   if (
-    activeTopicHasMessageIn(s, [
+    visibleLaneHasMessageIn(s, [
       ...(s.reasoningLoadingIds || []),
       ...(s.messageRAGLoadingIds || []),
       ...(s.messageInToolsCallingIds || []),
@@ -357,8 +388,8 @@ const isCurrentChatTurnBusy = (s: ChatStoreState): boolean => {
     return true;
   }
 
-  if (activeTopicHasToolStream(s)) return true;
-  if (isDeferredBrowserTopicBusy(s, s.activeTopicId ?? null, mapKey)) return true;
+  if (visibleLaneHasToolStream(s)) return true;
+  if (isDeferredBrowserTopicBusy(s, s.activeTopicId ?? null, mapKey, visibleThreadId)) return true;
 
   return hasSendButtonDurableOp(s);
 };
