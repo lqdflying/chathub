@@ -371,8 +371,10 @@ const isCurrentChatTurnBusy = (s: ChatStoreState): boolean => {
 
   const mapKey = activeConversationMapKey(s);
   const visibleThreadId = visibleSendButtonThreadId(s);
-  // The create RPC is stored per topic and Stop aborts it from the main lane.
-  if (!visibleThreadId && s.mainSendMessageOperations[mapKey]?.isLoading) return true;
+  const sendOperation = s.mainSendMessageOperations[mapKey];
+  // The create RPC is topic-keyed. Its threadId is the lane that started it,
+  // so a selected main thread still shows Stop during that request.
+  if (sendOperation?.isLoading && (sendOperation.threadId ?? null) === visibleThreadId) return true;
   const preSend = s.preSendCompactionOperations[mapKey];
   if (preSend && (preSend.threadId ?? null) === visibleThreadId) return true;
 

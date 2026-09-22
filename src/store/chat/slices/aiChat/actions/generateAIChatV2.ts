@@ -610,7 +610,11 @@ export const generateAIChatV2: StateCreator<
 
     get().internal_updateSendMessageOperation(
       operationKey,
-      { inputSendErrorMsg: undefined, inputEditorTempState: jsonState },
+      {
+        inputEditorTempState: jsonState,
+        inputSendErrorMsg: undefined,
+        threadId: activeThreadId ?? null,
+      },
       'creatingMessage/start',
     );
 

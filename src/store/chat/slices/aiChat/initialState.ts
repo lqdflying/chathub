@@ -21,6 +21,8 @@ export interface MainSendMessageOperation {
   inputEditorTempState?: any | null;
   inputSendErrorMsg?: string;
   isLoading: boolean;
+  /** Lane that started this create RPC. Null is the main topic lane. */
+  threadId?: string | null;
 }
 
 export interface PreSendCompactionOperation {

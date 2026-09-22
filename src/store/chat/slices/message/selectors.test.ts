@@ -544,6 +544,34 @@ describe('chatSelectors', () => {
       ).toBe(false);
     });
 
+    it('stays busy while the visible thread is still creating its message', () => {
+      expect(
+        chatSelectors.isCurrentChatTurnBusy(
+          merge(initialStore, {
+            ...base,
+            activeThreadId: 'thread-b',
+            mainSendMessageOperations: {
+              [mapKey]: { isLoading: true, threadId: 'thread-b' },
+            },
+          }),
+        ),
+      ).toBe(true);
+    });
+
+    it('does not treat a main-lane create RPC as another thread', () => {
+      expect(
+        chatSelectors.isCurrentChatTurnBusy(
+          merge(initialStore, {
+            ...base,
+            activeThreadId: 'thread-b',
+            mainSendMessageOperations: {
+              [mapKey]: { isLoading: true, threadId: null },
+            },
+          }),
+        ),
+      ).toBe(false);
+    });
+
     it('stays busy during the send RPC and pre-send compaction', () => {
       expect(
         chatSelectors.isCurrentChatTurnBusy(
