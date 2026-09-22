@@ -180,7 +180,7 @@ export const useSend = () => {
       }
     }
 
-    void stopGenerateMessage();
+    void stopGenerateMessage({ threadId: store.activeThreadId ?? null });
   };
 
   return useMemo(

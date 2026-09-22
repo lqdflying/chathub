@@ -21,7 +21,11 @@ const mocks = vi.hoisted(() => {
     cancelSendMessageInServer: vi.fn(),
     inputMessage: '/reviewer',
     mainInputEditor: editor,
-    mainSendMessageOperations: {} as Record<string, { isLoading?: boolean }>,
+    mainSendMessageOperations: {} as Record<
+      string,
+      { isLoading?: boolean; threadId?: string | null }
+    >,
+    portalThreadId: undefined as string | undefined,
     preSendCompactionOperations: {} as Record<string, unknown>,
     sendGroupMessage: vi.fn(),
     sendMessage: vi.fn(),
@@ -94,9 +98,14 @@ vi.mock('@/store/chat/selectors', async () => {
       isCreatingMessage: () => false,
       isCurrentChatTurnBusy: (state: typeof mocks.chatState) => {
         const key = messageMapKey(state.activeId, state.activeTopicId);
-        const sending = Boolean(state.mainSendMessageOperations?.[key]?.isLoading);
-        const preSend = Boolean(state.preSendCompactionOperations?.[key]);
-        return mocks.replyBusy || sending || preSend;
+        const workspaceThreadId = state.activeThreadId ?? null;
+        const sending = state.mainSendMessageOperations?.[key];
+        const sendBusy =
+          Boolean(sending?.isLoading) && (sending?.threadId ?? null) === workspaceThreadId;
+        const preSend = state.preSendCompactionOperations?.[key] as
+          { threadId?: string | null } | undefined;
+        const preSendBusy = Boolean(preSend) && (preSend?.threadId ?? null) === workspaceThreadId;
+        return mocks.replyBusy || sendBusy || preSendBusy;
       },
       isSendButtonDisabledByMessage: () => false,
       isSupervisorLoading: () => () => false,
@@ -147,6 +156,8 @@ describe('workspace skill-aware send hooks', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.chatState.inputMessage = '/reviewer';
+    mocks.chatState.activeThreadId = undefined;
+    mocks.chatState.portalThreadId = undefined;
     mocks.chatState.mainSendMessageOperations = {};
     mocks.chatState.preSendCompactionOperations = {};
     mocks.replyBusy = false;
@@ -258,5 +269,28 @@ describe('workspace skill-aware send hooks', () => {
 
     expect(mocks.chatState.cancelSendMessageInServer).toHaveBeenCalledTimes(1);
     expect(mocks.chatState.stopGenerateMessage).not.toHaveBeenCalled();
+  });
+
+  it('stops the workspace lane while a portal is open', () => {
+    mocks.replyBusy = true;
+    mocks.chatState.portalThreadId = 'portal-thread';
+    mocks.chatState.activeThreadId = 'inline-thread';
+    const { result } = renderHook(() => useSend());
+
+    act(() => result.current.stop());
+
+    expect(mocks.chatState.stopGenerateMessage).toHaveBeenCalledWith({
+      threadId: 'inline-thread',
+    });
+  });
+
+  it('stops the main workspace lane when no inline thread is selected', () => {
+    mocks.replyBusy = true;
+    mocks.chatState.portalThreadId = 'portal-thread';
+    const { result } = renderHook(() => useSend());
+
+    act(() => result.current.stop());
+
+    expect(mocks.chatState.stopGenerateMessage).toHaveBeenCalledWith({ threadId: null });
   });
 });

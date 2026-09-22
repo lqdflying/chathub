@@ -667,6 +667,34 @@ describe('chatSelectors', () => {
           }),
         ),
       ).toBe(true);
+    });
+
+    it('keeps the workspace create request busy while an idle portal is open', () => {
+      expect(
+        chatSelectors.isCurrentChatTurnBusy(
+          merge(initialStore, {
+            ...base,
+            mainSendMessageOperations: { [mapKey]: { isLoading: true, threadId: null } },
+            portalThreadId: 'portal-thread',
+          }),
+        ),
+      ).toBe(true);
+    });
+
+    it('keeps an inline-thread create request busy beside a different portal', () => {
+      expect(
+        chatSelectors.isCurrentChatTurnBusy(
+          merge(initialStore, {
+            ...base,
+            activeThreadId: 'thread-b',
+            mainSendMessageOperations: { [mapKey]: { isLoading: true, threadId: 'thread-b' } },
+            portalThreadId: 'portal-thread',
+          }),
+        ),
+      ).toBe(true);
+    });
+
+    it('stays idle when only the portal thread is generating', () => {
       expect(
         chatSelectors.isCurrentChatTurnBusy(
           merge(initialStore, {
@@ -690,7 +718,7 @@ describe('chatSelectors', () => {
             },
           }),
         ),
-      ).toBe(true);
+      ).toBe(false);
     });
   });
 

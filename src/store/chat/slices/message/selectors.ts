@@ -305,11 +305,10 @@ const SEND_BUTTON_DURABLE_KINDS = new Set<ConversationGenerationKind>([
 const activeConversationMapKey = (s: ChatStoreState) => messageMapKey(s.activeId, s.activeTopicId);
 
 /**
- * Same lane Stop uses for durable cancel: the open portal thread, otherwise
- * the active thread, otherwise the main topic lane.
+ * Lane owned by the workspace composer. The portal has its own composer and
+ * Stop action, so an open portal must not hide or occupy this button.
  */
-const visibleSendButtonThreadId = (s: ChatStoreState): string | null =>
-  s.portalThreadId ?? s.activeThreadId ?? null;
+const workspaceSendThreadId = (s: ChatStoreState): string | null => s.activeThreadId ?? null;
 
 /**
  * Messages whose in-flight work this send button can stop. The main lane is
@@ -318,7 +317,7 @@ const visibleSendButtonThreadId = (s: ChatStoreState): string | null =>
  */
 const visibleSendLaneMessages = (s: ChatStoreState): UIChatMessage[] => {
   const messages = s.messagesMap[activeConversationMapKey(s)] || [];
-  const threadId = visibleSendButtonThreadId(s);
+  const threadId = workspaceSendThreadId(s);
   if (!threadId) return messages.filter((message) => !message.threadId);
 
   const thread = s.threadMaps[s.activeTopicId!]?.find((item) => item.id === threadId);
@@ -350,7 +349,7 @@ const visibleLaneHasToolStream = (s: ChatStoreState): boolean => {
 const hasSendButtonDurableOp = (s: ChatStoreState): boolean => {
   if (!s.activeId) return false;
 
-  const visibleThreadId = visibleSendButtonThreadId(s);
+  const visibleThreadId = workspaceSendThreadId(s);
   return Object.values(s.serverGenerationOperations[activeConversationMapKey(s)] || {}).some(
     (operation) =>
       (operation.threadId ?? null) === visibleThreadId &&
@@ -362,7 +361,8 @@ const hasSendButtonDurableOp = (s: ChatStoreState): boolean => {
  * True while the visible lane's reply is still in flight, including the gaps
  * where `chatLoadingIds` is empty: tool calls, RAG, reasoning, a deferred
  * browser lane, or a chat-family durable job whose row is not on screen yet.
- * Sibling portal/thread work does not count — Stop only cancels this lane.
+ * Sibling threads and the portal composer do not count — this Stop only
+ * cancels the workspace lane.
  */
 const isCurrentChatTurnBusy = (s: ChatStoreState): boolean => {
   if (!s.activeId) return false;
@@ -370,7 +370,7 @@ const isCurrentChatTurnBusy = (s: ChatStoreState): boolean => {
   if (isAIGenerating(s)) return true;
 
   const mapKey = activeConversationMapKey(s);
-  const visibleThreadId = visibleSendButtonThreadId(s);
+  const visibleThreadId = workspaceSendThreadId(s);
   const sendOperation = s.mainSendMessageOperations[mapKey];
   // The create RPC is topic-keyed. Its threadId is the lane that started it,
   // so a selected main thread still shows Stop during that request.

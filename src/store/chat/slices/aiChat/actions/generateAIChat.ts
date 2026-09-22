@@ -404,6 +404,7 @@ export const generateAIChat: StateCreator<
     const { activeId, activeTopicId, mainSendMessageOperations, preSendCompactionOperations } =
       get();
     const threadId = options?.threadId ?? null;
+    const hasExplicitThreadId = Boolean(options && Object.hasOwn(options, 'threadId'));
     const isThreadScopedStop = threadId !== null;
     const preSendCompaction = preSendCompactionOperations[messageMapKey(activeId, activeTopicId)];
     if (preSendCompaction && (preSendCompaction.threadId ?? null) === threadId) {
@@ -423,23 +424,27 @@ export const generateAIChat: StateCreator<
     // durable-cancel lookup cannot leave reload unprotected.
     get().rememberPreparedChatImageStopIds(activeId, activeTopicId, threadId);
 
-    if (!isThreadScopedStop) {
-      const operationKey = messageMapKey(activeId, activeTopicId);
-      const sendOperation = mainSendMessageOperations[operationKey];
-      if (sendOperation?.abortController) {
-        sendOperation.abortController.abort(MESSAGE_CANCEL_FLAT);
-      }
+    const operationKey = messageMapKey(activeId, activeTopicId);
+    const sendOperation = mainSendMessageOperations[operationKey];
+    if (sendOperation?.abortController) {
+      const sendLane = sendOperation.threadId ?? null;
+      // An explicit lane, including null for the main workspace, only aborts
+      // the create request that started on that lane. An omitted thread id
+      // keeps the older unscoped abort.
+      const abortSend = hasExplicitThreadId ? sendLane === threadId : !isThreadScopedStop;
+      if (abortSend) sendOperation.abortController.abort(MESSAGE_CANCEL_FLAT);
     }
 
-    const deferredKeys = isThreadScopedStop
-      ? [laneScopedClearKey(activeId, activeTopicId, threadId)].filter(
-          (key) => get().deferredBrowserGenerationLanes[key],
-        )
-      : deferredBrowserGenerationLaneKeysForTopic(
-          get().deferredBrowserGenerationLanes,
-          activeId,
-          activeTopicId,
-        );
+    const deferredKeys =
+      hasExplicitThreadId || isThreadScopedStop
+        ? [laneScopedClearKey(activeId, activeTopicId, threadId)].filter(
+            (key) => get().deferredBrowserGenerationLanes[key],
+          )
+        : deferredBrowserGenerationLaneKeysForTopic(
+            get().deferredBrowserGenerationLanes,
+            activeId,
+            activeTopicId,
+          );
     for (const key of deferredKeys) {
       const lane = get().deferredBrowserGenerationLanes[key];
       if (!lane) continue;
