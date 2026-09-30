@@ -101,7 +101,9 @@ const inferProviderExtendParams = (
     (providerId === ModelProvider.OpenAI ||
       providerId === ModelProvider.Azure ||
       providerId === ModelProvider.AzureAI) &&
-    (modelId.startsWith('gpt-5.') || modelId.startsWith('gpt-6-astra'))
+    (modelId.startsWith('gpt-5.') ||
+      modelId.startsWith('gpt-6-astra') ||
+      modelId.startsWith('gpt-6.1-sol'))
   ) {
     return ['gpt5ReasoningEffort', 'textVerbosity'];
   }

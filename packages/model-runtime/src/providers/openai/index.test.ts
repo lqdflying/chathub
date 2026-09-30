@@ -3,7 +3,15 @@ import OpenAI from 'openai';
 import { Mock, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import officalOpenAIModels from './fixtures/openai-models.json';
-import { GPT6_ASTRA_MODEL_PATTERN, LobeOpenAI, hasOpenAIToolCallingTurn, isGpt6AstraModel, params } from './index';
+import {
+  GPT61_SOL_MODEL_PATTERN,
+  GPT6_ASTRA_MODEL_PATTERN,
+  LobeOpenAI,
+  hasOpenAIToolCallingTurn,
+  isGpt6AstraModel,
+  params,
+  requiresOpenAIResponsesForTools,
+} from './index';
 
 // Mock the console.error to avoid polluting test output
 vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -568,6 +576,33 @@ describe('LobeOpenAI', () => {
         tools: [weatherTool],
       } as any);
       expect(solWithTools.apiMode).not.toBe('responses');
+
+      const sol61WithTools = params.chatCompletion.handlePayload!({
+        messages: [{ content: 'Check weather', role: 'user' }],
+        model: 'gpt-6.1-sol',
+        reasoning_effort: 'xhigh',
+        tools: [weatherTool],
+      } as any);
+      expect(sol61WithTools.apiMode).toBe('responses');
+      expect(sol61WithTools.model).toBe('gpt-6.1-sol');
+      expect(sol61WithTools.reasoning_effort).toBe('xhigh');
+
+      const sol61Snapshot = params.chatCompletion.handlePayload!({
+        messages: [{ content: 'Check weather', role: 'user' }],
+        model: 'gpt-6.1-sol-2026-09-29',
+        tools: [weatherTool],
+      } as any);
+      expect(sol61Snapshot.apiMode).toBe('responses');
+
+      const sol61Plain = params.chatCompletion.handlePayload!({
+        messages: [{ content: 'Hello', role: 'user' }],
+        model: 'gpt-6.1-sol',
+        temperature: 0.7,
+        top_p: 0.9,
+      } as any);
+      expect(sol61Plain.apiMode).toBeUndefined();
+      expect(sol61Plain).not.toHaveProperty('temperature');
+      expect(sol61Plain).not.toHaveProperty('top_p');
     });
   });
 
@@ -616,6 +651,13 @@ describe('LobeOpenAI', () => {
       expect(isGpt6AstraModel('gpt-6-astra')).toBe(true);
       expect(isGpt6AstraModel('gpt-6-astra-2026-09-03')).toBe(true);
       expect(isGpt6AstraModel('gpt-5.6-sol')).toBe(false);
+      expect(isGpt6AstraModel('gpt-6.1-sol')).toBe(false);
+      expect(requiresOpenAIResponsesForTools('gpt-6-astra')).toBe(true);
+      expect(requiresOpenAIResponsesForTools('gpt-6.1-sol')).toBe(true);
+      expect(requiresOpenAIResponsesForTools('gpt-6.1-sol-2026-09-29')).toBe(true);
+      expect(requiresOpenAIResponsesForTools('gpt-5.6-sol')).toBe(false);
+      expect(GPT61_SOL_MODEL_PATTERN.test('gpt-6.1-sol')).toBe(true);
+      expect(GPT61_SOL_MODEL_PATTERN.test('gpt-6-astra')).toBe(false);
       expect(
         hasOpenAIToolCallingTurn({
           messages: [{ content: 'hi', role: 'user' }],
@@ -785,10 +827,15 @@ describe('LobeOpenAI', () => {
       expect(GPT6_ASTRA_MODEL_PATTERN.test('gpt-6-astra')).toBe(true);
       expect(GPT6_ASTRA_MODEL_PATTERN.test('gpt-6-astra-2026-09-03')).toBe(true);
       expect(GPT6_ASTRA_MODEL_PATTERN.test('gpt-5.6-sol')).toBe(false);
-      expect(params.generateObject?.useResponseModels).toEqual([GPT6_ASTRA_MODEL_PATTERN]);
+      expect(GPT61_SOL_MODEL_PATTERN.test('gpt-6.1-sol')).toBe(true);
+      expect(GPT61_SOL_MODEL_PATTERN.test('gpt-6.1-sol-2026-09-29')).toBe(true);
+      expect(params.generateObject?.useResponseModels).toEqual([
+        GPT6_ASTRA_MODEL_PATTERN,
+        GPT61_SOL_MODEL_PATTERN,
+      ]);
     });
 
-    it.each(['gpt-6-astra', 'gpt-6-astra-2026-09-03'])(
+    it.each(['gpt-6-astra', 'gpt-6-astra-2026-09-03', 'gpt-6.1-sol', 'gpt-6.1-sol-2026-09-29'])(
       'sends %s supervisor tools through Responses without responseApi',
       async (model) => {
         const responsesCreate = vi.spyOn(instance['client'].responses, 'create').mockResolvedValue({

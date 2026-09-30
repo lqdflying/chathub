@@ -33,11 +33,19 @@ const flexSupportedModels = ['gpt-5', 'o3', 'o4-mini']; // Flex 处理仅适用�
 /** Official GPT-6 Astra plus dated snapshots (`gpt-6-astra-…`). */
 export const GPT6_ASTRA_MODEL_PATTERN = /^gpt-6-astra(?:-|$)/;
 
+/** Official GPT-6.1 Sol plus dated snapshots (`gpt-6.1-sol-…`). */
+export const GPT61_SOL_MODEL_PATTERN = /^gpt-6\.1-sol(?:-|$)/;
+
 export const isGpt6AstraModel = (model: string): boolean => GPT6_ASTRA_MODEL_PATTERN.test(model);
+
+/** Tool calling requires Responses for Astra and GPT-6.1 Sol. */
+export const requiresOpenAIResponsesForTools = (model: string): boolean =>
+  isGpt6AstraModel(model) || GPT61_SOL_MODEL_PATTERN.test(model);
 
 /**
  * Fresh function/MCP tools or a replay that already contains tool calls/results.
- * Official OpenAI: Astra supports Chat Completions, but tool calling requires Responses.
+ * Official OpenAI: Astra and GPT-6.1 Sol support Chat Completions, but tool calling
+ * requires Responses.
  * https://developers.openai.com/api/docs/guides/latest-model
  */
 export const hasOpenAIToolCallingTurn = (payload: ChatStreamPayload): boolean => {
@@ -85,7 +93,7 @@ export const params = {
       if (
         isResponsesAPIOnlyModel(model) ||
         enabledSearch ||
-        (isGpt6AstraModel(model) && hasOpenAIToolCallingTurn(payload))
+        (requiresOpenAIResponsesForTools(model) && hasOpenAIToolCallingTurn(payload))
       ) {
         return {
           ...rest,
@@ -127,9 +135,10 @@ export const params = {
     responses: () => process.env.DEBUG_OPENAI_RESPONSES === '1',
   },
   // Structured tool selection (group supervisor, tRPC generateObject) bypasses
-  // chatCompletion.handlePayload. Official Astra tool calling requires Responses.
+  // chatCompletion.handlePayload. Official Astra and GPT-6.1 Sol tool calling
+  // require Responses.
   generateObject: {
-    useResponseModels: [GPT6_ASTRA_MODEL_PATTERN],
+    useResponseModels: [GPT6_ASTRA_MODEL_PATTERN, GPT61_SOL_MODEL_PATTERN],
   },
   models: async ({ client }) => {
     const modelsPage = (await client.models.list()) as any;

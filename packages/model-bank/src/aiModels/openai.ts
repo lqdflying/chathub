@@ -89,6 +89,26 @@ export const openaiChatModels: AIChatModelCard[] = [
     abilities: { ...gpt56Abilities },
     contextWindowTokens: 1_050_000,
     description:
+      'GPT-6.1 Sol delivers near-Astra performance at a lower cost for complex coding, computer use, and professional work.',
+    displayName: 'GPT-6.1 Sol',
+    enabled: true,
+    id: 'gpt-6.1-sol',
+    maxOutput: 128_000,
+    pricing: {
+      units: [
+        { name: 'textInput', rate: 2, strategy: 'fixed', unit: 'millionTokens' },
+        { name: 'textOutput', rate: 10, strategy: 'fixed', unit: 'millionTokens' },
+        { name: 'textInput_cacheRead', rate: 0.1, strategy: 'fixed', unit: 'millionTokens' },
+      ],
+    },
+    releasedAt: '2026-09-29',
+    settings: { ...gpt56Settings },
+    type: 'chat',
+  },
+  {
+    abilities: { ...gpt56Abilities },
+    contextWindowTokens: 1_050_000,
+    description:
       "GPT-5.6 Sol is OpenAI's frontier model for complex professional work, coding, and agentic workflows with an expanded reasoning range.",
     displayName: 'GPT-5.6 Sol',
     enabled: true,

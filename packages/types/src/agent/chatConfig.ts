@@ -86,6 +86,13 @@ const GPT6_ASTRA_REASONING_EFFORTS: readonly GPT5ReasoningEffort[] = [
   'xhigh',
   'max',
 ];
+const GPT61_SOL_REASONING_EFFORTS: readonly GPT5ReasoningEffort[] = [
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+];
 const GPT56_SOL_REASONING_EFFORTS: readonly GPT5ReasoningEffort[] = ['high', 'xhigh', 'max'];
 const GPT56_FAMILY_REASONING_EFFORTS: readonly GPT5ReasoningEffort[] = [
   'none',
@@ -113,6 +120,16 @@ export const resolveGPT5ReasoningEffort = (
         ? (requestedEffort as GPT5ReasoningEffort)
         : 'high',
       effortValues: GPT6_ASTRA_REASONING_EFFORTS,
+      sendWhenUnset: true,
+    };
+  }
+
+  if (model.startsWith('gpt-6.1-sol')) {
+    return {
+      effort: GPT61_SOL_REASONING_EFFORTS.includes(requestedEffort as GPT5ReasoningEffort)
+        ? (requestedEffort as GPT5ReasoningEffort)
+        : 'xhigh',
+      effortValues: GPT61_SOL_REASONING_EFFORTS,
       sendWhenUnset: true,
     };
   }

@@ -314,6 +314,28 @@ describe('buildModelExtendParams', () => {
     ).toEqual({ reasoning_effort: 'high' });
   });
 
+  it('sends GPT-6.1 Sol default xhigh effort when no saved value exists', () => {
+    expect(
+      buildModelExtendParams({
+        chatConfig: {},
+        model: 'gpt-6.1-sol',
+        modelExtendParams: ['gpt5ReasoningEffort'],
+        provider: ModelProvider.OpenAI,
+      }),
+    ).toEqual({ reasoning_effort: 'xhigh' });
+  });
+
+  it('preserves a documented GPT-6.1 Sol low effort', () => {
+    expect(
+      buildModelExtendParams({
+        chatConfig: { gpt5ReasoningEffort: 'low' },
+        model: 'gpt-6.1-sol',
+        modelExtendParams: ['gpt5ReasoningEffort'],
+        provider: ModelProvider.OpenAICompatible,
+      }),
+    ).toEqual({ reasoning_effort: 'low' });
+  });
+
   it('preserves a documented GPT-6 Astra low effort', () => {
     expect(
       buildModelExtendParams({

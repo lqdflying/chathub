@@ -6,6 +6,9 @@ import { processMultiProviderModelList } from '../../utils/modelParse';
 /** Official GPT-6 Astra plus dated snapshots (`gpt-6-astra-…`). */
 const GPT6_ASTRA_MODEL_PATTERN = /^gpt-6-astra(?:-|$)/;
 
+/** Official GPT-6.1 Sol plus dated snapshots (`gpt-6.1-sol-…`). */
+const GPT61_SOL_MODEL_PATTERN = /^gpt-6\.1-sol(?:-|$)/;
+
 const defaultBaseURL =
   process.env.OPENAICOMPATIBLE_PROXY_URL?.trim() || 'https://api.openai.com/v1';
 
@@ -50,7 +53,10 @@ export const LobeOpenAICompatibleAI = createOpenAICompatibleRuntime({
       } = payload as any;
 
       const isResponses = apiMode === 'responses';
-      const pruneSampling = isResponses || GPT6_ASTRA_MODEL_PATTERN.test(model);
+      const pruneSampling =
+        isResponses ||
+        GPT6_ASTRA_MODEL_PATTERN.test(model) ||
+        GPT61_SOL_MODEL_PATTERN.test(model);
 
       const result: Record<string, any> = {
         model,

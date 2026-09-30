@@ -369,23 +369,78 @@ describe('LobeOpenAICompatibleAI', () => {
     expect(createCall).not.toHaveProperty('presence_penalty');
   });
 
-  it('strips gpt-6-astra Chat Completions temperature and top_p', async () => {
-    await consumeChat({
-      frequency_penalty: 0.5,
-      messages: [{ content: 'Hello', role: 'user' }],
-      model: 'gpt-6-astra',
-      presence_penalty: 0.3,
-      temperature: 0.7,
-      top_p: 0.9,
-    });
+  it.each(['gpt-6.1-sol'])(
+    'keeps %s function tools on Chat Completions by default',
+    async (model) => {
+      const completionsCreate = vi
+        .spyOn(instance['client'].chat.completions, 'create')
+        .mockImplementation(async () =>
+          (async function* () {
+            yield {
+              choices: [{ delta: { content: 'ok' }, finish_reason: null, index: 0 }],
+              created: 1,
+              id: 'compat',
+              model,
+              object: 'chat.completion.chunk',
+            };
+            yield {
+              choices: [{ delta: {}, finish_reason: 'stop', index: 0 }],
+              created: 1,
+              id: 'compat',
+              model,
+              object: 'chat.completion.chunk',
+            };
+          })() as any,
+        );
+      const responsesCreate = vi.spyOn(instance['client'].responses, 'create');
 
-    const createCall = (instance['client'].chat.completions.create as Mock).mock.calls[0][0];
-    expect(createCall).not.toHaveProperty('temperature');
-    expect(createCall).not.toHaveProperty('top_p');
-    expect(createCall).not.toHaveProperty('frequency_penalty');
-    expect(createCall).not.toHaveProperty('presence_penalty');
-    expect(createCall).toMatchObject({ model: 'gpt-6-astra' });
-  });
+      const response = await instance.chat({
+        messages: [{ content: 'Check the weather with get_weather.', role: 'user' }],
+        model,
+        reasoning_effort: 'xhigh',
+        tools: [
+          {
+            function: {
+              description: 'Get weather',
+              name: 'get_weather',
+              parameters: { type: 'object', properties: {} },
+            },
+            type: 'function',
+          },
+        ],
+      });
+      await response.text();
+
+      expect(completionsCreate).toHaveBeenCalledTimes(1);
+      expect(responsesCreate).not.toHaveBeenCalled();
+      expect(completionsCreate.mock.calls[0][0]).toMatchObject({
+        model,
+        reasoning_effort: 'xhigh',
+      });
+      expect(completionsCreate.mock.calls[0][0]).not.toHaveProperty('apiMode');
+    },
+  );
+
+  it.each(['gpt-6-astra', 'gpt-6.1-sol'])(
+    'strips %s Chat Completions temperature and top_p',
+    async (model) => {
+      await consumeChat({
+        frequency_penalty: 0.5,
+        messages: [{ content: 'Hello', role: 'user' }],
+        model,
+        presence_penalty: 0.3,
+        temperature: 0.7,
+        top_p: 0.9,
+      });
+
+      const createCall = (instance['client'].chat.completions.create as Mock).mock.calls[0][0];
+      expect(createCall).not.toHaveProperty('temperature');
+      expect(createCall).not.toHaveProperty('top_p');
+      expect(createCall).not.toHaveProperty('frequency_penalty');
+      expect(createCall).not.toHaveProperty('presence_penalty');
+      expect(createCall).toMatchObject({ model });
+    },
+  );
 
   it('keeps Responses tool cache diagnostics available to the factory without sending them upstream', async () => {
     process.env.DEBUG_OPENAICOMPATIBLE_CACHE = '1';
