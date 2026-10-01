@@ -150,6 +150,41 @@ describe('buildConversationChatPayload', () => {
     expect(serialized).not.toContain('"old"');
   });
 
+  it('sends a saved max_tokens cap only while that switch is on', async () => {
+    const messages = [{ content: 'Hello', id: 'u1', role: 'user' } as any];
+    const disabled = await buildConversationChatPayload({
+      config: {
+        ...baseConfig,
+        agentParams: { max_tokens: 4096, temperature: 0.2 },
+        chatConfig: { ...baseConfig.chatConfig, enableMaxTokens: false },
+      } as any,
+      db: {} as any,
+      generalInstruction: '',
+      messages,
+      runtimeState,
+      sessionId: 'sess-1',
+      userId: 'user-1',
+    });
+    expect(disabled.payload).not.toHaveProperty('max_tokens');
+    expect(disabled.payload.temperature).toBe(0.2);
+
+    const enabled = await buildConversationChatPayload({
+      config: {
+        ...baseConfig,
+        agentParams: { max_tokens: 4096, temperature: 0.2 },
+        chatConfig: { ...baseConfig.chatConfig, enableMaxTokens: true },
+      } as any,
+      db: {} as any,
+      generalInstruction: '',
+      messages,
+      runtimeState,
+      sessionId: 'sess-1',
+      userId: 'user-1',
+    });
+    expect(enabled.payload.max_tokens).toBe(4096);
+    expect(enabled.payload.temperature).toBe(0.2);
+  });
+
   it('keeps ChatHub search on MiMo Token Plan when native search is selected', async () => {
     const result = await buildConversationChatPayload({
       config: {

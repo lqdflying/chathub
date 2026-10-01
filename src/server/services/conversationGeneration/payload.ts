@@ -311,17 +311,19 @@ export const buildConversationChatPayload = async ({
 
   const processed = await pipeline.process({ messages: resolvedMessages });
   let oaiMessages = processed.messages as OpenAIChatMessage[];
+  // Match in-tab send: a saved max_tokens number stays in settings, but the
+  // provider request omits it while the switch is off.
+  const agentParams: Record<string, unknown> = { ...(config.agentParams || {}) };
+  if (!chatConfig?.enableMaxTokens) delete agentParams.max_tokens;
+  const sentMaxTokens =
+    typeof agentParams.max_tokens === 'number' ? agentParams.max_tokens : undefined;
+
   if (provider === 'minimax') {
-    oaiMessages = await trimMinimaxChatContext(
-      oaiMessages,
-      tools,
-      model,
-      config.agentParams?.max_tokens as number | undefined,
-    );
+    oaiMessages = await trimMinimaxChatContext(oaiMessages, tools, model, sentMaxTokens);
   }
 
   const extendParams = {
-    ...(config.agentParams || {}),
+    ...agentParams,
     ...buildModelExtendParams({
       chatConfig,
       model,
