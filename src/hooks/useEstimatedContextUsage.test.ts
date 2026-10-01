@@ -214,6 +214,16 @@ vi.mock('@/services/chat/composeSystemRole', () => ({
   composeSystemRole: (instruction: string, role: string) => `${instruction}${role}`,
 }));
 
+const multiplierCalls = vi.hoisted(() => ({ count: 0 }));
+
+vi.mock('@/services/tokenEstimation', () => ({
+  getTokenEstimateMultiplier: vi.fn(async () => {
+    multiplierCalls.count += 1;
+    return 1;
+  }),
+  subscribeTokenEstimateMultiplier: () => () => {},
+}));
+
 describe('useEstimatedContextUsage', () => {
   beforeEach(() => {
     clearAnchorBaselines();
@@ -995,5 +1005,58 @@ describe('useEstimatedContextUsage', () => {
 
     expect(topicSerializes()).toBe(afterMount);
     serialize.mockRestore();
+  });
+
+  it('does not refetch the calibration multiplier when the draft is tokenized', async () => {
+    vi.useFakeTimers();
+    try {
+      multiplierCalls.count = 0;
+      const { rerender } = renderHook(() => useEstimatedContextUsage('main'));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      const afterMount = multiplierCalls.count;
+      expect(afterMount).toBe(1);
+
+      mocks.chatState.inputMessage = 'another draft';
+      rerender();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(CONTEXT_ESTIMATE_INPUT_DEBOUNCE_MS);
+      });
+
+      expect(multiplierCalls.count).toBe(afterMount);
+    } finally {
+      vi.useRealTimers();
+      mocks.chatState.inputMessage = '';
+    }
+  });
+
+  it('refetches the multiplier when settled metadata usage changes', async () => {
+    vi.useFakeTimers();
+    try {
+      multiplierCalls.count = 0;
+      const { rerender } = renderHook(() => useEstimatedContextUsage('main'));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      const afterMount = multiplierCalls.count;
+
+      mocks.mainChats.push({
+        content: 'ok',
+        id: 'a-usage',
+        metadata: { totalInputTokens: 42 },
+        role: 'assistant',
+      } as never);
+      rerender();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      expect(multiplierCalls.count).toBe(afterMount + 1);
+    } finally {
+      vi.useRealTimers();
+      const added = mocks.mainChats.findIndex((message) => message.id === 'a-usage');
+      if (added >= 0) mocks.mainChats.splice(added, 1);
+    }
   });
 });

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { normalizeAssistantMemoryText } from '@/helpers/assistantMemory';
 import { countMessagesContextTokens, messageTextForTokenCount } from '@/helpers/contextMessageTokens';
-import { contextTokenCounter, warmContextTokenCache } from '@/helpers/contextTokenCount';
+import { warmContextTokenCache } from '@/helpers/contextTokenCount';
 import {
   PENDING_CONTEXT_INPUT_MESSAGE_ID,
   appendPendingUserInputForContextWindow,
@@ -29,9 +29,11 @@ import {
   getEffectiveReportedInputTokenFloorAfterMessageId,
   getLatestReportedInputAnchor,
   getLatestReportedInputTokens,
+  reportedUsageRevisionKey,
   resolveAnchorBaseline,
   resolveSelectedPreAnchorIds,
 } from '@/helpers/reportedContextTokens';
+import { fallbackTokenCount } from '@/utils/tokenizer';
 import { createChatToolsEngine } from '@/helpers/toolEngineering';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { useModelContextWindowTokens } from '@/hooks/useModelContextWindowTokens';
@@ -181,31 +183,35 @@ export const useEstimatedContextUsage = (
   });
   const reservedOutput = Math.max(0, (maxTokens || 0) - inputBudget);
   const [multiplier, setMultiplier] = useState(1);
-  const [tokenCacheRevision, setTokenCacheRevision] = useState(0);
+  const [calibrationTick, setCalibrationTick] = useState(0);
+  const [warmedTokenCounts, setWarmedTokenCounts] = useState<ReadonlyMap<string, number>>(
+    () => new Map(),
+  );
 
   const reportedUsageRevision = useChatStore((state) => {
     const chats =
       conversationSource === 'portal'
         ? threadSelectors.portalAIChats(state)
         : chatSelectors.mainAIChats(state);
-    for (let index = chats.length - 1; index >= 0; index -= 1) {
-      const usage = chats[index]?.usage?.totalInputTokens;
-      if (typeof usage === 'number' && usage > 0) return `${chats[index]?.id}:${usage}`;
-    }
-    return '';
+    return reportedUsageRevisionKey(chats);
   });
 
-  useEffect(() => subscribeTokenEstimateMultiplier(() => setTokenCacheRevision((value) => value + 1)), []);
+  useEffect(
+    () => subscribeTokenEstimateMultiplier(() => setCalibrationTick((value) => value + 1)),
+    [],
+  );
 
   useEffect(() => {
     let cancelled = false;
-    void getTokenEstimateMultiplier(provider, model, { fresh: true }).then((value) => {
+    void getTokenEstimateMultiplier(provider, model, {
+      fresh: calibrationTick > 0 || reportedUsageRevision !== '',
+    }).then((value) => {
       if (!cancelled) setMultiplier(value);
     });
     return () => {
       cancelled = true;
     };
-  }, [model, provider, reportedUsageRevision, tokenCacheRevision]);
+  }, [calibrationTick, model, provider, reportedUsageRevision]);
   const knowledgeBaseToken = useChatStore((state) =>
     state.activeId
       ? (state.knowledgeBaseContextTokens[messageMapKey(state.activeId, state.activeTopicId)] ?? 0)
@@ -306,8 +312,10 @@ export const useEstimatedContextUsage = (
     systemRole: composedSystemRole,
     toolsString: canUseTool ? toolsString : '',
   };
+  const countWarmedText = (text: string) =>
+    warmedTokenCounts.get(text) ?? fallbackTokenCount(text);
   const fixedOverheadTokens =
-    estimateFixedContextOverheadTokens(overheadInput) + knowledgeBaseToken;
+    estimateFixedContextOverheadTokens(overheadInput, countWarmedText) + knowledgeBaseToken;
 
   useEffect(() => {
     let cancelled = false;
@@ -323,8 +331,8 @@ export const useEstimatedContextUsage = (
     );
     const texts = withDraft.map((message) => messageTextForTokenCount(message, inputTemplate));
     texts.push(fixedContextOverheadText(overheadInput));
-    void warmContextTokenCache(texts).then(() => {
-      if (!cancelled) setTokenCacheRevision((revision) => revision + 1);
+    void warmContextTokenCache(texts).then((warmed) => {
+      if (!cancelled) setWarmedTokenCounts(warmed.counts);
     });
     return () => {
       cancelled = true;
@@ -364,7 +372,7 @@ export const useEstimatedContextUsage = (
     const cursorId = applyCursor ? historySummaryLastMessageId : undefined;
     const windowTokens = inputBudget || maxTokens;
     const messageTokenCount = (message: MessageLikeForHistoryWindow) =>
-      countMessagesContextTokens([message], inputTemplate, model, contextTokenCounter).totalTokens;
+      countMessagesContextTokens([message], inputTemplate, model, countWarmedText).totalTokens;
     const sliced = selectMessagesForContext({
       cursorId,
       enableHistoryCount,
@@ -424,17 +432,17 @@ export const useEstimatedContextUsage = (
           })
         : undefined;
 
-    const counted = countMessagesContextTokens(sliced, inputTemplate, model, contextTokenCounter);
+    const counted = countMessagesContextTokens(sliced, inputTemplate, model, countWarmedText);
     const tail =
       anchorIndex >= 0
         ? countMessagesContextTokens(
             sliced.slice(anchorIndex),
             inputTemplate,
             model,
-            contextTokenCounter,
+            countWarmedText,
           )
         : { totalTokens: 0 };
-    const topicCounted = countMessagesContextTokens(chats, inputTemplate, model, contextTokenCounter);
+    const topicCounted = countMessagesContextTokens(chats, inputTemplate, model, countWarmedText);
 
     return {
       anchorBaseline,
@@ -478,7 +486,7 @@ export const useEstimatedContextUsage = (
     messageRevision,
     model,
     reportedInputTokenFloorAfterMessageId,
-    tokenCacheRevision,
+    warmedTokenCounts,
   ]);
 
   const fixedTokens =

@@ -26,7 +26,7 @@ const readTotalInput = (usage?: ModelTokensUsage | MessageMetadata | null): numb
   return isFinitePositive(total) ? total : undefined;
 };
 
-const readReportedInputFromMessage = (message: UsageMessage): number | undefined => {
+export const readReportedInputFromMessage = (message: UsageMessage): number | undefined => {
   if (!isAssistantLike(message) || message.content === LOADING_FLAT) {
     return undefined;
   }
@@ -41,6 +41,16 @@ const readReportedInputFromMessage = (message: UsageMessage): number | undefined
 
   const nested = (message.metadata as NestedUsageMetadata | undefined)?.usage;
   return readTotalInput(message.usage) ?? readTotalInput(nested) ?? readTotalInput(message.metadata);
+};
+
+/** Stable key for the newest provider input count, including metadata-only usage. */
+export const reportedUsageRevisionKey = (messages: UsageMessage[]): string => {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const tokens = readReportedInputFromMessage(messages[index]);
+    const id = messages[index]?.id;
+    if (tokens && id) return `${id}:${tokens}`;
+  }
+  return '';
 };
 
 /**

@@ -1088,4 +1088,57 @@ describe('estimateContextUsageAsync', () => {
     expect(afterReport.inputToken).toBe(0);
     expect(afterReport.totalToken).toBeGreaterThan(20_000);
   });
+
+  it('counts a thread prefix and refuses to train when the source row is missing', async () => {
+    const messages = [
+      { content: 'prefix', id: 'main-1', role: 'user' },
+      { content: 'source', id: 'main-2', role: 'user' },
+      { content: 'child', id: 'child-1', role: 'user', threadId: 'thread-a' },
+    ];
+    const scope = {
+      agentConfig: {
+        chatConfig: { enableCompressHistory: false, enableHistoryCount: false },
+        model: 'gpt-5-mini',
+        provider: 'openai',
+      },
+      isGroupSession: false,
+      pendingInput: '',
+      sessionId: 'session-1',
+      threadId: 'thread-a',
+      topicId: 'topic-1',
+    };
+    const chatState = {
+      activeId: 'other-session',
+      activeTopicId: 'other-topic',
+      inputMessage: 'visible-draft',
+      messagesMap: { [messageMapKey('session-1', 'topic-1')]: messages },
+      threadMaps: {
+        'topic-1': [{ id: 'thread-a', sourceMessageId: 'main-2', type: 'continuation' }],
+      },
+    } as any;
+
+    const counted = await estimateContextUsageAsync({
+      agentState: {} as any,
+      chatState,
+      scope: scope as any,
+    });
+    expect(counted.contextMessages.map((message) => message.id)).toEqual([
+      'main-1',
+      'main-2',
+      'child-1',
+    ]);
+    expect(counted.tokenEstimateEligible).toBe(true);
+    expect(counted.rawLocalTokens).toBeGreaterThan('child'.length);
+
+    const missing = await estimateContextUsageAsync({
+      agentState: {} as any,
+      chatState: {
+        ...chatState,
+        threadMaps: { 'topic-1': [{ id: 'thread-a', type: 'continuation' }] },
+      },
+      scope: scope as any,
+    });
+    expect(missing.contextMessages.map((message) => message.id)).toEqual(['child-1']);
+    expect(missing.tokenEstimateEligible).toBe(false);
+  });
 });

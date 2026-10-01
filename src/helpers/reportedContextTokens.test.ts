@@ -11,6 +11,7 @@ import {
   getLatestReportedInputTokenSourceId,
   getLatestReportedInputTokens,
   getReportedInputTokenFloorBoundaryId,
+  reportedUsageRevisionKey,
   messagesAfterId,
   nextReportedInputTokenFloorAfterMessageId,
   recordAnchorRequestWitness,
@@ -577,5 +578,19 @@ describe('reported context token floor', () => {
         })?.overheadDelta,
       ).toBe(0);
     });
+  });
+
+  it('tracks settled usage stored flat on metadata', () => {
+    expect(
+      reportedUsageRevisionKey([
+        { content: 'hi', id: 'u1', role: 'user' },
+        { content: 'ok', id: 'a1', metadata: { totalInputTokens: 1800 }, role: 'assistant' },
+      ]),
+    ).toBe('a1:1800');
+    expect(
+      reportedUsageRevisionKey([
+        { content: 'ok', id: 'a1', metadata: { usage: { totalInputTokens: 900 } }, role: 'assistant' },
+      ]),
+    ).toBe('a1:900');
   });
 });

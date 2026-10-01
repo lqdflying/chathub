@@ -7,7 +7,12 @@ vi.mock('@/utils/tokenizer', () => ({
 
 import { countTokensDetailed } from '@/utils/tokenizer';
 
-import { clearContextTokenCache, countContextTextTokens } from './contextTokenCount';
+import {
+  clearContextTokenCache,
+  countContextTextTokens,
+  readCachedContextTokens,
+  warmContextTokenCache,
+} from './contextTokenCount';
 
 describe('countContextTextTokens', () => {
   beforeEach(() => {
@@ -32,5 +37,23 @@ describe('countContextTextTokens', () => {
       mode: 'exact',
     });
     expect(countTokensDetailed).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps a warm snapshot after the shared cache evicts those strings', async () => {
+    vi.mocked(countTokensDetailed).mockImplementation(async (text: string) => ({
+      count: text.length,
+      mode: 'exact',
+    }));
+    const first = Array.from({ length: 450 }, (_, index) => `row-${index}-${'a'.repeat(12)}`);
+    const warmed = await warmContextTokenCache(first);
+    const later = Array.from({ length: 400 }, (_, index) => `later-${index}`);
+    await warmContextTokenCache(later);
+
+    expect(readCachedContextTokens(first[0])).toBeUndefined();
+    expect(warmed.count(first[0])).toBe(first[0].length);
+    expect(warmed.mode).toBe('exact');
+    expect(first.reduce((sum, text) => sum + warmed.count(text), 0)).toBe(
+      first.reduce((sum, text) => sum + text.length, 0),
+    );
   });
 });

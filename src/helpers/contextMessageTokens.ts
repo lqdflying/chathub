@@ -69,18 +69,18 @@ export const resolveTokenizerHistoryWindow = async ({
   overhead: Parameters<typeof fixedContextOverheadText>[0];
 }): Promise<EffectiveHistoryWindow> => {
   const overheadText = fixedContextOverheadText(overhead);
-  await warmContextTokenCache([
+  const warmed = await warmContextTokenCache([
     overheadText,
     ...messages.map((message) => messageTextForTokenCount(message, inputTemplate)),
   ]);
   return resolveEffectiveHistoryWindow({
     enableHistoryCount,
-    fixedOverheadTokens: estimateFixedContextOverheadTokens(overhead),
+    fixedOverheadTokens: estimateFixedContextOverheadTokens(overhead, warmed.count),
     historyCount,
     inputTemplate,
     maxTokens,
     messageTokenCount: (message) =>
-      countMessagesContextTokens([message], inputTemplate, modelId).totalTokens,
+      countMessagesContextTokens([message], inputTemplate, modelId, warmed.count).totalTokens,
     messagesAfterCursor: messages,
   });
 };

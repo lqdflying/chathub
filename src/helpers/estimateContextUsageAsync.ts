@@ -3,6 +3,7 @@ import { DEFAULT_AGENT_CHAT_CONFIG, DEFAULT_MODEL, DEFAULT_PROVIDER } from '@lob
 import { agentMemoryPrompt } from '@lobechat/prompts';
 import { ChatTopicMetadata, LobeAgentConfig } from '@lobechat/types';
 
+import { selectScopedConversationMessages } from '@/helpers/conversationThreadMessages';
 import { countMessagesContextTokens, messageTextForTokenCount } from '@/helpers/contextMessageTokens';
 import { countContextTextTokens, warmContextTokenCache } from '@/helpers/contextTokenCount';
 import { fixedContextOverheadText } from '@/helpers/contextUsageEstimate';
@@ -200,13 +201,16 @@ export const computeFixedContextOverheadInput = async ({
   return {
     agentMemory,
     overheadCountMode: overheadCount.mode,
-    fixedOverheadTokens: estimateFixedContextOverheadTokens({
-      agentMemory,
-      historySummaryRaw,
-      skillInstructions,
-      systemRole,
-      toolsString,
-    }),
+    fixedOverheadTokens: estimateFixedContextOverheadTokens(
+      {
+        agentMemory,
+        historySummaryRaw,
+        skillInstructions,
+        systemRole,
+        toolsString,
+      },
+      overheadCount.count,
+    ),
     historySummaryRaw,
     skillInstructions,
     systemRole: systemRole ?? '',
@@ -328,18 +332,25 @@ export const estimateContextUsageAsync = async ({
       ].map((value) => countTokens(value || '')),
     );
 
-  const rawMessages = scope
-    ? chatSelectors.conversationAIChats(sessionId, topicId, threadId)(chatState)
-    : chatSelectors.mainAIChats(chatState);
+  const scopedSelection = scope
+    ? selectScopedConversationMessages({
+        messages: chatState.messagesMap?.[messageMapKey(sessionId, topicId)] ?? [],
+        thread: threadId
+          ? chatState.threadMaps?.[topicId ?? '']?.find((item) => item.id === threadId)
+          : undefined,
+        threadId,
+      })
+    : undefined;
+  const rawMessages = scopedSelection?.messages ?? chatSelectors.mainAIChats(chatState);
   const afterCursor = getMessagesAfterHistorySummaryCursor(
     appendPendingUserInputForContextWindow(rawMessages, input, pendingHasFiles),
     enableHistoryCompaction ? historySummaryLastMessageId : undefined,
   );
-  const messageCountMode = await warmContextTokenCache(
+  const messageCount = await warmContextTokenCache(
     afterCursor.map((message) => messageTextForTokenCount(message, inputTemplate)),
   );
   const messageTokenCount = (message: MessageLikeForHistoryWindow) =>
-    countMessagesContextTokens([message], inputTemplate, model).totalTokens;
+    countMessagesContextTokens([message], inputTemplate, model, messageCount.count).totalTokens;
   const windowTokens = inputBudget || maxTokens;
   const effective = resolveEffectiveHistoryWindow({
     enableHistoryCount,
@@ -405,10 +416,20 @@ export const estimateContextUsageAsync = async ({
           }),
         })
       : undefined;
-  const wholeMessages = countMessagesContextTokens(chats, inputTemplate, model);
+  const wholeMessages = countMessagesContextTokens(
+    chats,
+    inputTemplate,
+    model,
+    messageCount.count,
+  );
   const tailMessages =
     anchorIndex >= 0
-      ? countMessagesContextTokens(chats.slice(anchorIndex), inputTemplate, model)
+      ? countMessagesContextTokens(
+          chats.slice(anchorIndex),
+          inputTemplate,
+          model,
+          messageCount.count,
+        )
       : { hasVisual: false, textTokens: 0, totalTokens: 0, visualTokens: 0 };
   const localWhole = fixedTokens + wholeMessages.totalTokens;
   const scaledWhole = scaleLocalTokens(localWhole, multiplier);
@@ -455,8 +476,9 @@ export const estimateContextUsageAsync = async ({
     systemRoleToken,
     tokenEstimateEligible:
       !wholeMessages.hasVisual &&
-      messageCountMode.mode === 'exact' &&
-      overheadCountMode === 'exact',
+      messageCount.mode === 'exact' &&
+      overheadCountMode === 'exact' &&
+      (scopedSelection?.complete ?? true),
     toolsToken,
     totalToken,
     uncalibratedTokens,

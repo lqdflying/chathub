@@ -10,6 +10,7 @@ let cached:
     }
   | undefined;
 const listeners = new Set<() => void>();
+const inflight = new Map<string, Promise<number>>();
 
 const cacheKey = (provider: string, model: string) => `${provider}\0${model}`;
 
@@ -36,17 +37,30 @@ export const getTokenEstimateMultiplier = async (
     return cached.multiplier;
   }
 
-  try {
-    const { multiplier } = await lambdaClient.tokenEstimation.getMultiplier.query({
-      model,
-      provider,
-    });
-    const next = Number.isFinite(multiplier) && multiplier > 0 ? multiplier : 1;
-    cached = { at: Date.now(), key, multiplier: next };
-    return next;
-  } catch {
-    return cached?.key === key ? cached.multiplier : 1;
+  if (!options?.fresh) {
+    const pending = inflight.get(key);
+    if (pending) return pending;
   }
+
+  const holder: { current?: Promise<number> } = {};
+  const request = (async () => {
+    try {
+      const { multiplier } = await lambdaClient.tokenEstimation.getMultiplier.query({
+        model,
+        provider,
+      });
+      const next = Number.isFinite(multiplier) && multiplier > 0 ? multiplier : 1;
+      cached = { at: Date.now(), key, multiplier: next };
+      return next;
+    } catch {
+      return cached?.key === key ? cached.multiplier : 1;
+    } finally {
+      if (inflight.get(key) === holder.current) inflight.delete(key);
+    }
+  })();
+  holder.current = request;
+  if (!options?.fresh) inflight.set(key, request);
+  return request;
 };
 
 export const invalidateTokenEstimateMultiplier = () => {

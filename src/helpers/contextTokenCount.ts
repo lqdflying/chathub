@@ -58,13 +58,27 @@ export type TextTokenCounter = (text: string) => number;
 export const contextTokenCounter = (text: string): number =>
   readCachedContextTokens(text) ?? fallbackTokenCount(text);
 
-export const warmContextTokenCache = async (
-  texts: string[],
-): Promise<{ mode: TokenCountMode }> => {
+export interface WarmedContextTokens {
+  /** Counts from this warm, independent of later evictions in the shared cache. */
+  counts: ReadonlyMap<string, number>;
+  mode: TokenCountMode;
+  count: (text: string) => number;
+}
+
+export const warmContextTokenCache = async (texts: string[]): Promise<WarmedContextTokens> => {
   const unique = [...new Set(texts.filter((text) => text.length > 0))];
-  const counted = await Promise.all(unique.map((text) => countContextTextTokens(text)));
+  const entries = await Promise.all(
+    unique.map(async (text) => [text, await countContextTextTokens(text)] as const),
+  );
+  const counts = new Map(entries.map(([text, value]) => [text, value.count]));
+  const count = (text: string) => {
+    if (!text) return 0;
+    return counts.get(text) ?? fallbackTokenCount(text);
+  };
   return {
-    mode: counted.some((item) => item.mode === 'fallback') ? 'fallback' : 'exact',
+    count,
+    counts,
+    mode: entries.some(([, value]) => value.mode === 'fallback') ? 'fallback' : 'exact',
   };
 };
 

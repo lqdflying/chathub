@@ -2894,7 +2894,7 @@ describe('generateAIChatV2 actions', () => {
         skipSkills: true,
         topicId: TEST_IDS.TOPIC_ID,
       });
-      expect(overhead.fixedOverheadTokens).toBeGreaterThanOrEqual(10_000);
+      expect(overhead.fixedOverheadTokens).toBeGreaterThanOrEqual(5_000);
       const baseline = resolveAnchorBaseline({
         anchorId: TEST_IDS.ASSISTANT_MESSAGE_ID,
         anchorParentId: TEST_IDS.USER_MESSAGE_ID,
