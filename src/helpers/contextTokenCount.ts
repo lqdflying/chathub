@@ -1,4 +1,4 @@
-import { encodeAsync, fallbackTokenCount, type TokenCountMode } from '@/utils/tokenizer';
+import { countTokensDetailed, fallbackTokenCount, type TokenCountMode } from '@/utils/tokenizer';
 
 const CACHE_LIMIT = 400;
 
@@ -41,15 +41,10 @@ export const countContextTextTokens = async (
     return cached;
   }
 
-  try {
-    const counted = { count: await encodeAsync(text), mode: 'exact' as const };
-    remember(key, counted);
-    return counted;
-  } catch {
-    const counted = { count: fallbackTokenCount(text), mode: 'fallback' as const };
-    remember(key, counted);
-    return counted;
-  }
+  const counted = await countTokensDetailed(text);
+  // A fallback count must not stick as "exact" after the tokenizer recovers.
+  if (counted.mode === 'exact') remember(key, counted);
+  return counted;
 };
 
 export const readCachedContextTokens = (text: string): number | undefined => {

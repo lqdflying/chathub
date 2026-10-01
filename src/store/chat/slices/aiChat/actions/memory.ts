@@ -335,12 +335,16 @@ async function runCompactionFromStore(
     truncatedForPreSend?: boolean;
     truncationRecoveryTokens?: number;
   } = {};
+  let gateInputBudget: number | undefined;
 
   const finish = async (
     status: MemoryCompactionResult['status'],
     values: Omit<MemoryCompactionResult, 'status'> = {},
   ): Promise<MemoryCompactionResult> => {
-    const result = compactionResult(status, values);
+    const result = compactionResult(status, {
+      ...values,
+      ...(gateInputBudget ? { inputBudget: gateInputBudget } : {}),
+    });
     if (!compactionDebugEnabled) return result;
     try {
       const [sessionHash, topicHash] = await Promise.all([
@@ -515,6 +519,7 @@ async function runCompactionFromStore(
     chatState: scopedState,
     multiplier: estimateMultiplier,
   });
+  gateInputBudget = beforeEstimate.inputBudget || undefined;
   debug.beforeEstimate = beforeEstimate;
   debug.slicedMessageCount = beforeEstimate.contextMessages.length;
   debug.effectiveHistoryCount = beforeEstimate.effectiveHistoryCount;
@@ -854,6 +859,7 @@ async function runCompactionFromStore(
   const afterEstimate = await estimateContextUsageAsync({
     agentState,
     chatState: afterChatState,
+    multiplier: estimateMultiplier,
     overrides: {
       historySummary,
       historySummaryLastMessageId: compactedThroughMessageId,
@@ -874,11 +880,12 @@ async function runCompactionFromStore(
   const exhaustedEligibleHistory =
     !truncatedForPreSend &&
     (!targetReachable || compactedThroughMessageId === lastEligibleMessageId);
+  const statusBudget = gateInputBudget || maxTokens;
   const status =
     trigger === 'token_threshold' &&
-    maxTokens &&
+    statusBudget &&
     exhaustedEligibleHistory &&
-    afterEstimate.totalToken / maxTokens > low
+    afterEstimate.totalToken / statusBudget > low
       ? 'target_unreachable'
       : 'compacted';
   const reason =

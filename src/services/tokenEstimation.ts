@@ -9,16 +9,30 @@ let cached:
       multiplier: number;
     }
   | undefined;
+const listeners = new Set<() => void>();
 
 const cacheKey = (provider: string, model: string) => `${provider}\0${model}`;
+
+export const subscribeTokenEstimateMultiplier = (listener: () => void) => {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+};
 
 export const getTokenEstimateMultiplier = async (
   provider?: string,
   model?: string,
+  options?: { fresh?: boolean },
 ): Promise<number> => {
   if (!provider || !model) return 1;
   const key = cacheKey(provider, model);
-  if (cached && cached.key === key && Date.now() - cached.at < CACHE_TTL_MS) {
+  if (
+    !options?.fresh &&
+    cached &&
+    cached.key === key &&
+    Date.now() - cached.at < CACHE_TTL_MS
+  ) {
     return cached.multiplier;
   }
 
@@ -37,6 +51,7 @@ export const getTokenEstimateMultiplier = async (
 
 export const invalidateTokenEstimateMultiplier = () => {
   cached = undefined;
+  for (const listener of listeners) listener();
 };
 
 export const reportTokenCalibration = async (input: {

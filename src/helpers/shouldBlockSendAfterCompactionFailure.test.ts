@@ -112,6 +112,20 @@ describe('shouldBlockSendAfterCompactionFailure', () => {
     ).toBe(false);
   });
 
+  it('blocks a failed compact that is under the full window but over the input budget', () => {
+    expect(
+      shouldBlockSendAfterCompactionFailure(
+        {
+          estimatedTokensBefore: 150_000,
+          highWatermark: 0.8,
+          inputBudget: 130_000,
+          status: 'failed',
+        },
+        258_000,
+      ),
+    ).toBe(true);
+  });
+
   it('blocks failed compact when estimate fields are missing', () => {
     expect(shouldBlockSendAfterCompactionFailure({ status: 'failed' }, 1000)).toBe(true);
   });

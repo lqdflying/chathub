@@ -29,7 +29,7 @@ import { enableAuth } from '@/const/auth';
 import { DEFAULT_AGENT_CONFIG } from '@/const/settings';
 import { getListedModelMaxOutputTokens } from '@/helpers/contextCompaction';
 import { resolveTokenizerHistoryWindow } from '@/helpers/contextMessageTokens';
-import { resolveInputBudgetTokens } from '@/helpers/inputBudget';
+import { requestedCompletionCap, resolveInputBudgetTokens } from '@/helpers/inputBudget';
 import { getSearchConfig } from '@/helpers/getSearchConfig';
 import { getModelContextWindowTokens } from '@/helpers/modelContextWindowTokens';
 import { createChatToolsEngine, createToolsEngine } from '@/helpers/toolEngineering';
@@ -269,7 +269,10 @@ class ChatService {
       systemRole,
       toolsString,
     };
-    const requestedMaxTokens = agentConfig.params?.max_tokens;
+    const requestedMaxTokens = requestedCompletionCap(
+      chatConfig.enableMaxTokens,
+      agentConfig.params?.max_tokens,
+    );
     const historyInputBudget = resolveInputBudgetTokens({
       contextWindowTokens: maxTokensForHistory,
       maxOutput: getListedModelMaxOutputTokens(payload.model, payload.provider!),

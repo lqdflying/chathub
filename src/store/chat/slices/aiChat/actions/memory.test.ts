@@ -61,7 +61,14 @@ vi.mock('@/services/topic', () => ({
     updateTopic: vi.fn(),
   },
 }));
+vi.mock('@/services/tokenEstimation', () => ({
+  getTokenEstimateMultiplier: async () => 1,
+  invalidateTokenEstimateMultiplier: () => undefined,
+  reportTokenCalibration: async () => undefined,
+  subscribeTokenEstimateMultiplier: () => () => undefined,
+}));
 vi.mock('@/utils/tokenizer', () => ({
+  countTokensDetailed: vi.fn(async (text: string) => ({ count: text.length, mode: 'exact' as const })),
   encodeAsync: vi.fn(async (text: string) => text.length),
   fallbackTokenCount: (text: string) => Math.ceil(text.length / 4),
 }));

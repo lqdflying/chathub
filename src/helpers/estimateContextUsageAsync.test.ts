@@ -44,6 +44,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@/utils/tokenizer', () => ({
+  countTokensDetailed: vi.fn(async (text: string) => ({ count: text.length, mode: 'exact' as const })),
   encodeAsync: vi.fn(async (text: string) => text.length),
   fallbackTokenCount: (text: string) => Math.ceil(text.length / 4),
 }));

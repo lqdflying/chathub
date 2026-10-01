@@ -6,7 +6,7 @@ import { ChatTopicMetadata, LobeAgentConfig } from '@lobechat/types';
 import { countMessagesContextTokens, messageTextForTokenCount } from '@/helpers/contextMessageTokens';
 import { countContextTextTokens, warmContextTokenCache } from '@/helpers/contextTokenCount';
 import { fixedContextOverheadText } from '@/helpers/contextUsageEstimate';
-import { resolveInputBudgetTokens } from '@/helpers/inputBudget';
+import { requestedCompletionCap, resolveInputBudgetTokens } from '@/helpers/inputBudget';
 import { getModelContextWindowTokens } from '@/helpers/modelContextWindowTokens';
 import { scaleLocalTokens } from '@/helpers/tokenCalibration';
 import { createChatToolsEngine } from '@/helpers/toolEngineering';
@@ -36,6 +36,7 @@ import {
   resolveEffectiveHistoryWindow,
   selectMessagesForContext,
 } from './contextCompaction';
+import { resolveEnableHistoryCountForAgent } from '@/store/chat/helpers/resolveConversationAgentRuntime';
 import {
   estimateFixedContextOverheadTokens,
   resolveEffectiveHistoryCountForCompaction,
@@ -59,12 +60,24 @@ interface EstimateContextUsageOverrides {
   reportedInputTokenFloorAfterMessageId?: string | null;
 }
 
+/** Count a specific conversation instead of whatever is currently on screen. */
+export interface EstimateContextUsageScope {
+  agentConfig: LobeAgentConfig;
+  isGroupSession?: boolean;
+  pendingHasFiles?: boolean;
+  pendingInput?: string;
+  sessionId: string;
+  threadId?: string | null;
+  topicId?: string | null;
+}
+
 export interface EstimateContextUsageAsyncParams {
-  agentState: ReturnType<typeof getAgentStoreState>;
+  agentState?: ReturnType<typeof getAgentStoreState>;
   chatState: ChatStoreState;
   /** Per-model correction. Applied only to locally counted tokens. */
   multiplier?: number;
   overrides?: EstimateContextUsageOverrides;
+  scope?: EstimateContextUsageScope;
 }
 
 const countTokens = async (value: string) => (await countContextTextTokens(value)).count;
@@ -72,6 +85,7 @@ const countTokens = async (value: string) => (await countContextTextTokens(value
 export interface FixedContextOverheadInput {
   agentMemory: string;
   /** Tokenizer-unit fixed overhead via `estimateFixedContextOverheadTokens`. */
+  overheadCountMode: 'exact' | 'fallback';
   fixedOverheadTokens: number;
   historySummaryRaw: string;
   skillInstructions: string;
@@ -181,10 +195,11 @@ export const computeFixedContextOverheadInput = async ({
     systemRole,
     toolsString,
   });
-  await warmContextTokenCache([overheadText]);
+  const overheadCount = await warmContextTokenCache([overheadText]);
 
   return {
     agentMemory,
+    overheadCountMode: overheadCount.mode,
     fixedOverheadTokens: estimateFixedContextOverheadTokens({
       agentMemory,
       historySummaryRaw,
@@ -205,6 +220,7 @@ export const estimateContextUsageAsync = async ({
   chatState,
   multiplier = 1,
   overrides,
+  scope,
 }: EstimateContextUsageAsyncParams): Promise<{
   chatsToken: number;
   contextMessages: ReturnType<typeof chatSelectors.mainAIChats>;
@@ -219,14 +235,23 @@ export const estimateContextUsageAsync = async ({
   multiplier: number;
   reservedOutput: number;
   systemRoleToken: number;
+  /** Local tokenizer total before provider reports and before the multiplier. */
+  rawLocalTokens: number;
   tokenEstimateEligible: boolean;
   toolsToken: number;
   totalToken: number;
   uncalibratedTokens: number;
 }> => {
-  const input = chatState.inputMessage || '';
-  const pendingHasFiles = fileChatSelectors.chatUploadFileListHasItem(getFileStoreState());
-  const activeTopic = topicSelectors.currentActiveTopic(chatState);
+  const sessionId = scope?.sessionId ?? chatState.activeId;
+  const threadId = scope ? scope.threadId : chatState.activeThreadId;
+  const topicId = scope ? scope.topicId : chatState.activeTopicId;
+  const input = scope ? scope.pendingInput || '' : chatState.inputMessage || '';
+  const pendingHasFiles = scope
+    ? !!scope.pendingHasFiles
+    : fileChatSelectors.chatUploadFileListHasItem(getFileStoreState());
+  const activeTopic = scope
+    ? chatState.topicMaps?.[sessionId]?.find((topic) => topic.id === topicId)
+    : topicSelectors.currentActiveTopic(chatState);
   const historySummaryLastMessageId =
     overrides?.historySummaryLastMessageId === undefined
       ? activeTopic?.metadata?.historySummaryLastMessageId
@@ -235,16 +260,24 @@ export const estimateContextUsageAsync = async ({
     overrides?.reportedInputTokenFloorAfterMessageId === undefined
       ? activeTopic?.metadata?.reportedInputTokenFloorAfterMessageId
       : overrides.reportedInputTokenFloorAfterMessageId || undefined;
-  const agentConfig = agentSelectors.currentAgentConfig(agentState);
-  const chatConfig = agentChatConfigSelectors.currentChatConfig(agentState);
-  const enableHistoryCount = agentChatConfigSelectors.enableHistoryCount(agentState);
-  const configuredHistoryCount = agentChatConfigSelectors.historyCount(agentState);
+  const agentConfig =
+    scope?.agentConfig ?? agentSelectors.currentAgentConfig(agentState ?? getAgentStoreState());
+  const chatConfig = scope
+    ? agentConfig.chatConfig || {}
+    : agentChatConfigSelectors.currentChatConfig(agentState ?? getAgentStoreState());
+  const enableHistoryCount = scope
+    ? resolveEnableHistoryCountForAgent(agentConfig)
+    : agentChatConfigSelectors.enableHistoryCount(agentState ?? getAgentStoreState());
+  const configuredHistoryCount = scope
+    ? chatConfig.historyCount
+    : agentChatConfigSelectors.historyCount(agentState ?? getAgentStoreState());
   const enableHistoryCompaction = !!enableHistoryCount && !!chatConfig.enableCompressHistory;
   // The overhead assembly is shared with the send path's dispatch witness so
   // the anchor delta can never drift between call sites (R4/T1).
   const {
     agentMemory: agentMemoryForRequest,
     fixedOverheadTokens,
+    overheadCountMode,
     historySummaryRaw: historySummaryForRequest,
     skillInstructions,
     systemRole,
@@ -253,19 +286,27 @@ export const estimateContextUsageAsync = async ({
     agentConfig,
     chatState,
     enableHistoryCount: !!enableHistoryCount,
-    isGroupSession: chatState.activeSessionType === 'group',
-    sessionId: chatState.activeId,
-    threadId: chatState.activeThreadId,
-    topicId: chatState.activeTopicId,
+    isGroupSession: scope?.isGroupSession ?? chatState.activeSessionType === 'group',
+    sessionId,
+    threadId,
+    topicId,
     topicOverride: overrides
       ? { historySummary: overrides.historySummary, memoryArchives: overrides.memoryArchives }
       : undefined,
   });
   const historySummaryWrapped = wrapHistorySummaryForTokenEstimate(historySummaryForRequest);
-  const model = agentSelectors.currentAgentModel(agentState) as string;
-  const provider = agentSelectors.currentAgentModelProvider(agentState) as string;
+  const resolvedAgentState = agentState ?? getAgentStoreState();
+  const model = (
+    scope ? agentConfig.model : agentSelectors.currentAgentModel(resolvedAgentState)
+  ) as string;
+  const provider = (
+    scope ? agentConfig.provider : agentSelectors.currentAgentModelProvider(resolvedAgentState)
+  ) as string;
   const maxTokens = getModelContextWindowTokens(model, provider);
-  const requestedMaxTokens = agentConfig.params?.max_tokens;
+  const requestedMaxTokens = requestedCompletionCap(
+    chatConfig.enableMaxTokens,
+    agentConfig.params?.max_tokens,
+  );
   const inputBudget = resolveInputBudgetTokens({
     contextWindowTokens: maxTokens,
     maxOutput: getListedModelMaxOutputTokens(model, provider),
@@ -287,7 +328,9 @@ export const estimateContextUsageAsync = async ({
       ].map((value) => countTokens(value || '')),
     );
 
-  const rawMessages = chatSelectors.mainAIChats(chatState);
+  const rawMessages = scope
+    ? chatSelectors.conversationAIChats(sessionId, topicId, threadId)(chatState)
+    : chatSelectors.mainAIChats(chatState);
   const afterCursor = getMessagesAfterHistorySummaryCursor(
     appendPendingUserInputForContextWindow(rawMessages, input, pendingHasFiles),
     enableHistoryCompaction ? historySummaryLastMessageId : undefined,
@@ -351,7 +394,7 @@ export const estimateContextUsageAsync = async ({
       ? resolveAnchorBaseline({
           anchorId: anchor.id,
           anchorParentId: rawAnchorIndex > 0 ? rawMessages[rawAnchorIndex - 1]?.id : undefined,
-          conversationKey: messageMapKey(chatState.activeId, chatState.activeTopicId),
+          conversationKey: messageMapKey(sessionId, topicId),
           currentFixedOverheadTokens: fixedOverheadTokens,
           inputTemplate,
           prefixFingerprint: fingerprintAnchorPrefix(fullPrefix),
@@ -391,6 +434,7 @@ export const estimateContextUsageAsync = async ({
     totalToken = floor.totalToken;
     uncalibratedTokens = uncalibratedFloor.totalToken;
   }
+  const rawLocalTokens = localWhole;
 
   return {
     chatsToken,
@@ -406,9 +450,13 @@ export const estimateContextUsageAsync = async ({
     inputToken,
     memoryToken,
     multiplier,
+    rawLocalTokens,
     reservedOutput,
     systemRoleToken,
-    tokenEstimateEligible: !wholeMessages.hasVisual && messageCountMode.mode === 'exact',
+    tokenEstimateEligible:
+      !wholeMessages.hasVisual &&
+      messageCountMode.mode === 'exact' &&
+      overheadCountMode === 'exact',
     toolsToken,
     totalToken,
     uncalibratedTokens,

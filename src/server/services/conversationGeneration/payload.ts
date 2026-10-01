@@ -39,7 +39,7 @@ import {
   getMessagesAfterHistorySummaryCursor,
 } from '@/helpers/contextCompaction';
 import { resolveTokenizerHistoryWindow } from '@/helpers/contextMessageTokens';
-import { resolveInputBudgetTokens } from '@/helpers/inputBudget';
+import { requestedCompletionCap, resolveInputBudgetTokens } from '@/helpers/inputBudget';
 import { FileService } from '@/server/services/file';
 import { composeSystemRole } from '@/services/chat/composeSystemRole';
 import { resolveOpenAICompatibleChatRoute } from '@/services/chat/openAICompatibleRoute';
@@ -211,7 +211,10 @@ export const buildConversationChatPayload = async ({
       name: skill!.name,
     })),
   });
-  const requestedMaxTokens = config.agentParams?.max_tokens;
+  const requestedMaxTokens = requestedCompletionCap(
+    chatConfig?.enableMaxTokens,
+    config.agentParams?.max_tokens,
+  );
   const historyInputBudget = resolveInputBudgetTokens({
     contextWindowTokens: modelCard?.contextWindowTokens,
     maxOutput: getListedModelMaxOutputTokens(model, provider),

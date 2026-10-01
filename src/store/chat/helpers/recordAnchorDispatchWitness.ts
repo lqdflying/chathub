@@ -199,7 +199,19 @@ export const recordAnchorDispatchWitness = async ({
       evidence,
       parentMessageId,
     });
-    const tokenEstimate = await captureDispatchTokenEstimate(chatState);
+    const sameVisibleConversation =
+      chatState.activeId === conversation.sessionId &&
+      (chatState.activeTopicId ?? null) === (conversation.topicId ?? null) &&
+      (chatState.activeThreadId ?? null) === (conversation.threadId ?? null);
+    const tokenEstimate = await captureDispatchTokenEstimate({
+      agentConfig: agentRuntime.agentConfig,
+      chatState,
+      isGroupSession: agentRuntime.isGroupSession,
+      pendingInput: sameVisibleConversation ? chatState.inputMessage : '',
+      sessionId: conversation.sessionId,
+      threadId: conversation.threadId,
+      topicId: conversation.topicId,
+    });
     if (tokenEstimate && assistantMessageId) {
       rememberDispatchTokenEstimate(assistantMessageId, tokenEstimate);
     }

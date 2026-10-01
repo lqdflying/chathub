@@ -35,6 +35,8 @@ export interface MemoryCompactionResult {
   estimatedTokensAfter?: number;
   estimatedTokensBefore?: number;
   highWatermark?: number;
+  /** Usable input budget the high watermark was compared against. */
+  inputBudget?: number;
   lowWatermark?: number;
   messageCountIncluded?: number;
   reason?: string;

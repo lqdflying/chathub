@@ -9,8 +9,7 @@ import {
   type RagChatScopeStats,
 } from '@lobechat/types';
 
-import { encodeAsync, fallbackTokenCount } from '@/utils/tokenizer';
-import { estimatedEncodeAsync } from '@/utils/tokenizer/estimated';
+import { countTokensDetailed } from '@/utils/tokenizer';
 
 export const CONTEXT_EXPORT_REDACTIONS = [
   'credentials',
@@ -35,15 +34,14 @@ export const countKnowledgeBasePromptTokens = async (
   if (!prompt) return { countMode: 'exact', promptTokens: 0 };
 
   try {
-    return { countMode: 'exact', promptTokens: await encodeAsync(prompt) };
+    const counted = await countTokensDetailed(prompt);
+    return {
+      countMode: counted.mode === 'exact' ? 'exact' : 'estimated',
+      promptTokens: counted.count,
+    };
   } catch {
     // Token accounting is diagnostic context only and must never block the provider request.
-  }
-
-  try {
-    return { countMode: 'estimated', promptTokens: await estimatedEncodeAsync(prompt) };
-  } catch {
-    return { countMode: 'estimated', promptTokens: fallbackTokenCount(prompt) };
+    return { countMode: 'estimated', promptTokens: 0 };
   }
 };
 

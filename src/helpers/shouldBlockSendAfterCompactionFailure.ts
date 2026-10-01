@@ -32,14 +32,15 @@ export const shouldBlockSendAfterCompactionFailure = (
 
   const used = compactionEstimateForSendGate(result);
   const high = result.highWatermark;
+  const denominator = isPositiveFinite(result.inputBudget) ? result.inputBudget : maxTokens;
   if (
     isPositiveFinite(used) &&
     typeof high === 'number' &&
     high > 0 &&
-    typeof maxTokens === 'number' &&
-    maxTokens > 0
+    typeof denominator === 'number' &&
+    denominator > 0
   ) {
-    return used / maxTokens >= high;
+    return used / denominator >= high;
   }
 
   // Token-threshold compact was attempted and failed without usable estimate

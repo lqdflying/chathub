@@ -12,6 +12,21 @@ export interface InputBudgetInput {
  * input that can still be sent. An equal context and max-output card (the
  * window is shared, not pre-reserved) reserves nothing.
  */
+/**
+ * Completion cap the next request will actually send. A saved `max_tokens`
+ * value is ignored while the max-tokens switch is off; the settings form keeps
+ * that number hidden rather than clearing it.
+ */
+export const requestedCompletionCap = (
+  enableMaxTokens: boolean | undefined,
+  maxTokens: unknown,
+): number | undefined => {
+  if (!enableMaxTokens) return undefined;
+  return typeof maxTokens === 'number' && Number.isFinite(maxTokens) && maxTokens > 0
+    ? maxTokens
+    : undefined;
+};
+
 export const resolveReservedOutputTokens = ({
   contextWindowTokens,
   maxOutput,

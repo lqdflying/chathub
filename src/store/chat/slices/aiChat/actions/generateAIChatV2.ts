@@ -841,7 +841,14 @@ export const generateAIChatV2: StateCreator<
     const sentAgentConfig = { ...agentConfig, model, provider, systemRole: sentSystemRole };
     const dispatchTokenEstimate =
       isClientDurableConversationGenerationEnabled() && model && provider
-        ? await captureDispatchTokenEstimate(get())
+        ? await captureDispatchTokenEstimate({
+            agentConfig: sentAgentConfig,
+            chatState: get(),
+            isGroupSession: activeSessionType === 'group',
+            sessionId: conversationContext.sessionId,
+            threadId: conversationContext.threadId,
+            topicId: sendTopicId,
+          })
         : undefined;
     const generation =
       isClientDurableConversationGenerationEnabled() &&

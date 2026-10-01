@@ -121,6 +121,20 @@ describe('ConversationGenerationConfigSchema', () => {
     });
   });
 
+  it('keeps calibration fields on a durable chat config', () => {
+    expect(
+      ConversationGenerationConfigSchema.parse({
+        model: 'gpt-5.5',
+        provider: 'openai',
+        tokenEstimateEligible: true,
+        uncalibratedInputTokens: 12_345,
+      }),
+    ).toMatchObject({
+      tokenEstimateEligible: true,
+      uncalibratedInputTokens: 12_345,
+    });
+  });
+
   it('rejects an invalid snapshot summarizer window', () => {
     expect(() =>
       ConversationGenerationConfigSchema.parse({

@@ -205,6 +205,7 @@ vi.mock('@/hooks/useTokenCount', () => ({
 }));
 
 vi.mock('@/utils/tokenizer', () => ({
+  countTokensDetailed: async (text: string) => ({ count: text.length, mode: 'exact' as const }),
   encodeAsync: async (text: string) => text.length,
   fallbackTokenCount: (text: string) => text.length,
 }));

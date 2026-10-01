@@ -1,8 +1,7 @@
 import { ChatErrorType } from '@lobechat/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { encodeAsync } from '@/utils/tokenizer';
-import { estimatedEncodeAsync } from '@/utils/tokenizer/estimated';
+import { countTokensDetailed } from '@/utils/tokenizer';
 
 import {
   addKnowledgeDiagnosticIdToError,
@@ -15,12 +14,8 @@ import {
 } from './knowledgeBaseContext';
 
 vi.mock('@/utils/tokenizer', () => ({
-  MAX_EXACT_TOKENIZER_INPUT_LENGTH: 10_000,
-  encodeAsync: vi.fn(),
-  fallbackTokenCount: (text: string) => Math.ceil(text.length / 4),
+  countTokensDetailed: vi.fn(),
 }));
-
-vi.mock('@/utils/tokenizer/estimated', () => ({ estimatedEncodeAsync: vi.fn() }));
 
 const summary = createKnowledgeBaseSummary({
   countMode: 'exact',
@@ -41,9 +36,7 @@ const summary = createKnowledgeBaseSummary({
 });
 
 beforeEach(() => {
-  vi.stubGlobal('Worker', class TokenizerWorker {});
-  vi.mocked(encodeAsync).mockReset().mockResolvedValue(7);
-  vi.mocked(estimatedEncodeAsync).mockReset().mockResolvedValue(5);
+  vi.mocked(countTokensDetailed).mockReset().mockResolvedValue({ count: 7, mode: 'exact' });
 });
 
 afterEach(() => {
@@ -56,11 +49,10 @@ describe('knowledgeBaseContext', () => {
       countMode: 'exact',
       promptTokens: 7,
     });
-    expect(estimatedEncodeAsync).not.toHaveBeenCalled();
   });
 
-  it('falls back to an estimated count when worker tokenization fails', async () => {
-    vi.mocked(encodeAsync).mockRejectedValueOnce(new Error('worker unavailable'));
+  it('reports an estimated count when tokenization falls back', async () => {
+    vi.mocked(countTokensDetailed).mockResolvedValueOnce({ count: 5, mode: 'fallback' });
 
     await expect(countKnowledgeBasePromptTokens('prompt')).resolves.toEqual({
       countMode: 'estimated',
@@ -68,13 +60,12 @@ describe('knowledgeBaseContext', () => {
     });
   });
 
-  it('falls back to the ASCII and non-ASCII estimate when both counters fail', async () => {
-    vi.mocked(encodeAsync).mockRejectedValueOnce(new Error('worker unavailable'));
-    vi.mocked(estimatedEncodeAsync).mockRejectedValueOnce(new Error('estimator unavailable'));
+  it('reports an estimated zero when token counting throws', async () => {
+    vi.mocked(countTokensDetailed).mockRejectedValueOnce(new Error('worker unavailable'));
 
     await expect(countKnowledgeBasePromptTokens('prompt')).resolves.toEqual({
       countMode: 'estimated',
-      promptTokens: 2,
+      promptTokens: 0,
     });
   });
 

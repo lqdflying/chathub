@@ -7,6 +7,7 @@ import { countMessagesContextTokens, messageTextForTokenCount } from '@/helpers/
 import { contextTokenCounter, warmContextTokenCache } from '@/helpers/contextTokenCount';
 import {
   PENDING_CONTEXT_INPUT_MESSAGE_ID,
+  appendPendingUserInputForContextWindow,
   getListedModelMaxOutputTokens,
   selectMessagesForContext,
   type MessageLikeForHistoryWindow,
@@ -18,7 +19,7 @@ import {
   getHistoryWindowDiagnostics,
   wrapHistorySummaryForTokenEstimate,
 } from '@/helpers/contextUsageEstimate';
-import { resolveInputBudgetTokens } from '@/helpers/inputBudget';
+import { requestedCompletionCap, resolveInputBudgetTokens } from '@/helpers/inputBudget';
 import { scaleLocalTokens } from '@/helpers/tokenCalibration';
 import type { HistoryWindowDiagnostics } from '@/helpers/contextUsageEstimate';
 import { buildHistorySummaryForRequest } from '@/helpers/memoryArchivePrompt';
@@ -34,7 +35,10 @@ import {
 import { createChatToolsEngine } from '@/helpers/toolEngineering';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { useModelContextWindowTokens } from '@/hooks/useModelContextWindowTokens';
-import { getTokenEstimateMultiplier } from '@/services/tokenEstimation';
+import {
+  getTokenEstimateMultiplier,
+  subscribeTokenEstimateMultiplier,
+} from '@/services/tokenEstimation';
 import { useModelSupportToolUse } from '@/hooks/useModelSupportToolUse';
 import { useTokenCount } from '@/hooks/useTokenCount';
 import { composeSystemRole } from '@/services/chat/composeSystemRole';
@@ -164,10 +168,12 @@ export const useEstimatedContextUsage = (
   ]);
 
   const maxTokens = useModelContextWindowTokens(model, provider);
-  const requestedMaxTokens = useAgentStore((s) => {
-    const value = agentSelectors.currentAgentConfig(s).params?.max_tokens;
-    return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
-  });
+  const requestedMaxTokens = useAgentStore((s) =>
+    requestedCompletionCap(
+      agentChatConfigSelectors.currentChatConfig(s).enableMaxTokens,
+      agentSelectors.currentAgentConfig(s).params?.max_tokens,
+    ),
+  );
   const inputBudget = resolveInputBudgetTokens({
     contextWindowTokens: maxTokens,
     maxOutput: getListedModelMaxOutputTokens(model, provider),
@@ -177,15 +183,29 @@ export const useEstimatedContextUsage = (
   const [multiplier, setMultiplier] = useState(1);
   const [tokenCacheRevision, setTokenCacheRevision] = useState(0);
 
+  const reportedUsageRevision = useChatStore((state) => {
+    const chats =
+      conversationSource === 'portal'
+        ? threadSelectors.portalAIChats(state)
+        : chatSelectors.mainAIChats(state);
+    for (let index = chats.length - 1; index >= 0; index -= 1) {
+      const usage = chats[index]?.usage?.totalInputTokens;
+      if (typeof usage === 'number' && usage > 0) return `${chats[index]?.id}:${usage}`;
+    }
+    return '';
+  });
+
+  useEffect(() => subscribeTokenEstimateMultiplier(() => setTokenCacheRevision((value) => value + 1)), []);
+
   useEffect(() => {
     let cancelled = false;
-    void getTokenEstimateMultiplier(provider, model).then((value) => {
+    void getTokenEstimateMultiplier(provider, model, { fresh: true }).then((value) => {
       if (!cancelled) setMultiplier(value);
     });
     return () => {
       cancelled = true;
     };
-  }, [model, provider]);
+  }, [model, provider, reportedUsageRevision, tokenCacheRevision]);
   const knowledgeBaseToken = useChatStore((state) =>
     state.activeId
       ? (state.knowledgeBaseContextTokens[messageMapKey(state.activeId, state.activeTopicId)] ?? 0)
@@ -296,7 +316,12 @@ export const useEstimatedContextUsage = (
       conversationSource === 'portal'
         ? threadSelectors.portalAIChats(state)
         : chatSelectors.mainAIChats(state);
-    const texts = chats.map((message) => messageTextForTokenCount(message, inputTemplate));
+    const withDraft = appendPendingUserInputForContextWindow(
+      chats,
+      estimateInput,
+      estimateHasPendingFiles,
+    );
+    const texts = withDraft.map((message) => messageTextForTokenCount(message, inputTemplate));
     texts.push(fixedContextOverheadText(overheadInput));
     void warmContextTokenCache(texts).then(() => {
       if (!cancelled) setTokenCacheRevision((revision) => revision + 1);
@@ -309,6 +334,8 @@ export const useEstimatedContextUsage = (
     canUseTool,
     composedSystemRole,
     conversationSource,
+    estimateHasPendingFiles,
+    estimateInput,
     inputTemplate,
     memorySummaryRaw,
     messageRevision,

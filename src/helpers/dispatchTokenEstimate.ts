@@ -1,8 +1,8 @@
-import type { ChatStoreState } from '@/store/chat/initialState';
-import { agentSelectors } from '@/store/agent/selectors';
-import { getAgentStoreState } from '@/store/agent/store';
+import type { LobeAgentConfig } from '@lobechat/types';
 
-import { estimateContextUsageAsync } from './estimateContextUsageAsync';
+import type { ChatStoreState } from '@/store/chat/initialState';
+
+import { estimateContextUsageAsync, type EstimateContextUsageScope } from './estimateContextUsageAsync';
 
 export interface DispatchTokenEstimate {
   eligible: boolean;
@@ -36,22 +36,49 @@ export const consumeDispatchTokenEstimate = (
   return estimate;
 };
 
-/** Uncalibrated next-request total for the chat state about to be sent. */
-export const captureDispatchTokenEstimate = async (
-  chatState: ChatStoreState,
-): Promise<DispatchTokenEstimate | undefined> => {
+/**
+ * Raw local token count for the conversation that is about to be sent.
+ * Does not read the visible topic or its draft.
+ */
+export const captureDispatchTokenEstimate = async ({
+  agentConfig,
+  chatState,
+  isGroupSession,
+  pendingHasFiles,
+  pendingInput,
+  sessionId,
+  threadId,
+  topicId,
+}: {
+  agentConfig: LobeAgentConfig;
+  chatState: ChatStoreState;
+  isGroupSession?: boolean;
+  pendingHasFiles?: boolean;
+  pendingInput?: string;
+  sessionId: string;
+  threadId?: string | null;
+  topicId?: string | null;
+}): Promise<DispatchTokenEstimate | undefined> => {
   try {
-    const agentState = getAgentStoreState();
-    const model = agentSelectors.currentAgentModel(agentState);
-    const provider = agentSelectors.currentAgentModelProvider(agentState);
-    if (!model || !provider) return undefined;
+    const model = agentConfig.model;
+    const provider = agentConfig.provider;
+    if (!model || !provider || !sessionId) return undefined;
 
+    const scope: EstimateContextUsageScope = {
+      agentConfig: { ...agentConfig, model, provider },
+      isGroupSession,
+      pendingHasFiles,
+      pendingInput,
+      sessionId,
+      threadId,
+      topicId,
+    };
     const estimate = await estimateContextUsageAsync({
-      agentState,
       chatState,
       multiplier: 1,
+      scope,
     });
-    if (!Number.isFinite(estimate.uncalibratedTokens) || estimate.uncalibratedTokens <= 0) {
+    if (!Number.isFinite(estimate.rawLocalTokens) || estimate.rawLocalTokens <= 0) {
       return undefined;
     }
 
@@ -59,7 +86,7 @@ export const captureDispatchTokenEstimate = async (
       eligible: estimate.tokenEstimateEligible,
       model,
       provider,
-      uncalibratedInputTokens: estimate.uncalibratedTokens,
+      uncalibratedInputTokens: estimate.rawLocalTokens,
     };
   } catch {
     return undefined;

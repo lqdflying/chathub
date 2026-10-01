@@ -33,7 +33,6 @@ import { useUserStore } from '@/store/user';
 import { authSelectors } from '@/store/user/selectors';
 import { UploadFileItem } from '@/types/files/upload';
 import { encodeAsync } from '@/utils/tokenizer';
-import { estimatedEncodeAsync } from '@/utils/tokenizer/estimated';
 
 import { useChatStore } from '../../../../store';
 import { messageMapKey } from '../../../../utils/messageMapKey';
@@ -43,11 +42,28 @@ import { resetTestEnvironment, setupMockSelectors, spyOnMessageService } from '.
 // Keep zustand mock as it's needed globally
 vi.mock('zustand/traditional', async (importOriginal) => await importOriginal());
 
-vi.mock('@/utils/tokenizer', () => ({
-  MAX_EXACT_TOKENIZER_INPUT_LENGTH: 10_000,
-  encodeAsync: vi.fn(async (text: string) => Math.ceil(text.length / 4)),
-  fallbackTokenCount: (text: string) => Math.ceil(text.length / 4),
+vi.mock('@/services/tokenEstimation', () => ({
+  getTokenEstimateMultiplier: async () => 1,
+  invalidateTokenEstimateMultiplier: () => undefined,
+  reportTokenCalibration: async () => undefined,
+  subscribeTokenEstimateMultiplier: () => () => undefined,
 }));
+vi.mock('@/utils/tokenizer', () => {
+  const encodeAsync = vi.fn(async (text: string) => Math.ceil(text.length / 4));
+  const fallbackTokenCount = (text: string) => Math.ceil(text.length / 4);
+  return {
+    MAX_EXACT_TOKENIZER_INPUT_LENGTH: 10_000,
+    countTokensDetailed: vi.fn(async (text: string) => {
+      try {
+        return { count: await encodeAsync(text), mode: 'exact' as const };
+      } catch {
+        return { count: fallbackTokenCount(text), mode: 'fallback' as const };
+      }
+    }),
+    encodeAsync,
+    fallbackTokenCount,
+  };
+});
 
 vi.mock('@/utils/tokenizer/estimated', () => ({
   estimatedEncodeAsync: vi.fn(async (text: string) => Math.ceil(text.length / 4)),
@@ -3027,7 +3043,7 @@ describe('generateAIChatV2 actions', () => {
         },
       });
       expect(capturedRequest.knowledgeBase.promptTokens).toBeGreaterThan(0);
-      expect(estimatedEncodeAsync).toHaveBeenCalled();
+      expect(capturedRequest.knowledgeBase.countMode).toBe('estimated');
       expect(useChatStore.getState().knowledgeBaseContextTokens).toEqual({});
     });
 

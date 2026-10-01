@@ -255,6 +255,7 @@ export const ConversationGenerationConfigSchema = z.object({
   rewindFromMessageId: z.string().optional(),
   systemRole: z.string().optional(),
   targetId: z.string().optional(),
+  tokenEstimateEligible: z.boolean().optional(),
   title: z.object({ force: z.boolean().optional(), topicId: z.string() }).optional(),
   translation: z
     .object({
@@ -269,6 +270,7 @@ export const ConversationGenerationConfigSchema = z.object({
       voice: z.string().optional(),
     })
     .optional(),
+  uncalibratedInputTokens: z.number().int().positive().max(100_000_000).optional(),
 });
 
 /** JSON `null` and omitted IDs both mean the main conversation lane. */
