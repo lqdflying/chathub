@@ -81,6 +81,8 @@ export interface EstimateContextUsageScope {
   pendingHasFiles?: boolean;
   pendingInput?: string;
   sessionId: string;
+  /** Dispatch calibration must not wait on skill resolution. */
+  skipSkills?: boolean;
   threadId?: string | null;
   topicId?: string | null;
 }
@@ -103,6 +105,8 @@ export interface FixedContextOverheadInput {
   fixedOverheadTokens: number;
   historySummaryRaw: string;
   skillInstructions: string;
+  /** Selected skills were left out because resolving them would wait on the network. */
+  skillsUnresolved: boolean;
   systemRole: string;
   toolsString: string;
 }
@@ -196,8 +200,9 @@ export const computeFixedContextOverheadInput = async ({
       topicId,
     }),
   )(getSkillStoreState());
+  const skillsUnresolved = !!skipSkills && skillIds.length > 0;
   const skillRecords =
-    !skipSkills && skillIds.length ? await skillService.resolveSkills(skillIds) : [];
+    !skillsUnresolved && skillIds.length ? await skillService.resolveSkills(skillIds) : [];
   const skillInstructions = formatSkillInstructionsBlock({
     activated: skillRecords.map((skill) => ({
       description: skill.description,
@@ -218,6 +223,7 @@ export const computeFixedContextOverheadInput = async ({
 
   return {
     agentMemory,
+    skillsUnresolved,
     overheadCountMode: overheadCount.mode,
     fixedOverheadTokens: estimateFixedContextOverheadTokens(
       {
@@ -308,6 +314,7 @@ export const estimateContextUsageAsync = async ({
     overheadCountMode,
     historySummaryRaw: historySummaryForRequest,
     skillInstructions,
+    skillsUnresolved,
     systemRole,
     toolsString,
   } = await computeFixedContextOverheadInput({
@@ -316,6 +323,7 @@ export const estimateContextUsageAsync = async ({
     enableHistoryCount: !!enableHistoryCount,
     isGroupSession,
     sessionId,
+    skipSkills: scope?.skipSkills,
     threadId,
     topicId,
     topicOverride: overrides
@@ -499,6 +507,7 @@ export const estimateContextUsageAsync = async ({
     reservedOutput,
     systemRoleToken,
     tokenEstimateEligible:
+      !skillsUnresolved &&
       !wholeMessages.hasVisual &&
       messageCount.mode === 'exact' &&
       overheadCountMode === 'exact' &&

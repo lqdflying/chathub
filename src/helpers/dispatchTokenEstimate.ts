@@ -70,6 +70,9 @@ export const captureDispatchTokenEstimate = async ({
       pendingHasFiles,
       pendingInput,
       sessionId,
+      // Skill text is resolved on the server. Waiting here stalls send, and Stop
+      // cannot cancel that request. Unresolved skills make the sample ineligible.
+      skipSkills: true,
       threadId,
       topicId,
     };

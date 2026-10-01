@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { formatSkillInstructionsBlock } from '@lobechat/context-engine';
 
 import { LOADING_FLAT } from '@/const/message';
+import { skillService } from '@/services/skill';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 
 import { selectMessagesForContext } from './contextCompaction';
@@ -100,7 +101,7 @@ vi.mock('@/store/agent/selectors', () => ({
 
 vi.mock('@/services/skill', () => ({
   skillService: {
-    resolveSkills: async () => mocks.skillRecords,
+    resolveSkills: vi.fn(async () => mocks.skillRecords),
   },
 }));
 
@@ -1217,5 +1218,37 @@ describe('estimateContextUsageAsync', () => {
     expect(standalone.contextMessages.map((message) => message.id)).toEqual(['source', 'child']);
     expect(standalone.rawLocalTokens).toBeGreaterThan(10_000);
     expect(mocks.summaryInput?.enableCompressHistory).toBe(false);
+  });
+
+  it('does not train on a dispatch sample that skipped unresolved skills', async () => {
+    mocks.skillRecords = [
+      {
+        description: 'Reviews diffs',
+        identifier: 'reviewer',
+        instructions: 'Review diffs carefully.',
+        name: 'reviewer',
+      },
+    ];
+    vi.mocked(skillService.resolveSkills).mockClear();
+
+    const skipped = await estimateContextUsageAsync({
+      agentState: {} as any,
+      chatState: { activeId: 'session-1', activeTopicId: 'topic-1', inputMessage: '' } as any,
+      scope: {
+        agentConfig: {
+          chatConfig: { enableCompressHistory: false, enableHistoryCount: false },
+          model: 'gpt-5-mini',
+          provider: 'openai',
+        },
+        isGroupSession: false,
+        pendingInput: '',
+        sessionId: 'session-1',
+        skipSkills: true,
+        topicId: 'topic-1',
+      } as any,
+    });
+
+    expect(skillService.resolveSkills).not.toHaveBeenCalled();
+    expect(skipped.tokenEstimateEligible).toBe(false);
   });
 });

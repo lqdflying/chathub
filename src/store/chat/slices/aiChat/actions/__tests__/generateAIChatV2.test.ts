@@ -3,6 +3,7 @@ import { act, renderHook } from '@testing-library/react';
 import { TRPCClientError } from '@trpc/client';
 import { Mock, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { MESSAGE_CANCEL_FLAT } from '@lobechat/const';
 import { LOADING_FLAT } from '@/const/message';
 import { DEFAULT_AGENT_CHAT_CONFIG, DEFAULT_MODEL, DEFAULT_PROVIDER } from '@/const/settings';
 import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableConversationGeneration';
@@ -29,6 +30,7 @@ import { aiProviderSelectors } from '@/store/aiInfra';
 import { aiChatSelectors } from '@/store/chat/selectors';
 import { useSessionStore } from '@/store/session';
 import { getSkillSelectionKey, useSkillStore } from '@/store/skill';
+import * as anchorWitness from '@/store/chat/helpers/recordAnchorDispatchWitness';
 import { useUserStore } from '@/store/user';
 import { authSelectors } from '@/store/user/selectors';
 import { UploadFileItem } from '@/types/files/upload';
@@ -41,6 +43,23 @@ import { resetTestEnvironment, setupMockSelectors, spyOnMessageService } from '.
 
 // Keep zustand mock as it's needed globally
 vi.mock('zustand/traditional', async (importOriginal) => await importOriginal());
+
+const resolveSkills = vi.hoisted(() =>
+  vi.fn(async () => [
+    {
+      description: 'Reviews diffs',
+      identifier: 'reviewer',
+      instructions: 'Review diffs carefully.',
+      name: 'reviewer',
+    },
+  ]),
+);
+
+vi.mock('@/services/skill', () => ({
+  skillService: {
+    resolveSkills,
+  },
+}));
 
 vi.mock('@/services/tokenEstimation', () => ({
   getTokenEstimateMultiplier: async () => 1,
@@ -3293,6 +3312,88 @@ describe('generateAIChatV2 actions', () => {
       expect(useSkillStore.getState().selectedSkillIdsByConversation).toEqual({
         [targetSelectionKey]: ['reviewer'],
       });
+      expect(resolveSkills).not.toHaveBeenCalled();
+    });
+
+    it('does not wait on skill resolution before send or cancel', async () => {
+      let releaseSkills: (value: unknown) => void = () => undefined;
+      resolveSkills.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            releaseSkills = resolve;
+          }),
+      );
+      vi.mocked(isClientDurableConversationGenerationEnabled).mockReturnValue(true);
+      const sendSpy = vi.spyOn(aiChatService, 'sendMessageInServer').mockResolvedValueOnce({
+        assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        isCreateNewTopic: false,
+        messages: [],
+        topicId: TEST_IDS.TOPIC_ID,
+        topics: [],
+        userMessageId: TEST_IDS.USER_MESSAGE_ID,
+      } as any);
+      const selectionKey = getSkillSelectionKey({
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
+      });
+      useSkillStore.getState().toggleSelectedSkill('reviewer', true, selectionKey);
+
+      const sending = useChatStore.getState().sendMessageInServer({ message: 'hi' });
+      const outcome = await Promise.race([
+        sending.then(() => 'done' as const),
+        new Promise<'timeout'>((resolve) => {
+          setTimeout(() => resolve('timeout'), 300);
+        }),
+      ]);
+
+      expect(outcome).toBe('done');
+      expect(resolveSkills).not.toHaveBeenCalled();
+      expect(sendSpy.mock.calls.at(-1)?.[0].generation?.config.tokenEstimateEligible).toBe(false);
+      await useChatStore.getState().cancelSendMessageInServer();
+      releaseSkills([]);
+    });
+
+    it('does not enqueue after Stop during pre-send capture, and still enqueues after leaving the topic', async () => {
+      vi.mocked(isClientDurableConversationGenerationEnabled).mockReturnValue(true);
+      const sendSpy = vi.spyOn(aiChatService, 'sendMessageInServer').mockResolvedValue({
+        assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        isCreateNewTopic: false,
+        messages: [],
+        topicId: TEST_IDS.TOPIC_ID,
+        topics: [],
+        userMessageId: TEST_IDS.USER_MESSAGE_ID,
+      } as any);
+      const gate = createDeferred<undefined>();
+      vi.spyOn(anchorWitness, 'captureAnchorDispatchEvidence').mockImplementation(
+        () => gate.promise,
+      );
+
+      const stopped = useChatStore.getState().sendMessageInServer({ message: 'stop me' });
+      await vi.waitFor(() =>
+        expect(anchorWitness.captureAnchorDispatchEvidence).toHaveBeenCalled(),
+      );
+      await useChatStore.getState().cancelSendMessageInServer();
+      gate.resolve(undefined);
+      await stopped;
+      expect(sendSpy).not.toHaveBeenCalled();
+
+      sendSpy.mockClear();
+      vi.mocked(anchorWitness.captureAnchorDispatchEvidence).mockClear();
+      const navigatedGate = createDeferred<undefined>();
+      vi.mocked(anchorWitness.captureAnchorDispatchEvidence).mockImplementation(
+        () => navigatedGate.promise,
+      );
+      const navigated = useChatStore.getState().sendMessageInServer({ message: 'still send' });
+      await vi.waitFor(() =>
+        expect(anchorWitness.captureAnchorDispatchEvidence).toHaveBeenCalled(),
+      );
+      const operationKey = messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID);
+      useChatStore
+        .getState()
+        .mainSendMessageOperations[operationKey]?.abortController?.abort(MESSAGE_CANCEL_FLAT);
+      navigatedGate.resolve(undefined);
+      await navigated;
+      expect(sendSpy).toHaveBeenCalled();
     });
 
     it('should not switch topic when active topic already exists', async () => {

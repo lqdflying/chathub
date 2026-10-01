@@ -974,6 +974,15 @@ export const generateAIChatV2: StateCreator<
         isWelcomeQuestion: Boolean(isWelcomeQuestion),
         spanId: debugSpanId,
       });
+      // Leave-topic aborts this controller with MESSAGE_CANCEL_FLAT and must
+      // still enqueue. Stop and a cleared or switched account must not.
+      if (
+        abortController.signal.reason === USER_CANCELLED_SEND ||
+        !isPersistenceCurrent()
+      ) {
+        discardOptimisticSend();
+        return;
+      }
       data = await aiChatService.sendMessageInServer(
         {
           expectedConversationVersion,
