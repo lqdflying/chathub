@@ -31,16 +31,21 @@ export const EMPTY_ESTIMATED_CONTEXT_USAGE: EstimatedContextUsageValue = {
   conversationSource: 'main',
   historySummaryToken: 0,
   historyWindow: EMPTY_HISTORY_WINDOW,
+  imageTokens: 0,
+  inputBudget: 0,
   inputTokenCount: 0,
   knowledgeBaseToken: 0,
   maxTokens: 0,
   memoryToken: 0,
+  multiplier: 1,
   ratio: 0,
+  reservedOutput: 0,
   roleSettingsToken: 0,
   systemRoleToken: 0,
   toolsToken: 0,
   topicChatsToken: 0,
   totalToken: 0,
+  uncalibratedTokens: 0,
 };
 
 const EstimatedContextUsageContext = createContext<EstimatedContextUsageValue | null>(null);

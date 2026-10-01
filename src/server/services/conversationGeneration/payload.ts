@@ -35,10 +35,11 @@ import { SkillModel } from '@/database/models/skill';
 import { getLLMConfig } from '@/envs/llm';
 import { partitionMemoryByTrust } from '@/helpers/assistantMemory';
 import {
+  getListedModelMaxOutputTokens,
   getMessagesAfterHistorySummaryCursor,
-  resolveEffectiveHistoryWindow,
 } from '@/helpers/contextCompaction';
-import { estimateFixedContextOverheadTokens } from '@/helpers/contextUsageEstimate';
+import { resolveTokenizerHistoryWindow } from '@/helpers/contextMessageTokens';
+import { resolveInputBudgetTokens } from '@/helpers/inputBudget';
 import { FileService } from '@/server/services/file';
 import { composeSystemRole } from '@/services/chat/composeSystemRole';
 import { resolveOpenAICompatibleChatRoute } from '@/services/chat/openAICompatibleRoute';
@@ -210,20 +211,26 @@ export const buildConversationChatPayload = async ({
       name: skill!.name,
     })),
   });
-  const fixedOverheadTokensForHistory = estimateFixedContextOverheadTokens({
-    agentMemory: agentMemoryBlock,
-    historySummaryRaw,
-    skillInstructions,
-    systemRole,
-    toolsString,
+  const requestedMaxTokens = config.agentParams?.max_tokens;
+  const historyInputBudget = resolveInputBudgetTokens({
+    contextWindowTokens: modelCard?.contextWindowTokens,
+    maxOutput: getListedModelMaxOutputTokens(model, provider),
+    maxTokens: typeof requestedMaxTokens === 'number' ? requestedMaxTokens : undefined,
   });
-  const effectiveHistory = resolveEffectiveHistoryWindow({
+  const effectiveHistory = await resolveTokenizerHistoryWindow({
     enableHistoryCount: chatConfig?.enableHistoryCount,
-    fixedOverheadTokens: fixedOverheadTokensForHistory,
     historyCount: chatConfig?.historyCount,
     inputTemplate: chatConfig?.inputTemplate,
-    maxTokens: modelCard?.contextWindowTokens,
-    messagesAfterCursor: resolvedMessages,
+    maxTokens: historyInputBudget || modelCard?.contextWindowTokens,
+    messages: resolvedMessages,
+    modelId: model,
+    overhead: {
+      agentMemory: agentMemoryBlock,
+      historySummaryRaw,
+      skillInstructions,
+      systemRole,
+      toolsString,
+    },
   });
   const pipeline = new ContextEngine({
     pipeline: [

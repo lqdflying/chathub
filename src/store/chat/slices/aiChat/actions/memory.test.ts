@@ -63,6 +63,7 @@ vi.mock('@/services/topic', () => ({
 }));
 vi.mock('@/utils/tokenizer', () => ({
   encodeAsync: vi.fn(async (text: string) => text.length),
+  fallbackTokenCount: (text: string) => Math.ceil(text.length / 4),
 }));
 
 const SESSION_ID = 'session-1';

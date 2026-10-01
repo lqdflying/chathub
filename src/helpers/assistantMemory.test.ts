@@ -52,7 +52,10 @@ import {
 
 const { encodeAsync } = vi.hoisted(() => ({ encodeAsync: vi.fn() }));
 
-vi.mock('@/utils/tokenizer', () => ({ encodeAsync }));
+vi.mock('@/utils/tokenizer', () => ({
+  encodeAsync,
+  fallbackTokenCount: (text: string) => Math.ceil(text.length / 4),
+}));
 
 const OPAQUE_V3_HEADER_LINE = /^\[overflow:opaque-v3 n=\d+ crc=[\da-f]{8}]$/;
 

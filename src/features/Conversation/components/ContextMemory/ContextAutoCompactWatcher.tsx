@@ -50,7 +50,17 @@ const COMPACTION_DEBOUNCE_MS = 750;
 const COMPACTION_FAILED_RETRY_MS = 10_000;
 
 const ContextAutoCompactWatcher = () => {
-  const { knowledgeBaseToken, maxTokens, ratio, totalToken } = useLiveEstimatedContextUsage();
+  const {
+    imageTokens,
+    inputBudget,
+    knowledgeBaseToken,
+    maxTokens,
+    multiplier,
+    ratio,
+    reservedOutput,
+    totalToken,
+    uncalibratedTokens,
+  } = useLiveEstimatedContextUsage();
   const config = useAgentStore((state) => {
     const chatConfig = agentChatConfigSelectors.currentChatConfig(state);
     return {
@@ -129,12 +139,17 @@ const ContextAutoCompactWatcher = () => {
       lastAttemptRef.current = attemptFingerprint;
       void logCompactionWatcherArmed({
         highWatermark: config.highWatermark,
+        imageTokens,
+        inputBudget,
         knowledgeBaseToken,
         maxTokens,
+        multiplier,
         ratio,
+        reservedOutput,
         sessionId: conversation.sessionId,
         topicId: conversation.topicId,
         totalToken,
+        uncalibratedTokens,
       });
       void useChatStore
         .getState()
@@ -168,12 +183,17 @@ const ContextAutoCompactWatcher = () => {
   }, [
     config,
     conversation,
+    imageTokens,
+    inputBudget,
     knowledgeBaseToken,
     maxTokens,
     messageFingerprint,
+    multiplier,
     ratio,
+    reservedOutput,
     retryTick,
     totalToken,
+    uncalibratedTokens,
   ]);
 
   return null;

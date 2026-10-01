@@ -10,7 +10,8 @@ import { chatHelpers } from './helpers';
 
 // Mock encodeAsync function
 vi.mock('@/utils/tokenizer', () => ({
-  encodeAsync: vi.fn((text) => Promise.resolve(text.length)),
+  encodeAsync: vi.fn((text: string) => Promise.resolve(text.length)),
+  fallbackTokenCount: (text: string) => Math.ceil(text.length / 4),
 }));
 
 describe('chatHelpers', () => {

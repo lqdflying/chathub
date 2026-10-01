@@ -12,7 +12,7 @@ import {
   buildOversizedCompactionTurnStub,
   buildSimpleCompletionSampling,
   createCompactionFingerprint,
-  estimateCompactionPromptTokens,
+  countCompactionPromptTokens,
   getCompactionSummarizerContextWindow,
   getCompactionSummarizerInputBudget,
   getContextCompactionWatermarks,
@@ -107,7 +107,7 @@ describe('context compaction helpers', () => {
     ])
       .flat()
       .map((item) => (item.role === 'user' ? { ...item, content: longUser } : item));
-    const inputTemplate = `${'P'.repeat(2000)}{{text}}`;
+    const inputTemplate = `${'P'.repeat(20_000)}{{text}}`;
     const skillOverhead = Math.ceil('S'.repeat(50_000).length / 2);
 
     const withoutPerUser = resolveEffectiveHistoryWindow({
@@ -132,14 +132,14 @@ describe('context compaction helpers', () => {
     expect(withPerUser.historyCount).toBeLessThan(turns.length);
   });
 
-  it('splits large deltas only between turns', () => {
+  it('splits large deltas only between turns', async () => {
     const longHistory = Array.from({ length: 6 }, (_, index) => [
       message(`u${index}`, 'user'),
       message(`a${index}`, 'assistant'),
     ]).flat();
 
     expect(
-      splitCompactionBatches(longHistory, 5).map((batch) => batch.map(({ id }) => id)),
+      (await splitCompactionBatches(longHistory, 5)).map((batch) => batch.map(({ id }) => id)),
     ).toEqual([
       ['u0', 'a0', 'u1', 'a1'],
       ['u2', 'a2', 'u3', 'a3'],
@@ -147,7 +147,7 @@ describe('context compaction helpers', () => {
     ]);
   });
 
-  it('keeps a complete user/assistant turn together when the pair exceeds the summarizer budget', () => {
+  it('keeps a complete user/assistant turn together when the pair exceeds the summarizer budget', async () => {
     const bulky = (id: string, role: UIChatMessage['role']): UIChatMessage =>
       ({ content: '汉'.repeat(20_000), id, role, updatedAt: 1 }) as UIChatMessage;
     const history = [
@@ -161,10 +161,10 @@ describe('context compaction helpers', () => {
       window,
       CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS,
     );
-    expect(estimateCompactionPromptTokens([history[0]])).toBeLessThanOrEqual(budget);
-    expect(estimateCompactionPromptTokens(history.slice(0, 2))).toBeGreaterThan(budget);
+    expect(await countCompactionPromptTokens([history[0]])).toBeLessThanOrEqual(budget);
+    expect(await countCompactionPromptTokens(history.slice(0, 2))).toBeGreaterThan(budget);
 
-    const batches = splitCompactionBatches(history, 40, {
+    const batches = await splitCompactionBatches(history, 40, {
       summarizerContextWindow: window,
       summaryMaxTokens: CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS,
     });

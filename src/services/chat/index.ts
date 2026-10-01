@@ -27,8 +27,9 @@ import { ModelProvider } from 'model-bank';
 
 import { enableAuth } from '@/const/auth';
 import { DEFAULT_AGENT_CONFIG } from '@/const/settings';
-import { resolveEffectiveHistoryWindow } from '@/helpers/contextCompaction';
-import { estimateFixedContextOverheadTokens } from '@/helpers/contextUsageEstimate';
+import { getListedModelMaxOutputTokens } from '@/helpers/contextCompaction';
+import { resolveTokenizerHistoryWindow } from '@/helpers/contextMessageTokens';
+import { resolveInputBudgetTokens } from '@/helpers/inputBudget';
 import { getSearchConfig } from '@/helpers/getSearchConfig';
 import { getModelContextWindowTokens } from '@/helpers/modelContextWindowTokens';
 import { createChatToolsEngine, createToolsEngine } from '@/helpers/toolEngineering';
@@ -254,7 +255,7 @@ class ChatService {
     const agentMemoryBlock = options?.agentMemory
       ? agentMemoryPrompt(options.agentMemory)
       : '';
-    const fixedOverheadTokensForHistory = estimateFixedContextOverheadTokens({
+    const historyOverhead = {
       agentMemory: agentMemoryBlock,
       historySummaryRaw: options?.historySummary || '',
       skillInstructions: formatSkillInstructionsBlock({
@@ -267,15 +268,22 @@ class ChatService {
       }),
       systemRole,
       toolsString,
+    };
+    const requestedMaxTokens = agentConfig.params?.max_tokens;
+    const historyInputBudget = resolveInputBudgetTokens({
+      contextWindowTokens: maxTokensForHistory,
+      maxOutput: getListedModelMaxOutputTokens(payload.model, payload.provider!),
+      maxTokens: typeof requestedMaxTokens === 'number' ? requestedMaxTokens : undefined,
     });
     const { enableHistoryCount: effectiveEnableHistoryCount, historyCount: effectiveHistoryCount } =
-      resolveEffectiveHistoryWindow({
+      await resolveTokenizerHistoryWindow({
         enableHistoryCount,
-        fixedOverheadTokens: fixedOverheadTokensForHistory,
         historyCount: configuredHistoryCount,
         inputTemplate: chatConfig.inputTemplate,
-        maxTokens: maxTokensForHistory,
-        messagesAfterCursor: sanitizedMessages,
+        maxTokens: historyInputBudget || maxTokensForHistory,
+        messages: sanitizedMessages,
+        modelId: payload.model,
+        overhead: historyOverhead,
       });
 
     // Apply context engineering with preprocessing configuration

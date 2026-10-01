@@ -17,6 +17,7 @@ import {
 vi.mock('@/utils/tokenizer', () => ({
   MAX_EXACT_TOKENIZER_INPUT_LENGTH: 10_000,
   encodeAsync: vi.fn(),
+  fallbackTokenCount: (text: string) => Math.ceil(text.length / 4),
 }));
 
 vi.mock('@/utils/tokenizer/estimated', () => ({ estimatedEncodeAsync: vi.fn() }));
@@ -67,13 +68,13 @@ describe('knowledgeBaseContext', () => {
     });
   });
 
-  it('falls back to character length when exact and estimated counting fail', async () => {
+  it('falls back to the ASCII and non-ASCII estimate when both counters fail', async () => {
     vi.mocked(encodeAsync).mockRejectedValueOnce(new Error('worker unavailable'));
     vi.mocked(estimatedEncodeAsync).mockRejectedValueOnce(new Error('estimator unavailable'));
 
     await expect(countKnowledgeBasePromptTokens('prompt')).resolves.toEqual({
-      countMode: 'character',
-      promptTokens: 6,
+      countMode: 'estimated',
+      promptTokens: 2,
     });
   });
 

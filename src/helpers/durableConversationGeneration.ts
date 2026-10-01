@@ -28,6 +28,8 @@ export const buildDurableConversationConfig = ({
   ragQuery,
   systemRole,
   title,
+  tokenEstimateEligible,
+  uncalibratedInputTokens,
 }: {
   activatedSkillIds?: string[];
   agentConfig: DurableAgentConfig;
@@ -41,6 +43,8 @@ export const buildDurableConversationConfig = ({
   ragQuery?: string;
   systemRole?: string;
   title?: ConversationGenerationConfigSnapshot['title'];
+  tokenEstimateEligible?: boolean;
+  uncalibratedInputTokens?: number;
 }): ConversationGenerationConfigSnapshot => ({
   activatedSkillIds: activatedSkillIds?.length
     ? [...new Set(activatedSkillIds)]
@@ -59,6 +63,9 @@ export const buildDurableConversationConfig = ({
   ragQuery,
   systemRole: systemRole ?? agentConfig.systemRole ?? undefined,
   ...(title ? { title } : {}),
+  ...(typeof uncalibratedInputTokens === 'number'
+    ? { tokenEstimateEligible: !!tokenEstimateEligible, uncalibratedInputTokens }
+    : {}),
 });
 
 export const isClientDurableConversationGenerationEnabled = () => {

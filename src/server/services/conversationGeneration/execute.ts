@@ -40,8 +40,8 @@ import {
   CONTEXT_COMPACTION_MAX_BATCH_MESSAGES,
   buildOversizedCompactionTurnStub,
   buildSimpleCompletionSampling,
+  countCompactionPromptTokens,
   createCompactionFingerprint,
-  estimateCompactionPromptTokens,
   getCompactionSummarizerContextWindow,
   getCompactionSummarizerInputBudget,
   getListedModelContextWindowTokens,
@@ -78,6 +78,7 @@ import {
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
 import { initModelRuntimeWithUserPayload } from '@/server/modules/ModelRuntime';
 import { AiChatService } from '@/server/services/aiChat';
+import { TokenEstimationService } from '@/server/services/tokenEstimation';
 import {
   ConversationWriteRejectedError,
   getConversationVersion,
@@ -1361,6 +1362,7 @@ const executeChat = async (
     let nextToolCache: ToolCacheDebugMetadata | undefined;
     let toolDiagnosticSequence = 0;
     let chatStopReason: ConversationGenerationChatStopReason | undefined;
+    let tokenCalibrationObserved = false;
 
     for (;;) {
       const stopReason = await shouldStopGeneration(db, model, operation, abortController.signal);
@@ -1422,6 +1424,24 @@ const executeChat = async (
           operation,
           abortController.signal,
         );
+        if (
+          !tokenCalibrationObserved &&
+          result.usage?.totalInputTokens &&
+          operation.config.uncalibratedInputTokens &&
+          operation.userId
+        ) {
+          tokenCalibrationObserved = true;
+          void new TokenEstimationService(db, operation.userId)
+            .observe({
+              actualInputTokens: result.usage.totalInputTokens,
+              eligible: operation.config.tokenEstimateEligible === true,
+              model: operation.config.model,
+              provider: operation.config.provider,
+              uncalibratedInputTokens: operation.config.uncalibratedInputTokens,
+            })
+            .catch(() => undefined);
+        }
+
         if (postStreamStopReason) {
           return finishChatStop(
             db,
@@ -2146,7 +2166,7 @@ const runCompactionPlan = async (
     parseCompactionSummarizerContextWindow(compaction.summarizerContextWindow) ??
     getCompactionSummarizerContextWindow(operation.config.model, operation.config.provider);
   const summarizerBudget = getCompactionSummarizerInputBudget(summarizerWindow, summaryMaxTokens);
-  for (const batch of splitCompactionBatches(
+  for (const batch of await splitCompactionBatches(
     candidateMessages,
     CONTEXT_COMPACTION_MAX_BATCH_MESSAGES,
     {
@@ -2155,7 +2175,7 @@ const runCompactionPlan = async (
       summaryMaxTokens,
     },
   )) {
-    const estimatedTokens = estimateCompactionPromptTokens(
+    const estimatedTokens = await countCompactionPromptTokens(
       batch,
       historySummary || undefined,
       summaryMaxTokens,

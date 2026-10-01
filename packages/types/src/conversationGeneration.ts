@@ -123,8 +123,15 @@ export interface ConversationGenerationConfigSnapshot {
   supervisorChildMessageIds?: string[];
   systemRole?: string;
   targetId?: string;
+  /**
+   * Next-request token estimate before the per-model multiplier, captured at
+   * enqueue. Numeric only. Absent when the send did not compute one.
+   */
+  tokenEstimateEligible?: boolean;
   title?: { force?: boolean; topicId: string };
   translation?: { from?: string; messageId: string; to: string };
+  /** Uncalibrated input-token estimate for the enqueued request. */
+  uncalibratedInputTokens?: number;
   tts?: { messageId: string; voice?: string };
 }
 

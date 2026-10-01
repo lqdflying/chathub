@@ -3,7 +3,12 @@ import { DEFAULT_AGENT_CHAT_CONFIG, DEFAULT_MODEL, DEFAULT_PROVIDER } from '@lob
 import { agentMemoryPrompt } from '@lobechat/prompts';
 import { ChatTopicMetadata, LobeAgentConfig } from '@lobechat/types';
 
+import { countMessagesContextTokens, messageTextForTokenCount } from '@/helpers/contextMessageTokens';
+import { countContextTextTokens, warmContextTokenCache } from '@/helpers/contextTokenCount';
+import { fixedContextOverheadText } from '@/helpers/contextUsageEstimate';
+import { resolveInputBudgetTokens } from '@/helpers/inputBudget';
 import { getModelContextWindowTokens } from '@/helpers/modelContextWindowTokens';
+import { scaleLocalTokens } from '@/helpers/tokenCalibration';
 import { createChatToolsEngine } from '@/helpers/toolEngineering';
 import { composeSystemRole } from '@/services/chat/composeSystemRole';
 import { skillService } from '@/services/skill';
@@ -18,7 +23,6 @@ import { toolSelectors } from '@/store/tool/selectors';
 import { getToolStoreState } from '@/store/tool/store';
 import { userGeneralSettingsSelectors } from '@/store/user/selectors';
 import { getUserStoreState } from '@/store/user/store';
-import { encodeAsync } from '@/utils/tokenizer';
 import { fileChatSelectors } from '@/store/file/slices/chat/selectors';
 import { getFileStoreState } from '@/store/file/store';
 
@@ -26,6 +30,8 @@ import { normalizeAssistantMemoryText } from './assistantMemory';
 import {
   PENDING_CONTEXT_INPUT_MESSAGE_ID,
   appendPendingUserInputForContextWindow,
+  getListedModelMaxOutputTokens,
+  type MessageLikeForHistoryWindow,
   getMessagesAfterHistorySummaryCursor,
   resolveEffectiveHistoryWindow,
   selectMessagesForContext,
@@ -33,7 +39,6 @@ import {
 import {
   estimateFixedContextOverheadTokens,
   resolveEffectiveHistoryCountForCompaction,
-  serializeMessagesForContextEstimate,
   wrapHistorySummaryForTokenEstimate,
 } from './contextUsageEstimate';
 import { buildHistorySummaryForRequest } from './memoryArchivePrompt';
@@ -57,20 +62,16 @@ interface EstimateContextUsageOverrides {
 export interface EstimateContextUsageAsyncParams {
   agentState: ReturnType<typeof getAgentStoreState>;
   chatState: ChatStoreState;
+  /** Per-model correction. Applied only to locally counted tokens. */
+  multiplier?: number;
   overrides?: EstimateContextUsageOverrides;
 }
 
-const countTokens = async (value: string) => {
-  try {
-    return await encodeAsync(value);
-  } catch {
-    return value.length;
-  }
-};
+const countTokens = async (value: string) => (await countContextTextTokens(value)).count;
 
 export interface FixedContextOverheadInput {
   agentMemory: string;
-  /** Shared-unit (chars/2) fixed overhead via `estimateFixedContextOverheadTokens`. */
+  /** Tokenizer-unit fixed overhead via `estimateFixedContextOverheadTokens`. */
   fixedOverheadTokens: number;
   historySummaryRaw: string;
   skillInstructions: string;
@@ -173,6 +174,15 @@ export const computeFixedContextOverheadInput = async ({
     })),
   });
 
+  const overheadText = fixedContextOverheadText({
+    agentMemory,
+    historySummaryRaw,
+    skillInstructions,
+    systemRole,
+    toolsString,
+  });
+  await warmContextTokenCache([overheadText]);
+
   return {
     agentMemory,
     fixedOverheadTokens: estimateFixedContextOverheadTokens({
@@ -193,6 +203,7 @@ export const computeFixedContextOverheadInput = async ({
 export const estimateContextUsageAsync = async ({
   agentState,
   chatState,
+  multiplier = 1,
   overrides,
 }: EstimateContextUsageAsyncParams): Promise<{
   chatsToken: number;
@@ -200,12 +211,18 @@ export const estimateContextUsageAsync = async ({
   /** HistoryTruncate window setting (not included-row count after continuations). */
   effectiveHistoryCount: number;
   historySummaryToken: number;
+  imageTokens: number;
   includedMessageCount: number;
+  inputBudget: number;
   inputToken: number;
   memoryToken: number;
+  multiplier: number;
+  reservedOutput: number;
   systemRoleToken: number;
+  tokenEstimateEligible: boolean;
   toolsToken: number;
   totalToken: number;
+  uncalibratedTokens: number;
 }> => {
   const input = chatState.inputMessage || '';
   const pendingHasFiles = fileChatSelectors.chatUploadFileListHasItem(getFileStoreState());
@@ -248,6 +265,13 @@ export const estimateContextUsageAsync = async ({
   const model = agentSelectors.currentAgentModel(agentState) as string;
   const provider = agentSelectors.currentAgentModelProvider(agentState) as string;
   const maxTokens = getModelContextWindowTokens(model, provider);
+  const requestedMaxTokens = agentConfig.params?.max_tokens;
+  const inputBudget = resolveInputBudgetTokens({
+    contextWindowTokens: maxTokens,
+    maxOutput: getListedModelMaxOutputTokens(model, provider),
+    maxTokens: typeof requestedMaxTokens === 'number' ? requestedMaxTokens : undefined,
+  });
+  const reservedOutput = Math.max(0, (maxTokens || 0) - inputBudget);
   const inputTemplate = chatConfig.inputTemplate?.trim() || '';
 
   const templatedInput = applyUserInputTemplate(inputTemplate, input);
@@ -268,12 +292,19 @@ export const estimateContextUsageAsync = async ({
     appendPendingUserInputForContextWindow(rawMessages, input, pendingHasFiles),
     enableHistoryCompaction ? historySummaryLastMessageId : undefined,
   );
+  const messageCountMode = await warmContextTokenCache(
+    afterCursor.map((message) => messageTextForTokenCount(message, inputTemplate)),
+  );
+  const messageTokenCount = (message: MessageLikeForHistoryWindow) =>
+    countMessagesContextTokens([message], inputTemplate, model).totalTokens;
+  const windowTokens = inputBudget || maxTokens;
   const effective = resolveEffectiveHistoryWindow({
     enableHistoryCount,
     fixedOverheadTokens,
     historyCount: configuredHistoryCount,
     inputTemplate,
-    maxTokens,
+    maxTokens: windowTokens,
+    messageTokenCount,
     messagesAfterCursor: afterCursor,
   });
   const chats = selectMessagesForContext({
@@ -282,7 +313,8 @@ export const estimateContextUsageAsync = async ({
     fixedOverheadTokens,
     historyCount: configuredHistoryCount,
     inputTemplate,
-    maxTokens,
+    maxTokens: windowTokens,
+    messageTokenCount,
     messages: rawMessages,
     pendingHasFiles,
     pendingInput: input,
@@ -300,29 +332,12 @@ export const estimateContextUsageAsync = async ({
   const fixedTokens =
     systemRoleToken + memoryToken + historySummaryToken + toolsToken + skillToken;
 
-  // C2 usage anchor: the newest post-watermark assistant's provider-reported
-  // totalInputTokens exactly covers fixed overhead plus history up to that
-  // request, so only the tail (the anchor's own reply and later messages,
-  // including the pending input row) needs tokenizing. This replaces the
-  // whole-window tokenizer estimate, which undercounts CJK ~3x. Without a
-  // VERIFIED anchor, fall back to the whole-window estimate floored by
-  // reported usage (applyReportedInputTokenFloor), exactly as before.
-  // F5/R3: a verified anchor adds the fixed-overhead delta (skills,
-  // instructions, memory, tools) and a changed message prefix invalidates the
-  // anchor permanently until a fresh report. R4: the baseline registry is
-  // shared with the token popover hook, so the delta MUST use the same
-  // chars/2 overhead measure (`fixedOverheadTokens`), not the tokenized
-  // `fixedTokens` used for the final chats math below. D2/T1: an anchor is
-  // only verified when a dispatch-time witness recorded by the send path for
-  // THIS assistant row still matches — estimators never record witnesses, so
-  // a report from a request this process never dispatched (reload, other
-  // topic's snapshot) always falls back. Parent and content fingerprint use
-  // the FULL conversation prefix so window *sliding* (older rows dropping
-  // out) cannot break the match. Selected pre-anchor ids are compared
-  // separately: newly included older rows invalidate (U2). A changed
-  // input template also invalidates (U3): the report counted the original
-  // expansion on every included user row, and the tail-only serialize
-  // would omit that added text on pre-anchor history.
+  // C2 usage anchor: a verified provider totalInputTokens covers input through
+  // that request. The tail (that reply and later rows) is counted locally and
+  // scaled by the model multiplier. Without a verified anchor, the total is
+  // the larger of the scaled whole window and the report plus the scaled tail,
+  // so a stale report cannot shrink the badge and a new paste is not ignored.
+  // The overhead delta uses the same tokenizer counter as the dispatch witness.
   const anchor = getLatestReportedInputAnchor(estimateMessages, usageLookupOptions);
   const anchorIndex = anchor ? chats.findIndex(({ id }) => id === anchor.id) : -1;
   const rawAnchorIndex = anchor ? rawMessages.findIndex(({ id }) => id === anchor.id) : -1;
@@ -330,6 +345,7 @@ export const estimateContextUsageAsync = async ({
 
   let chatsToken: number;
   let totalToken: number;
+  let uncalibratedTokens: number;
   const anchorBaseline =
     anchor && anchorIndex >= 0 && rawAnchorIndex >= 0
       ? resolveAnchorBaseline({
@@ -346,20 +362,34 @@ export const estimateContextUsageAsync = async ({
           }),
         })
       : undefined;
+  const wholeMessages = countMessagesContextTokens(chats, inputTemplate, model);
+  const tailMessages =
+    anchorIndex >= 0
+      ? countMessagesContextTokens(chats.slice(anchorIndex), inputTemplate, model)
+      : { hasVisual: false, textTokens: 0, totalTokens: 0, visualTokens: 0 };
+  const localWhole = fixedTokens + wholeMessages.totalTokens;
+  const scaledWhole = scaleLocalTokens(localWhole, multiplier);
+  const scaledTail = scaleLocalTokens(
+    tailMessages.totalTokens + (anchorBaseline?.overheadDelta ?? 0),
+    multiplier,
+  );
+  const uncalibratedTail = tailMessages.totalTokens + (anchorBaseline?.overheadDelta ?? 0);
+
   if (anchor && anchorBaseline) {
-    const tailToken = await countTokens(
-      serializeMessagesForContextEstimate(chats.slice(anchorIndex), inputTemplate),
-    );
-    totalToken = anchor.totalInputTokens + tailToken + anchorBaseline.overheadDelta;
+    totalToken = anchor.totalInputTokens + scaledTail;
+    uncalibratedTokens = anchor.totalInputTokens + uncalibratedTail;
     chatsToken = Math.max(0, totalToken - fixedTokens);
   } else {
-    const wholeWindowToken = await countTokens(
-      serializeMessagesForContextEstimate(chats, inputTemplate),
-    );
     const reportedInput = getLatestReportedInputTokens(estimateMessages, usageLookupOptions);
-    const floor = applyReportedInputTokenFloor(fixedTokens + wholeWindowToken, reportedInput);
-    chatsToken = wholeWindowToken + floor.chatsTokenDelta;
+    const floor = applyReportedInputTokenFloor(scaledWhole, reportedInput, scaledTail);
+    const uncalibratedFloor = applyReportedInputTokenFloor(
+      localWhole,
+      reportedInput,
+      uncalibratedTail,
+    );
+    chatsToken = wholeMessages.totalTokens + floor.chatsTokenDelta;
     totalToken = floor.totalToken;
+    uncalibratedTokens = uncalibratedFloor.totalToken;
   }
 
   return {
@@ -370,11 +400,17 @@ export const estimateContextUsageAsync = async ({
       afterCursor.length,
     ),
     historySummaryToken,
+    imageTokens: wholeMessages.visualTokens,
     includedMessageCount: chats.length,
+    inputBudget,
     inputToken,
     memoryToken,
+    multiplier,
+    reservedOutput,
     systemRoleToken,
+    tokenEstimateEligible: !wholeMessages.hasVisual && messageCountMode.mode === 'exact',
     toolsToken,
     totalToken,
+    uncalibratedTokens,
   };
 };

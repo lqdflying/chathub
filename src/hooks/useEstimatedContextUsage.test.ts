@@ -5,6 +5,7 @@ import { applyUserInputTemplate } from '@lobechat/context-engine';
 
 import { LOADING_FLAT } from '@/const/message';
 import { selectMessagesForContext } from '@/helpers/contextCompaction';
+import { MESSAGE_FRAMING_TOKENS } from '@/helpers/contextMessageTokens';
 import * as contextUsageEstimate from '@/helpers/contextUsageEstimate';
 import {
   LARGE_CONTEXT_WINDOW_TOKENS,
@@ -12,6 +13,7 @@ import {
   estimateFixedContextOverheadTokens,
   getHistoryWindowDiagnostics,
   resolveEffectiveHistoryWindow,
+  serializeMessageForContextEstimate,
   serializeMessagesForContextEstimate,
 } from '@/helpers/contextUsageEstimate';
 import {
@@ -25,6 +27,16 @@ import {
   CONTEXT_ESTIMATE_INPUT_DEBOUNCE_MS,
   useEstimatedContextUsage,
 } from './useEstimatedContextUsage';
+
+const framedMessages = (
+  messages: Array<Parameters<typeof serializeMessageForContextEstimate>[0]>,
+  inputTemplate?: string,
+) =>
+  messages.reduce(
+    (sum, message) =>
+      sum + serializeMessageForContextEstimate(message, inputTemplate).length + MESSAGE_FRAMING_TOKENS,
+    0,
+  );
 
 const mocks = vi.hoisted(() => {
   const mainChats = [{ content: 'main-chat-context', id: 'main-message', role: 'user' }];
@@ -192,6 +204,11 @@ vi.mock('@/hooks/useTokenCount', () => ({
   useTokenCount: (value = '') => value.length,
 }));
 
+vi.mock('@/utils/tokenizer', () => ({
+  encodeAsync: async (text: string) => text.length,
+  fallbackTokenCount: (text: string) => text.length,
+}));
+
 vi.mock('@/services/chat/composeSystemRole', () => ({
   composeSystemRole: (instruction: string, role: string) => `${instruction}${role}`,
 }));
@@ -296,12 +313,10 @@ describe('useEstimatedContextUsage', () => {
 
   it('uses portal conversation content instead of main-chat content', () => {
     const { result } = renderHook(() => useEstimatedContextUsage('portal'));
-    const expected = serializeMessagesForContextEstimate([
-      mocks.portalChats[1],
-      mocks.portalChats[2],
-    ] as any);
 
-    expect(result.current.chatsToken).toBe(expected.length);
+    expect(result.current.chatsToken).toBe(
+      framedMessages([mocks.portalChats[1], mocks.portalChats[2]] as any),
+    );
   });
 
   it('recalculates portal allocation when only the history limit changes', () => {
@@ -314,8 +329,7 @@ describe('useEstimatedContextUsage', () => {
       });
     });
 
-    const expected = serializeMessagesForContextEstimate([mocks.portalChats[2]] as any);
-    expect(result.current.chatsToken).toBe(expected.length);
+    expect(result.current.chatsToken).toBe(framedMessages([mocks.portalChats[2]] as any));
   });
 
   it('counts a duplicating pending-input template in the next-request history window', () => {
@@ -381,10 +395,10 @@ describe('useEstimatedContextUsage', () => {
       serializeMessagesForContextEstimate(mocks.mainChats as any, 'Ask: {{text}}').length,
     );
     expect(result.current.chatsToken).toBe(
-      serializeMessagesForContextEstimate(
+      framedMessages(
         appendPendingUserInputForContextWindow(mocks.mainChats as any, pending),
         'Ask: {{text}}',
-      ).length,
+      ),
     );
   });
 
@@ -419,10 +433,10 @@ describe('useEstimatedContextUsage', () => {
 
     expect(result.current.inputTokenCount).toBe(templatedEmpty.length);
     expect(result.current.chatsToken).toBe(
-      serializeMessagesForContextEstimate(
+      framedMessages(
         appendPendingUserInputForContextWindow(mocks.mainChats as any, '', true),
         'Ask: {{text}}',
-      ).length,
+      ),
     );
   });
 
@@ -432,7 +446,7 @@ describe('useEstimatedContextUsage', () => {
       { content: 'ok', id: 'a1', metadata: { totalInputTokens: 50_000 }, role: 'assistant' },
     );
 
-    expect(result.current.totalToken).toBe(50_050);
+    expect(result.current.totalToken).toBe(50_053);
   });
 
   it('does not anchor on the protected assistant after an identity watermark, even if updatedAt is newer', () => {
@@ -506,7 +520,7 @@ describe('useEstimatedContextUsage', () => {
       },
     );
 
-    expect(result.current.totalToken).toBe(453);
+    expect(result.current.totalToken).toBe(456);
   });
 
   it('does not anchor on a protected assistant when a cursor exists without a watermark', () => {
@@ -640,7 +654,7 @@ describe('useEstimatedContextUsage', () => {
       { content: 'fresh', id: 'a3', metadata: { totalInputTokens: 700_000 }, role: 'assistant' },
     );
 
-    expect(result.current.totalToken).toBe(700_053);
+    expect(result.current.totalToken).toBe(700_056);
   });
 
   it('anchors a selected assistant when historyCount drops the stored marker', () => {
@@ -667,7 +681,7 @@ describe('useEstimatedContextUsage', () => {
     );
 
     expect(result.current.historyWindow.includedMessageCount).toBe(2);
-    expect(result.current.totalToken).toBe(700_053);
+    expect(result.current.totalToken).toBe(700_056);
   });
 
   it('anchors a new assistant after the deleted marker is rotated', () => {
@@ -693,7 +707,7 @@ describe('useEstimatedContextUsage', () => {
       { content: 'fresh', id: 'a4', metadata: { totalInputTokens: 700_000 }, role: 'assistant' },
     );
 
-    expect(result.current.totalToken).toBe(700_053);
+    expect(result.current.totalToken).toBe(700_056);
   });
 
   it('anchors a post-compaction assistant after a user-only remaining window', () => {
@@ -717,7 +731,7 @@ describe('useEstimatedContextUsage', () => {
       { content: 'fresh', id: 'a3', metadata: { totalInputTokens: 700_000 }, role: 'assistant' },
     );
 
-    expect(result.current.totalToken).toBe(700_053);
+    expect(result.current.totalToken).toBe(700_056);
   });
 
   it('anchors a fresh assistant after the sole post-cursor watermark is replaced by the cursor', () => {
@@ -741,7 +755,7 @@ describe('useEstimatedContextUsage', () => {
       { content: 'fresh', id: 'a4', metadata: { totalInputTokens: 700_000 }, role: 'assistant' },
     );
 
-    expect(result.current.totalToken).toBe(700_053);
+    expect(result.current.totalToken).toBe(700_056);
   });
 
   it('T1: does not register instructions changed while the reply is pending as its baseline', () => {
@@ -919,7 +933,7 @@ describe('useEstimatedContextUsage', () => {
       [{ content: 'hi', id: 'u1', role: 'user' }],
       { content: 'ok', id: 'a1', metadata: { totalInputTokens: 1000 }, role: 'assistant' },
     );
-    expect(result.current.totalToken).toBe(1050);
+    expect(result.current.totalToken).toBe(1053);
 
     act(() => mocks.setAgentState({ inputTemplate: '{{text}}'.repeat(10_000) }));
     rerender();

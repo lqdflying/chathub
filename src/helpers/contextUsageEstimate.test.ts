@@ -151,7 +151,7 @@ describe('contextUsageEstimate', () => {
         agentMemory: 'abcd',
         systemRole: undefined,
       }),
-    ).toBe(2);
+    ).toBe(1);
   });
 
   it('counts skill XML wrappers and ignores a one-shot input template string', () => {
@@ -177,7 +177,7 @@ ${'Review diffs carefully.'.repeat(10)}
   });
 
   it('keeps truncation when templated pending input no longer fits a large window', () => {
-    const pending = 'x'.repeat(80_000);
+    const pending = 'x'.repeat(200_000);
     const stored = [message('u1', 'user', 'short'), message('a1', 'assistant', 'short')];
     const storedOnly = resolveEffectiveHistoryWindow({
       enableHistoryCount: true,

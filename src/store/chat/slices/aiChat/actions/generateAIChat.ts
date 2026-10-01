@@ -27,6 +27,7 @@ import {
   conversationGenerationIdempotencyKey,
   conversationGenerationRequestKey,
 } from '@/helpers/conversationGenerationIdempotency';
+import { consumeDispatchTokenEstimate } from '@/helpers/dispatchTokenEstimate';
 import {
   buildDurableConversationConfig,
   isClientDurableConversationGenerationEnabled,
@@ -56,6 +57,7 @@ import {
   tryEnqueueConversationGeneration,
 } from '@/services/conversationGeneration';
 import { messageService } from '@/services/message';
+import { reportTokenCalibration } from '@/services/tokenEstimation';
 import { ragService } from '@/services/rag';
 import { captureAccountMutationSnapshot, isAccountMutationCurrent } from '@/store/accountMutation';
 import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selectors';
@@ -1482,6 +1484,17 @@ export const generateAIChat: StateCreator<
               },
             }));
             isFunctionCall = true;
+          }
+
+          const rememberedEstimate = consumeDispatchTokenEstimate(messageId);
+          if (rememberedEstimate) {
+            void reportTokenCalibration({
+              actualInputTokens: usage?.totalInputTokens,
+              eligible: rememberedEstimate.eligible,
+              model: rememberedEstimate.model,
+              provider: rememberedEstimate.provider,
+              uncalibratedInputTokens: rememberedEstimate.uncalibratedInputTokens,
+            });
           }
 
           if (

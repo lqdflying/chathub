@@ -29,6 +29,7 @@ import { produce } from 'immer';
 import { StateCreator } from 'zustand/vanilla';
 
 import { idGenerator } from '@/database/utils/idGenerator';
+import { captureDispatchTokenEstimate } from '@/helpers/dispatchTokenEstimate';
 import {
   buildDurableConversationConfig,
   isClientDurableConversationGenerationEnabled,
@@ -838,6 +839,10 @@ export const generateAIChatV2: StateCreator<
     });
     const sentSystemRole = agentSelectors.currentAgentSystemRole(getAgentStoreState());
     const sentAgentConfig = { ...agentConfig, model, provider, systemRole: sentSystemRole };
+    const dispatchTokenEstimate =
+      isClientDurableConversationGenerationEnabled() && model && provider
+        ? await captureDispatchTokenEstimate(get())
+        : undefined;
     const generation =
       isClientDurableConversationGenerationEnabled() &&
       model &&
@@ -860,6 +865,8 @@ export const generateAIChatV2: StateCreator<
               locale: globalHelpers.getCurrentLanguage(),
               ragQuery: get().internal_shouldUseRAG() ? message : undefined,
               systemRole: sentSystemRole,
+              tokenEstimateEligible: dispatchTokenEstimate?.eligible,
+              uncalibratedInputTokens: dispatchTokenEstimate?.uncalibratedInputTokens,
               title:
                 forceGeneratedTopicTitle && sendTopicId
                   ? { force: true, topicId: sendTopicId }

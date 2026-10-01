@@ -34,6 +34,7 @@ import { sessionRouter } from './session';
 import { sessionGroupRouter } from './sessionGroup';
 import { skillRouter } from './skill';
 import { threadRouter } from './thread';
+import { tokenEstimationRouter } from './tokenEstimation';
 import { topicRouter } from './topic';
 import { uploadRouter } from './upload';
 import { userRouter } from './user';
@@ -70,6 +71,7 @@ export const lambdaRouter = router({
   sessionGroup: sessionGroupRouter,
   skill: skillRouter,
   thread: threadRouter,
+  tokenEstimation: tokenEstimationRouter,
   topic: topicRouter,
   upload: uploadRouter,
   user: userRouter,

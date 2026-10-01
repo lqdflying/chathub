@@ -46,6 +46,7 @@ vi.mock('zustand/traditional', async (importOriginal) => await importOriginal())
 vi.mock('@/utils/tokenizer', () => ({
   MAX_EXACT_TOKENIZER_INPUT_LENGTH: 10_000,
   encodeAsync: vi.fn(async (text: string) => Math.ceil(text.length / 4)),
+  fallbackTokenCount: (text: string) => Math.ceil(text.length / 4),
 }));
 
 vi.mock('@/utils/tokenizer/estimated', () => ({

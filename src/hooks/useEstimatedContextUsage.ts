@@ -3,14 +3,23 @@ import { agentMemoryPrompt } from '@lobechat/prompts';
 import { useEffect, useMemo, useState } from 'react';
 
 import { normalizeAssistantMemoryText } from '@/helpers/assistantMemory';
-import { PENDING_CONTEXT_INPUT_MESSAGE_ID, selectMessagesForContext } from '@/helpers/contextCompaction';
+import { countMessagesContextTokens, messageTextForTokenCount } from '@/helpers/contextMessageTokens';
+import { contextTokenCounter, warmContextTokenCache } from '@/helpers/contextTokenCount';
+import {
+  PENDING_CONTEXT_INPUT_MESSAGE_ID,
+  getListedModelMaxOutputTokens,
+  selectMessagesForContext,
+  type MessageLikeForHistoryWindow,
+} from '@/helpers/contextCompaction';
 import { createConversationMessageRevision } from '@/helpers/conversationMessageRevision';
 import {
   estimateFixedContextOverheadTokens,
+  fixedContextOverheadText,
   getHistoryWindowDiagnostics,
-  serializeMessagesForContextEstimate,
   wrapHistorySummaryForTokenEstimate,
 } from '@/helpers/contextUsageEstimate';
+import { resolveInputBudgetTokens } from '@/helpers/inputBudget';
+import { scaleLocalTokens } from '@/helpers/tokenCalibration';
 import type { HistoryWindowDiagnostics } from '@/helpers/contextUsageEstimate';
 import { buildHistorySummaryForRequest } from '@/helpers/memoryArchivePrompt';
 import {
@@ -25,6 +34,7 @@ import {
 import { createChatToolsEngine } from '@/helpers/toolEngineering';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { useModelContextWindowTokens } from '@/hooks/useModelContextWindowTokens';
+import { getTokenEstimateMultiplier } from '@/services/tokenEstimation';
 import { useModelSupportToolUse } from '@/hooks/useModelSupportToolUse';
 import { useTokenCount } from '@/hooks/useTokenCount';
 import { composeSystemRole } from '@/services/chat/composeSystemRole';
@@ -48,14 +58,19 @@ export interface EstimatedContextUsage {
   historySummaryToken: number;
   historyWindow: HistoryWindowDiagnostics;
   inputTokenCount: number;
+  imageTokens: number;
+  inputBudget: number;
   knowledgeBaseToken: number;
   lastCompactionStatus?: string;
   maxTokens: number;
+  multiplier: number;
   memoryToken: number;
   ratio: number;
   roleSettingsToken: number;
+  reservedOutput: number;
   systemRoleToken: number;
   toolsToken: number;
+  uncalibratedTokens: number;
   /** Content estimate of all topic messages (growth signal; not on the wire). */
   topicChatsToken: number;
   totalToken: number;
@@ -149,6 +164,28 @@ export const useEstimatedContextUsage = (
   ]);
 
   const maxTokens = useModelContextWindowTokens(model, provider);
+  const requestedMaxTokens = useAgentStore((s) => {
+    const value = agentSelectors.currentAgentConfig(s).params?.max_tokens;
+    return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+  });
+  const inputBudget = resolveInputBudgetTokens({
+    contextWindowTokens: maxTokens,
+    maxOutput: getListedModelMaxOutputTokens(model, provider),
+    maxTokens: requestedMaxTokens,
+  });
+  const reservedOutput = Math.max(0, (maxTokens || 0) - inputBudget);
+  const [multiplier, setMultiplier] = useState(1);
+  const [tokenCacheRevision, setTokenCacheRevision] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getTokenEstimateMultiplier(provider, model).then((value) => {
+      if (!cancelled) setMultiplier(value);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [model, provider]);
   const knowledgeBaseToken = useChatStore((state) =>
     state.activeId
       ? (state.knowledgeBaseContextTokens[messageMapKey(state.activeId, state.activeTopicId)] ?? 0)
@@ -242,22 +279,52 @@ export const useEstimatedContextUsage = (
   const chatInstructionToken = useTokenCount(generalInstruction?.trim());
   const roleSettingsToken = Math.max(0, systemRoleToken - chatInstructionToken);
 
+  const overheadInput = {
+    agentMemory: agentMemoryBlock,
+    historySummaryRaw: memorySummaryRaw,
+    skillInstructions,
+    systemRole: composedSystemRole,
+    toolsString: canUseTool ? toolsString : '',
+  };
   const fixedOverheadTokens =
-    estimateFixedContextOverheadTokens({
-      agentMemory: agentMemoryBlock,
-      historySummaryRaw: memorySummaryRaw,
-      skillInstructions,
-      systemRole: composedSystemRole,
-      toolsString: canUseTool ? toolsString : '',
-    }) + knowledgeBaseToken;
+    estimateFixedContextOverheadTokens(overheadInput) + knowledgeBaseToken;
+
+  useEffect(() => {
+    let cancelled = false;
+    const state = useChatStore.getState();
+    const chats =
+      conversationSource === 'portal'
+        ? threadSelectors.portalAIChats(state)
+        : chatSelectors.mainAIChats(state);
+    const texts = chats.map((message) => messageTextForTokenCount(message, inputTemplate));
+    texts.push(fixedContextOverheadText(overheadInput));
+    void warmContextTokenCache(texts).then(() => {
+      if (!cancelled) setTokenCacheRevision((revision) => revision + 1);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    agentMemoryBlock,
+    canUseTool,
+    composedSystemRole,
+    conversationSource,
+    inputTemplate,
+    memorySummaryRaw,
+    messageRevision,
+    skillInstructions,
+    toolsString,
+  ]);
 
   const {
     anchorBaseline,
     anchorReportedInputTokens,
-    chatsString,
     historyWindow,
+    imageTokens,
+    messageTokens,
     reportedInputTokens,
-    tailString,
+    tailTokens,
+    topicChatsToken,
   } = useMemo(() => {
     const state = useChatStore.getState();
     const chats =
@@ -268,13 +335,17 @@ export const useEstimatedContextUsage = (
     const applyCursor =
       conversationSource === 'main' && enableHistoryCount && enableCompressHistory && isRegularTopic;
     const cursorId = applyCursor ? historySummaryLastMessageId : undefined;
+    const windowTokens = inputBudget || maxTokens;
+    const messageTokenCount = (message: MessageLikeForHistoryWindow) =>
+      countMessagesContextTokens([message], inputTemplate, model, contextTokenCounter).totalTokens;
     const sliced = selectMessagesForContext({
       cursorId,
       enableHistoryCount,
       fixedOverheadTokens,
       historyCount,
       inputTemplate,
-      maxTokens,
+      maxTokens: windowTokens,
+      messageTokenCount,
       messages: chats,
       pendingHasFiles: estimateHasPendingFiles,
       pendingInput: estimateInput,
@@ -326,12 +397,21 @@ export const useEstimatedContextUsage = (
           })
         : undefined;
 
+    const counted = countMessagesContextTokens(sliced, inputTemplate, model, contextTokenCounter);
+    const tail =
+      anchorIndex >= 0
+        ? countMessagesContextTokens(
+            sliced.slice(anchorIndex),
+            inputTemplate,
+            model,
+            contextTokenCounter,
+          )
+        : { totalTokens: 0 };
+    const topicCounted = countMessagesContextTokens(chats, inputTemplate, model, contextTokenCounter);
+
     return {
       anchorBaseline,
       anchorReportedInputTokens: anchorBaseline ? anchor?.totalInputTokens : undefined,
-      chatsString: anchorBaseline
-        ? ''
-        : serializeMessagesForContextEstimate(sliced, inputTemplate),
       historyWindow: getHistoryWindowDiagnostics({
         configuredHistoryCount: historyCount,
         cursorId,
@@ -341,15 +421,17 @@ export const useEstimatedContextUsage = (
         hasTopicSummary: !!memorySummaryRaw.trim(),
         historyCount,
         inputTemplate,
-        maxTokens,
+        maxTokens: windowTokens,
+        messageTokenCount,
         messages: chats,
         pendingHasFiles: estimateHasPendingFiles,
         pendingInput: estimateInput,
       }),
+      imageTokens: counted.visualTokens,
+      messageTokens: counted.totalTokens,
       reportedInputTokens: getLatestReportedInputTokens(estimateMessages, usageLookupOptions),
-      tailString: anchorBaseline
-        ? serializeMessagesForContextEstimate(sliced.slice(Math.max(0, anchorIndex)), inputTemplate)
-        : '',
+      tailTokens: tail.totalTokens,
+      topicChatsToken: topicCounted.totalTokens,
     };
   }, [
     conversationSource,
@@ -362,63 +444,67 @@ export const useEstimatedContextUsage = (
     historySummaryLastMessageId,
     inputTemplate,
     isRegularTopic,
+    inputBudget,
     knowledgeBaseToken,
     maxTokens,
     memorySummaryRaw,
     messageRevision,
+    model,
     reportedInputTokenFloorAfterMessageId,
+    tokenCacheRevision,
   ]);
 
-  const topicChatsString = useMemo(() => {
-    const state = useChatStore.getState();
-    const chats =
-      conversationSource === 'portal'
-        ? threadSelectors.portalAIChats(state)
-        : chatSelectors.mainAIChats(state);
-
-    return serializeMessagesForContextEstimate(chats, inputTemplate, {
-      capToolResults: false,
-    });
-  }, [conversationSource, inputTemplate, messageRevision]);
-
-  const chatsToken = useTokenCount(chatsString);
-  const tailToken = useTokenCount(tailString);
-  const topicChatsToken = useTokenCount(topicChatsString);
   const fixedTokens =
     systemRoleToken + memoryToken + historySummaryToken + toolsToken + knowledgeBaseToken + skillToken;
-  const estimatedTotal = fixedTokens + chatsToken;
+  const localWhole = fixedTokens + messageTokens;
+  const scaledWhole = scaleLocalTokens(localWhole, multiplier);
+  const scaledTail = scaleLocalTokens(
+    tailTokens + (anchorBaseline?.overheadDelta ?? 0),
+    multiplier,
+  );
+  const uncalibratedTail = tailTokens + (anchorBaseline?.overheadDelta ?? 0);
 
   let chatsTokenDisplay: number;
   let totalToken: number;
+  let uncalibratedTokens: number;
   if (anchorReportedInputTokens !== undefined && anchorBaseline) {
-    // Anchored: provider-reported input + tail + fixed-overhead delta since
-    // the anchor's request (+ current KB retrieval, which the anchor's
-    // request could not include yet).
-    totalToken =
-      anchorReportedInputTokens + tailToken + anchorBaseline.overheadDelta + knowledgeBaseToken;
+    totalToken = anchorReportedInputTokens + scaledTail + knowledgeBaseToken;
+    uncalibratedTokens = anchorReportedInputTokens + uncalibratedTail + knowledgeBaseToken;
     chatsTokenDisplay = Math.max(0, totalToken - fixedTokens);
   } else {
-    const floor = applyReportedInputTokenFloor(estimatedTotal, reportedInputTokens);
+    const floor = applyReportedInputTokenFloor(scaledWhole, reportedInputTokens, scaledTail);
+    const uncalibratedFloor = applyReportedInputTokenFloor(
+      localWhole,
+      reportedInputTokens,
+      uncalibratedTail,
+    );
     totalToken = floor.totalToken;
-    chatsTokenDisplay = chatsToken + floor.chatsTokenDelta;
+    uncalibratedTokens = uncalibratedFloor.totalToken;
+    chatsTokenDisplay = messageTokens + floor.chatsTokenDelta;
   }
-  const ratio = maxTokens > 0 ? totalToken / maxTokens : 0;
+  const ratioDenominator = inputBudget || maxTokens;
+  const ratio = ratioDenominator > 0 ? totalToken / ratioDenominator : 0;
 
   return {
     chatInstructionToken,
     chatsToken: chatsTokenDisplay,
     historySummaryToken,
     historyWindow,
+    imageTokens,
+    inputBudget,
     inputTokenCount,
     knowledgeBaseToken,
     lastCompactionStatus,
     maxTokens,
     memoryToken,
+    multiplier,
     ratio,
+    reservedOutput,
     roleSettingsToken,
     systemRoleToken,
     toolsToken,
     topicChatsToken,
     totalToken,
+    uncalibratedTokens,
   };
 };

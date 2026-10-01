@@ -185,12 +185,17 @@ const hashOptionalDebugValue = async (value?: string | null): Promise<string | u
 /** Hashes session/topic then emits `watcher_armed` when a token-threshold attempt is scheduled. */
 export const logCompactionWatcherArmed = async (input: {
   highWatermark: number;
+  imageTokens?: number;
+  inputBudget?: number;
   knowledgeBaseToken: number;
   maxTokens: number;
+  multiplier?: number;
   ratio: number;
+  reservedOutput?: number;
   sessionId?: string | null;
   topicId?: string | null;
   totalToken: number;
+  uncalibratedTokens?: number;
 }) => {
   try {
     if (!isCompactionDebugClientEnabled()) return;

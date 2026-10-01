@@ -13,8 +13,8 @@ import {
   CONTEXT_COMPACTION_MAX_BATCH_MESSAGES,
   buildOversizedCompactionTurnStub,
   buildSimpleCompletionSampling,
+  countCompactionPromptTokens,
   createCompactionFingerprint,
-  estimateCompactionPromptTokens,
   getCompactionSummarizerInputBudget,
   getContextCompactionWatermarks,
   getMessagesAfterHistorySummaryCursor,
@@ -31,6 +31,7 @@ import {
 } from '@/helpers/contextUsageEstimate';
 import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableConversationGeneration';
 import { estimateContextUsageAsync } from '@/helpers/estimateContextUsageAsync';
+import { getTokenEstimateMultiplier } from '@/services/tokenEstimation';
 import { createCompactionSummarizerTimeoutSignal } from '@/helpers/isContextOverflowError';
 import {
   getReportedInputTokenFloorBoundaryId,
@@ -348,6 +349,7 @@ async function runCompactionFromStore(
       ]);
       const totalToken = debug.beforeEstimate?.totalToken ?? result.estimatedTokensBefore;
       const maxTokens = debug.maxTokens;
+      const inputBudget = debug.beforeEstimate?.inputBudget;
       logCompactionDebugClientSafe('planner_settled', {
         candidateCount: debug.candidateCount,
         chatsToken: debug.beforeEstimate?.chatsToken,
@@ -361,11 +363,14 @@ async function runCompactionFromStore(
         highWatermark: debug.highWatermark ?? result.highWatermark,
         historyCount: debug.historyCount,
         historySummaryToken: debug.beforeEstimate?.historySummaryToken,
+        imageTokens: debug.beforeEstimate?.imageTokens,
+        inputBudget,
         inputToken: debug.beforeEstimate?.inputToken,
         lowWatermark: debug.lowWatermark ?? result.lowWatermark,
         maxTokens,
         memoryToken: debug.beforeEstimate?.memoryToken,
         model: debug.activeModel,
+        multiplier: debug.beforeEstimate?.multiplier,
         path: abortController
           ? 'pre_send'
           : result.reason === 'durable_enqueued'
@@ -374,9 +379,12 @@ async function runCompactionFromStore(
         preSendMessageCountCompact: debug.preSendMessageCountCompact,
         provider: debug.activeProvider,
         ratio:
-          typeof maxTokens === 'number' && maxTokens > 0 && typeof totalToken === 'number'
-            ? totalToken / maxTokens
+          typeof (inputBudget || maxTokens) === 'number' &&
+          (inputBudget || maxTokens)! > 0 &&
+          typeof totalToken === 'number'
+            ? totalToken / (inputBudget || maxTokens)!
             : undefined,
+        reservedOutput: debug.beforeEstimate?.reservedOutput,
         reason: result.reason,
         sessionHash,
         slicedMessageCount: debug.slicedMessageCount,
@@ -385,6 +393,7 @@ async function runCompactionFromStore(
         systemRoleToken: debug.beforeEstimate?.systemRoleToken,
         targetReachable: debug.targetReachable,
         toolsToken: debug.beforeEstimate?.toolsToken,
+        uncalibratedTokens: debug.beforeEstimate?.uncalibratedTokens,
         topicHash,
         topicMessageCount: debug.topicMessageCount,
         totalToken,
@@ -498,9 +507,13 @@ async function runCompactionFromStore(
     }
   }
 
+  const { model: estimateModel, provider: estimateProvider } =
+    agentSelectors.currentAgentConfig(agentState);
+  const estimateMultiplier = await getTokenEstimateMultiplier(estimateProvider, estimateModel);
   const beforeEstimate = await estimateContextUsageAsync({
     agentState,
     chatState: scopedState,
+    multiplier: estimateMultiplier,
   });
   debug.beforeEstimate = beforeEstimate;
   debug.slicedMessageCount = beforeEstimate.contextMessages.length;
@@ -556,8 +569,9 @@ async function runCompactionFromStore(
       beforeEstimate.contextMessages,
     );
     debug.truncationRecoveryTokens = truncationRecoveryTokens;
+    const budget = beforeEstimate.inputBudget || maxTokens;
     const untruncatedTotal = beforeEstimate.totalToken + truncationRecoveryTokens;
-    if (untruncatedTotal / maxTokens < high) {
+    if (untruncatedTotal / budget < high) {
       return finish('not_needed', {
         estimatedTokensBefore: beforeEstimate.totalToken,
         highWatermark: high,
@@ -565,7 +579,7 @@ async function runCompactionFromStore(
         reason: 'below_high_watermark',
       });
     }
-    if (truncationRecoveryTokens > 0 && beforeEstimate.totalToken <= maxTokens * low) {
+    if (truncationRecoveryTokens > 0 && beforeEstimate.totalToken <= budget * low) {
       return finish('not_needed', {
         estimatedTokensBefore: beforeEstimate.totalToken,
         highWatermark: high,
@@ -579,7 +593,7 @@ async function runCompactionFromStore(
     const selected = await selectTokenTargetPrefix({
       contextMessages: beforeEstimate.contextMessages,
       estimatedTokensBefore: beforeEstimate.totalToken,
-      maxTokens,
+      maxTokens: beforeEstimate.inputBudget || maxTokens,
       pendingMessages: pending.pendingMessages,
       previousSummary: pending.previousSummary,
       targetRatio: low,
@@ -623,7 +637,7 @@ async function runCompactionFromStore(
   const summarizerWindow = parseCompactionSummarizerContextWindow(
     getModelContextWindowTokens(chatModel, chatProvider),
   );
-  const batches = splitCompactionBatches(candidateMessages, CONTEXT_COMPACTION_MAX_BATCH_MESSAGES, {
+  const batches = await splitCompactionBatches(candidateMessages, CONTEXT_COMPACTION_MAX_BATCH_MESSAGES, {
     previousSummary: pending.previousSummary,
     summarizerContextWindow: summarizerWindow,
     summaryMaxTokens,
@@ -764,7 +778,7 @@ async function runCompactionFromStore(
     if (abortController?.signal.aborted) {
       return finish('ineligible', { reason: 'aborted' });
     }
-    const estimatedTokens = estimateCompactionPromptTokens(
+    const estimatedTokens = await countCompactionPromptTokens(
       batch,
       historySummary || undefined,
       summaryMaxTokens,

@@ -1,5 +1,6 @@
 import type { LobeAgentConfig } from '@lobechat/types';
 
+import { rememberDispatchTokenEstimate, captureDispatchTokenEstimate } from '@/helpers/dispatchTokenEstimate';
 import { computeFixedContextOverheadInput } from '@/helpers/estimateContextUsageAsync';
 import {
   recordAnchorRequestWitness,
@@ -198,6 +199,10 @@ export const recordAnchorDispatchWitness = async ({
       evidence,
       parentMessageId,
     });
+    const tokenEstimate = await captureDispatchTokenEstimate(chatState);
+    if (tokenEstimate && assistantMessageId) {
+      rememberDispatchTokenEstimate(assistantMessageId, tokenEstimate);
+    }
   } catch {
     // Diagnostics must never interrupt dispatch.
   }

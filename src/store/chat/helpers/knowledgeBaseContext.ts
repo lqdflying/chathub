@@ -9,7 +9,7 @@ import {
   type RagChatScopeStats,
 } from '@lobechat/types';
 
-import { MAX_EXACT_TOKENIZER_INPUT_LENGTH, encodeAsync } from '@/utils/tokenizer';
+import { encodeAsync, fallbackTokenCount } from '@/utils/tokenizer';
 import { estimatedEncodeAsync } from '@/utils/tokenizer/estimated';
 
 export const CONTEXT_EXPORT_REDACTIONS = [
@@ -34,18 +34,16 @@ export const countKnowledgeBasePromptTokens = async (
 ): Promise<KnowledgeBasePromptTokenCount> => {
   if (!prompt) return { countMode: 'exact', promptTokens: 0 };
 
-  if (prompt.length <= MAX_EXACT_TOKENIZER_INPUT_LENGTH && typeof Worker !== 'undefined') {
-    try {
-      return { countMode: 'exact', promptTokens: await encodeAsync(prompt) };
-    } catch {
-      // Token accounting is diagnostic context only and must never block the provider request.
-    }
+  try {
+    return { countMode: 'exact', promptTokens: await encodeAsync(prompt) };
+  } catch {
+    // Token accounting is diagnostic context only and must never block the provider request.
   }
 
   try {
     return { countMode: 'estimated', promptTokens: await estimatedEncodeAsync(prompt) };
   } catch {
-    return { countMode: 'character', promptTokens: prompt.length };
+    return { countMode: 'estimated', promptTokens: fallbackTokenCount(prompt) };
   }
 };
 

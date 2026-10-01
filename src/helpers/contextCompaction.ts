@@ -13,16 +13,22 @@ import {
 import { sha256 } from 'js-sha256';
 import { LOBE_DEFAULT_MODEL_LIST, ModelProvider } from 'model-bank';
 
+import { countContextTextTokens } from '@/helpers/contextTokenCount';
+import { fallbackTokenCount } from '@/utils/tokenizer';
+
 /** Models at or above this window may expand past configured historyCount when budget remains. */
 export const LARGE_CONTEXT_WINDOW_TOKENS = 128_000;
 
-/** Keep expanded history under this fraction of the model window (fixed overhead + chats). */
+/** Keep expanded history under this fraction of the input budget (fixed overhead + chats). */
 export const LARGE_CONTEXT_EXPAND_WATERMARK = 0.55;
 
-/** CJK-safe rough chars→tokens for expand decisions (not the BPE estimator). */
+/** @deprecated Window math uses the shared tokenizer. Kept so older imports still resolve. */
 export const CONTEXT_CHARS_PER_TOKEN_ESTIMATE = 2;
 
-type MessageLikeForHistoryWindow = Pick<
+/** One message of wire framing, matching the context estimate. */
+const HISTORY_WINDOW_FRAMING_TOKENS = 3;
+
+export type MessageLikeForHistoryWindow = Pick<
   UIChatMessage,
   'content' | 'plugin' | 'role' | 'tools' | 'tool_call_id'
 >;
@@ -102,6 +108,7 @@ export const resolveEffectiveHistoryWindow = ({
   historyCount,
   inputTemplate,
   maxTokens,
+  messageTokenCount,
   messagesAfterCursor,
 }: {
   enableHistoryCount?: boolean;
@@ -109,7 +116,10 @@ export const resolveEffectiveHistoryWindow = ({
   historyCount?: number;
   /** Applied to every included user row; must not be counted again as fixed overhead. */
   inputTemplate?: string;
+  /** Input budget (context window minus reserved output), not the raw card window. */
   maxTokens?: number;
+  /** Per-message count in the same units as the watermark. Defaults to the tokenizer fallback plus framing. */
+  messageTokenCount?: (message: MessageLikeForHistoryWindow) => number;
   messagesAfterCursor: MessageLikeForHistoryWindow[];
 }): EffectiveHistoryWindow => {
   if (!enableHistoryCount || historyCount === undefined) {
@@ -130,11 +140,13 @@ export const resolveEffectiveHistoryWindow = ({
     return { enableHistoryCount: true, expanded: false, historyCount };
   }
 
+  const countOne =
+    messageTokenCount ??
+    ((message: MessageLikeForHistoryWindow) =>
+      fallbackTokenCount(serializeMessageForHistoryWindow(message, inputTemplate)) +
+      HISTORY_WINDOW_FRAMING_TOKENS);
   const approxTokens = (messages: MessageLikeForHistoryWindow[]) =>
-    Math.ceil(
-      serializeMessagesForHistoryWindow(messages, inputTemplate).length /
-        CONTEXT_CHARS_PER_TOKEN_ESTIMATE,
-    );
+    messages.reduce((sum, message) => sum + countOne(message), 0);
 
   if (approxTokens(messagesAfterCursor) <= budgetTokens) {
     return { enableHistoryCount: false, expanded: true, historyCount };
@@ -165,9 +177,8 @@ export const CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS = 400;
 export const CONTEXT_COMPACTION_REASONING_HEADROOM_TOKENS = 2048;
 export const CONTEXT_COMPACTION_MAX_BATCH_MESSAGES = 40;
 /**
- * CJK-safe chars→tokens for the History Compress prompt. ChatHub's UI tokenizer
- * (`tokenx` / `CONTEXT_CHARS_PER_TOKEN_ESTIMATE = 2`) undercounted a DeepSeek
- * V4 Flash summarizer prompt at ~0.59M vs the provider's ~1.83M.
+ * History Compress prompt size uses the shared tokenizer. The ASCII / non-ASCII
+ * fallback is the failure path when that counter is unavailable.
  * @see https://api-docs.deepseek.com/news/news260424
  */
 export const COMPACTION_SUMMARIZER_CHARS_PER_TOKEN = 1;
@@ -219,6 +230,11 @@ const findSimpleCompletionModelCard = (model: string, provider?: string) => {
   return LOBE_DEFAULT_MODEL_LIST.find((item) => item.id === model);
 };
 
+export const getListedModelMaxOutputTokens = (model: string, provider?: string): number | undefined => {
+  const maxOutput = findSimpleCompletionModelCard(model, provider)?.maxOutput;
+  return typeof maxOutput === 'number' && maxOutput > 0 ? maxOutput : undefined;
+};
+
 export const getListedModelContextWindowTokens = (
   model: string,
   provider?: string,
@@ -242,14 +258,27 @@ export const parseCompactionSummarizerContextWindow = (value: unknown): number |
   return value;
 };
 
+export const compactionPromptText = (
+  messages: UIChatMessage[],
+  previousSummary?: string,
+  summaryMaxTokens = CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS,
+): string => {
+  const payload = chainSummaryHistory(messages, previousSummary, { summaryMaxTokens });
+  return JSON.stringify(payload.messages ?? []);
+};
+
+export const estimateCompactionPromptTokensFromCount = (
+  serialized: string,
+  tokenCount: number,
+): number => Math.max(1, serialized ? tokenCount : 1);
+
 export const estimateCompactionPromptTokens = (
   messages: UIChatMessage[],
   previousSummary?: string,
   summaryMaxTokens = CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS,
 ): number => {
-  const payload = chainSummaryHistory(messages, previousSummary, { summaryMaxTokens });
-  const serialized = JSON.stringify(payload.messages ?? []);
-  return Math.max(1, Math.ceil(serialized.length / COMPACTION_SUMMARIZER_CHARS_PER_TOKEN));
+  const serialized = compactionPromptText(messages, previousSummary, summaryMaxTokens);
+  return estimateCompactionPromptTokensFromCount(serialized, fallbackTokenCount(serialized));
 };
 
 /**
@@ -423,6 +452,7 @@ export const selectMessagesForContext = ({
   historyCount,
   inputTemplate,
   maxTokens,
+  messageTokenCount,
   messages,
   pendingHasFiles,
   pendingInput,
@@ -433,6 +463,7 @@ export const selectMessagesForContext = ({
   historyCount?: number;
   inputTemplate?: string;
   maxTokens?: number;
+  messageTokenCount?: (message: MessageLikeForHistoryWindow) => number;
   messages: UIChatMessage[];
   pendingHasFiles?: boolean;
   pendingInput?: string;
@@ -449,6 +480,7 @@ export const selectMessagesForContext = ({
     historyCount,
     inputTemplate,
     maxTokens,
+    messageTokenCount,
     messagesAfterCursor: afterCursor,
   });
 
@@ -588,11 +620,11 @@ const nextCompleteTurnEnd = (messages: UIChatMessage[], from = 0): number => {
   return messages.length;
 };
 
-const splitCompactionBatchesByTokens = (
+const splitCompactionBatchesByTokens = async (
   messages: UIChatMessage[],
   maxMessages: number,
   options: SplitCompactionBatchesTokenOptions & { summarizerContextWindow: number },
-): UIChatMessage[][] => {
+): Promise<UIChatMessage[][]> => {
   if (!messages.length) return [];
 
   const budget = getCompactionSummarizerInputBudget(
@@ -610,7 +642,7 @@ const splitCompactionBatchesByTokens = (
       break;
     }
 
-    const firstTurnTokens = estimateCompactionPromptTokens(
+    const firstTurnTokens = await countCompactionPromptTokens(
       remaining.slice(0, firstTurnEnd),
       options.previousSummary,
       options.summaryMaxTokens,
@@ -628,7 +660,7 @@ const splitCompactionBatchesByTokens = (
       const nextTurnEnd = nextCompleteTurnEnd(remaining, batchEnd);
       if (nextTurnEnd <= batchEnd) break;
       if (nextTurnEnd > maxMessages && batchEnd > 0) break;
-      const estimated = estimateCompactionPromptTokens(
+      const estimated = await countCompactionPromptTokens(
         remaining.slice(0, nextTurnEnd),
         options.previousSummary,
         options.summaryMaxTokens,
@@ -644,11 +676,21 @@ const splitCompactionBatchesByTokens = (
   return batches;
 };
 
-export const splitCompactionBatches = (
+export const countCompactionPromptTokens = async (
+  messages: UIChatMessage[],
+  previousSummary?: string,
+  summaryMaxTokens = CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS,
+): Promise<number> => {
+  const serialized = compactionPromptText(messages, previousSummary, summaryMaxTokens);
+  const counted = await countContextTextTokens(serialized);
+  return estimateCompactionPromptTokensFromCount(serialized, counted.count);
+};
+
+export const splitCompactionBatches = async (
   messages: UIChatMessage[],
   maxMessages = CONTEXT_COMPACTION_MAX_BATCH_MESSAGES,
   tokenOptions?: SplitCompactionBatchesTokenOptions,
-): UIChatMessage[][] => {
+): Promise<UIChatMessage[][]> => {
   const window = tokenOptions?.summarizerContextWindow;
   if (window && window > 0) {
     return splitCompactionBatchesByTokens(messages, maxMessages, {

@@ -6,7 +6,12 @@ import { LOADING_FLAT } from '@/const/message';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 
 import { selectMessagesForContext } from './contextCompaction';
-import { estimateFixedContextOverheadTokens, wrapHistorySummaryForTokenEstimate } from './contextUsageEstimate';
+import { warmContextTokenCache } from './contextTokenCount';
+import {
+  estimateFixedContextOverheadTokens,
+  fixedContextOverheadText,
+  wrapHistorySummaryForTokenEstimate,
+} from './contextUsageEstimate';
 import { computeFixedContextOverheadInput, estimateContextUsageAsync } from './estimateContextUsageAsync';
 import {
   clearAnchorBaselines,
@@ -40,6 +45,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@/utils/tokenizer', () => ({
   encodeAsync: vi.fn(async (text: string) => text.length),
+  fallbackTokenCount: (text: string) => Math.ceil(text.length / 4),
 }));
 
 vi.mock('@/helpers/assistantMemory', () => ({
@@ -222,7 +228,7 @@ describe('estimateContextUsageAsync', () => {
     expect(result.systemRoleToken).toBe('system-role-text'.length);
     expect(result.toolsToken).toBeGreaterThan(0);
     expect(result.inputToken).toBe('input-text'.length);
-    expect(result.chatsToken).toBe('user:\nchat-text\nuser:\ninput-text'.length);
+    expect(result.chatsToken).toBe(37);
     expect(result.historySummaryToken).toBe(
       wrapHistorySummaryForTokenEstimate('history-summary-text').length,
     );
@@ -278,7 +284,7 @@ describe('estimateContextUsageAsync', () => {
       chatState: { inputMessage: '' } as any,
     });
 
-    expect(result.chatsToken).toBe('user:\nAsk: one\nuser:\nAsk: two'.length);
+    expect(result.chatsToken).toBe(34);
     expect(result.totalToken).toBeGreaterThan(
       result.systemRoleToken +
         result.memoryToken +
@@ -299,7 +305,7 @@ describe('estimateContextUsageAsync', () => {
     });
 
     expect(result.inputToken).toBe('draftdraft'.length);
-    expect(result.chatsToken).toBe('user:\noneone\nuser:\ndraftdraft'.length);
+    expect(result.chatsToken).toBe(34);
     expect(result.contextMessages.map(({ id }) => id)).toEqual(['u1']);
     expect(result.totalToken).toBe(
       result.systemRoleToken +
@@ -322,7 +328,7 @@ describe('estimateContextUsageAsync', () => {
 
     // 50_000 reported + tail 'assistant:\nok' (13) — the anchor's own reply was
     // output of that request, so it is tokenized as part of the tail.
-    expect(result.totalToken).toBe(50_013);
+    expect(result.totalToken).toBe(50_016);
     expect(result.chatsToken).toBeGreaterThan(0);
   });
 
@@ -342,7 +348,7 @@ describe('estimateContextUsageAsync', () => {
     const result = await estimate();
 
     // tail = a1 (111) + u2 ('user:\nnext' 10) + a2 ('assistant:\nfresh' 16) + 2 joins = 139
-    expect(result.totalToken).toBe(5000 + 139);
+    expect(result.totalToken).toBe(5000 + 146);
     // The whole-window estimate would include u1's 5000 chars on top.
     expect(result.totalToken).toBeLessThan(5000 + 5000);
   });
@@ -357,7 +363,7 @@ describe('estimateContextUsageAsync', () => {
     // it to the anchor baseline (delta 0).
     await landReport(50_000);
     const first = await estimate();
-    expect(first.totalToken).toBe(50_013);
+    expect(first.totalToken).toBe(50_016);
 
     // Activating a skill grows the fixed overhead AFTER the anchor's request;
     // the anchored total must move up by exactly the new skill block, measured
@@ -371,21 +377,22 @@ describe('estimateContextUsageAsync', () => {
     };
     mocks.skillRecords = [skill];
     const skillBlock = formatSkillInstructionsBlock({ activated: [skill] });
-    const overheadBefore = estimateFixedContextOverheadTokens({
+    const overheadBeforeInput = {
       historySummaryRaw: 'history-summary-text',
       systemRole: 'system-role-text',
       toolsString: 'plugin-system-role' + JSON.stringify({ function: { name: 'search' } }),
-    });
-    const overheadAfter = estimateFixedContextOverheadTokens({
-      historySummaryRaw: 'history-summary-text',
-      skillInstructions: skillBlock,
-      systemRole: 'system-role-text',
-      toolsString: 'plugin-system-role' + JSON.stringify({ function: { name: 'search' } }),
-    });
+    };
+    const overheadAfterInput = { ...overheadBeforeInput, skillInstructions: skillBlock };
+    await warmContextTokenCache([
+      fixedContextOverheadText(overheadBeforeInput),
+      fixedContextOverheadText(overheadAfterInput),
+    ]);
+    const overheadBefore = estimateFixedContextOverheadTokens(overheadBeforeInput);
+    const overheadAfter = estimateFixedContextOverheadTokens(overheadAfterInput);
 
     const second = await estimate();
     expect(overheadAfter).toBeGreaterThan(overheadBefore);
-    expect(second.totalToken).toBe(50_013 + (overheadAfter - overheadBefore));
+    expect(second.totalToken).toBe(50_016 + (overheadAfter - overheadBefore));
   });
 
   it('shares the baseline registry with the UI hook without unit drift', async () => {
@@ -418,9 +425,9 @@ describe('estimateContextUsageAsync', () => {
       parentMessageId: 'u1',
     });
 
-    expect((await estimate()).totalToken).toBe(50_013);
+    expect((await estimate()).totalToken).toBe(50_016);
     // The promoted baseline keeps later estimates anchored and stable.
-    expect((await estimate()).totalToken).toBe(50_013);
+    expect((await estimate()).totalToken).toBe(50_016);
   });
 
   it('keeps the anchor invalid after a prefix change until a fresh provider report', async () => {
@@ -432,7 +439,7 @@ describe('estimateContextUsageAsync', () => {
     // D2: land the report after the in-flight estimate observed the prefix.
     await landReport(50_000);
     const first = await estimate();
-    expect(first.totalToken).toBe(50_013);
+    expect(first.totalToken).toBe(50_016);
 
     // Editing a pre-anchor message invalidates what the reported input covered.
     mocks.chats = [
@@ -466,7 +473,7 @@ describe('estimateContextUsageAsync', () => {
     await landReport(70_000);
     const fourth = await estimate();
     // Anchored on a2: reported 70_000 + tail ('assistant:\nok2\n' = 14 chars).
-    expect(fourth.totalToken).toBe(70_014);
+    expect(fourth.totalToken).toBe(70_017);
   });
 
   it('D2: an unverified report falls back to a fresh full estimate (reload)', async () => {
@@ -485,7 +492,7 @@ describe('estimateContextUsageAsync', () => {
 
     const firstSight = await estimate();
     // Whole-window fallback floored by the report — NOT anchor + tail (1013).
-    expect(firstSight.totalToken).toBe(1000);
+    expect(firstSight.totalToken).toBe(1016);
 
     mocks.skillRecords = [
       { description: 'd', identifier: 'large-skill', instructions: 'x'.repeat(20_000), name: 'Skill' },
@@ -699,7 +706,7 @@ describe('estimateContextUsageAsync', () => {
     const result = await estimate();
 
     // Anchor a3 (400) + tail 'assistant:\nfresh' (16) — u3 is inside the reported input.
-    expect(result.totalToken).toBe(416);
+    expect(result.totalToken).toBe(419);
   });
 
   it('does not anchor on a protected assistant when a cursor exists without a watermark', async () => {
@@ -840,7 +847,7 @@ describe('estimateContextUsageAsync', () => {
     const result = await estimate();
 
     // Anchor a3 (700_000) + tail 'assistant:\nfresh' (16).
-    expect(result.totalToken).toBe(700_016);
+    expect(result.totalToken).toBe(700_019);
   });
 
   it('anchors a selected assistant when historyCount drops the stored marker', async () => {
@@ -880,7 +887,7 @@ describe('estimateContextUsageAsync', () => {
 
     expect(result.contextMessages.map(({ id }) => id)).toEqual(['u3', 'a3']);
     // Anchor a3 (700_000) + tail 'assistant:\nfresh' (16).
-    expect(result.totalToken).toBe(700_016);
+    expect(result.totalToken).toBe(700_019);
   });
 
   it('anchors a new assistant after the deleted marker is rotated', async () => {
@@ -918,7 +925,7 @@ describe('estimateContextUsageAsync', () => {
     const result = await estimate();
 
     // Anchor a4 (700_000) + tail 'assistant:\nfresh' (16).
-    expect(result.totalToken).toBe(700_016);
+    expect(result.totalToken).toBe(700_019);
   });
 
   it('anchors a post-compaction assistant after a user-only remaining window', async () => {
@@ -949,7 +956,7 @@ describe('estimateContextUsageAsync', () => {
     const result = await estimate();
 
     // Anchor a3 (700_000) + tail 'assistant:\nfresh' (16).
-    expect(result.totalToken).toBe(700_016);
+    expect(result.totalToken).toBe(700_019);
   });
 
   it('anchors a fresh assistant after the sole post-cursor watermark is replaced by the cursor', async () => {
@@ -980,7 +987,7 @@ describe('estimateContextUsageAsync', () => {
     const result = await estimate();
 
     // Anchor a4 (700_000) + tail 'assistant:\nfresh' (16).
-    expect(result.totalToken).toBe(700_016);
+    expect(result.totalToken).toBe(700_019);
   });
 
   it('U2: widening history counts newly included pre-anchor messages', async () => {
@@ -994,7 +1001,7 @@ describe('estimateContextUsageAsync', () => {
     await landReport(1000);
     const short = await estimate();
     expect(short.contextMessages.some((message) => message.id === 'old-u')).toBe(false);
-    expect(short.totalToken).toBe(1013);
+    expect(short.totalToken).toBe(1016);
 
     mocks.historyCount = 20;
     const expanded = await estimate();
@@ -1011,7 +1018,7 @@ describe('estimateContextUsageAsync', () => {
       { content: 'ok', id: 'new-a', role: 'assistant' },
     ];
     await landReport(1000);
-    expect((await estimate()).totalToken).toBe(1013);
+    expect((await estimate()).totalToken).toBe(1016);
 
     mocks.enableHistoryCount = false;
     const unlimited = await estimate();
@@ -1044,7 +1051,7 @@ describe('estimateContextUsageAsync', () => {
       { content: 'ok', id: 'a1', role: 'assistant' },
     ];
     await landReport(1000);
-    expect((await estimate()).totalToken).toBe(1013);
+    expect((await estimate()).totalToken).toBe(1016);
 
     // Repeating `{{text}}` expands stored "hi" to 20k chars; empty draft stays empty.
     mocks.inputTemplate = '{{text}}'.repeat(10_000);

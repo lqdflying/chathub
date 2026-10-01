@@ -8,6 +8,7 @@ import { trimMinimaxChatContext } from './trimMinimaxContext';
 
 vi.mock('@/utils/tokenizer', () => ({
   encodeAsync: vi.fn(async (str: string) => str.length),
+  fallbackTokenCount: (text: string) => Math.ceil(text.length / 4),
 }));
 
 describe('trimMinimaxChatContext', () => {

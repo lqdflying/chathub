@@ -53,6 +53,7 @@ vi.mock('@/services/topic', () => ({
 }));
 vi.mock('@/utils/tokenizer', () => ({
   encodeAsync: vi.fn(async (text: string) => Math.ceil(text.length / 4)),
+  fallbackTokenCount: (text: string) => Math.ceil(text.length / 4),
 }));
 vi.mock('swr', async (importOriginal) => {
   const origin = await importOriginal();

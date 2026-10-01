@@ -112,8 +112,7 @@ export const clientEncodeAsync = (str: string): Promise<number> =>
     }
 
     if (!activeWorker) {
-      // Preserve the existing non-Worker fallback for generic encodeAsync callers.
-      resolve(str.length);
+      reject(new Error('Tokenizer worker is unavailable'));
       return;
     }
 

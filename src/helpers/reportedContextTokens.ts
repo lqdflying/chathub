@@ -199,16 +199,25 @@ export const getLatestReportedInputAnchor = (
   return undefined;
 };
 
+/**
+ * The provider report covers the request that produced it. Tokens after that
+ * reply are added on top. The local estimate is kept when it is already higher,
+ * so a stale report cannot shrink the badge.
+ */
 export const applyReportedInputTokenFloor = (
   estimatedTotal: number,
   reportedInput?: number,
+  tokensAfterReport = 0,
 ): { chatsTokenDelta: number; totalToken: number } => {
-  if (!reportedInput || reportedInput <= estimatedTotal) {
+  const afterReport = Number.isFinite(tokensAfterReport) ? Math.max(0, tokensAfterReport) : 0;
+  const withReport = reportedInput ? reportedInput + afterReport : 0;
+  const totalToken = Math.max(estimatedTotal, withReport);
+  if (totalToken === estimatedTotal) {
     return { chatsTokenDelta: 0, totalToken: estimatedTotal };
   }
   return {
-    chatsTokenDelta: reportedInput - estimatedTotal,
-    totalToken: reportedInput,
+    chatsTokenDelta: totalToken - estimatedTotal,
+    totalToken,
   };
 };
 

@@ -427,6 +427,13 @@
       "when": 1787230000000,
       "tag": "0060_xai_oauth_tokens",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1788300000000,
+      "tag": "0061_token_estimation_profiles",
+      "breakpoints": true
     }
   ],
   "version": "6"

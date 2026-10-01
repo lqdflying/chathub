@@ -221,6 +221,10 @@ describe('reported context token floor', () => {
       chatsTokenDelta: 0,
       totalToken: 900_000,
     });
+    expect(applyReportedInputTokenFloor(500_000, 700_000, 50_000)).toEqual({
+      chatsTokenDelta: 250_000,
+      totalToken: 750_000,
+    });
   });
 
   it('keeps a stored marker that HistoryTruncate dropped and floors a later selected assistant', () => {

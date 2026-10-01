@@ -7,12 +7,14 @@ import { historySummaryPrompt } from '@lobechat/prompts';
 import type { UIChatMessage } from '@lobechat/types';
 
 import {
-  CONTEXT_CHARS_PER_TOKEN_ESTIMATE,
   PENDING_CONTEXT_INPUT_MESSAGE_ID,
   appendPendingUserInputForContextWindow,
   getMessagesAfterHistorySummaryCursor,
   resolveEffectiveHistoryWindow,
+  type MessageLikeForHistoryWindow,
 } from '@/helpers/contextCompaction';
+import { contextTokenCounter, type TextTokenCounter } from '@/helpers/contextTokenCount';
+import { fallbackTokenCount } from '@/utils/tokenizer';
 import type { EffectiveHistoryWindow } from '@/helpers/contextCompaction';
 
 export {
@@ -81,7 +83,7 @@ export const estimateToolResultTruncationRecoveryTokens = (
     const wire = applyToolResultWireContent(message.content, message);
     recoverableChars += Math.max(0, message.content.length - wire.length);
   }
-  return Math.ceil(recoverableChars / CONTEXT_CHARS_PER_TOKEN_ESTIMATE);
+  return fallbackTokenCount('a'.repeat(recoverableChars));
 };
 
 /** Match HistorySummaryProvider: count the XML wrapper, not only raw summary text. */
@@ -94,7 +96,7 @@ export const wrapHistorySummaryForTokenEstimate = (rawSummary: string): string =
  * Char-based estimate of every stable pre-history block the context-engine injects
  * before HistoryTruncate. Shared by UI, planner, browser builder, and durable payload.
  */
-export const estimateFixedContextOverheadTokens = ({
+export const fixedContextOverheadText = ({
   agentMemory = '',
   historySummaryRaw = '',
   skillInstructions = '',
@@ -106,8 +108,8 @@ export const estimateFixedContextOverheadTokens = ({
   skillInstructions?: string;
   systemRole?: string | null;
   toolsString?: string;
-}): number => {
-  const parts = [
+}): string =>
+  [
     systemRole ?? '',
     agentMemory,
     wrapHistorySummaryForTokenEstimate(historySummaryRaw),
@@ -115,7 +117,18 @@ export const estimateFixedContextOverheadTokens = ({
     skillInstructions,
   ].join('');
 
-  return Math.ceil(parts.length / CONTEXT_CHARS_PER_TOKEN_ESTIMATE);
+export const estimateFixedContextOverheadTokens = (
+  input: {
+    agentMemory?: string;
+    historySummaryRaw?: string;
+    skillInstructions?: string;
+    systemRole?: string | null;
+    toolsString?: string;
+  },
+  countText: TextTokenCounter = contextTokenCounter,
+): number => {
+  const text = fixedContextOverheadText(input);
+  return text ? countText(text) : 0;
 };
 
 export interface HistoryWindowDiagnostics {
@@ -141,6 +154,7 @@ export const getHistoryWindowDiagnostics = ({
   historyCount,
   inputTemplate,
   maxTokens,
+  messageTokenCount,
   messages,
   pendingHasFiles,
   pendingInput,
@@ -154,6 +168,7 @@ export const getHistoryWindowDiagnostics = ({
   historyCount?: number;
   inputTemplate?: string;
   maxTokens?: number;
+  messageTokenCount?: (message: MessageLikeForHistoryWindow) => number;
   messages: UIChatMessage[];
   pendingHasFiles?: boolean;
   pendingInput?: string;
@@ -180,6 +195,7 @@ export const getHistoryWindowDiagnostics = ({
     historyCount,
     inputTemplate,
     maxTokens,
+    messageTokenCount,
     messagesAfterCursor: afterCursor,
   });
 
