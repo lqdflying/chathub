@@ -41,6 +41,7 @@ const mocks = vi.hoisted(() => ({
     name: string;
   }>,
   topic: { metadata: {} as Record<string, unknown> },
+  summaryInput: undefined as { enableCompressHistory?: boolean } | undefined,
 }));
 
 vi.mock('@/utils/tokenizer', () => ({
@@ -54,7 +55,10 @@ vi.mock('@/helpers/assistantMemory', () => ({
 }));
 
 vi.mock('@/helpers/memoryArchivePrompt', () => ({
-  buildHistorySummaryForRequest: () => 'history-summary-text',
+  buildHistorySummaryForRequest: (input: { enableCompressHistory?: boolean }) => {
+    mocks.summaryInput = input;
+    return 'history-summary-text';
+  },
 }));
 
 vi.mock('@/helpers/modelContextWindowTokens', () => ({
@@ -1140,5 +1144,78 @@ describe('estimateContextUsageAsync', () => {
     });
     expect(missing.contextMessages.map((message) => message.id)).toEqual(['child-1']);
     expect(missing.tokenEstimateEligible).toBe(false);
+  });
+
+  it('keeps a compacted parent prefix in thread calibration', async () => {
+    const root = 'r'.repeat(10_000);
+    const source = 's'.repeat(10_000);
+    const messages = [
+      { content: root, id: 'root-user', role: 'user' },
+      { content: source, id: 'source', role: 'assistant' },
+      { content: 'child', id: 'child', role: 'user', threadId: 'thread-a' },
+    ];
+    mocks.topic = {
+      historySummary: 'old parent summary',
+      metadata: { historySummaryLastMessageId: 'source' },
+    } as any;
+    const chatState = {
+      activeId: 'other-session',
+      activeTopicId: 'other-topic',
+      inputMessage: '',
+      messagesMap: { [messageMapKey('session-1', 'topic-1')]: messages },
+      threadMaps: {
+        'topic-1': [{ id: 'thread-a', sourceMessageId: 'source', type: 'continuation' }],
+      },
+    } as any;
+    const agentConfig = {
+      chatConfig: {
+        enableCompressHistory: true,
+        enableHistoryCount: true,
+        historyCount: 100,
+      },
+      model: 'gpt-5-mini',
+      provider: 'openai',
+    };
+    const continuation = await estimateContextUsageAsync({
+      agentState: {} as any,
+      chatState,
+      scope: {
+        agentConfig,
+        isGroupSession: false,
+        pendingInput: '',
+        sessionId: 'session-1',
+        threadId: 'thread-a',
+        topicId: 'topic-1',
+      } as any,
+    });
+    expect(continuation.contextMessages.map((message) => message.id)).toEqual([
+      'root-user',
+      'source',
+      'child',
+    ]);
+    expect(continuation.rawLocalTokens).toBeGreaterThan(20_000);
+    expect(continuation.tokenEstimateEligible).toBe(true);
+    expect(mocks.summaryInput?.enableCompressHistory).toBe(false);
+
+    const standalone = await estimateContextUsageAsync({
+      agentState: {} as any,
+      chatState: {
+        ...chatState,
+        threadMaps: {
+          'topic-1': [{ id: 'thread-a', sourceMessageId: 'source', type: 'standalone' }],
+        },
+      },
+      scope: {
+        agentConfig,
+        isGroupSession: false,
+        pendingInput: '',
+        sessionId: 'session-1',
+        threadId: 'thread-a',
+        topicId: 'topic-1',
+      } as any,
+    });
+    expect(standalone.contextMessages.map((message) => message.id)).toEqual(['source', 'child']);
+    expect(standalone.rawLocalTokens).toBeGreaterThan(10_000);
+    expect(mocks.summaryInput?.enableCompressHistory).toBe(false);
   });
 });

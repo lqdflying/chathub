@@ -11,6 +11,8 @@ let cached:
   | undefined;
 const listeners = new Set<() => void>();
 const inflight = new Map<string, Promise<number>>();
+/** Bumped when a newer read or an invalidation retires older responses. */
+let cacheEpoch = 0;
 
 const cacheKey = (provider: string, model: string) => `${provider}\0${model}`;
 
@@ -37,11 +39,15 @@ export const getTokenEstimateMultiplier = async (
     return cached.multiplier;
   }
 
-  if (!options?.fresh) {
+  if (options?.fresh) {
+    cacheEpoch += 1;
+    inflight.delete(key);
+  } else {
     const pending = inflight.get(key);
     if (pending) return pending;
   }
 
+  const startedEpoch = cacheEpoch;
   const holder: { current?: Promise<number> } = {};
   const request = (async () => {
     try {
@@ -50,7 +56,9 @@ export const getTokenEstimateMultiplier = async (
         provider,
       });
       const next = Number.isFinite(multiplier) && multiplier > 0 ? multiplier : 1;
-      cached = { at: Date.now(), key, multiplier: next };
+      if (startedEpoch === cacheEpoch) {
+        cached = { at: Date.now(), key, multiplier: next };
+      }
       return next;
     } catch {
       return cached?.key === key ? cached.multiplier : 1;
@@ -64,7 +72,9 @@ export const getTokenEstimateMultiplier = async (
 };
 
 export const invalidateTokenEstimateMultiplier = () => {
+  cacheEpoch += 1;
   cached = undefined;
+  inflight.clear();
   for (const listener of listeners) listener();
 };
 

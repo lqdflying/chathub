@@ -1,7 +1,10 @@
 import type { LobeAgentConfig } from '@lobechat/types';
 
 import { rememberDispatchTokenEstimate, captureDispatchTokenEstimate } from '@/helpers/dispatchTokenEstimate';
-import { computeFixedContextOverheadInput } from '@/helpers/estimateContextUsageAsync';
+import {
+  computeFixedContextOverheadInput,
+  requestAppliesHistoryCompaction,
+} from '@/helpers/estimateContextUsageAsync';
 import {
   recordAnchorRequestWitness,
   resolveSelectedPreAnchorIds,
@@ -66,10 +69,14 @@ export const captureAnchorDispatchEvidence = async ({
     });
 
     return {
-      cursorId:
-        enableHistoryCount && chatConfig.enableCompressHistory
-          ? topic?.metadata?.historySummaryLastMessageId
-          : undefined,
+      cursorId: requestAppliesHistoryCompaction({
+        enableCompressHistory: chatConfig.enableCompressHistory,
+        enableHistoryCount,
+        isGroupSession,
+        threadId,
+      })
+        ? topic?.metadata?.historySummaryLastMessageId
+        : undefined,
       enableHistoryCount,
       fixedOverheadTokens: overhead.fixedOverheadTokens,
       historyCount: chatConfig.historyCount,

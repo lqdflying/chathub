@@ -122,12 +122,18 @@ describe('buildConversationChatPayload', () => {
     expect(skillInstructions).toContain('<activated_skills>');
     expect(skillInstructions).toContain('<skill name="reviewer">');
     expect(skillInstructions).toContain(skillBody);
+    const countOverhead = spy.mock.calls[0]?.[1] as ((text: string) => number) | undefined;
+    expect(typeof countOverhead).toBe('function');
+    expect(
+      countOverhead!(usage.fixedContextOverheadText(spy.mock.calls[0]![0])),
+    ).toBeGreaterThan(0);
     expect(spy).toHaveBeenCalledWith(
       expect.objectContaining({
         historySummaryRaw: 'prior turns',
         skillInstructions,
         systemRole: 'Be concise.',
       }),
+      expect.any(Function),
     );
     expect(spy.mock.calls[0]?.[0]).not.toHaveProperty('inputTemplate');
     expect(String(spy.mock.calls[0]?.[0]?.agentMemory)).toContain('remember the port');

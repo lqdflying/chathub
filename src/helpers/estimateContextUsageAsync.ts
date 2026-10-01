@@ -44,6 +44,19 @@ import {
   wrapHistorySummaryForTokenEstimate,
 } from './contextUsageEstimate';
 import { buildHistorySummaryForRequest } from './memoryArchivePrompt';
+
+/** Topic summary and cursor apply only to a regular topic, matching durable send. */
+export const requestAppliesHistoryCompaction = ({
+  enableCompressHistory,
+  enableHistoryCount,
+  isGroupSession,
+  threadId,
+}: {
+  enableCompressHistory?: boolean;
+  enableHistoryCount?: boolean;
+  isGroupSession?: boolean;
+  threadId?: string | null;
+}) => !threadId && !isGroupSession && !!enableHistoryCount && !!enableCompressHistory;
 import {
   applyReportedInputTokenFloor,
   fingerprintAnchorPrefix,
@@ -140,7 +153,12 @@ export const computeFixedContextOverheadInput = async ({
   const historySummaryRaw =
     buildHistorySummaryForRequest({
       archives: memoryArchives,
-      enableCompressHistory: !!enableHistoryCount && !!chatConfig.enableCompressHistory,
+      enableCompressHistory: requestAppliesHistoryCompaction({
+        enableCompressHistory: chatConfig.enableCompressHistory,
+        enableHistoryCount,
+        isGroupSession,
+        threadId,
+      }),
       enableUserMemoryArchive: chatConfig.enableUserMemoryArchive,
       topicSummary: historySummary,
     }) || '';
@@ -275,7 +293,13 @@ export const estimateContextUsageAsync = async ({
   const configuredHistoryCount = scope
     ? chatConfig.historyCount
     : agentChatConfigSelectors.historyCount(agentState ?? getAgentStoreState());
-  const enableHistoryCompaction = !!enableHistoryCount && !!chatConfig.enableCompressHistory;
+  const isGroupSession = scope?.isGroupSession ?? chatState.activeSessionType === 'group';
+  const enableHistoryCompaction = requestAppliesHistoryCompaction({
+    enableCompressHistory: chatConfig.enableCompressHistory,
+    enableHistoryCount: !!enableHistoryCount,
+    isGroupSession,
+    threadId,
+  });
   // The overhead assembly is shared with the send path's dispatch witness so
   // the anchor delta can never drift between call sites (R4/T1).
   const {
@@ -290,7 +314,7 @@ export const estimateContextUsageAsync = async ({
     agentConfig,
     chatState,
     enableHistoryCount: !!enableHistoryCount,
-    isGroupSession: scope?.isGroupSession ?? chatState.activeSessionType === 'group',
+    isGroupSession,
     sessionId,
     threadId,
     topicId,
