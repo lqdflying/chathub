@@ -1,7 +1,26 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
 
-import { LobeXaiAI, buildXaiPayload, XAI_OAUTH_AUTH_MODE, XAI_OAUTH_CLIENT_HEADERS } from './index';
+import {
+  LobeXaiAI,
+  buildXaiPayload,
+  XAI_OAUTH_AUTH_MODE,
+  XAI_OAUTH_CLIENT_HEADERS,
+  XAI_OAUTH_CLIENT_VERSION,
+} from './index';
+
+/** Numeric dotted compare. Equal versions meet the floor. */
+const dottedVersionAtLeast = (got: string, floor: string) => {
+  const gotParts = got.split('.').map((part) => Number(part));
+  const floorParts = floor.split('.').map((part) => Number(part));
+  const length = Math.max(gotParts.length, floorParts.length);
+  for (let index = 0; index < length; index += 1) {
+    const left = gotParts[index] ?? 0;
+    const right = floorParts[index] ?? 0;
+    if (left !== right) return left > right;
+  }
+  return true;
+};
 
 describe('buildXaiPayload', () => {
   it.each(['grok-4.7', 'grok-4.7-build-fast'])(
@@ -230,6 +249,10 @@ describe('LobeXaiAI cache and OAuth headers', () => {
     const apiKey = new LobeXaiAI({ apiKey: 'console-key' });
 
     expect(oauth['client']._options.defaultHeaders).toMatchObject(XAI_OAUTH_CLIENT_HEADERS);
+    expect(XAI_OAUTH_CLIENT_VERSION).toBe('1.0.46');
+    expect(XAI_OAUTH_CLIENT_HEADERS['x-grok-client-version']).toBe(XAI_OAUTH_CLIENT_VERSION);
+    expect(dottedVersionAtLeast(XAI_OAUTH_CLIENT_VERSION, '1.0.13')).toBe(true);
     expect(apiKey['client']._options.defaultHeaders).not.toMatchObject(XAI_OAUTH_CLIENT_HEADERS);
+    expect(apiKey['client']._options.defaultHeaders?.['x-grok-client-version']).toBeUndefined();
   });
 });

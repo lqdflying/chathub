@@ -51,8 +51,10 @@ tRPC `xaiOAuth` (lambda, authed, Settings UI only):
 4. Token and device hosts must be HTTPS `*.x.ai`.
 5. `status` live-resolves the session, then fail-soft
    `GET https://cli-chat-proxy.grok.com/v1/billing?format=credits` with
-   `x-grok-client-mode: cli`, `x-grok-client-version: 1.0.4`, and
-   `x-xai-token-auth: xai-grok-cli`. Parser order is
+   `x-grok-client-mode: cli`, `x-grok-client-version: 1.0.46`, and
+   `x-xai-token-auth: xai-grok-cli`. The proxy rejects a client version below
+   `1.0.13` with HTTP 426 (floor as of 2026-10-01). Keep the pin on the
+   published `@xai-official/grok` release, not the floor. Parser order is
    `config.creditUsagePercent`, then `used / monthlyLimit`, then
    `onDemandUsed.val / onDemandCap.val` when the cap is `> 0`. A current
    weekly/monthly period without any of those values still returns a
@@ -67,7 +69,8 @@ tRPC `xaiOAuth` (lambda, authed, Settings UI only):
 
 - Live session: `apiKey = accessToken`,
   `baseURL = https://cli-chat-proxy.grok.com/v1`, `authMode = xai-oauth`.
-  Runtime attaches the CLI client headers. Missing headers cause HTTP 426.
+  Runtime attaches the CLI client headers. A missing header or a
+  `x-grok-client-version` below the proxy floor causes HTTP 426.
 - No session: Console `https://api.x.ai/v1` with the API key. No CLI headers.
 - Skip overlay for `purpose === 'structured'`. Grok Imagine is out of v1.
 

@@ -1,5 +1,9 @@
 // @vitest-environment node
-import { XAI_OAUTH_BILLING_URL, XAI_OAUTH_CLIENT_ID } from '@lobechat/model-runtime';
+import {
+  XAI_OAUTH_BILLING_URL,
+  XAI_OAUTH_CLIENT_ID,
+  XAI_OAUTH_CLIENT_VERSION,
+} from '@lobechat/model-runtime';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { XaiOAuthTransientRefreshError } from './errors';
@@ -80,6 +84,7 @@ describe('XaiOAuthService.getStatus usage windows', () => {
         headers: expect.objectContaining({
           Authorization: 'Bearer access-1',
           'x-grok-client-mode': 'cli',
+          'x-grok-client-version': XAI_OAUTH_CLIENT_VERSION,
           'x-xai-token-auth': 'xai-grok-cli',
         }),
         method: 'GET',

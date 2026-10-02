@@ -10,7 +10,10 @@ export const XAI_OAUTH_BASE_URL = 'https://cli-chat-proxy.grok.com/v1';
 export const XAI_OAUTH_BILLING_URL = `${XAI_OAUTH_BASE_URL}/billing?format=credits`;
 export const XAI_OAUTH_CLIENT_ID = 'b1a00492-073a-47ea-816f-4c329264a828';
 export const XAI_OAUTH_CLIENT_MODE = 'cli';
-export const XAI_OAUTH_CLIENT_VERSION = '1.0.4';
+// cli-chat-proxy.grok.com rejects an older x-grok-client-version with HTTP 426.
+// Floor was 1.0.13 as of 2026-10-01 (CLIProxyAPI#6249). Pin the published CLI,
+// not the floor: https://registry.npmjs.org/@xai-official/grok/latest (1.0.46 on 2026-10-02).
+export const XAI_OAUTH_CLIENT_VERSION = '1.0.46';
 export const XAI_OAUTH_DEVICE_TIMEOUT_MS = 5 * 60 * 1000;
 export const XAI_OAUTH_DISCOVERY_URL = 'https://auth.x.ai/.well-known/openid-configuration';
 export const XAI_OAUTH_HANDOFF_CLIENT = 'xai-oauth';
