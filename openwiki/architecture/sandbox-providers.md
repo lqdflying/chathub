@@ -221,10 +221,13 @@ Absolute writes stay on the real path. `builtins.open`, `io.open`, and
 except paths under `/dev`, `/proc`, and `/sys`. They do not remap reads,
 `stat`, or `unlink`, so a later delete and a child process see that file.
 After the user code finishes, a captured file that still exists is copied
-into the workdir under its basename. If a workdir write and one or more
-absolute paths share that basename, the last write wins, including a newer
-absolute path replacing an untouched input file. A file that was removed, including
-tempfile probes, is not copied. The manifest still lists only top-level
+into the workdir under its basename only when its last successful content
+change is newer than the workdir file's. The path is resolved with
+`os.path.abspath` at open time, so a later `chdir` does not attribute a
+nested file to the workdir root. A failed open or a read does not advance
+that sequence; `write` on an already-open handle does. An equal sequence
+keeps the workdir file. A newer absolute path still replaces an untouched
+input file. A file that was removed, including tempfile probes, is not copied. The manifest still lists only top-level
 regular files, and it skips symlinks, dot names, `fontlist-v*`, and
 `*.matplotlib-lock`.
 

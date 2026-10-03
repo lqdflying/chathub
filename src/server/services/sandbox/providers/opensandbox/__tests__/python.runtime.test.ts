@@ -242,6 +242,97 @@ describe('OpenSandbox runner script', () => {
     expect(entry('notes.txt')).toMatchObject({ sha256: hash('updated'), size: 7 });
   });
 
+  it('does not attribute a nested write after chdir to the top-level file', () => {
+    const outside = join(root, 'outside', 'report.txt');
+    const hash = (text: string) => createHash('sha256').update(text).digest('hex');
+    const nested = run(
+      [
+        'open("report.txt", "w").write("draft")',
+        `open(${JSON.stringify(outside)}, "w").write("final")`,
+        'os_makedirs = __import__("os")',
+        'os_makedirs.makedirs("sub", exist_ok=True)',
+        'os_makedirs.chdir("sub")',
+        'open("report.txt", "w").write("scratch")',
+      ].join('\n'),
+    );
+
+    expect(nested.status).toBe(0);
+    expect(readFileSync(join(workdir, 'report.txt'), 'utf8')).toBe('final');
+    expect(readFileSync(join(workdir, 'sub', 'report.txt'), 'utf8')).toBe('scratch');
+    expect(nested.manifest?.find((item) => item.name === 'report.txt')).toMatchObject({
+      sha256: hash('final'),
+      size: 5,
+    });
+    expect(nested.manifest?.some((item) => item.name.includes('sub'))).toBe(false);
+
+    const back = run(
+      [
+        `open(${JSON.stringify(outside)}, "w").write("draft")`,
+        'os = __import__("os")',
+        'os.makedirs("sub", exist_ok=True)',
+        'os.chdir("sub")',
+        'open("../report.txt", "w").write("final")',
+        'os.chdir("..")',
+        'print(open("report.txt").read())',
+      ].join('\n'),
+    );
+
+    expect(back.status).toBe(0);
+    expect(back.stdout).toContain('final');
+    expect(readFileSync(join(workdir, 'report.txt'), 'utf8')).toBe('final');
+  });
+
+  it('ignores a failed open and a read, and honors a write through an earlier handle', () => {
+    const outside = join(root, 'outside', 'report.txt');
+    const hash = (text: string) => createHash('sha256').update(text).digest('hex');
+    const failed = run(
+      [
+        'open("report.txt", "w").write("draft")',
+        `open(${JSON.stringify(outside)}, "w").write("final")`,
+        'try:',
+        '    open("report.txt", "x")',
+        'except FileExistsError:',
+        '    pass',
+      ].join('\n'),
+    );
+
+    expect(failed.status).toBe(0);
+    expect(readFileSync(join(workdir, 'report.txt'), 'utf8')).toBe('final');
+    expect(failed.manifest?.find((item) => item.name === 'report.txt')).toMatchObject({
+      sha256: hash('final'),
+      size: 5,
+    });
+
+    const readOnly = run(
+      [
+        'open("report.txt", "w").write("draft")',
+        `open(${JSON.stringify(outside)}, "w").write("final")`,
+        'with open("report.txt", "r+") as handle:',
+        '    handle.read()',
+      ].join('\n'),
+    );
+
+    expect(readOnly.status).toBe(0);
+    expect(readFileSync(join(workdir, 'report.txt'), 'utf8')).toBe('final');
+
+    const handle = run(
+      [
+        `absolute = open(${JSON.stringify(outside)}, "w")`,
+        'with open("report.txt", "w") as local:',
+        '    local.write("draft")',
+        'absolute.write("final")',
+        'absolute.close()',
+      ].join('\n'),
+    );
+
+    expect(handle.status).toBe(0);
+    expect(readFileSync(join(workdir, 'report.txt'), 'utf8')).toBe('final');
+    expect(handle.manifest?.find((item) => item.name === 'report.txt')).toMatchObject({
+      sha256: hash('final'),
+      size: 5,
+    });
+  });
+
   it('does not collect /dev/null or matplotlib font-cache names', () => {
     const cache = join(root, 'cache', 'fontlist-v9.json');
     const { manifest, status } = run(
