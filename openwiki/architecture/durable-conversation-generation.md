@@ -506,9 +506,11 @@ key so a new Graphile job can run (`succeeded` and in-flight keys still replay).
 `TitleTranscriptEmptyError` still uses the delayed title retry, because that is
 a transcript-binding race.
 
-The tool continuation budget is checked before creating another assistant
-placeholder. Creating that placeholder and recording its id happen in one
-database transaction (Drizzle nested transactions use PostgreSQL savepoints).
+The tool continuation budget is checked before creating another tool-round
+assistant. A ceiling or identical-call stall still creates one closing
+assistant for a tool-free reply. Creating that placeholder and recording its
+id happen in one database transaction (Drizzle nested transactions use
+PostgreSQL savepoints).
 
 Before each model HTTP call the worker sets operation `phase` to `planning`,
 writes immutable `config.planningPhaseEnteredAt`, and emits a snapshot with
@@ -518,12 +520,22 @@ latest planning snapshot). The client stores it on the attached operation
 “Planning next step” row on the empty assistant. After about 20 seconds the
 same phase switches copy to “Still working…”. Topic switch or visibility
 resync must keep the original timestamp. First streamed tokens flip
-`phase` to `model`. Exhausting the tool-turn budget writes
-`conversationGenerationStopReason: tool_cap` on the last assistant and logs
-`stopReason` on `execute_settled`. A finished model reply with no tools is
-`model_stop` and is not auto-continued. `shouldContinue: false` is
-`tool_shouldContinue_false` (debug only). Search-workflow intent copy stays
-separate.
+`phase` to `model`. One send allows 32 sequential tool rounds
+(`CONVERSATION_GENERATION_MAX_TOOL_TURNS`). Several tools in one model reply
+share a round. The same tool call — identifier, API name, and canonical
+arguments — repeated for 4 rounds
+(`CONVERSATION_GENERATION_MAX_IDENTICAL_TOOL_CALLS`) stops as `tool_stall`.
+A changed argument or a different tool starts a new count. Exhausting the
+32-round ceiling writes `conversationGenerationStopReason: tool_cap` on the
+assistant that just ran tools and logs `stopReason=tool_cap` on
+`execute_settled`. `tool_stall` is logged the same way and does not set that
+metadata, so the tool-round banner stays off. Either limit then creates one
+more assistant and calls the model with `tools` and `tool_choice` removed and
+a pause instruction appended. That closing assistant is not marked `tool_cap`.
+Tool calls on the closing reply are not executed. A finished model reply with
+no tools is `model_stop` and is not auto-continued. `shouldContinue: false`
+is `tool_shouldContinue_false` (debug only) and wins over an identical-call
+stall. Search-workflow intent copy stays separate.
 Supervisor child ids are appended with a single JSONB `UPDATE`
 (`jsonb_exists` / `jsonb_set` / `jsonb_build_array`) so PostgreSQL’s row lock
 and READ COMMITTED re-evaluation keep parallel member continuations from

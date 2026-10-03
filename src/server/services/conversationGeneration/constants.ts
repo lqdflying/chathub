@@ -10,7 +10,10 @@ export const CONVERSATION_GENERATION_SWEEP_INTERVAL_MS = 15_000;
 export const CONVERSATION_GENERATION_HEARTBEAT_MS = 10_000;
 export const CONVERSATION_GENERATION_STALE_PROCESSING_MS = 90_000;
 export const CONVERSATION_GENERATION_MAX_ATTEMPTS = 8;
-export const CONVERSATION_GENERATION_MAX_TOOL_TURNS = 8;
+/** Sequential model-and-tool rounds allowed in one send. */
+export const CONVERSATION_GENERATION_MAX_TOOL_TURNS = 32;
+/** Identical tool call (identifier, API name, canonical arguments) repeated this many rounds. */
+export const CONVERSATION_GENERATION_MAX_IDENTICAL_TOOL_CALLS = 4;
 export const CONVERSATION_GENERATION_MAX_SUPERVISOR_ROUNDS = 8;
 /** ChatHub backoff for empty title transcripts: 1s, 2s, 4s, then cap at 8s. */
 export const titleTranscriptRetryDelayMs = (attempt: number) =>

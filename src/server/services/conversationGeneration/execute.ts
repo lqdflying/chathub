@@ -104,6 +104,7 @@ import {
   CONVERSATION_GENERATION_CHECKPOINT_MS,
   CONVERSATION_GENERATION_HEARTBEAT_MS,
   CONVERSATION_GENERATION_MAX_ATTEMPTS,
+  CONVERSATION_GENERATION_MAX_IDENTICAL_TOOL_CALLS,
   CONVERSATION_GENERATION_MAX_SUPERVISOR_ROUNDS,
   CONVERSATION_GENERATION_MAX_TOOL_TURNS,
   CONVERSATION_GENERATION_STALE_PROCESSING_MS,
@@ -137,17 +138,82 @@ export const shouldCreateToolContinuation = (remainingTurns: number, shouldConti
 export const CONVERSATION_GENERATION_TURN_COMPLETE = 'conversationGenerationTurnComplete';
 export const CONVERSATION_GENERATION_STOP_REASON = 'conversationGenerationStopReason';
 
+export const TOOL_PAUSE_INSTRUCTION =
+  'Tools are paused. Say what finished, what is unfinished, and the single next step. Do not mark the task done if tool work remains.';
+
 export type ConversationGenerationChatStopReason =
   | 'model_stop'
   | 'tool_cap'
+  | 'tool_stall'
   | 'tool_shouldContinue_false';
 
 export const resolveToolLoopStopReason = (
   remainingTurns: number,
   shouldContinue: boolean,
+  identicalCallCount = 0,
 ): ConversationGenerationChatStopReason | undefined => {
+  if (!shouldContinue && remainingTurns > 0) return 'tool_shouldContinue_false';
+  if (
+    shouldContinue &&
+    remainingTurns > 0 &&
+    identicalCallCount >= CONVERSATION_GENERATION_MAX_IDENTICAL_TOOL_CALLS
+  ) {
+    return 'tool_stall';
+  }
   if (shouldCreateToolContinuation(remainingTurns, shouldContinue)) return undefined;
   return remainingTurns === 0 ? 'tool_cap' : 'tool_shouldContinue_false';
+};
+
+const canonicalJson = (value: unknown): string => {
+  if (Array.isArray(value)) return `[${value.map((item) => canonicalJson(item)).join(',')}]`;
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, item]) => item !== undefined)
+      .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0));
+    return `{${entries
+      .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'null';
+};
+
+const canonicalToolArguments = (args: string): string => {
+  try {
+    return canonicalJson(JSON.parse(args));
+  } catch {
+    return JSON.stringify(args);
+  }
+};
+
+/** One key for a tool batch. Order of calls and argument keys does not change the key. */
+export const canonicalToolBatchKey = (
+  tools: Array<Pick<ChatToolPayload, 'apiName' | 'arguments' | 'identifier'>>,
+): string =>
+  tools
+    .map(
+      (tool) =>
+        `${tool.identifier}\n${tool.apiName}\n${canonicalToolArguments(tool.arguments)}`,
+    )
+    .sort()
+    .join('\n---\n');
+
+export const withToolPausePayload = <
+  T extends {
+    messages?: Array<{ content?: unknown; role?: string }>;
+    tool_choice?: unknown;
+    tools?: unknown;
+  },
+>(
+  payload: T,
+): T => {
+  const { tool_choice: _toolChoice, tools: _tools, ...rest } = payload;
+  return {
+    ...rest,
+    messages: [
+      ...(payload.messages ?? []),
+      { content: TOOL_PAUSE_INSTRUCTION, role: 'user' },
+    ],
+  } as T;
 };
 
 export const excludeOwnedAssistantMessages = (
@@ -1363,6 +1429,9 @@ const executeChat = async (
     let toolDiagnosticSequence = 0;
     let chatStopReason: ConversationGenerationChatStopReason | undefined;
     let tokenCalibrationObserved = false;
+    let identicalToolCallCount = 0;
+    let lastToolBatchKey: string | undefined;
+    let scheduleToolPause = false;
 
     for (;;) {
       const stopReason = await shouldStopGeneration(db, model, operation, abortController.signal);
@@ -1459,7 +1528,9 @@ const executeChat = async (
           if (isContextLengthOverflowError(result.error)) {
             const recoveredPayload = await attemptContextOverflowRecovery();
             if (recoveredPayload) {
-              currentPayload = recoveredPayload;
+              currentPayload = scheduleToolPause
+                ? withToolPausePayload(recoveredPayload)
+                : recoveredPayload;
               continue;
             }
           }
@@ -1504,7 +1575,9 @@ const executeChat = async (
           // signature — compact once and retry before failing the turn.
           const recoveredPayload = await attemptContextOverflowRecovery();
           if (recoveredPayload) {
-            currentPayload = recoveredPayload;
+            currentPayload = scheduleToolPause
+              ? withToolPausePayload(recoveredPayload)
+              : recoveredPayload;
             continue;
           }
           const error = createEmptyCompletionAtContextCeilingError({
@@ -1524,6 +1597,13 @@ const executeChat = async (
           if (!options?.skipFinalize)
             await finalize(model, operation, 'failed', error, db, assistantId);
           return { assistantMessageId: assistantId, error, status: 'failed' };
+        }
+
+        if (scheduleToolPause) {
+          await messageModel.updateMetadata(assistantId, {
+            [CONVERSATION_GENERATION_TURN_COMPLETE]: true,
+          });
+          break;
         }
 
         if (!result.toolCalls?.length) {
@@ -1663,8 +1743,19 @@ const executeChat = async (
         nextToolCache = toConversationToolCacheMetadata(settledBatch);
       }
 
-      const loopStopReason = resolveToolLoopStopReason(remainingTurns, shouldContinue);
-      if (loopStopReason) {
+      const batchKey = canonicalToolBatchKey(tools);
+      if (batchKey === lastToolBatchKey) identicalToolCallCount += 1;
+      else {
+        lastToolBatchKey = batchKey;
+        identicalToolCallCount = 1;
+      }
+
+      const loopStopReason = resolveToolLoopStopReason(
+        remainingTurns,
+        shouldContinue,
+        identicalToolCallCount,
+      );
+      if (loopStopReason === 'tool_cap' || loopStopReason === 'tool_stall') {
         chatStopReason = loopStopReason;
         if (loopStopReason === 'tool_cap') {
           await messageModel.updateMetadata(assistantId, {
@@ -1676,9 +1767,13 @@ const executeChat = async (
             stopReason: 'tool_cap',
           });
         }
+        scheduleToolPause = true;
+      } else if (loopStopReason) {
+        chatStopReason = loopStopReason;
         break;
+      } else {
+        remainingTurns -= 1;
       }
-      remainingTurns -= 1;
 
       const previousAssistantId = assistantId;
       const nextAssistantId = idGenerator('messages', 14);
@@ -1762,7 +1857,9 @@ const executeChat = async (
         sessionId: operation.sessionId,
         userId: operation.userId,
       });
-      currentPayload = continued.payload;
+      currentPayload = scheduleToolPause
+        ? withToolPausePayload(continued.payload)
+        : continued.payload;
       content = '';
       reasoning = undefined;
     }

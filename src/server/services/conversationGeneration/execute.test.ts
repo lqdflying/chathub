@@ -11,10 +11,16 @@ import {
   withConversationWriteLockOrThrow,
 } from '@/server/services/conversationWriteLock';
 
-import { titleTranscriptRetryDelayMs } from './constants';
+import {
+  CONVERSATION_GENERATION_MAX_IDENTICAL_TOOL_CALLS,
+  CONVERSATION_GENERATION_MAX_TOOL_TURNS,
+  titleTranscriptRetryDelayMs,
+} from './constants';
 import {
   CONVERSATION_GENERATION_STOP_REASON,
   CONVERSATION_GENERATION_TURN_COMPLETE,
+  TOOL_PAUSE_INSTRUCTION,
+  canonicalToolBatchKey,
   excludeOwnedAssistantMessages,
   executeConversationGeneration,
   getSupervisorTerminalOutcome,
@@ -249,6 +255,46 @@ describe('conversation generation workflow guards', () => {
     expect(resolveToolLoopStopReason(1, false)).toBe('tool_shouldContinue_false');
     expect(resolveToolLoopStopReason(0, false)).toBe('tool_cap');
     expect(resolveToolLoopStopReason(1, true)).toBeUndefined();
+    expect(
+      resolveToolLoopStopReason(1, true, CONVERSATION_GENERATION_MAX_IDENTICAL_TOOL_CALLS - 1),
+    ).toBeUndefined();
+    expect(
+      resolveToolLoopStopReason(1, true, CONVERSATION_GENERATION_MAX_IDENTICAL_TOOL_CALLS),
+    ).toBe('tool_stall');
+    expect(
+      resolveToolLoopStopReason(1, false, CONVERSATION_GENERATION_MAX_IDENTICAL_TOOL_CALLS),
+    ).toBe('tool_shouldContinue_false');
+    expect(
+      resolveToolLoopStopReason(0, true, CONVERSATION_GENERATION_MAX_IDENTICAL_TOOL_CALLS),
+    ).toBe('tool_cap');
+  });
+
+  it('treats argument key order as the same tool call and a changed value as a new one', () => {
+    const search = (args: string) => ({
+      apiName: 'search',
+      arguments: args,
+      identifier: 'plugin',
+    });
+    expect(canonicalToolBatchKey([search('{"b":1,"a":2}')])).toBe(
+      canonicalToolBatchKey([search('{"a":2,"b":1}')]),
+    );
+    expect(canonicalToolBatchKey([search('{"a":2}')])).not.toBe(
+      canonicalToolBatchKey([search('{"a":3}')]),
+    );
+    expect(
+      canonicalToolBatchKey([
+        search('{"q":"one"}'),
+        { apiName: 'python', arguments: '{"code":"print(1)"}', identifier: 'code' },
+      ]),
+    ).toBe(
+      canonicalToolBatchKey([
+        { apiName: 'python', arguments: '{"code":"print(1)"}', identifier: 'code' },
+        search('{"q":"one"}'),
+      ]),
+    );
+    expect(canonicalToolBatchKey([search('not-json')])).toBe(
+      canonicalToolBatchKey([search('not-json')]),
+    );
   });
 
   it('only generates titles for explicit, welcome-safe new or untitled topics', () => {
@@ -2102,18 +2148,54 @@ describe('executeConversationGeneration tool continuation ids', () => {
       return {
         content: `round ${round}`,
         toolCalls: [
-          { function: { arguments: '{}', name: 'plugin____search' }, id: `call-${round}` },
+          {
+            function: {
+              arguments: JSON.stringify({ q: round }),
+              name: 'plugin____search',
+            },
+            id: `call-${round}`,
+          },
         ],
       };
     });
+    vi.mocked(buildConversationChatPayload).mockResolvedValue({
+      payload: {
+        messages: [{ content: 'hi', role: 'user' }],
+        model: 'test-model',
+        tool_choice: 'auto',
+        tools: [{ type: 'function' }],
+      },
+    } as never);
 
-    await runOperation(row, { preserveUpdate: true });
+    try {
+      await runOperation(row, { preserveUpdate: true });
+    } finally {
+      vi.mocked(buildConversationChatPayload).mockResolvedValue({ payload: { messages: [] } });
+    }
 
-    expect(created).toHaveLength(8);
-    const last = created.at(-1);
-    expect(last?.metadata).toEqual(
+    expect(created).toHaveLength(CONVERSATION_GENERATION_MAX_TOOL_TURNS + 1);
+    expect(vi.mocked(executeConversationToolStep)).toHaveBeenCalledTimes(
+      CONVERSATION_GENERATION_MAX_TOOL_TURNS + 1,
+    );
+    const capped = created[CONVERSATION_GENERATION_MAX_TOOL_TURNS - 1];
+    expect(capped?.metadata).toEqual(
       expect.objectContaining({ [CONVERSATION_GENERATION_STOP_REASON]: 'tool_cap' }),
     );
+    const closing = created.at(-1);
+    expect(closing?.metadata).not.toHaveProperty(CONVERSATION_GENERATION_STOP_REASON);
+    const pausePayload = runtimeMocks.chat.mock.calls.at(-1)?.[0] as {
+      messages?: Array<{ content?: string; role?: string }>;
+      tool_choice?: string;
+      tools?: unknown;
+    };
+    expect(pausePayload.tools).toBeUndefined();
+    expect(pausePayload.tool_choice).toBeUndefined();
+    expect(pausePayload.messages?.at(-1)).toEqual({
+      content: TOOL_PAUSE_INSTRUCTION,
+      role: 'user',
+    });
+    const toolPayload = runtimeMocks.chat.mock.calls.at(-2)?.[0] as { tools?: unknown };
+    expect(toolPayload.tools).toBeDefined();
     const settled = generationDebugMocks.logGenerationDebugSafe.mock.calls.find(
       (call: unknown[]) => call[0] === 'execute_settled',
     );
@@ -2121,6 +2203,80 @@ describe('executeConversationGeneration tool continuation ids', () => {
       expect.objectContaining({
         outcome: 'succeeded',
         stopReason: 'tool_cap',
+      }),
+    );
+  });
+
+  it('stops after four identical tool calls and writes the pause reply without tool_cap', async () => {
+    const created: Array<{ content: string; id: string; metadata: Record<string, unknown> }> = [];
+    const row = {
+      assistantMessageId: assistant.id,
+      attempt: 0,
+      config: { model: 'test-model', provider: 'test-provider' },
+      id: 'cgo_tool_stall',
+      kind: 'chat',
+      lane: 'lane-1',
+      laneGeneration: 1,
+      revision: 0,
+      status: 'pending',
+      userId: 'user-1',
+    };
+    modelMocks.update.mockImplementation(async (_id, value) => {
+      Object.assign(row, value);
+      return { ...row, revision: 2, status: 'processing' };
+    });
+    messageMocks.create.mockImplementation(async (params, id) => {
+      const next = { content: params.content, id, metadata: {} as Record<string, unknown> };
+      created.push(next);
+      messageMocks.findById.mockImplementation(async (messageId) => {
+        if (messageId === assistant.id) return { ...assistant, metadata: { ...assistant.metadata } };
+        return created.find((item) => item.id === messageId);
+      });
+      messageMocks.updateMetadata.mockImplementation(async (messageId, value) => {
+        if (messageId === assistant.id) assistant.metadata = { ...assistant.metadata, ...value };
+        const found = created.find((item) => item.id === messageId);
+        if (found) found.metadata = { ...found.metadata, ...value };
+      });
+      return next;
+    });
+    vi.mocked(consumeProtocolResponse).mockResolvedValue({
+      content: 'same call',
+      toolCalls: [{ function: { arguments: '{"q":"tofu"}', name: 'plugin____search' }, id: 'call-same' }],
+    });
+    vi.mocked(buildConversationChatPayload).mockResolvedValue({
+      payload: {
+        messages: [{ content: 'hi', role: 'user' }],
+        model: 'test-model',
+        tool_choice: 'auto',
+        tools: [{ type: 'function' }],
+      },
+    } as never);
+
+    try {
+      await runOperation(row, { preserveUpdate: true });
+    } finally {
+      vi.mocked(buildConversationChatPayload).mockResolvedValue({ payload: { messages: [] } });
+    }
+
+    expect(vi.mocked(executeConversationToolStep)).toHaveBeenCalledTimes(
+      CONVERSATION_GENERATION_MAX_IDENTICAL_TOOL_CALLS,
+    );
+    expect(created).toHaveLength(CONVERSATION_GENERATION_MAX_IDENTICAL_TOOL_CALLS);
+    expect(created.every((item) => !item.metadata[CONVERSATION_GENERATION_STOP_REASON])).toBe(true);
+    expect(assistant.metadata).not.toHaveProperty(CONVERSATION_GENERATION_STOP_REASON);
+    const pausePayload = runtimeMocks.chat.mock.calls.at(-1)?.[0] as {
+      messages?: Array<{ content?: string }>;
+      tools?: unknown;
+    };
+    expect(pausePayload.tools).toBeUndefined();
+    expect(pausePayload.messages?.at(-1)?.content).toBe(TOOL_PAUSE_INSTRUCTION);
+    const settled = generationDebugMocks.logGenerationDebugSafe.mock.calls.find(
+      (call: unknown[]) => call[0] === 'execute_settled',
+    );
+    expect(settled?.[1]).toEqual(
+      expect.objectContaining({
+        outcome: 'succeeded',
+        stopReason: 'tool_stall',
       }),
     );
   });
