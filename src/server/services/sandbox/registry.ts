@@ -1,6 +1,7 @@
 import { codeInterpreterEnv } from '@/envs/codeInterpreter';
 
 import { DifySandboxProvider } from './providers/dify/provider';
+import { OpenSandboxProvider } from './providers/opensandbox/provider';
 import {
   SandboxError,
   type SandboxProvider,
@@ -21,7 +22,7 @@ class UnconfiguredSandboxProvider implements SandboxProvider {
   async run(): Promise<SandboxRunResult> {
     throw new SandboxError(
       'NotConfigured',
-      `Unknown SANDBOX_PROVIDER "${this.id}". Supported: dify.`,
+      `Unknown SANDBOX_PROVIDER "${this.id}". Supported: dify, opensandbox.`,
     );
   }
 }
@@ -36,6 +37,9 @@ export const getSandboxProvider = (): SandboxProvider => {
   switch (id) {
     case 'dify': {
       return new DifySandboxProvider();
+    }
+    case 'opensandbox': {
+      return new OpenSandboxProvider();
     }
     default: {
       return new UnconfiguredSandboxProvider(id);

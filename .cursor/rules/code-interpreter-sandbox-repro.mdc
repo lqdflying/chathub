@@ -41,6 +41,21 @@ on `127.0.0.1` is the exception.
 - Ship / tag / ask the user to recreate prod until the local jail POST matches
   the intended outcome (`hello`, version prints, `pyplot ok`, savefig PNG).
 
+## OpenSandbox provider
+
+The rules above are for the Dify jail. For `providers/opensandbox/` changes
+(runner, client, readiness), prove the change against a **local OpenSandbox
+server** before canary: `opensandbox/server` with the Docker runtime, its port
+bound to `127.0.0.1`, sandboxes on a dedicated bridge, and the
+`docker/opensandbox-python` image. Run the live suite
+`providers/opensandbox/__tests__/e2e.live.test.ts` (set
+`OPENSANDBOX_E2E_SERVER_URL` / `_API_KEY` / `_IMAGE`; it skips otherwise) and
+confirm every `sandbox-*` container is gone afterwards. Mocked-fetch unit
+tests are not proof of execd stream or readiness behavior; repeat the suite
+(5+ times) because execd stream bugs are intermittent. Do not move
+back to execd's Jupyter `/code` API without re-running that stress test.
+Tear the server, sandboxes, and networks down when done.
+
 Contract: `openwiki/architecture/sandbox-providers.md`, wiki
 `Code-Interpreter-Sandbox.md`. Prompt layering:
 `.cursor/rules/code-interpreter-prompt.mdc`.

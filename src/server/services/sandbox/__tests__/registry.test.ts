@@ -7,6 +7,8 @@ vi.mock('@/envs/codeInterpreter', () => ({
       return process.env.SANDBOX_PROVIDER ?? 'dify';
     },
     CODE_INTERPRETER_SANDBOX_URL: undefined,
+    OPENSANDBOX_EGRESS_ALLOW: undefined,
+    OPENSANDBOX_SERVER_URL: undefined,
   },
 }));
 
@@ -19,6 +21,13 @@ describe('sandbox provider registry', () => {
 
   it('defaults to the Dify provider', () => {
     expect(getSandboxProvider().id).toBe('dify');
+  });
+
+  it('selects the OpenSandbox provider', () => {
+    process.env.SANDBOX_PROVIDER = 'OpenSandbox';
+    const provider = getSandboxProvider();
+    expect(provider.id).toBe('opensandbox');
+    expect(provider.isConfigured()).toBe(false);
   });
 
   it('returns not_configured for an unknown provider without throwing at boot', async () => {

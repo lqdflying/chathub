@@ -201,6 +201,7 @@ Leave/return for one hashed topic (browser-fallback background turn):
                           'fetch_stream_interrupted', 'fetch_stream_error',
                           'exec_runtime_settled', 'browser_tool_stubbed',
                           'sandbox_run_started', 'sandbox_run_settled',
+                          'sandbox_collect_failed', 'sandbox_cleanup_failed',
                           'chat_image_run_started', 'chat_image_item_settled',
                           'chat_image_run_settled', 'chat_image_task_created',
                           'chat_image_task_rejected')

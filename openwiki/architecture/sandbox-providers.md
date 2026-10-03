@@ -2,8 +2,8 @@
 
 Code Interpreter (and any later sandbox tools) call a **stateless**
 `SandboxProvider.run()`. ChatHub gathers conversation files, the provider
-executes, ChatHub persists outputs. The current implementation is DifySandbox
-only.
+executes, ChatHub persists outputs. Two backends exist: DifySandbox (default)
+and OpenSandbox.
 
 ```mermaid
 flowchart LR
@@ -13,16 +13,20 @@ flowchart LR
   files[conversationFiles]
   registry[getSandboxProvider]
   dify[DifySandboxProvider]
-  future[Future_MicrosandboxProvider]
+  osb[OpenSandboxProvider]
   sidecar[DifySandbox_HTTP]
+  osbServer[OpenSandbox_lifecycle_server]
+  sandbox[Per_run_sandbox_execd_Jupyter]
 
   ciTool --> orch
   other --> orch
   orch --> files
   orch --> registry
   registry --> dify
-  registry -.-> future
+  registry --> osb
   dify --> sidecar
+  osb --> osbServer
+  osbServer --> sandbox
 ```
 
 ## Interface
@@ -44,10 +48,10 @@ sentinel present **and** `success: true` in that JSON. Process stderr
 Do **not** put VM handles, `/dev/kvm`, or Dify envelope tokens on this
 interface. Those belong inside a provider.
 
-`SANDBOX_PROVIDER` selects the backend (default `dify`). An unknown id returns
-a stub that throws `not_configured` so ChatHub still boots.
+`SANDBOX_PROVIDER` selects the backend (`dify` default, `opensandbox`). An
+unknown id returns a stub that throws `not_configured` so ChatHub still boots.
 
-## Dify (only implementation)
+## Dify
 
 `src/server/services/sandbox/providers/dify/` owns:
 
@@ -177,9 +181,88 @@ with ChatHub `wrapSandboxPython`. Host Python and unconstrained `docker exec`
 are not the jail. Agent rule:
 `.cursor/rules/code-interpreter-sandbox-repro.mdc`.
 
+## OpenSandbox
+
+`src/server/services/sandbox/providers/opensandbox/` drives an
+[OpenSandbox](https://github.com/opensandbox-group/OpenSandbox) lifecycle
+server over plain HTTP (no SDK dependency). Each `run()`:
+
+1. `POST /v1/sandboxes` with `OPENSANDBOX_IMAGE`, entrypoint
+   `tail -f /dev/null` (the server injects execd), CPU/memory caps, and a TTL
+   of ready + run budget + 120s so the server reaps a sandbox ChatHub failed
+   to delete.
+2. Polls the sandbox to `Running`, resolves execd (port `44772`) with
+   `use_server_proxy=true`, then polls execd `/ping`: `Running` only means
+   the container started, and the proxy answers 502 until execd listens.
+3. One multipart upload: `.chathub/run.py` (runner), `.chathub/code.py`
+   (user code), and the conversation files, all under `/tmp/chathub-ci`.
+4. `POST /command` with the fixed string `python3 /tmp/chathub-ci/.chathub/run.py`
+   and `timeout` = `CODE_INTERPRETER_TIMEOUT`, so execd kills the process
+   itself. User code reaches the sandbox only as a file.
+5. Downloads `.chathub/manifest.json` (name, size, sha256 of top-level
+   files), then only new or changed files. Best effort: a missing manifest
+   keeps stdout/stderr and returns no files.
+6. Deletes the sandbox in `finally`.
+
+The runner `exec`s the code as `__main__`, echoes a trailing expression with
+`repr()` like a notebook, maps `SystemExit` like a script (0/`None` succeed),
+prints tracebacks without runner frames (source lines via `linecache`),
+forces `MPLBACKEND=Agg`, and patches `plt.show()` on pyplot import to save
+`plot_N.png`. Unshown figures are flushed before the manifest.
+
+execd's command stream sends one event per output line (newline stripped),
+`execution_complete` on exit 0, and an `error` event whose `evalue` is the
+exit code otherwise. A signal death is `evalue` `-1` (`signal: killed`): at
+or past the run timeout it is a `Timeout`, earlier it is a failed run with a
+likely-out-of-memory note. A stream that ends with neither is
+`ExecutionFailed`. The client aborts 5s after the run timeout as a backstop.
+
+**Why not Jupyter.** The first version ran cells in an execd Jupyter context.
+execd opens a new kernel websocket for every cell and matches replies by
+message type only, and its code streams stayed open until the timeout in
+roughly 1 of 6 local runs (setup and user cells alike, servers `1.1.0` and
+`1.1.1-rc.1`). A raw-HTTP harness reproduced it without ChatHub: a
+`print('done')` cell stayed open 593s, kept alive by execd `ping` events, so
+no socket timeout fires. The command API has no kernel, removes the Jupyter boot from
+every run (~6s → ~2s locally), and works with any image that has `python3`.
+Per-run state is not lost: each run already got a fresh sandbox.
+
+**Image.** The official `opensandbox/code-interpreter` image has no numpy,
+pandas, or matplotlib, and its Pythons are only on `PATH` via its entrypoint.
+Use `docker/opensandbox-python/` (pinned data/office libraries, CJK fonts,
+`STSong.ttf` for the prompt's reportlab instruction).
+
+`OPENSANDBOX_EGRESS_ALLOW` sends a deny-by-default `networkPolicy`; that needs
+the egress sidecar (runc or Kata, not gVisor) **and** `[docker] network_mode =
+"bridge"` — the server rejects a policy on a user-defined network with
+HTTP 400. Use egress `mode = "dns+nft"` for packet-level default-deny; plain
+`dns` only filters names. Without a policy, outbound control is the host
+firewall. The allowlist path is untested here: the sidecar could not start in
+the verification sandbox (no IPv6 sysctls in its kernel).
+
+Operator constraints worth knowing before deploying:
+
+- The lifecycle server mounts the Docker socket (root-equivalent on the host).
+  Keep its port unpublished.
+- The `/sandboxes/{id}/proxy/{port}` route skips API-key auth in single-tenant
+  mode, and execd has no token in Docker mode (`secureAccess` is Kubernetes
+  only). Server `1.1.0` publishes every sandbox's execd port on `0.0.0.0`;
+  `[docker] publish_host` arrives in `1.1.1`. Put sandboxes on their own
+  bridge with ICC off and drop sandbox-subnet traffic to private ranges and
+  the host, or one sandbox can reach another's execd through the host port
+  (reproduced locally, and closed by those rules).
+- Server `1.1.0` defaults `[docker] network_mode` to `host`; set it.
+- execd `1.1.0` rejects the spec's `argv` command field; ChatHub sends
+  `command`.
+
+Verified end to end with runc against `opensandbox/server:release-1.1.0` and
+`release-1.1.1-rc.1` (live suite 56/56 runs, raw command API 125/125, no
+leftover sandboxes); Kata and gVisor were not available there. Setup:
+[Code Interpreter Sandbox](https://github.com/lqdflying/chathub/wiki/Code-Interpreter-Sandbox).
+
 ## Future backends
 
-A later Microsandbox (or similar) provider can create/write/exec/destroy a
+Another backend (Microsandbox or similar) can create/write/exec/destroy a
 microVM **inside** `run()` without changing Code Interpreter or Graphile.
 ChatHub remains distroless Node; that backend would be a sibling process, not
 an in-process libkrun embed.
