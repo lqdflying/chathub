@@ -241,6 +241,40 @@ describe('Dify sandbox envelope runtime', () => {
     expect(result.parsed.files.map((item) => item.filename)).toEqual(['plot_1.png']);
   });
 
+  it('collects absolute /tmp writes and relative PDF writes in the session dir', () => {
+    const outside = '/tmp/chathub-ci-outside.pdf';
+    const osOpen = '/tmp/chathub-ci-osopen.pdf';
+    const readProbe = '/tmp/chathub-ci-read-probe.txt';
+    writeFileSync(readProbe, 'keep-read');
+    try {
+      const result = runWrapper({
+        code: [
+          'import os',
+          'open("/tmp/chathub-ci-outside.pdf", "wb").write(b"%PDF-abs")',
+          'open("relative.pdf", "wb").write(b"%PDF-rel")',
+          'fd = os.open("/tmp/chathub-ci-osopen.pdf", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)',
+          'os.write(fd, b"%PDF-os")',
+          'os.close(fd)',
+          'print(open("/tmp/chathub-ci-read-probe.txt").read())',
+        ].join('\n'),
+        token: 'a1b2',
+      });
+      expect(result.parsed.success).toBe(true);
+      expect(result.parsed.stdout).toContain('keep-read');
+      expect(result.parsed.files.map((item) => item.filename).sort()).toEqual([
+        'chathub-ci-osopen.pdf',
+        'chathub-ci-outside.pdf',
+        'relative.pdf',
+      ]);
+      expect(existsSync(outside)).toBe(false);
+      expect(existsSync(osOpen)).toBe(false);
+    } finally {
+      rmSync(readProbe, { force: true });
+      rmSync(outside, { force: true });
+      rmSync(osOpen, { force: true });
+    }
+  });
+
   it('routes zipfile.io.open writes into the session dir', () => {
     const result = runWrapper({
       code: [

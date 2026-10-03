@@ -47,6 +47,7 @@ If you are accessing the internet, use the Python standard library (urllib, http
 
 If you are generating files:
 - Write them in the current working directory
+- When python returns files, each files[].url is the download link. Link that exact URL in your reply. Do not link the bare filename or the chat site plus the filename.
 - Prefer these libraries when they are installed in the sandbox:
   - pdf --> reportlab
   - docx --> python-docx

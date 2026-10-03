@@ -125,6 +125,18 @@ export class FileService {
     return this.impl.uploadMedia(key, buffer);
   }
 
+  /**
+   * Upload bytes with the caller's content type. Sandbox PDFs and office files use this
+   * because uploadMedia only accepts image extensions.
+   */
+  public async uploadBytes(
+    key: string,
+    buffer: Buffer,
+    contentType: string,
+  ): Promise<{ key: string }> {
+    return this.impl.uploadBytes(key, buffer, contentType);
+  }
+
   async downloadFileToLocal(
     fileId: string,
   ): Promise<{ cleanup: () => void; file: FileItem; filePath: string }> {

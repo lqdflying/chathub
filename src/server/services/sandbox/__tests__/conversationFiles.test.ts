@@ -8,10 +8,15 @@ const fileModelMocks = vi.hoisted(() => ({
   create: vi.fn(),
   findById: vi.fn(),
 }));
+const fileEnvMock = vi.hoisted(() => ({
+  S3_PUBLIC_DOMAIN: undefined as string | undefined,
+  S3_SET_ACL: false,
+}));
 const fileServiceMocks = vi.hoisted(() => ({
   getFileByteArray: vi.fn(),
+  getFullFileUrl: vi.fn(),
   getUIFileUrl: vi.fn(),
-  uploadMedia: vi.fn(),
+  uploadBytes: vi.fn(),
 }));
 
 vi.mock('@/database/models/message', () => ({
@@ -31,11 +36,15 @@ vi.mock('@/database/models/file', () => ({
     findById = fileModelMocks.findById;
   },
 }));
+vi.mock('@/envs/file', () => ({
+  fileEnv: fileEnvMock,
+}));
 vi.mock('@/server/services/file', () => ({
   FileService: class {
     getFileByteArray = fileServiceMocks.getFileByteArray;
+    getFullFileUrl = fileServiceMocks.getFullFileUrl;
     getUIFileUrl = fileServiceMocks.getUIFileUrl;
-    uploadMedia = fileServiceMocks.uploadMedia;
+    uploadBytes = fileServiceMocks.uploadBytes;
   },
 }));
 vi.mock('@/server/services/file/uploadTarget', () => ({
@@ -66,6 +75,8 @@ describe('sandbox conversation files', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     delete process.env.CODE_INTERPRETER_MAX_FILE_COUNT;
+    fileEnvMock.S3_PUBLIC_DOMAIN = undefined;
+    fileEnvMock.S3_SET_ACL = false;
     messageMocks.query.mockResolvedValue([]);
     threadMocks.findById.mockResolvedValue(undefined);
     fileModelMocks.findById.mockImplementation(async (id: string) => ({
@@ -77,7 +88,10 @@ describe('sandbox conversation files', () => {
     fileServiceMocks.getFileByteArray.mockImplementation(async (url: string) =>
       bytesFor(String(url).replace('files/', '')),
     );
-    fileServiceMocks.uploadMedia.mockResolvedValue({ key: 'files/scope/1/out.bin' });
+    fileServiceMocks.uploadBytes.mockResolvedValue({ key: 'files/scope/1/out.bin' });
+    fileServiceMocks.getFullFileUrl.mockImplementation(
+      async (key: string) => `https://cdn.example/${key}`,
+    );
     fileServiceMocks.getUIFileUrl.mockImplementation(
       async (key: string) => `https://app.example/webapi/files/${key}`,
     );
@@ -273,10 +287,12 @@ describe('sandbox conversation files', () => {
       userId: 'user-1',
     });
 
-    expect(fileServiceMocks.uploadMedia).toHaveBeenCalledWith(
+    expect(fileServiceMocks.uploadBytes).toHaveBeenCalledWith(
       'files/scope/1/out.bin',
       Buffer.from([9, 9]),
+      'image/png',
     );
+    expect(fileServiceMocks.getFullFileUrl).not.toHaveBeenCalled();
     expect(fileModelMocks.create).toHaveBeenCalledWith(
       expect.objectContaining({
         name: 'plot_1.png',
@@ -296,7 +312,7 @@ describe('sandbox conversation files', () => {
 
   it('skips a failed persist without aborting the rest of the run', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    fileServiceMocks.uploadMedia
+    fileServiceMocks.uploadBytes
       .mockRejectedValueOnce(new Error('upload failed'))
       .mockResolvedValueOnce({ key: 'files/scope/1/out.bin' });
 
@@ -318,5 +334,56 @@ describe('sandbox conversation files', () => {
     ]);
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
+  });
+
+  it('stores a PDF with application/pdf and a public open URL', async () => {
+    fileEnvMock.S3_PUBLIC_DOMAIN = 'https://cdn.example';
+
+    const result = await persistSandboxOutputFiles({
+      db: {} as any,
+      files: [{ content: new Uint8Array([37, 80, 68, 70]), filename: 'jiaozi-su-xian.pdf' }],
+      userId: 'user-1',
+    });
+
+    expect(fileServiceMocks.uploadBytes).toHaveBeenCalledWith(
+      'files/scope/1/out.bin',
+      Buffer.from([37, 80, 68, 70]),
+      'application/pdf',
+    );
+    expect(fileServiceMocks.getFullFileUrl).toHaveBeenCalledWith('files/scope/1/out.bin');
+    expect(fileServiceMocks.getUIFileUrl).not.toHaveBeenCalled();
+    expect(result).toEqual([
+      {
+        fileId: 'file-out',
+        filename: 'jiaozi-su-xian.pdf',
+        url: 'https://cdn.example/files/scope/1/out.bin',
+      },
+    ]);
+  });
+
+  it('uses the public object URL when the bucket ACL is public', async () => {
+    fileEnvMock.S3_SET_ACL = true;
+
+    const result = await persistSandboxOutputFiles({
+      db: {} as any,
+      files: [{ content: new Uint8Array([1]), filename: 'notes.docx' }],
+      userId: 'user-1',
+    });
+
+    expect(fileServiceMocks.getFullFileUrl).toHaveBeenCalledWith('files/scope/1/out.bin');
+    expect(result[0]?.url).toBe('https://cdn.example/files/scope/1/out.bin');
+  });
+
+  it('falls back to the file proxy when the public URL cannot be resolved', async () => {
+    fileEnvMock.S3_PUBLIC_DOMAIN = 'https://cdn.example';
+    fileServiceMocks.getFullFileUrl.mockRejectedValueOnce(new Error('presign failed'));
+
+    const result = await persistSandboxOutputFiles({
+      db: {} as any,
+      files: [{ content: new Uint8Array([1]), filename: 'jiaozi-su-xian.pdf' }],
+      userId: 'user-1',
+    });
+
+    expect(result[0]?.url).toBe('https://app.example/webapi/files/files/scope/1/out.bin');
   });
 });

@@ -73,10 +73,16 @@ and leftover tRPC keep calling `runCodeInterpreter`.
    only; a portal thread is that thread plus its main prefix, not sibling
    threads).
 3. Walk **newest → oldest**. Duplicate basenames keep the newest file.
-4. Persist outputs with the server file service, then `FileService.getUIFileUrl`
-   so each `CodeInterpreterFileItem` has a `/webapi/files/...` URL. A failed
-   file is logged (`sandbox_persist_skipped`) and skipped; the run continues.
-   Older messages without `url` still resolve via `file.findById`.
+4. Persist outputs with `FileService.uploadBytes` and the file's MIME type
+   (`application/pdf` for a PDF; image plots stay `image/png`). Do not use
+   `uploadMedia`: it only accepts image extensions and drops PDF, docx, xlsx,
+   and pptx. The open URL is `getFullFileUrl` when `S3_PUBLIC_DOMAIN` or
+   `S3_SET_ACL` is set, and `getUIFileUrl` (`/webapi/files/...`) otherwise. A
+   presigned URL is not saved into the topic. The tool card copies that open
+   URL and downloads through the file id proxy. The follow-up assistant reply
+   rewrites a bare filename or `https://<app>/<filename>` link to the open URL.
+   A failed file is logged (`sandbox_persist_skipped`) and skipped; the run
+   continues. Older messages without `url` still resolve via `file.findById`.
 5. The builtin tool card defaults to plugin UI (not JSON). File cards use
    `downloadFile` (fetch blob + object URL) because browsers ignore
    `<a download>` on cross-origin S3 URLs.
@@ -102,12 +108,15 @@ That flag is required for ChatHub isolation. ChatHub generates `preload`
 port `8194` unpublished.
 
 The guest wrapper only probe-writes that directory, patches `open` /
-`io.open` / `getcwd` so relative paths stay inside it (stdlib `zipfile`
-uses `io.open`, which is only an alias for builtin `open` at interpreter
-start
+`io.open` / `os.open` / `getcwd` so relative paths stay inside it. A write,
+append, or exclusive open whose path is outside that directory is redirected
+to `DATA_DIR/<basename>`. Reads of absolute paths stay on the original path so
+fonts and the standard library still load. Writes under `/dev`, `/proc`, and
+`/sys` are not redirected. Stdlib `zipfile` uses `io.open`, which is only an
+alias for builtin `open` at interpreter start
 ([io.open](https://docs.python.org/3.14/library/io.html#io.open),
-[zipfile](https://github.com/python/cpython/blob/3.14/Lib/zipfile/__init__.py))),
-and must not call `os.makedirs`, `os.chdir`, or `os.remove`. It also sets `TMPDIR`, `HOME`, `MPLCONFIGDIR`,
+[zipfile](https://github.com/python/cpython/blob/3.14/Lib/zipfile/__init__.py)).
+The wrapper must not call `os.makedirs`, `os.chdir`, or `os.remove`. It also sets `TMPDIR`, `HOME`, `MPLCONFIGDIR`,
 `XDG_CONFIG_HOME`, and `XDG_CACHE_HOME` to that directory, plus
 `MPLBACKEND=Agg` (forced, not `setdefault`), `MPL_IGNORE_SYSTEM_FONTS=1`,
 `OMP_NUM_THREADS` / `OPENBLAS_NUM_THREADS` / `MKL_NUM_THREADS` = `1`

@@ -7,6 +7,7 @@ import mime from 'mime';
 import { FileModel } from '@/database/models/file';
 import { MessageModel } from '@/database/models/message';
 import { codeInterpreterEnv } from '@/envs/codeInterpreter';
+import { fileEnv } from '@/envs/file';
 import { hashGenerationDebugValue, logGenerationDebugSafe } from '@/libs/logger/generationDebug';
 import { toPersistedConversationSessionId } from '@/server/services/conversationGeneration/inboxSession';
 import { loadConversationThreadMessages } from '@/server/services/conversationGeneration/threadScope';
@@ -20,6 +21,26 @@ export const SANDBOX_GATHER_PAGE_SIZE = 1000;
 export const SANDBOX_GATHER_MAX_PAGES = 50;
 
 const basename = (filename: string) => filename.replaceAll('\\', '/').split('/').pop() || filename;
+
+/**
+ * Picbed opens objects through getFullFileUrl. That URL stays valid when the bucket is public.
+ * A private bucket only offers a presigned URL, which expires inside a saved chat message, so
+ * those files keep the same-origin file proxy.
+ */
+export const resolveSandboxOpenUrl = async (
+  fileService: Pick<FileService, 'getFullFileUrl' | 'getUIFileUrl'>,
+  key: string,
+) => {
+  if (fileEnv.S3_PUBLIC_DOMAIN || fileEnv.S3_SET_ACL) {
+    try {
+      const full = await fileService.getFullFileUrl(key);
+      if (full) return full;
+    } catch {
+      // A presign or endpoint failure must not drop an object that already uploaded.
+    }
+  }
+  return fileService.getUIFileUrl(key);
+};
 
 const collectPendingFiles = (scoped: UIChatMessage[], maxFileCount: number) => {
   const pending: Array<{ filename: string; id: string }> = [];
@@ -143,7 +164,7 @@ export const persistSandboxOutputFiles = async ({
           purpose: 'file',
           userId,
         });
-        const uploaded = await fileService.uploadMedia(target.path, buffer);
+        const uploaded = await fileService.uploadBytes(target.path, buffer, fileType);
         url = uploaded.key;
       }
       if (!url) continue;
@@ -157,11 +178,11 @@ export const persistSandboxOutputFiles = async ({
         },
         !existing.isExist,
       );
-      const uiUrl = await fileService.getUIFileUrl(url);
+      const openUrl = await resolveSandboxOpenUrl(fileService, url);
       persisted.push({
         fileId: id,
         filename: file.filename,
-        ...(uiUrl ? { url: uiUrl } : {}),
+        ...(openUrl ? { url: openUrl } : {}),
       });
     } catch (error) {
       const errorClass = error instanceof Error ? error.name : 'Error';

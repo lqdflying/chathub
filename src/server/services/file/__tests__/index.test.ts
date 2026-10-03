@@ -25,6 +25,7 @@ vi.mock('../impls', () => ({
     getFullFileUrl: vi.fn(),
     getKeyFromFullUrl: vi.fn(),
     uploadMedia: vi.fn(),
+    uploadBytes: vi.fn(),
   }),
 }));
 
@@ -252,6 +253,22 @@ describe('FileService', () => {
     const result = await service.uploadMedia(testKey, testBuffer);
 
     expect(service['impl'].uploadMedia).toHaveBeenCalledWith(testKey, testBuffer);
+    expect(result).toBe(expectedResult);
+  });
+
+  it('should delegate uploadBytes to implementation', async () => {
+    const testKey = 'files/scope/recipe.pdf';
+    const testBuffer = Buffer.from('%PDF');
+    const expectedResult = { key: testKey };
+    vi.mocked(service['impl'].uploadBytes).mockResolvedValue(expectedResult);
+
+    const result = await service.uploadBytes(testKey, testBuffer, 'application/pdf');
+
+    expect(service['impl'].uploadBytes).toHaveBeenCalledWith(
+      testKey,
+      testBuffer,
+      'application/pdf',
+    );
     expect(result).toBe(expectedResult);
   });
 });

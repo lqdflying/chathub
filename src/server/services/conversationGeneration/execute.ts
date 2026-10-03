@@ -87,8 +87,15 @@ import {
 import { loadHistoryCompressModel } from '@/server/services/historyCompress';
 import { persistMemoryCompactionIfCurrent } from '@/server/services/memoryCompactionPersist';
 import { RagEmbeddingService, resolveRagEmbeddingConfig } from '@/server/services/rag/embedding';
+import {
+  generatedFileLinksFromMessages,
+  mergeGeneratedFileLinks,
+  readGeneratedFileLinks,
+  rewriteGeneratedFileLinks,
+} from '@/server/services/sandbox/fileLinks';
 import { composeSystemRole } from '@/services/chat/composeSystemRole';
 import { resolveOpenAICompatibleChatRoute } from '@/services/chat/openAICompatibleRoute';
+import { CodeInterpreterIdentifier } from '@/tools/code-interpreter';
 
 import {
   annotateAssistantError,
@@ -1450,6 +1457,7 @@ const executeChat = async (
     let identicalToolCallCount = 0;
     let lastToolBatchKey: string | undefined;
     let scheduleToolPause = false;
+    let generatedFileLinks = generatedFileLinksFromMessages(messages);
 
     for (;;) {
       const stopReason = await shouldStopGeneration(db, model, operation, abortController.signal);
@@ -1571,6 +1579,9 @@ const executeChat = async (
         }
 
         content = result.content;
+        if (content && generatedFileLinks.length > 0) {
+          content = rewriteGeneratedFileLinks(content, generatedFileLinks);
+        }
         reasoning = result.reasoning;
         await flush(true);
         if (result.grounding || generationMetadata) {
@@ -1742,6 +1753,12 @@ const executeChat = async (
               outcome: invocation.success ? 'completed' : 'failed',
               toolCallId: tool.id,
             });
+            if (tool.identifier === CodeInterpreterIdentifier) {
+              generatedFileLinks = mergeGeneratedFileLinks(
+                generatedFileLinks,
+                readGeneratedFileLinks(invocation.content),
+              );
+            }
           } catch (error) {
             toolFailureCount += 1;
             reportConversationToolCompletion({

@@ -19,7 +19,10 @@ export interface CodeInterpreterFileItem {
   fileId?: string;
   filename: string;
   previewUrl?: string;
-  /** UI proxy URL (`/webapi/files/...`). Older messages may omit this. */
+  /**
+   * Stable open URL. Public object URL when the bucket is public; otherwise
+   * `/webapi/files/...`. Older messages may omit this.
+   */
   url?: string;
 }
 

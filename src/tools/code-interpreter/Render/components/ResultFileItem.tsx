@@ -91,16 +91,28 @@ const ResultFileCard = memo<CodeInterpreterFileItem>(({ filename, fileId, previe
     [],
   );
 
-  const resolveDownloadUrl = async () => {
+  const resolveOpenUrl = async () => {
     if (resolvedUrl) return resolvedUrl;
     if (!fileId) return;
     const item = await fileService.getFile(fileId);
     return item.url;
   };
 
+  const resolveDownloadUrl = async () => {
+    if (fileId) {
+      try {
+        const item = await fileService.getFile(fileId);
+        if (item.url) return item.url;
+      } catch {
+        // The stored open URL still downloads when the proxy lookup fails.
+      }
+    }
+    return resolvedUrl;
+  };
+
   const handleCopy = async () => {
     try {
-      const copyUrl = await resolveDownloadUrl();
+      const copyUrl = await resolveOpenUrl();
       if (!copyUrl) return;
       await navigator.clipboard.writeText(copyUrl);
       setCopied(true);

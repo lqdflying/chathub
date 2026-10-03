@@ -80,13 +80,19 @@ vi.mock('react-layout-kit', () => ({
   ),
 }));
 
+import { fileService } from '@/services/file';
+
 import ResultFileGallery from './ResultFileGallery';
 
 describe('ResultFileGallery', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubGlobal('React', React);
     writeText.mockResolvedValue(undefined);
     vi.stubGlobal('navigator', { clipboard: { writeText } });
+    vi.mocked(fileService.getFile).mockResolvedValue({
+      url: 'https://app.example/webapi/files/plot_1.png',
+    } as Awaited<ReturnType<typeof fileService.getFile>>);
   });
 
   afterEach(() => {
@@ -120,6 +126,37 @@ describe('ResultFileGallery', () => {
       expect(downloadFile).toHaveBeenCalledWith(
         'https://app.example/webapi/files/plot_1.png',
         'plot_1.png',
+      ),
+    );
+  });
+
+  it('shows the public PDF URL and downloads through the file proxy', async () => {
+    vi.mocked(fileService.getFile).mockResolvedValue({
+      url: 'https://app.example/webapi/files/files/scope/recipe.pdf',
+    } as Awaited<ReturnType<typeof fileService.getFile>>);
+
+    render(
+      <ResultFileGallery
+        files={[
+          {
+            fileId: 'file-pdf',
+            filename: 'jiaozi-su-xian.pdf',
+            url: 'https://cdn.example/files/scope/recipe.pdf',
+          },
+        ]}
+      />,
+    );
+
+    expect((screen.getByLabelText('codeInterpreter.fileUrl') as HTMLInputElement).value).toBe(
+      'https://cdn.example/files/scope/recipe.pdf',
+    );
+
+    fireEvent.click(screen.getByLabelText('codeInterpreter.download'));
+
+    await waitFor(() =>
+      expect(downloadFile).toHaveBeenCalledWith(
+        'https://app.example/webapi/files/files/scope/recipe.pdf',
+        'jiaozi-su-xian.pdf',
       ),
     );
   });
