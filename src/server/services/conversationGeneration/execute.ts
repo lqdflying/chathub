@@ -137,6 +137,8 @@ export const shouldCreateToolContinuation = (remainingTurns: number, shouldConti
 
 export const CONVERSATION_GENERATION_TURN_COMPLETE = 'conversationGenerationTurnComplete';
 export const CONVERSATION_GENERATION_STOP_REASON = 'conversationGenerationStopReason';
+/** Durable closing mode. Not the banner flag; the UI reads STOP_REASON for that. */
+export const CONVERSATION_GENERATION_TOOL_PAUSE = 'conversationGenerationToolPause';
 
 export const TOOL_PAUSE_INSTRUCTION =
   'Tools are paused. Say what finished, what is unfinished, and the single next step. Do not mark the task done if tool work remains.';
@@ -197,6 +199,13 @@ export const canonicalToolBatchKey = (
     .sort()
     .join('\n---\n');
 
+export const readConversationToolPause = (
+  metadata?: Record<string, unknown> | null,
+): Extract<ConversationGenerationChatStopReason, 'tool_cap' | 'tool_stall'> | undefined => {
+  const value = metadata?.[CONVERSATION_GENERATION_TOOL_PAUSE];
+  return value === 'tool_cap' || value === 'tool_stall' ? value : undefined;
+};
+
 export const withToolPausePayload = <
   T extends {
     messages?: Array<{ content?: unknown; role?: string }>;
@@ -206,14 +215,23 @@ export const withToolPausePayload = <
 >(
   payload: T,
 ): T => {
-  const { tool_choice: _toolChoice, tools: _tools, ...rest } = payload;
-  return {
-    ...rest,
-    messages: [
-      ...(payload.messages ?? []),
-      { content: TOOL_PAUSE_INSTRUCTION, role: 'user' },
-    ],
-  } as T;
+  const messages = payload.messages ?? [];
+  const last = messages.at(-1);
+  if (
+    payload.tools === undefined &&
+    payload.tool_choice === undefined &&
+    last?.role === 'user' &&
+    last.content === TOOL_PAUSE_INSTRUCTION
+  ) {
+    return payload;
+  }
+  const next: T = {
+    ...payload,
+    messages: [...messages, { content: TOOL_PAUSE_INSTRUCTION, role: 'user' }],
+  };
+  delete next.tools;
+  delete next.tool_choice;
+  return next;
 };
 
 export const excludeOwnedAssistantMessages = (
@@ -1442,6 +1460,14 @@ const executeChat = async (
       const currentAssistant = (await messageModel.findById(assistantId)) as
         UIChatMessage | undefined;
       const resumeAction = resolveChatResumeAction(currentAssistant);
+      const resumedToolPause = readConversationToolPause(
+        currentAssistant?.metadata as Record<string, unknown> | null | undefined,
+      );
+      if (resumedToolPause) {
+        scheduleToolPause = true;
+        chatStopReason = resumedToolPause;
+        currentPayload = withToolPausePayload(currentPayload);
+      }
       if (resumeAction === 'complete') break;
 
       let tools: ChatToolPayload[] = Array.isArray(currentAssistant?.tools)
@@ -1628,6 +1654,13 @@ const executeChat = async (
         });
       }
 
+      if (scheduleToolPause) {
+        await messageModel.updateMetadata(assistantId, {
+          [CONVERSATION_GENERATION_TURN_COMPLETE]: true,
+        });
+        break;
+      }
+
       if (!tools.length) {
         chatStopReason = 'model_stop';
         break;
@@ -1750,6 +1783,7 @@ const executeChat = async (
         identicalToolCallCount = 1;
       }
 
+      remainingTurns -= 1;
       const loopStopReason = resolveToolLoopStopReason(
         remainingTurns,
         shouldContinue,
@@ -1771,8 +1805,6 @@ const executeChat = async (
       } else if (loopStopReason) {
         chatStopReason = loopStopReason;
         break;
-      } else {
-        remainingTurns -= 1;
       }
 
       const previousAssistantId = assistantId;
@@ -1797,6 +1829,13 @@ const executeChat = async (
             ),
             threadId: operation.threadId ?? undefined,
             topicId: operation.topicId ?? undefined,
+            ...(scheduleToolPause && chatStopReason
+              ? {
+                  metadata: {
+                    [CONVERSATION_GENERATION_TOOL_PAUSE]: chatStopReason,
+                  } as UIChatMessage['metadata'],
+                }
+              : {}),
           },
         });
         assistantId = nextAssistantId;

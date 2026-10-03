@@ -531,8 +531,13 @@ assistant that just ran tools and logs `stopReason=tool_cap` on
 `execute_settled`. `tool_stall` is logged the same way and does not set that
 metadata, so the tool-round banner stays off. Either limit then creates one
 more assistant and calls the model with `tools` and `tool_choice` removed and
-a pause instruction appended. That closing assistant is not marked `tool_cap`.
-Tool calls on the closing reply are not executed. A finished model reply with
+a pause instruction appended. That closing assistant is not marked `tool_cap`. It is created in the same
+transaction as the operation pointer with `conversationGenerationToolPause`
+set to `tool_cap` or `tool_stall`. A later worker attempt reads that field,
+sends the tool-free payload again, does not execute tool calls, and keeps the
+same `execute_settled` stop reason. The field is not the banner flag.
+Tool calls on the closing reply are not executed. The 32-round ceiling
+includes the first tool-bearing reply. A finished model reply with
 no tools is `model_stop` and is not auto-continued. `shouldContinue: false`
 is `tool_shouldContinue_false` (debug only) and wins over an identical-call
 stall. Search-workflow intent copy stays separate.
