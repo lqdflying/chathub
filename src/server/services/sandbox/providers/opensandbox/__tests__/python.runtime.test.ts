@@ -202,6 +202,46 @@ describe('OpenSandbox runner script', () => {
     expect(readFileSync(join(workdir, 'stale.pdf'), 'utf8')).toBe('%PDF-new');
   });
 
+  it('keeps the newest write when basenames collide', () => {
+    mkdirSync(workdir, { recursive: true });
+    writeFileSync(join(workdir, 'notes.txt'), 'orig');
+    const outside = join(root, 'outside');
+    const replayA = join(root, 'a', 'replay.txt');
+    const replayB = join(root, 'b', 'replay.txt');
+    const hash = (text: string) => createHash('sha256').update(text).digest('hex');
+    const { manifest, status, stdout } = run(
+      [
+        `open(${JSON.stringify(join(outside, 'report.txt'))}, "w").write("draft")`,
+        'open("report.txt", "w").write("final")',
+        'print("report", open("report.txt").read())',
+        'open("other.txt", "w").write("draft")',
+        `open(${JSON.stringify(join(outside, 'other.txt'))}, "w").write("final")`,
+        `print("other", open(${JSON.stringify(join(outside, 'other.txt'))}).read())`,
+        'print("other-rel", open("other.txt").read())',
+        `open(${JSON.stringify(replayA)}, "w").write("first")`,
+        `open(${JSON.stringify(replayB)}, "w").write("second")`,
+        `open(${JSON.stringify(replayA)}, "w").write("final")`,
+        `print("replay", open(${JSON.stringify(replayA)}).read())`,
+        `open(${JSON.stringify(join(outside, 'notes.txt'))}, "w").write("updated")`,
+      ].join('\n'),
+    );
+    const entry = (name: string) => manifest?.find((item) => item.name === name);
+
+    expect(status).toBe(0);
+    expect(stdout).toContain('report final');
+    expect(stdout).toContain('other final');
+    expect(stdout).toContain('other-rel draft');
+    expect(stdout).toContain('replay final');
+    expect(readFileSync(join(workdir, 'report.txt'), 'utf8')).toBe('final');
+    expect(entry('report.txt')).toMatchObject({ sha256: hash('final'), size: 5 });
+    expect(readFileSync(join(workdir, 'other.txt'), 'utf8')).toBe('final');
+    expect(entry('other.txt')).toMatchObject({ sha256: hash('final'), size: 5 });
+    expect(readFileSync(join(workdir, 'replay.txt'), 'utf8')).toBe('final');
+    expect(entry('replay.txt')).toMatchObject({ sha256: hash('final'), size: 5 });
+    expect(readFileSync(join(workdir, 'notes.txt'), 'utf8')).toBe('updated');
+    expect(entry('notes.txt')).toMatchObject({ sha256: hash('updated'), size: 7 });
+  });
+
   it('does not collect /dev/null or matplotlib font-cache names', () => {
     const cache = join(root, 'cache', 'fontlist-v9.json');
     const { manifest, status } = run(

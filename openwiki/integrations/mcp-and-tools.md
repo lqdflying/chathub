@@ -337,7 +337,8 @@ The ChatHub image is distroless and has no CPython. User-facing setup:
   through the lifecycle server's proxy. No Jupyter. Real Linux userland;
   isolation is the server's runtime (gVisor or Kata). An absolute write outside
   `/dev`, `/proc`, and `/sys` stays on that path; if the file still exists at
-  the end it is collected as its basename. The runner links `STSong.ttf` into
+  the end it is collected as its basename, and the last write of that basename
+  wins. The runner links `STSong.ttf` into
   the workdir. Output downloads stop at a finite byte cap.
 - **ChatHub adapter** — `src/server/services/codeInterpreter/` gathers
   conversation files (paginated, newest-first, thread-scoped), calls
