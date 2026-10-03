@@ -1185,7 +1185,11 @@ describe('executeConversationGeneration chat resume', () => {
       content: [
         '[local](report.pdf)',
         `[host](${origin}/report.pdf)`,
+        '[**report.pdf**](report.pdf)',
+        '',
+        'Keep this paragraph.',
         '[Source report](https://publisher.example/report.pdf)',
+        'https://publisher.example/download?filename=report.pdf',
         '~~~',
         'open("report.pdf", "wb")',
         '~~~',
@@ -1198,7 +1202,11 @@ describe('executeConversationGeneration chat resume', () => {
         [
           `[local](${stored})`,
           `[host](${stored})`,
+          `[**report.pdf**](${stored})`,
+          '',
+          'Keep this paragraph.',
           '[Source report](https://publisher.example/report.pdf)',
+          'https://publisher.example/download?filename=report.pdf',
           '~~~',
           'open("report.pdf", "wb")',
           '~~~',

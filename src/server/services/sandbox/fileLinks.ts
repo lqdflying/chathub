@@ -1,6 +1,6 @@
 import remarkParse from 'remark-parse';
 import { unified } from 'unified';
-import { visit } from 'unist-util-visit';
+import { SKIP, visit } from 'unist-util-visit';
 
 import { CodeInterpreterIdentifier } from '@/tools/code-interpreter';
 
@@ -111,42 +111,115 @@ const localFileHref = (href: string, filename: string, appOrigin?: string) => {
 const fileForHref = (href: string, files: GeneratedFileLink[], appOrigin?: string) =>
   files.find((file) => href !== file.url && localFileHref(href, file.filename, appOrigin));
 
-const labelFrom = (node: Positioned, content: string) => {
-  const children = node.children ?? [];
-  const firstChild = children[0];
-  const lastChild = children.at(-1);
-  const first = firstChild ? rangeOf(firstChild) : undefined;
-  const last = lastChild ? rangeOf(lastChild) : undefined;
-  if (!first || !last) return '';
-  return content.slice(first.start, last.end);
+const COMPLETE_URL = /[a-z][\d+.a-z-]*:\/\/[^\s)<>\]]+/gi;
+
+const replaceLeadingDestination = (value: string, newUrl: string) => {
+  if (value.startsWith('<')) {
+    const end = value.indexOf('>');
+    if (end < 0) return undefined;
+    return `<${newUrl}>${value.slice(end + 1)}`;
+  }
+  const whitespace = value.search(/\s/);
+  if (whitespace === -1) return newUrl;
+  return `${newUrl}${value.slice(whitespace)}`;
 };
 
-const titleSuffix = (title?: string | null) =>
-  title ? ` "${title.replaceAll('"', String.raw`\"`)}"` : '';
+const destinationClose = (source: string, openParen: number) => {
+  let depth = 0;
+  let quote: string | undefined;
+  for (let index = openParen; index < source.length; index += 1) {
+    const char = source[index];
+    if (quote) {
+      if (char === '\\') {
+        index += 1;
+        continue;
+      }
+      if (char === quote) quote = undefined;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char === '(') depth += 1;
+    else if (char === ')') {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+  return -1;
+};
 
-const replaceBareNames = (text: string, files: GeneratedFileLink[], appOrigin?: string) => {
+/** Replace only the destination, leaving labels, emphasis, alt text, and titles in place. */
+const rewriteDestination = (source: string, newUrl: string, kind: string) => {
+  if (kind === 'definition') {
+    const marker = source.indexOf(']:');
+    if (marker < 0) return undefined;
+    const after = source.slice(marker + 2);
+    const whitespace = /^\s*/.exec(after)?.[0] ?? '';
+    const replaced = replaceLeadingDestination(after.slice(whitespace.length), newUrl);
+    if (replaced === undefined) return undefined;
+    return `${source.slice(0, marker + 2)}${whitespace}${replaced}`;
+  }
+  if (source.startsWith('<') && source.endsWith('>') && !source.includes('](')) {
+    return `<${newUrl}>`;
+  }
+  const open = source.lastIndexOf('](');
+  if (open < 0) return undefined;
+  const close = destinationClose(source, open + 1);
+  if (close < 0) return undefined;
+  const replaced = replaceLeadingDestination(source.slice(open + 2, close), newUrl);
+  if (replaced === undefined) return undefined;
+  return `${source.slice(0, open + 2)}${replaced}${source.slice(close)}`;
+};
+
+const rewriteCompleteUrl = (raw: string, files: GeneratedFileLink[], appOrigin?: string) => {
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return undefined;
+  }
+  if (parsed.search || parsed.hash || !appOrigin) return undefined;
+  let origin: string;
+  try {
+    origin = new URL(appOrigin).origin;
+  } catch {
+    return undefined;
+  }
+  if (parsed.origin !== origin) return undefined;
+  let pathname = parsed.pathname;
+  try {
+    pathname = decodeURIComponent(parsed.pathname);
+  } catch {
+    return undefined;
+  }
+  const segments = pathname.split('/').filter(Boolean);
+  if (segments.length !== 1) return undefined;
+  return files.find((file) => file.filename === segments[0] && raw !== file.url)?.url;
+};
+
+const replaceBareFilenames = (text: string, files: GeneratedFileLink[]) => {
   let next = text;
   const ordered = [...files].sort((left, right) => right.filename.length - left.filename.length);
   for (const file of ordered) {
-    if (appOrigin) {
-      try {
-        const origin = new URL(appOrigin).origin;
-        const urlPattern = new RegExp(
-          `${escapeRegExp(origin)}/${escapeRegExp(file.filename)}(?![\\w./?#-])`,
-          'g',
-        );
-        next = next.replaceAll(urlPattern, file.url);
-      } catch {
-        // An unusable app origin only disables host-specific URL replacement.
-      }
-    }
-    const bare = new RegExp(
-      `(^|[^\\w./-])${escapeRegExp(file.filename)}(?![\\w.-])`,
-      'g',
-    );
+    const bare = new RegExp(`(^|[^\\w./-])${escapeRegExp(file.filename)}(?![\\w.-])`, 'g');
     next = next.replaceAll(bare, `$1[${file.filename}](${file.url})`);
   }
   return next;
+};
+
+const replaceBareNames = (text: string, files: GeneratedFileLink[], appOrigin?: string) => {
+  let cursor = 0;
+  let next = '';
+  for (const match of text.matchAll(COMPLETE_URL)) {
+    const start = match.index ?? 0;
+    const raw = match[0];
+    next += replaceBareFilenames(text.slice(cursor, start), files);
+    next += rewriteCompleteUrl(raw, files, appOrigin) ?? raw;
+    cursor = start + raw.length;
+  }
+  return next + replaceBareFilenames(text.slice(cursor), files);
 };
 
 const SKIP_TEXT_PARENTS = new Set(['definition', 'image', 'link', 'linkReference']);
@@ -166,26 +239,20 @@ export const rewriteGeneratedFileLinks = (
     const range = rangeOf(current);
     if (!range) return;
 
-    if (current.type === 'link' || current.type === 'image' || current.type === 'definition') {
+    if (
+      current.type === 'link' ||
+      current.type === 'image' ||
+      current.type === 'definition' ||
+      current.type === 'linkReference'
+    ) {
       const href = current.url ?? '';
-      const file = fileForHref(href, files, appOrigin);
-      if (!file) return;
-      if (current.type === 'definition') {
-        const label = current.label || current.identifier || file.filename;
-        replacements.push({
-          ...range,
-          text: `[${label}]: ${file.url}${titleSuffix(current.title)}`,
-        });
-        return;
+      const file = current.type === 'linkReference' ? undefined : fileForHref(href, files, appOrigin);
+      if (file) {
+        const source = content.slice(range.start, range.end);
+        const rewritten = rewriteDestination(source, file.url, current.type);
+        if (rewritten && rewritten !== source) replacements.push({ ...range, text: rewritten });
       }
-      const rawLabel = labelFrom(current, content);
-      const label = !rawLabel || rawLabel === href ? file.filename : rawLabel;
-      const bang = current.type === 'image' ? '!' : '';
-      replacements.push({
-        ...range,
-        text: `${bang}[${label}](${file.url}${titleSuffix(current.title)})`,
-      });
-      return;
+      return SKIP;
     }
 
     if (current.type !== 'text') return;

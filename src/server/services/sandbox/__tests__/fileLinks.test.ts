@@ -16,6 +16,10 @@ const report = {
   filename: 'report.pdf',
   url: 'https://cdn.example/files/scope/1/report.pdf',
 };
+const plot = {
+  filename: 'plot.png',
+  url: 'https://cdn.example/files/scope/1/plot.png',
+};
 
 describe('rewriteGeneratedFileLinks', () => {
   it('replaces a bare filename, a relative href, and a chat-host href', () => {
@@ -106,6 +110,50 @@ describe('rewriteGeneratedFileLinks', () => {
     ].join('\n');
 
     expect(rewriteGeneratedFileLinks(content, [pdf], appOrigin)).toBe(content);
+  });
+
+  it('keeps formatted labels, image alt text, and raw external URLs', () => {
+    const content = [
+      '[**report.pdf**](report.pdf)',
+      '',
+      'Keep this paragraph.',
+      '',
+      '[**report.pdf**](https://publisher.example/report.pdf)',
+      '',
+      '![Chart of sales](plot.png "Q1")',
+      '',
+      'https://publisher.example/download?filename=report.pdf',
+      '',
+      'https://publisher.example/redirect?url=https://ai.aksg.net/report.pdf',
+      '',
+      '[Original](https://ai.aksg.net/report.pdf?rev=1)',
+      '',
+      '[**report.pdf**][src]',
+      '',
+      '[src]: https://publisher.example/report.pdf',
+    ].join('\n');
+
+    expect(rewriteGeneratedFileLinks(content, [report, plot], appOrigin)).toBe(
+      [
+        `[**report.pdf**](${report.url})`,
+        '',
+        'Keep this paragraph.',
+        '',
+        '[**report.pdf**](https://publisher.example/report.pdf)',
+        '',
+        `![Chart of sales](${plot.url} "Q1")`,
+        '',
+        'https://publisher.example/download?filename=report.pdf',
+        '',
+        'https://publisher.example/redirect?url=https://ai.aksg.net/report.pdf',
+        '',
+        '[Original](https://ai.aksg.net/report.pdf?rev=1)',
+        '',
+        '[**report.pdf**][src]',
+        '',
+        '[src]: https://publisher.example/report.pdf',
+      ].join('\n'),
+    );
   });
 
   it('reads code interpreter files from earlier tool messages', () => {
