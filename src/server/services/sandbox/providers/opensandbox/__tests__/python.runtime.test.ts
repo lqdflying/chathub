@@ -333,6 +333,54 @@ describe('OpenSandbox runner script', () => {
     });
   });
 
+  it('iterates r+ and w+ files like a normal file', () => {
+    const seed = [
+      'with open("report.txt", "w") as seed:',
+      '    seed.write("header\\nrow\\n")',
+    ];
+    const nextUpdate = run(
+      [
+        ...seed,
+        'with open("report.txt", "r+") as handle:',
+        '    print("same", iter(handle) is handle)',
+        '    print(next(handle).strip())',
+        '    print(next(handle).strip())',
+        '    try:',
+        '        next(handle)',
+        '    except StopIteration:',
+        '        print("eof")',
+      ].join('\n'),
+    );
+    const written = run(
+      [
+        'with open("report.txt", "w+") as handle:',
+        '    handle.write("header\\nrow\\n")',
+        '    handle.seek(0)',
+        '    print("same", iter(handle) is handle)',
+        '    print(next(handle).strip())',
+      ].join('\n'),
+    );
+    const saved = run(
+      [...seed, 'lines = iter(open("report.txt", "r+"))', 'print(next(lines).strip())'].join('\n'),
+    );
+    const looped = run(
+      [...seed, 'for line in open("report.txt", "r+"):', '    print(line.strip())'].join('\n'),
+    );
+
+    expect(nextUpdate.status).toBe(0);
+    expect(nextUpdate.stderr).toBe('');
+    expect(nextUpdate.stdout).toBe('same True\nheader\nrow\neof\n');
+    expect(written.status).toBe(0);
+    expect(written.stderr).toBe('');
+    expect(written.stdout).toBe('same True\nheader\n');
+    expect(saved.status).toBe(0);
+    expect(saved.stderr).toBe('');
+    expect(saved.stdout).toBe('header\n');
+    expect(looped.status).toBe(0);
+    expect(looped.stderr).toBe('');
+    expect(looped.stdout).toBe('header\nrow\n');
+  });
+
   it('does not collect /dev/null or matplotlib font-cache names', () => {
     const cache = join(root, 'cache', 'fontlist-v9.json');
     const { manifest, status } = run(
