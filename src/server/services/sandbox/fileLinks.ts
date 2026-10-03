@@ -111,17 +111,82 @@ const localFileHref = (href: string, filename: string, appOrigin?: string) => {
 const fileForHref = (href: string, files: GeneratedFileLink[], appOrigin?: string) =>
   files.find((file) => href !== file.url && localFileHref(href, file.filename, appOrigin));
 
-const COMPLETE_URL = /[a-z][\d+.a-z-]*:\/\/[^\s)<>\]]+/gi;
+const URL_SCHEME = /[a-z][\d+.a-z-]*:\/\//gi;
 
 const replaceLeadingDestination = (value: string, newUrl: string) => {
-  if (value.startsWith('<')) {
-    const end = value.indexOf('>');
+  const leading = /^\s*/.exec(value)?.[0] ?? '';
+  const rest = value.slice(leading.length);
+  if (!rest) return undefined;
+  if (rest.startsWith('<')) {
+    const end = rest.indexOf('>');
     if (end < 0) return undefined;
-    return `<${newUrl}>${value.slice(end + 1)}`;
+    return `${leading}<${newUrl}>${rest.slice(end + 1)}`;
   }
-  const whitespace = value.search(/\s/);
-  if (whitespace === -1) return newUrl;
-  return `${newUrl}${value.slice(whitespace)}`;
+  const whitespace = rest.search(/\s/);
+  if (whitespace === -1) return `${leading}${newUrl}`;
+  return `${leading}${newUrl}${rest.slice(whitespace)}`;
+};
+
+/** The `(` that opens this link's destination, not a `](` inside a title. */
+const findDestinationParen = (source: string) => {
+  let index = source.startsWith('!') ? 1 : 0;
+  if (source[index] !== '[') return -1;
+  index += 1;
+  let depth = 1;
+  while (index < source.length) {
+    const char = source[index];
+    if (char === '\\') {
+      index += 2;
+      continue;
+    }
+    if (char === '[') depth += 1;
+    else if (char === ']') {
+      depth -= 1;
+      if (depth === 0) return source[index + 1] === '(' ? index + 1 : -1;
+    }
+    index += 1;
+  }
+  return -1;
+};
+
+const urlEnd = (text: string, schemeStart: number) => {
+  const separator = text.indexOf('://', schemeStart);
+  if (separator < 0) return schemeStart;
+  let index = separator + 3;
+  let paren = 0;
+  let bracket = 0;
+  while (index < text.length) {
+    const char = text[index] ?? '';
+    let stop = false;
+    switch (char) {
+      case '(': {
+        paren += 1;
+        break;
+      }
+      case ')': {
+        if (paren === 0) stop = true;
+        else paren -= 1;
+        break;
+      }
+      case '[': {
+        bracket += 1;
+        break;
+      }
+      case ']': {
+        if (bracket === 0) stop = true;
+        else bracket -= 1;
+        break;
+      }
+      default: {
+        if (/[\s<>]/.test(char)) stop = true;
+      }
+    }
+    if (stop) break;
+    index += 1;
+  }
+  const trailing = text[index - 1];
+  if (index > schemeStart && trailing && '.!,;?'.includes(trailing)) index -= 1;
+  return index;
 };
 
 const destinationClose = (source: string, openParen: number) => {
@@ -164,13 +229,13 @@ const rewriteDestination = (source: string, newUrl: string, kind: string) => {
   if (source.startsWith('<') && source.endsWith('>') && !source.includes('](')) {
     return `<${newUrl}>`;
   }
-  const open = source.lastIndexOf('](');
+  const open = findDestinationParen(source);
   if (open < 0) return undefined;
-  const close = destinationClose(source, open + 1);
+  const close = destinationClose(source, open);
   if (close < 0) return undefined;
-  const replaced = replaceLeadingDestination(source.slice(open + 2, close), newUrl);
+  const replaced = replaceLeadingDestination(source.slice(open + 1, close), newUrl);
   if (replaced === undefined) return undefined;
-  return `${source.slice(0, open + 2)}${replaced}${source.slice(close)}`;
+  return `${source.slice(0, open + 1)}${replaced}${source.slice(close)}`;
 };
 
 const rewriteCompleteUrl = (raw: string, files: GeneratedFileLink[], appOrigin?: string) => {
@@ -212,12 +277,15 @@ const replaceBareFilenames = (text: string, files: GeneratedFileLink[]) => {
 const replaceBareNames = (text: string, files: GeneratedFileLink[], appOrigin?: string) => {
   let cursor = 0;
   let next = '';
-  for (const match of text.matchAll(COMPLETE_URL)) {
+  for (const match of text.matchAll(URL_SCHEME)) {
     const start = match.index ?? 0;
-    const raw = match[0];
+    if (start < cursor) continue;
+    const end = urlEnd(text, start);
+    if (end <= start) continue;
+    const raw = text.slice(start, end);
     next += replaceBareFilenames(text.slice(cursor, start), files);
     next += rewriteCompleteUrl(raw, files, appOrigin) ?? raw;
-    cursor = start + raw.length;
+    cursor = end;
   }
   return next + replaceBareFilenames(text.slice(cursor), files);
 };

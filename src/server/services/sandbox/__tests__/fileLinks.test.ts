@@ -156,6 +156,46 @@ describe('rewriteGeneratedFileLinks', () => {
     );
   });
 
+  it('keeps destination whitespace, titles, and foreign query punctuation', () => {
+    const content = [
+      '[Download]( report.pdf )',
+      '',
+      '[Download](',
+      'report.pdf',
+      '"PDF")',
+      '',
+      '[Download]( <report.pdf> "PDF")',
+      '',
+      '[Download](report.pdf "Use ]( here")',
+      '',
+      'https://publisher.example/download?label=(PDF)&filename=report.pdf',
+      '',
+      'https://publisher.example/download?filter[0]=report.pdf',
+      '',
+      'See https://ai.aksg.net/report.pdf.',
+    ].join('\n');
+
+    expect(rewriteGeneratedFileLinks(content, [report], appOrigin)).toBe(
+      [
+        `[Download]( ${report.url} )`,
+        '',
+        '[Download](',
+        report.url,
+        '"PDF")',
+        '',
+        `[Download]( <${report.url}> "PDF")`,
+        '',
+        `[Download](${report.url} "Use ]( here")`,
+        '',
+        'https://publisher.example/download?label=(PDF)&filename=report.pdf',
+        '',
+        'https://publisher.example/download?filter[0]=report.pdf',
+        '',
+        `See ${report.url}.`,
+      ].join('\n'),
+    );
+  });
+
   it('reads code interpreter files from earlier tool messages', () => {
     expect(
       generatedFileLinksFromMessages([
