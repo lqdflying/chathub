@@ -4,7 +4,8 @@
  *
  * The guest is an ordinary Linux container or microVM, so none of the Dify
  * jail stubs (subprocess, unlink, chdir, threading.Timer) apply. The runner
- * only pins the working directory, forces the Agg backend, turns
+ * pins the working directory, redirects absolute writes (except /dev, /proc,
+ * and /sys) to a basename in that directory, forces the Agg backend, turns
  * `plt.show()` into PNG files, echoes a trailing expression the way a
  * notebook would, and writes a sha256 manifest of the workdir so ChatHub
  * downloads only new or changed files.
@@ -18,6 +19,10 @@
  * @see https://github.com/opensandbox-group/OpenSandbox/blob/main/docs/architecture/data-plane/execd.md
  */
 export const OPENSANDBOX_WORKDIR = '/tmp/chathub-ci';
+// The image installs the WenQuanYi collection at this path. ReportLab 5.0.1
+// accepts the 'ttcf' header and embeds subfont 0, so the file does not need
+// to be a single-face TTF. The runner links it into the workdir as STSong.ttf.
+export const OPENSANDBOX_FONT_PATH = '/usr/share/fonts/truetype/STSong.ttf';
 // Hidden, so the manifest never lists it as an output.
 export const CONTROL_DIR = `${OPENSANDBOX_WORKDIR}/.chathub`;
 export const RUNNER_PATH = `${CONTROL_DIR}/run.py`;
@@ -32,12 +37,16 @@ export interface OutputManifestEntry {
   size: number;
 }
 
-export const buildRunnerScript = (workdir: string = OPENSANDBOX_WORKDIR): string => {
+export const buildRunnerScript = (
+  workdir: string = OPENSANDBOX_WORKDIR,
+  fontPath: string = OPENSANDBOX_FONT_PATH,
+): string => {
   const controlDir = `${workdir}/.chathub`;
   return [
-    'import ast, hashlib, importlib.abc, importlib.util, io, json, linecache, os, sys, traceback',
+    'import ast, builtins, hashlib, importlib.abc, importlib.util, io, json, linecache, os, sys, traceback',
     `WORKDIR = ${JSON.stringify(workdir)}`,
     `CONTROL = ${JSON.stringify(controlDir)}`,
+    `FONT = ${JSON.stringify(fontPath)}`,
     'os.chdir(WORKDIR)',
     'os.environ["MPLBACKEND"] = "Agg"',
     'for _stream in (sys.stdout, sys.stderr):',
@@ -45,6 +54,112 @@ export const buildRunnerScript = (workdir: string = OPENSANDBOX_WORKDIR): string
     '        _stream.reconfigure(encoding="utf-8", errors="replace")',
     '    except Exception:',
     '        pass',
+    // Absolute writes land in the workdir under their basename. Reads of a
+    // path written this run follow that file; other absolute reads do not.
+    // /dev, /proc, and /sys stay put. Relative paths stay relative because
+    // cwd is already the workdir (unlike the Dify jail, where chdir is a no-op).
+    '_REDIRECTS = {}',
+    'def _mapped(path):',
+    '    if isinstance(path, int):',
+    '        return None',
+    '    try:',
+    '        s = os.fspath(path)',
+    '    except TypeError:',
+    '        return None',
+    '    if not isinstance(s, str) or not os.path.isabs(s):',
+    '        return None',
+    '    return _REDIRECTS.get(os.path.normpath(s))',
+    'def _remember(original, target):',
+    '    if isinstance(original, int):',
+    '        return',
+    '    try:',
+    '        s = os.fspath(original)',
+    '        dest = os.path.normpath(os.fspath(target))',
+    '    except TypeError:',
+    '        return',
+    '    if not isinstance(s, str) or not os.path.isabs(s):',
+    '        return',
+    '    key = os.path.normpath(s)',
+    '    if key != dest:',
+    '        _REDIRECTS[key] = dest',
+    'def _basename(path):',
+    '    name = os.fspath(path).replace("\\\\", "/").split("/")[-1]',
+    '    if not name or name in (".", ".."):',
+    '        return None',
+    '    return name',
+    'def _inside(path):',
+    '    norm = os.path.normpath(os.fspath(path))',
+    '    root = os.path.normpath(WORKDIR)',
+    '    return norm == root or norm.startswith(root + os.sep)',
+    'def _special(path):',
+    '    norm = os.path.normpath(os.fspath(path))',
+    '    return norm in ("/dev", "/proc", "/sys") or norm.startswith(("/dev/", "/proc/", "/sys/"))',
+    'def _resolve_write(path):',
+    '    if isinstance(path, int):',
+    '        return path',
+    '    try:',
+    '        s = os.fspath(path)',
+    '    except TypeError:',
+    '        return path',
+    '    if not isinstance(s, str) or not os.path.isabs(s) or _special(s):',
+    '        return path',
+    '    if _inside(s):',
+    '        return os.path.normpath(s)',
+    '    name = _basename(s)',
+    '    return os.path.join(WORKDIR, name) if name else path',
+    'def _is_write_mode(mode):',
+    '    return any(flag in str(mode) for flag in ("w", "a", "x", "+"))',
+    '_real_open = builtins.open',
+    'def _open(file, mode="r", *args, **kwargs):',
+    '    target = file',
+    '    writing = False',
+    '    if not isinstance(file, int):',
+    '        try:',
+    '            writing = _is_write_mode(mode)',
+    '            target = _resolve_write(file) if writing else (_mapped(file) or file)',
+    '        except TypeError:',
+    '            target = file',
+    '            writing = False',
+    '    fh = _real_open(target, mode, *args, **kwargs)',
+    '    if writing:',
+    '        _remember(file, target)',
+    '    return fh',
+    'builtins.open = _open',
+    'io.open = _open',
+    '_real_os_open = os.open',
+    'def _os_writing(flags):',
+    '    if not isinstance(flags, int):',
+    '        return False',
+    '    accmode = getattr(os, "O_ACCMODE", 3)',
+    '    return (flags & accmode) != getattr(os, "O_RDONLY", 0)',
+    'def _os_open(path, flags, mode=0o777, *args, **kwargs):',
+    '    target = path',
+    '    writing = False',
+    '    if not isinstance(path, int):',
+    '        try:',
+    '            writing = _os_writing(flags)',
+    '            target = _resolve_write(path) if writing else (_mapped(path) or path)',
+    '        except TypeError:',
+    '            target = path',
+    '            writing = False',
+    '    fd = _real_os_open(target, flags, mode, *args, **kwargs)',
+    '    if writing:',
+    '        _remember(path, target)',
+    '    return fd',
+    'os.open = _os_open',
+    '_real_stat = os.stat',
+    'def _stat(path, *args, **kwargs):',
+    '    mapped = None if isinstance(path, int) else _mapped(path)',
+    '    return _real_stat(path if mapped is None else mapped, *args, **kwargs)',
+    'os.stat = _stat',
+    '_real_lstat = os.lstat',
+    'def _lstat(path, *args, **kwargs):',
+    '    mapped = None if isinstance(path, int) else _mapped(path)',
+    '    return _real_lstat(path if mapped is None else mapped, *args, **kwargs)',
+    'os.lstat = _lstat',
+    '_dest = os.path.join(WORKDIR, "STSong.ttf")',
+    'if FONT and os.path.isfile(FONT) and not os.path.lexists(_dest):',
+    '    os.symlink(FONT, _dest)',
     '_PLOTS = {"n": 1}',
     'def _save_figures(plt):',
     '    for num in list(plt.get_fignums()):',
@@ -110,6 +225,8 @@ export const buildRunnerScript = (workdir: string = OPENSANDBOX_WORKDIR): string
     'for _name in sorted(os.listdir(WORKDIR)):',
     '    _path = os.path.join(WORKDIR, _name)',
     '    if _name.startswith(".") or os.path.islink(_path) or not os.path.isfile(_path):',
+    '        continue',
+    '    if _name.startswith("fontlist-v") or _name.endswith(".matplotlib-lock"):',
     '        continue',
     '    _hash = hashlib.sha256()',
     '    with io.open(_path, "rb") as _fh:',

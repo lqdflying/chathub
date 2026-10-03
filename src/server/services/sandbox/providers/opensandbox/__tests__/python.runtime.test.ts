@@ -1,7 +1,7 @@
 /** @vitest-environment node */
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -35,11 +35,11 @@ let root: string;
 let workdir: string;
 let pythonPath: string;
 
-const run = (code: string) => {
+const run = (code: string, fontPath?: string) => {
   const control = join(workdir, '.chathub');
   mkdirSync(control, { recursive: true });
   writeFileSync(join(control, 'code.py'), code);
-  writeFileSync(join(control, 'run.py'), buildRunnerScript(workdir));
+  writeFileSync(join(control, 'run.py'), buildRunnerScript(workdir, fontPath));
   const result = spawnSync('python3', [join(control, 'run.py')], {
     cwd: workdir,
     encoding: 'utf8',
@@ -141,6 +141,79 @@ describe('OpenSandbox runner script', () => {
 
   it('does not import matplotlib for print-only code', () => {
     expect(run('import sys\nprint("matplotlib.pyplot" in sys.modules)').stdout).toBe('False\n');
+  });
+
+  it('stores absolute writes by basename and reopens that file', () => {
+    const stale = join(root, 'stale.pdf');
+    const outside = join(root, 'missing-dir', 'report.pdf');
+    const probe = join(root, 'keep-read.txt');
+    writeFileSync(stale, 'stale-bytes');
+    writeFileSync(probe, 'keep-read');
+    const { manifest, status, stdout } = run(
+      [
+        'import io, os, pathlib',
+        `open(${JSON.stringify(stale)}, "wb").write(b"%PDF-new")`,
+        `print("builtin", open(${JSON.stringify(stale)}, "rb").read())`,
+        `print("size", os.path.getsize(${JSON.stringify(stale)}), os.lstat(${JSON.stringify(stale)}).st_size)`,
+        `io.open(${JSON.stringify(outside)}, "wb").write(b"%PDF-io")`,
+        `print("io", io.open(${JSON.stringify(outside)}, "rb").read())`,
+        `pathlib.Path(${JSON.stringify(join(root, 'path.pdf'))}).write_bytes(b"%PDF-path")`,
+        `print("path", pathlib.Path(${JSON.stringify(join(root, 'path.pdf'))}).read_bytes())`,
+        `fd = os.open(${JSON.stringify(join(root, 'os.pdf'))}, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)`,
+        'os.write(fd, b"%PDF-os")',
+        'os.close(fd)',
+        `fd = os.open(${JSON.stringify(join(root, 'os.pdf'))}, os.O_RDONLY)`,
+        'print("os", os.read(fd, 16))',
+        'os.close(fd)',
+        `print("other", open(${JSON.stringify(probe)}).read())`,
+      ].join('\n'),
+    );
+
+    expect(status).toBe(0);
+    expect(stdout).toContain("builtin b'%PDF-new'");
+    expect(stdout).toContain('size 8 8');
+    expect(stdout).toContain("io b'%PDF-io'");
+    expect(stdout).toContain("path b'%PDF-path'");
+    expect(stdout).toContain("os b'%PDF-os'");
+    expect(stdout).toContain('other keep-read');
+    expect(readFileSync(stale, 'utf8')).toBe('stale-bytes');
+    expect(readFileSync(probe, 'utf8')).toBe('keep-read');
+    expect(existsSync(outside)).toBe(false);
+    expect(existsSync(join(root, 'path.pdf'))).toBe(false);
+    expect(existsSync(join(root, 'os.pdf'))).toBe(false);
+    expect(manifest?.map((entry) => entry.name).sort()).toEqual([
+      'os.pdf',
+      'path.pdf',
+      'report.pdf',
+      'stale.pdf',
+    ]);
+    expect(readFileSync(join(workdir, 'stale.pdf'), 'utf8')).toBe('%PDF-new');
+  });
+
+  it('does not collect /dev/null or matplotlib font-cache names', () => {
+    const { manifest, status } = run(
+      [
+        'open("/dev/null", "w").write("x")',
+        'open("/root/.cache/matplotlib/fontlist-v9.json", "w").write("cache")',
+        'open("/root/.cache/matplotlib/fontlist-v9.json.matplotlib-lock", "w").write("")',
+        'open("kept.txt", "w").write("yes")',
+      ].join('\n'),
+    );
+
+    expect(status).toBe(0);
+    expect(existsSync(join(workdir, 'null'))).toBe(false);
+    expect(manifest?.map((entry) => entry.name)).toEqual(['kept.txt']);
+  });
+
+  it('links STSong.ttf into the workdir without returning it', () => {
+    const font = join(root, 'source-font.ttf');
+    writeFileSync(font, 'font-bytes');
+    const { manifest, status, stdout } = run('print(open("STSong.ttf", "rb").read())', font);
+
+    expect(status).toBe(0);
+    expect(stdout).toBe("b'font-bytes'\n");
+    expect(readlinkSync(join(workdir, 'STSong.ttf'))).toBe(font);
+    expect(manifest).toEqual([]);
   });
 });
 

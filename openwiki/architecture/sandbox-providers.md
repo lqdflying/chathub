@@ -16,7 +16,7 @@ flowchart LR
   osb[OpenSandboxProvider]
   sidecar[DifySandbox_HTTP]
   osbServer[OpenSandbox_lifecycle_server]
-  sandbox[Per_run_sandbox_execd_Jupyter]
+  sandbox[Per_run_sandbox_command_API]
 
   ciTool --> orch
   other --> orch
@@ -210,6 +210,22 @@ prints tracebacks without runner frames (source lines via `linecache`),
 forces `MPLBACKEND=Agg`, and patches `plt.show()` on pyplot import to save
 `plot_N.png`. Unshown figures are flushed before the manifest.
 
+Absolute writes are collected without the Dify jail stubs. `builtins.open`,
+`io.open`, and `os.open` send a write outside `/tmp/chathub-ci` to
+`<basename>` in that directory, except paths under `/dev`, `/proc`, and
+`/sys`. A later read, `os.stat`, or `os.lstat` of that same absolute path
+follows the redirected file. A read of an absolute path that was not written
+in this run stays on the original path. Relative paths stay relative because
+`chdir` works. The manifest still lists only top-level regular files, and it
+skips symlinks, dot names, `fontlist-v*`, and `*.matplotlib-lock`.
+
+`STSong.ttf` in the workdir is a symlink to
+`/usr/share/fonts/truetype/STSong.ttf`. The image points that path at the
+WenQuanYi collection. ReportLab 5.0.1 treats the `ttcf` scaler (`0x74746366`)
+as a collection and embeds subfont 0 (`TTFontParser.ttfVersions` /
+`readTTCHeader` in `pdfbase/ttfonts.py`), so the file is not extracted to a
+single-face TTF. The symlink is not returned as a chat file.
+
 execd's command stream sends one event per output line (newline stripped),
 `execution_complete` on exit 0, and an `error` event whose `evalue` is the
 exit code otherwise. A signal death is `evalue` `-1` (`signal: killed`): at
@@ -230,7 +246,7 @@ Per-run state is not lost: each run already got a fresh sandbox.
 **Image.** The official `opensandbox/code-interpreter` image has no numpy,
 pandas, or matplotlib, and its Pythons are only on `PATH` via its entrypoint.
 Use `docker/opensandbox-python/` (pinned data/office libraries, CJK fonts,
-`STSong.ttf` for the prompt's reportlab instruction).
+and the `STSong.ttf` path the runner links into the workdir).
 
 `OPENSANDBOX_EGRESS_ALLOW` sends a deny-by-default `networkPolicy`; that needs
 the egress sidecar (runc or Kata, not gVisor) **and** `[docker] network_mode =

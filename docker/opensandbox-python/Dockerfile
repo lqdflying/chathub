@@ -5,8 +5,10 @@
 #   docker build -t chathub-sandbox-python:1 docker/opensandbox-python
 FROM python:3.12-slim
 
-# WenQuanYi Zen Hei has TrueType outlines, which reportlab's TTFont needs; it
-# doubles as the STSong.ttf the Code Interpreter prompt asks for.
+# WenQuanYi Zen Hei ships as a TrueType collection. ReportLab 5.0.1 treats the
+# 'ttcf' scaler (0x74746366) as a collection and embeds subfont 0
+# (pdfbase/ttfonts.py TTFontParser.ttfVersions / readTTCHeader), so this link
+# is the STSong.ttf the prompt opens. The runner also links it into the workdir.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends fonts-dejavu-core fonts-wqy-zenhei \
     && rm -rf /var/lib/apt/lists/* \
