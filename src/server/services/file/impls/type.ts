@@ -48,6 +48,11 @@ export interface FileServiceImpl {
   hasFile(key: string): Promise<boolean>;
 
   /**
+   * Upload bytes with an explicit content type. Image-only uploadMedia rejects PDF and office keys.
+   */
+  uploadBytes(key: string, buffer: Buffer, contentType: string): Promise<{ key: string }>;
+
+  /**
    * 上传内容
    */
   uploadContent(path: string, content: string): Promise<any>;
@@ -56,9 +61,4 @@ export interface FileServiceImpl {
    * 上传媒体文件
    */
   uploadMedia(key: string, buffer: Buffer): Promise<{ key: string }>;
-
-  /**
-   * Upload bytes with an explicit content type. Image-only uploadMedia rejects PDF and office keys.
-   */
-  uploadBytes(key: string, buffer: Buffer, contentType: string): Promise<{ key: string }>;
 }

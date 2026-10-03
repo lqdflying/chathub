@@ -275,6 +275,56 @@ describe('Dify sandbox envelope runtime', () => {
     }
   });
 
+  it('reopens an absolute path after the write was redirected', () => {
+    const stale = '/tmp/chathub-ci-stale.pdf';
+    const fresh = '/tmp/chathub-ci-fresh.pdf';
+    const readProbe = '/tmp/chathub-ci-read-probe-2.txt';
+    writeFileSync(stale, 'stale-bytes');
+    writeFileSync(readProbe, 'keep-read');
+    try {
+      const result = runWrapper({
+        code: [
+          'import io, os, pathlib',
+          'open("/tmp/chathub-ci-stale.pdf", "wb").write(b"%PDF-new")',
+          'print("builtin", open("/tmp/chathub-ci-stale.pdf", "rb").read())',
+          'print("exists", os.path.exists("/tmp/chathub-ci-stale.pdf"), os.path.getsize("/tmp/chathub-ci-stale.pdf"))',
+          'io.open("/tmp/chathub-ci-fresh.pdf", "wb").write(b"%PDF-io")',
+          'print("io", io.open("/tmp/chathub-ci-fresh.pdf", "rb").read())',
+          'pathlib.Path("/tmp/chathub-ci-path.pdf").write_bytes(b"%PDF-path")',
+          'print("path", pathlib.Path("/tmp/chathub-ci-path.pdf").read_bytes(), pathlib.Path("/tmp/chathub-ci-path.pdf").stat().st_size)',
+          'fd = os.open("/tmp/chathub-ci-os.pdf", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)',
+          'os.write(fd, b"%PDF-os")',
+          'os.close(fd)',
+          'fd = os.open("/tmp/chathub-ci-os.pdf", os.O_RDONLY)',
+          'print("os", os.read(fd, 16))',
+          'os.close(fd)',
+          'print("other", open("/tmp/chathub-ci-read-probe-2.txt").read())',
+        ].join('\n'),
+        token: 'c3d4',
+      });
+      expect(result.parsed.success).toBe(true);
+      expect(result.parsed.stdout).toContain("builtin b'%PDF-new'");
+      expect(result.parsed.stdout).toContain('exists True 8');
+      expect(result.parsed.stdout).toContain("io b'%PDF-io'");
+      expect(result.parsed.stdout).toContain("path b'%PDF-path' 9");
+      expect(result.parsed.stdout).toContain("os b'%PDF-os'");
+      expect(result.parsed.stdout).toContain('other keep-read');
+      expect(result.parsed.files.map((item) => item.filename).sort()).toEqual([
+        'chathub-ci-fresh.pdf',
+        'chathub-ci-os.pdf',
+        'chathub-ci-path.pdf',
+        'chathub-ci-stale.pdf',
+      ]);
+      expect(Buffer.from(result.parsed.files.find((item) => item.filename.endsWith('stale.pdf'))!.content).toString()).toBe('%PDF-new');
+    } finally {
+      rmSync(stale, { force: true });
+      rmSync(fresh, { force: true });
+      rmSync('/tmp/chathub-ci-path.pdf', { force: true });
+      rmSync('/tmp/chathub-ci-os.pdf', { force: true });
+      rmSync(readProbe, { force: true });
+    }
+  });
+
   it('routes zipfile.io.open writes into the session dir', () => {
     const result = runWrapper({
       code: [

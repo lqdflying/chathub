@@ -7,9 +7,14 @@ import {
   rewriteGeneratedFileLinks,
 } from '../fileLinks';
 
+const appOrigin = 'https://ai.aksg.net';
 const pdf = {
   filename: 'jiaozi-su-xian.pdf',
   url: 'https://cdn.example/files/scope/1/recipe.pdf',
+};
+const report = {
+  filename: 'report.pdf',
+  url: 'https://cdn.example/files/scope/1/report.pdf',
 };
 
 describe('rewriteGeneratedFileLinks', () => {
@@ -23,7 +28,7 @@ describe('rewriteGeneratedFileLinks', () => {
       '[配方](https://ai.aksg.net/jiaozi-su-xian.pdf)',
     ].join('\n');
 
-    expect(rewriteGeneratedFileLinks(content, [pdf])).toBe(
+    expect(rewriteGeneratedFileLinks(content, [pdf], appOrigin)).toBe(
       [
         '点这个文件就能下载:',
         `[jiaozi-su-xian.pdf](${pdf.url})`,
@@ -31,6 +36,58 @@ describe('rewriteGeneratedFileLinks', () => {
         `[配方](${pdf.url})`,
         '',
         `[配方](${pdf.url})`,
+      ].join('\n'),
+    );
+  });
+
+  it('leaves other sites, code, titled-link labels, and longer filenames unchanged', () => {
+    const content = [
+      '[Source report](https://publisher.example/report.pdf)',
+      '',
+      '[Download](report.pdf "PDF report")',
+      '',
+      'Download report.pdf.zip',
+      '',
+      '```python',
+      'open("report.pdf", "wb")',
+      '```',
+      '',
+      '~~~~',
+      'open("report.pdf", "wb")',
+      '~~~~',
+      '',
+      '    open("report.pdf", "wb")',
+      '',
+      'Use `report.pdf` and ``open("report.pdf")`` in code.',
+      '',
+      '[proxy](https://ai.aksg.net/webapi/files/files/scope/1/recipe.pdf)',
+      '',
+      `[already](${report.url})`,
+    ].join('\n');
+
+    expect(rewriteGeneratedFileLinks(content, [report], appOrigin)).toBe(
+      [
+        '[Source report](https://publisher.example/report.pdf)',
+        '',
+        `[Download](${report.url} "PDF report")`,
+        '',
+        'Download report.pdf.zip',
+        '',
+        '```python',
+        'open("report.pdf", "wb")',
+        '```',
+        '',
+        '~~~~',
+        'open("report.pdf", "wb")',
+        '~~~~',
+        '',
+        '    open("report.pdf", "wb")',
+        '',
+        'Use `report.pdf` and ``open("report.pdf")`` in code.',
+        '',
+        '[proxy](https://ai.aksg.net/webapi/files/files/scope/1/recipe.pdf)',
+        '',
+        `[already](${report.url})`,
       ].join('\n'),
     );
   });
@@ -48,7 +105,7 @@ describe('rewriteGeneratedFileLinks', () => {
       `[already](${pdf.url})`,
     ].join('\n');
 
-    expect(rewriteGeneratedFileLinks(content, [pdf])).toBe(content);
+    expect(rewriteGeneratedFileLinks(content, [pdf], appOrigin)).toBe(content);
   });
 
   it('reads code interpreter files from earlier tool messages', () => {
@@ -61,7 +118,9 @@ describe('rewriteGeneratedFileLinks', () => {
           role: 'tool',
         },
         {
-          content: JSON.stringify({ files: [{ filename: 'other.pdf', url: 'https://cdn.example/other.pdf' }] }),
+          content: JSON.stringify({
+            files: [{ filename: 'other.pdf', url: 'https://cdn.example/other.pdf' }],
+          }),
           plugin: { identifier: 'other-tool' },
           role: 'tool',
         },

@@ -1580,7 +1580,7 @@ const executeChat = async (
 
         content = result.content;
         if (content && generatedFileLinks.length > 0) {
-          content = rewriteGeneratedFileLinks(content, generatedFileLinks);
+          content = rewriteGeneratedFileLinks(content, generatedFileLinks, process.env.APP_URL);
         }
         reasoning = result.reasoning;
         await flush(true);

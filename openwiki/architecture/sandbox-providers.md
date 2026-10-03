@@ -80,7 +80,9 @@ and leftover tRPC keep calling `runCodeInterpreter`.
    `S3_SET_ACL` is set, and `getUIFileUrl` (`/webapi/files/...`) otherwise. A
    presigned URL is not saved into the topic. The tool card copies that open
    URL and downloads through the file id proxy. The follow-up assistant reply
-   rewrites a bare filename or `https://<app>/<filename>` link to the open URL.
+   rewrites a bare filename, a relative filename link, or the same filename on
+   the app origin. Links to other sites, code blocks, and longer names such as
+   `report.pdf.zip` stay unchanged.
    A failed file is logged (`sandbox_persist_skipped`) and skipped; the run
    continues. Older messages without `url` still resolve via `file.findById`.
 5. The builtin tool card defaults to plugin UI (not JSON). File cards use
@@ -110,9 +112,11 @@ port `8194` unpublished.
 The guest wrapper only probe-writes that directory, patches `open` /
 `io.open` / `os.open` / `getcwd` so relative paths stay inside it. A write,
 append, or exclusive open whose path is outside that directory is redirected
-to `DATA_DIR/<basename>`. Reads of absolute paths stay on the original path so
-fonts and the standard library still load. Writes under `/dev`, `/proc`, and
-`/sys` are not redirected. Stdlib `zipfile` uses `io.open`, which is only an
+to `DATA_DIR/<basename>`. A later read, `os.stat`, or `pathlib` check of that
+same absolute path follows the session file, including when the original path
+already held stale bytes. Reads of absolute paths that were not written in
+this run stay on the original path so fonts and the standard library still
+load. Writes under `/dev`, `/proc`, and `/sys` are not redirected. Stdlib `zipfile` uses `io.open`, which is only an
 alias for builtin `open` at interpreter start
 ([io.open](https://docs.python.org/3.14/library/io.html#io.open),
 [zipfile](https://github.com/python/cpython/blob/3.14/Lib/zipfile/__init__.py)).

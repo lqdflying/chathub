@@ -4,6 +4,7 @@ import { TRPCError } from '@trpc/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { UserModel } from '@/database/models/user';
+import { CodeInterpreterIdentifier } from '@/tools/code-interpreter';
 import * as compactionHelpers from '@/helpers/contextCompaction';
 import {
   ConversationWriteRejectedError,
@@ -1158,6 +1159,55 @@ describe('executeConversationGeneration chat resume', () => {
         [CONVERSATION_GENERATION_TURN_COMPLETE]: true,
       }),
     );
+  });
+
+  it('rewrites local generated-file links and leaves external citations', async () => {
+    const stored = 'https://cdn.example/files/scope/1/report.pdf';
+    const previousAppUrl = process.env.APP_URL;
+    process.env.APP_URL = 'https://ai.aksg.net';
+    const origin = 'https://ai.aksg.net';
+    aiChatMocks.getMessagesAndTopics.mockResolvedValue({
+      messages: [
+        { content: 'make a pdf', id: 'user-1', role: 'user' },
+        {
+          content: JSON.stringify({
+            files: [{ filename: 'report.pdf', url: stored }],
+            success: true,
+          }),
+          id: 'tool-1',
+          plugin: { identifier: CodeInterpreterIdentifier },
+          role: 'tool',
+        },
+      ],
+      topics: [],
+    });
+    vi.mocked(consumeProtocolResponse).mockResolvedValue({
+      content: [
+        '[local](report.pdf)',
+        `[host](${origin}/report.pdf)`,
+        '[Source report](https://publisher.example/report.pdf)',
+        '~~~',
+        'open("report.pdf", "wb")',
+        '~~~',
+      ].join('\n'),
+    });
+
+    try {
+      await runOperation(buildOperation({ id: 'cgo_pdf_links' }));
+      expect(assistant.content).toBe(
+        [
+          `[local](${stored})`,
+          `[host](${stored})`,
+          '[Source report](https://publisher.example/report.pdf)',
+          '~~~',
+          'open("report.pdf", "wb")',
+          '~~~',
+        ].join('\n'),
+      );
+    } finally {
+      if (previousAppUrl === undefined) delete process.env.APP_URL;
+      else process.env.APP_URL = previousAppUrl;
+    }
   });
 
   it('emits planning before the first model call and logs model_stop on success', async () => {
