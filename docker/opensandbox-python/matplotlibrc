@@ -1,0 +1,5 @@
+backend: Agg
+# Glyph fallback runs across font.family entries, not within the generic
+# sans-serif list, so name both families here.
+font.family: DejaVu Sans, WenQuanYi Zen Hei
+axes.unicode_minus: False

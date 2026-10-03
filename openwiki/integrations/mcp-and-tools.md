@@ -314,7 +314,7 @@ For built-in Tools Hub features, also check:
 ## Code Interpreter runtime
 
 The `lobe-code-interpreter` builtin runs Python through a **sandbox provider**
-(DifySandbox today). Architecture:
+(DifySandbox by default, or OpenSandbox). Architecture:
 [Sandbox providers](../architecture/sandbox-providers.md).
 The ChatHub image is distroless and has no CPython. User-facing setup:
 [Code Interpreter Sandbox](https://github.com/lqdflying/chathub/wiki/Code-Interpreter-Sandbox).
@@ -330,6 +330,12 @@ The ChatHub image is distroless and has no CPython. User-facing setup:
   fail the tool). Wrapper sentinel `success` is the failure flag. Isolation is seccomp +
   chroot. There is no file-upload API; the Dify provider wraps files into the
   Python string.
+- **OpenSandbox** — `SANDBOX_PROVIDER=opensandbox` with
+  `OPENSANDBOX_SERVER_URL` / `OPENSANDBOX_API_KEY` / `OPENSANDBOX_IMAGE`. One
+  fresh sandbox per run (create → execd ping → upload runner, code, files →
+  `python3` via execd's command API → manifest → download → delete), all
+  through the lifecycle server's proxy. No Jupyter. Real Linux userland;
+  isolation is the server's runtime (gVisor or Kata).
 - **ChatHub adapter** — `src/server/services/codeInterpreter/` gathers
   conversation files (paginated, newest-first, thread-scoped), calls
   `getSandboxProvider().run()`, and uploads results with the server file
@@ -339,14 +345,18 @@ The ChatHub image is distroless and has no CPython. User-facing setup:
 - **Thread scope** — a portal-thread run uses that thread (plus its main
   prefix). A main-topic run excludes portal-thread files.
 - **Enqueue** — Code Interpreter stays off the defer list. Presence must not
-  force the whole turn onto the tab. Unset `CODE_INTERPRETER_SANDBOX_URL`
-  returns `not_configured` (`shouldContinue: true`). There is no Pyodide
+  force the whole turn onto the tab. An unset provider URL
+  (`CODE_INTERPRETER_SANDBOX_URL` or `OPENSANDBOX_SERVER_URL`) returns
+  `not_configured` (`shouldContinue: true`). There is no Pyodide
   fallback.
-- **Packages** — operator-installed via the sandbox `/dependencies` volume /
-  dependencies update API. The tool `packages` argument is counted for debug
-  only.
+- **Packages** — operator-installed: the Dify `/dependencies` volume /
+  dependencies update API, or the OpenSandbox image
+  (`docker/opensandbox-python/`). The tool `packages` argument is counted
+  for debug only.
 - **Debug** — `sandbox_run_started` / `sandbox_run_settled` on
-  `CHATHUB_GENERATION_DEBUG` (includes `provider`). Never log code, stdout, or
+  `CHATHUB_GENERATION_DEBUG` (includes `provider`; OpenSandbox failures add
+  `failurePhase`), plus OpenSandbox `sandbox_collect_failed` /
+  `sandbox_cleanup_failed`. Never log code, stdout, or
   filenames. `browser_tool_stubbed` is DALL·E only.
 
 MCP HTTP tools invoked during durable conversation generation run inside

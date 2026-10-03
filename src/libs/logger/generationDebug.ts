@@ -87,6 +87,8 @@ export type GenerationDebugEvent =
   | 'execute_transcript_loaded'
   | 'job_malformed'
   | 'job_received'
+  | 'sandbox_cleanup_failed'
+  | 'sandbox_collect_failed'
   | 'sandbox_persist_skipped'
   | 'sandbox_run_settled'
   | 'sandbox_run_started'

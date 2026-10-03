@@ -18,7 +18,7 @@ These are the differences that matter if you used 1.0 or are choosing ChatHub ov
 
 **Knowledge Base is no longer “whatever the chat key can embed.”** Indexing uses a dedicated OpenAI, Cohere, or Voyage provider (`RAG_EMBEDDING_*` or Settings → RAG Provider). Chat keys are never an implicit fallback. PostgreSQL must ship `pgvector` (the Compose example uses the pgvector image). An optional MarkItDown sidecar turns PDF/Office/HTML into structured Markdown before chunking. [Knowledge Base and RAG](https://github.com/lqdflying/chathub/wiki/Knowledge-Base-and-RAG) · [MarkItDown](https://github.com/lqdflying/chathub/wiki/MarkItDown-Sidecar)
 
-**Python runs in a jail beside ChatHub, not in the image.** Code Interpreter talks to `langgenius/dify-sandbox:0.2.15`. The ChatHub image stays distroless; Graphile can run guest Python after you close the tab. Omit the sidecar if you do not need it. [Code Interpreter Sandbox](https://github.com/lqdflying/chathub/wiki/Code-Interpreter-Sandbox)
+**Python runs in a sandbox beside ChatHub, not in the image.** Code Interpreter talks to `langgenius/dify-sandbox:0.2.15` by default, or to an OpenSandbox server (`SANDBOX_PROVIDER=opensandbox`) that gives every run its own throwaway container with a real Linux userland (gVisor or Kata isolation when the server is configured for it). The ChatHub image stays distroless; Graphile can run guest Python after you close the tab. Omit the sidecar if you do not need it. [Code Interpreter Sandbox](https://github.com/lqdflying/chathub/wiki/Code-Interpreter-Sandbox)
 
 **Images and documents outlived the chat bubble.** In-chat Image generation is a server task (slow 4K renders survive proxies). Finished pictures live in an Artifacts gallery, matched back to the prompt that created them. SVG, full HTML pages, and Mermaid in replies render inline. [Image Generation](https://github.com/lqdflying/chathub/wiki/Image-Generation) · [Artifacts](https://github.com/lqdflying/chathub/wiki/Artifacts) · [Inline diagrams](https://github.com/lqdflying/chathub/wiki/Inline-SVG-Diagrams)
 
@@ -31,7 +31,7 @@ What 1.0 already was, and 2.0 still is: Docker + PostgreSQL only, built-in usern
 | Deploy | Vercel / Docker / Desktop | Docker + PostgreSQL only |
 | Chat after you leave | Cancels with the tab | Server worker continues |
 | Knowledge embeddings | Implicit chat-provider defaults | Dedicated RAG provider |
-| Code Interpreter | Not a first-class sidecar | Optional DifySandbox sibling |
+| Code Interpreter | Not a first-class sidecar | Optional DifySandbox or OpenSandbox sibling |
 | Client | Includes desktop / local DB editions | Browser and PWA against the server |
 
 ---
