@@ -50,6 +50,69 @@ export class OpenSandboxHttpError extends Error {
   }
 }
 
+// Guest manifests are untrusted. This cap is independent of the per-file cap.
+export const OPENSANDBOX_MANIFEST_MAX_BYTES = 256 * 1024;
+
+export class OpenSandboxOutputTooLargeError extends Error {
+  readonly limit: number;
+
+  constructor(limit: number) {
+    super(`OpenSandbox output exceeded ${limit} bytes.`);
+    this.name = 'OpenSandboxOutputTooLargeError';
+    this.limit = limit;
+  }
+}
+
+const declaredLength = (response: Response) => {
+  const raw = response.headers.get('content-length');
+  if (raw === null || raw.trim() === '') return undefined;
+  const value = Number(raw);
+  return Number.isFinite(value) && value >= 0 ? value : undefined;
+};
+
+const readCappedBody = async (response: Response, maxBytes: number) => {
+  const declared = declaredLength(response);
+  if (declared !== undefined && declared > maxBytes) {
+    await response.body?.cancel();
+    throw new OpenSandboxOutputTooLargeError(maxBytes);
+  }
+  if (!response.body) {
+    const buffered = new Uint8Array(await response.arrayBuffer());
+    if (buffered.byteLength > maxBytes) throw new OpenSandboxOutputTooLargeError(maxBytes);
+    return buffered;
+  }
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    let next = await reader.read();
+    while (!next.done) {
+      const value = next.value;
+      if (value?.byteLength) {
+        if (total + value.byteLength > maxBytes) {
+          throw new OpenSandboxOutputTooLargeError(maxBytes);
+        }
+        chunks.push(value);
+        total += value.byteLength;
+      }
+      next = await reader.read();
+    }
+  } catch (error) {
+    await reader.cancel().catch(() => undefined);
+    throw error;
+  }
+  reader.releaseLock();
+
+  const body = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return body;
+};
+
 const readErrorMessage = async (response: Response, fallback: string) => {
   const text = await response.text().catch(() => '');
   let message = text;
@@ -266,12 +329,12 @@ export class OpenSandboxClient {
     await ensureOk(response, 'OpenSandbox could not upload conversation files');
   }
 
-  async downloadFile(execd: ExecdEndpoint, path: string, signal: AbortSignal) {
+  async downloadFile(execd: ExecdEndpoint, path: string, signal: AbortSignal, maxBytes: number) {
     const response = await fetch(
       `${execd.url}/files/download?path=${encodeURIComponent(path)}`,
       { headers: this.headers(execd.headers), signal },
     );
     await ensureOk(response, 'OpenSandbox could not download an output file');
-    return new Uint8Array(await response.arrayBuffer());
+    return readCappedBody(response, maxBytes);
   }
 }

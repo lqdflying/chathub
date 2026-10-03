@@ -14,6 +14,7 @@ import {
 } from '../../types';
 import {
   type ExecdEndpoint,
+  OPENSANDBOX_MANIFEST_MAX_BYTES,
   OpenSandboxClient,
   OpenSandboxHttpError,
   type OpenSandboxNetworkPolicy,
@@ -352,6 +353,7 @@ export class OpenSandboxProvider implements SandboxProvider {
         execd,
         MANIFEST_PATH,
         AbortSignal.timeout(STEP_TIMEOUT_MS),
+        OPENSANDBOX_MANIFEST_MAX_BYTES,
       );
       const files: SandboxFile[] = [];
       for (const entry of parseOutputManifest(Buffer.from(manifest).toString('utf8'))) {
@@ -364,6 +366,7 @@ export class OpenSandboxProvider implements SandboxProvider {
           execd,
           `${OPENSANDBOX_WORKDIR}/${name}`,
           AbortSignal.timeout(STEP_TIMEOUT_MS),
+          this.maxFileBytes,
         );
         if (content.byteLength === 0 || content.byteLength > this.maxFileBytes) continue;
         files.push({ content, filename: name });

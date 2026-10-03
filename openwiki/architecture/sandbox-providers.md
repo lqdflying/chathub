@@ -200,8 +200,14 @@ server over plain HTTP (no SDK dependency). Each `run()`:
    and `timeout` = `CODE_INTERPRETER_TIMEOUT`, so execd kills the process
    itself. User code reaches the sandbox only as a file.
 5. Downloads `.chathub/manifest.json` (name, size, sha256 of top-level
-   files), then only new or changed files. Best effort: a missing manifest
-   keeps stdout/stderr and returns no files.
+   files), then only new or changed files. The manifest and each file are
+   read in chunks and rejected once they pass a finite cap
+   (`OPENSANDBOX_MANIFEST_MAX_BYTES`, or `CODE_INTERPRETER_MAX_FILE_BYTES`
+   for a file). A `Content-Length` above the cap cancels the body before it
+   is read; a short or missing length is still counted from the bytes that
+   arrive. Guest sizes are not trusted. Best effort: a missing manifest, an
+   over-cap body, or a failed download keeps stdout/stderr and returns no
+   files.
 6. Deletes the sandbox in `finally`.
 
 The runner `exec`s the code as `__main__`, echoes a trailing expression with
@@ -210,14 +216,15 @@ prints tracebacks without runner frames (source lines via `linecache`),
 forces `MPLBACKEND=Agg`, and patches `plt.show()` on pyplot import to save
 `plot_N.png`. Unshown figures are flushed before the manifest.
 
-Absolute writes are collected without the Dify jail stubs. `builtins.open`,
-`io.open`, and `os.open` send a write outside `/tmp/chathub-ci` to
-`<basename>` in that directory, except paths under `/dev`, `/proc`, and
-`/sys`. A later read, `os.stat`, or `os.lstat` of that same absolute path
-follows the redirected file. A read of an absolute path that was not written
-in this run stays on the original path. Relative paths stay relative because
-`chdir` works. The manifest still lists only top-level regular files, and it
-skips symlinks, dot names, `fontlist-v*`, and `*.matplotlib-lock`.
+Absolute writes stay on the real path. `builtins.open`, `io.open`, and
+`os.open` create a missing parent for a write outside `/tmp/chathub-ci`,
+except paths under `/dev`, `/proc`, and `/sys`. They do not remap reads,
+`stat`, or `unlink`, so a later delete and a child process see that file.
+After the user code finishes, a captured file that still exists is copied
+into the workdir under its basename. A file that was removed, including
+tempfile probes, is not copied. The manifest still lists only top-level
+regular files, and it skips symlinks, dot names, `fontlist-v*`, and
+`*.matplotlib-lock`.
 
 `STSong.ttf` in the workdir is a symlink to
 `/usr/share/fonts/truetype/STSong.ttf`. The image points that path at the

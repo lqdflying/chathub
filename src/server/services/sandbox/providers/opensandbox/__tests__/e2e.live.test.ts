@@ -106,9 +106,11 @@ describe.runIf(serverUrl)('OpenSandbox live', () => {
   });
 
   it('gives every run a fresh sandbox', async () => {
-    await run('open("/tmp/leak.txt", "w").write("secret")');
+    const first = await run('open("/tmp/leak.txt", "w").write("secret")');
 
-    expect((await run('import os\nos.path.exists("/tmp/leak.txt")')).stdout).toBe('False');
+    expect(first.success).toBe(true);
+    expect(first.files.map((item) => item.filename)).toContain('leak.txt');
+    expect((await run('import os\nprint(os.path.exists("/tmp/leak.txt"))')).stdout).toBe('False');
   });
 
   it('reports exceptions as plain-text user tracebacks', async () => {

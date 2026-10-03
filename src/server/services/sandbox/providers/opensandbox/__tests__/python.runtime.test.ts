@@ -31,19 +31,31 @@ const FAKE_PYPLOT = [
   '    raise RuntimeError("original show must be replaced")',
 ].join('\n');
 
+const libraryPython = [
+  process.env.OPENSANDBOX_RUNNER_PYTHON,
+  '/tmp/opensandbox-pr18-review-venv/bin/python',
+]
+  .filter((bin): bin is string => !!bin && existsSync(bin))
+  .find((bin) => spawnSync(bin, ['-c', 'import openpyxl, matplotlib']).status === 0);
+
 let root: string;
 let workdir: string;
 let pythonPath: string;
 
-const run = (code: string, fontPath?: string) => {
+const run = (
+  code: string,
+  fontPath?: string,
+  python?: { bin?: string; fakePyplot?: boolean },
+) => {
   const control = join(workdir, '.chathub');
   mkdirSync(control, { recursive: true });
   writeFileSync(join(control, 'code.py'), code);
   writeFileSync(join(control, 'run.py'), buildRunnerScript(workdir, fontPath));
-  const result = spawnSync('python3', [join(control, 'run.py')], {
+  const fakePyplot = python?.fakePyplot !== false;
+  const result = spawnSync(python?.bin ?? 'python3', [join(control, 'run.py')], {
     cwd: workdir,
     encoding: 'utf8',
-    env: { ...process.env, PYTHONPATH: pythonPath },
+    env: fakePyplot ? { ...process.env, PYTHONPATH: pythonPath } : process.env,
     timeout: 15_000,
   });
   if (result.error) throw result.error;
@@ -176,11 +188,11 @@ describe('OpenSandbox runner script', () => {
     expect(stdout).toContain("path b'%PDF-path'");
     expect(stdout).toContain("os b'%PDF-os'");
     expect(stdout).toContain('other keep-read');
-    expect(readFileSync(stale, 'utf8')).toBe('stale-bytes');
+    expect(readFileSync(stale, 'utf8')).toBe('%PDF-new');
     expect(readFileSync(probe, 'utf8')).toBe('keep-read');
-    expect(existsSync(outside)).toBe(false);
-    expect(existsSync(join(root, 'path.pdf'))).toBe(false);
-    expect(existsSync(join(root, 'os.pdf'))).toBe(false);
+    expect(readFileSync(outside)).toEqual(Buffer.from('%PDF-io'));
+    expect(readFileSync(join(root, 'path.pdf'))).toEqual(Buffer.from('%PDF-path'));
+    expect(readFileSync(join(root, 'os.pdf'))).toEqual(Buffer.from('%PDF-os'));
     expect(manifest?.map((entry) => entry.name).sort()).toEqual([
       'os.pdf',
       'path.pdf',
@@ -191,18 +203,66 @@ describe('OpenSandbox runner script', () => {
   });
 
   it('does not collect /dev/null or matplotlib font-cache names', () => {
+    const cache = join(root, 'cache', 'fontlist-v9.json');
     const { manifest, status } = run(
       [
         'open("/dev/null", "w").write("x")',
-        'open("/root/.cache/matplotlib/fontlist-v9.json", "w").write("cache")',
-        'open("/root/.cache/matplotlib/fontlist-v9.json.matplotlib-lock", "w").write("")',
+        `open(${JSON.stringify(cache)}, "w").write("cache")`,
+        `open(${JSON.stringify(`${cache}.matplotlib-lock`)}, "w").write("")`,
         'open("kept.txt", "w").write("yes")',
       ].join('\n'),
     );
 
     expect(status).toBe(0);
     expect(existsSync(join(workdir, 'null'))).toBe(false);
+    expect(existsSync(join(workdir, 'fontlist-v9.json'))).toBe(false);
     expect(manifest?.map((entry) => entry.name)).toEqual(['kept.txt']);
+  });
+
+  it('deletes an absolute path and lets a child process read it', () => {
+    const gone = join(root, 'gone.txt');
+    const kept = join(root, 'via-cat.txt');
+    const removed = run(
+      ['import os', `p = ${JSON.stringify(gone)}`, 'open(p, "w").write("hello")', 'os.unlink(p)', 'print("exists", os.path.exists(p))'].join(
+        '\n',
+      ),
+    );
+    const child = run(
+      [
+        'import subprocess',
+        `p = ${JSON.stringify(kept)}`,
+        'open(p, "w").write("hello")',
+        'done = subprocess.run(["cat", p], capture_output=True, text=True)',
+        'print(done.returncode)',
+        'print(done.stdout)',
+      ].join('\n'),
+    );
+
+    expect(removed.status).toBe(0);
+    expect(removed.stdout).toContain('exists False');
+    expect(existsSync(gone)).toBe(false);
+    expect(removed.manifest ?? []).toEqual([]);
+    expect(child.status).toBe(0);
+    expect(child.stdout).toContain('0\nhello');
+    expect(readFileSync(kept, 'utf8')).toBe('hello');
+    expect(child.manifest?.map((entry) => entry.name)).toEqual(['via-cat.txt']);
+  });
+
+  it('does not return tempfile probes', () => {
+    const scratch = join(root, 'scratch');
+    mkdirSync(scratch);
+    const { manifest, status, stdout } = run(
+      [
+        'import tempfile',
+        'print(tempfile.gettempdir())',
+        `with tempfile.NamedTemporaryFile(dir=${JSON.stringify(scratch)}) as fh:`,
+        '    fh.write(b"hello")',
+      ].join('\n'),
+    );
+
+    expect(status).toBe(0);
+    expect(stdout.split('\n')[0]).not.toBe(workdir);
+    expect(manifest ?? []).toEqual([]);
   });
 
   it('links STSong.ttf into the workdir without returning it', () => {
@@ -214,6 +274,38 @@ describe('OpenSandbox runner script', () => {
     expect(stdout).toBe("b'font-bytes'\n");
     expect(readlinkSync(join(workdir, 'STSong.ttf'))).toBe(font);
     expect(manifest).toEqual([]);
+  });
+
+  const library = libraryPython ? it : it.skip;
+
+  library('returns only the workbook from a real openpyxl save', () => {
+    const { manifest, status, stdout } = run(
+      [
+        'from openpyxl import Workbook, load_workbook',
+        'book = Workbook()',
+        'book.active["A1"] = "hello"',
+        'book.save("out.xlsx")',
+        'print(load_workbook("out.xlsx").active["A1"].value)',
+      ].join('\n'),
+      undefined,
+      { bin: libraryPython, fakePyplot: false },
+    );
+
+    expect(status).toBe(0);
+    expect(stdout).toContain('hello');
+    expect(manifest?.map((entry) => entry.name)).toEqual(['out.xlsx']);
+  });
+
+  library('returns only the plot from real matplotlib', () => {
+    const { manifest, status, stderr } = run(
+      ['import matplotlib.pyplot as plt', 'plt.plot([1, 2], [3, 4])', 'plt.show()'].join('\n'),
+      undefined,
+      { bin: libraryPython, fakePyplot: false },
+    );
+
+    expect(status).toBe(0);
+    expect(stderr).not.toContain('Error');
+    expect(manifest?.map((entry) => entry.name)).toEqual(['plot_1.png']);
   });
 });
 

@@ -35,6 +35,7 @@ vi.mock('@/libs/logger/generationDebug', () => ({
   logGenerationDebugSafe: vi.fn(),
 }));
 
+import { OPENSANDBOX_MANIFEST_MAX_BYTES } from '../client';
 import { buildNetworkPolicy, OpenSandboxProvider } from '../provider';
 
 const SERVER = 'http://opensandbox:8090';
@@ -59,9 +60,15 @@ const exitWith = (evalue: string, traceback = [`exit status ${evalue}`]) => ({
   type: 'error',
 });
 
+interface DownloadState {
+  cancelled: boolean;
+  sent: number;
+}
+
 interface Scenario {
   command?: (init: RequestInit) => Promise<Response> | Response;
   create?: () => Response;
+  downloads?: Record<string, () => Response>;
   files?: Record<string, string>;
   pingFailures?: number;
   states?: string[];
@@ -129,6 +136,8 @@ const install = (scenario: Scenario = {}) => {
     if (path === `${EXECD}/files/download`) {
       const filePath = url.searchParams.get('path') ?? '';
       calls.downloads.push(filePath);
+      const custom = scenario.downloads?.[filePath];
+      if (custom) return custom();
       const content = scenario.files?.[filePath];
       return content === undefined
         ? json({ code: 'FILE_NOT_FOUND', message: 'file not found' }, 404)
@@ -143,6 +152,28 @@ const install = (scenario: Scenario = {}) => {
 const manifest = (entries: Array<{ name: string; sha256: string; size: number }>) => ({
   '/tmp/chathub-ci/.chathub/manifest.json': JSON.stringify(entries),
 });
+
+const byteStream = (length: number, chunkSize: number, contentLength?: number) => {
+  const state: DownloadState = { cancelled: false, sent: 0 };
+  let sent = 0;
+  const body = new ReadableStream<Uint8Array>({
+    cancel() {
+      state.cancelled = true;
+    },
+    pull(controller) {
+      if (sent >= length) {
+        controller.close();
+        return;
+      }
+      const size = Math.min(chunkSize, length - sent);
+      controller.enqueue(new Uint8Array(size));
+      sent += size;
+      state.sent = sent;
+    },
+  });
+  const headers = contentLength === undefined ? undefined : { 'Content-Length': String(contentLength) };
+  return { response: () => new Response(body, { headers }), state };
+};
 
 const file = (filename: string, content: string) => ({
   content: new Uint8Array(Buffer.from(content)),
@@ -369,6 +400,69 @@ describe('OpenSandboxProvider', () => {
         { action: 'allow', target: 'files.pythonhosted.org' },
       ],
     });
+  });
+
+  it('stops reading a forged-small output once it passes the file cap', async () => {
+    const big = byteStream(2 * 1024 * 1024, 64 * 1024, 1);
+    const calls = install({
+      downloads: { '/tmp/chathub-ci/big.bin': big.response },
+      files: manifest([{ name: 'big.bin', sha256: 'guest-controlled', size: 1 }]),
+    });
+
+    const result = await run('x');
+
+    expect(result).toMatchObject({ files: [], success: true });
+    expect(big.state.cancelled).toBe(true);
+    expect(big.state.sent).toBeGreaterThan(0);
+    expect(big.state.sent).toBeLessThan(2 * 1024 * 1024);
+    expect(big.state.sent).toBeLessThanOrEqual(128 * 1024);
+    expect(calls.deleted).toBe(1);
+  });
+
+  it('rejects a declared oversized body before reading it', async () => {
+    const big = byteStream(2 * 1024 * 1024, 64 * 1024, 2 * 1024 * 1024);
+    const calls = install({
+      downloads: { '/tmp/chathub-ci/big.bin': big.response },
+      files: manifest([{ name: 'big.bin', sha256: 'guest-controlled', size: 1 }]),
+    });
+
+    const result = await run('x');
+
+    expect(result.files).toEqual([]);
+    expect(big.state.sent).toBeLessThan(2 * 1024 * 1024);
+    expect(big.state.sent).toBeLessThanOrEqual(64 * 1024);
+    expect(big.state.cancelled).toBe(true);
+    expect(calls.deleted).toBe(1);
+  });
+
+  it('accepts a file that is exactly the per-file cap', async () => {
+    const exact = byteStream(1024, 512);
+    const calls = install({
+      downloads: { '/tmp/chathub-ci/exact.bin': exact.response },
+      files: manifest([{ name: 'exact.bin', sha256: 'x', size: 1024 }]),
+    });
+
+    const result = await run('x');
+
+    expect(exact.state).toEqual({ cancelled: false, sent: 1024 });
+    expect(result.files.map((item) => item.content.byteLength)).toEqual([1024]);
+    expect(calls.deleted).toBe(1);
+  });
+
+  it('stops reading an oversized manifest', async () => {
+    const full = OPENSANDBOX_MANIFEST_MAX_BYTES + 1024 * 1024;
+    const huge = byteStream(full, 64 * 1024);
+    const calls = install({
+      downloads: { '/tmp/chathub-ci/.chathub/manifest.json': huge.response },
+    });
+
+    const result = await run('x');
+
+    expect(result.files).toEqual([]);
+    expect(huge.state.cancelled).toBe(true);
+    expect(huge.state.sent).toBeGreaterThan(OPENSANDBOX_MANIFEST_MAX_BYTES);
+    expect(huge.state.sent).toBeLessThan(full);
+    expect(calls.deleted).toBe(1);
   });
 
   it('is not configured without both the server URL and the image', async () => {

@@ -335,9 +335,10 @@ The ChatHub image is distroless and has no CPython. User-facing setup:
   fresh sandbox per run (create → execd ping → upload runner, code, files →
   `python3` via execd's command API → manifest → download → delete), all
   through the lifecycle server's proxy. No Jupyter. Real Linux userland;
-  isolation is the server's runtime (gVisor or Kata). Absolute writes outside
-  `/dev`, `/proc`, and `/sys` are collected as the basename in `/tmp/chathub-ci`.
-  The runner links `STSong.ttf` into that workdir.
+  isolation is the server's runtime (gVisor or Kata). An absolute write outside
+  `/dev`, `/proc`, and `/sys` stays on that path; if the file still exists at
+  the end it is collected as its basename. The runner links `STSong.ttf` into
+  the workdir. Output downloads stop at a finite byte cap.
 - **ChatHub adapter** — `src/server/services/codeInterpreter/` gathers
   conversation files (paginated, newest-first, thread-scoped), calls
   `getSandboxProvider().run()`, and uploads results with the server file
