@@ -536,6 +536,9 @@ transaction as the operation pointer with `conversationGenerationToolPause`
 set to `tool_cap` or `tool_stall`. A later worker attempt reads that field,
 sends the tool-free payload again, does not execute tool calls, and keeps the
 same `execute_settled` stop reason. The field is not the banner flag.
+Usage and timing saved on that reply are merged onto the existing metadata.
+`MessageModel.update` replaces the JSON object, so omitting the pause field
+there would drop it before the completion marker is written.
 Tool calls on the closing reply are not executed. The 32-round ceiling
 includes the first tool-bearing reply. A finished model reply with
 no tools is `model_stop` and is not auto-continued. `shouldContinue: false`

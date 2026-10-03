@@ -2560,6 +2560,134 @@ describe('executeConversationGeneration tool continuation ids', () => {
     }
   });
 
+  const expectPauseSurvivesGenerationMetadata = async (pause: 'tool_cap' | 'tool_stall') => {
+    const toolRounds =
+      pause === 'tool_stall'
+        ? CONVERSATION_GENERATION_MAX_IDENTICAL_TOOL_CALLS
+        : CONVERSATION_GENERATION_MAX_TOOL_TURNS;
+    const row = {
+      assistantMessageId: assistant.id,
+      attempt: 1,
+      config: { model: 'test-model', provider: 'test-provider' },
+      id: `cgo_meta_${pause}`,
+      kind: 'chat',
+      lane: 'lane-1',
+      laneGeneration: 1,
+      revision: 0,
+      status: 'pending',
+      userId: 'user-1',
+    };
+    const persisted = new Map<string, Record<string, any>>([[assistant.id, { ...assistant }]]);
+    messageMocks.findById.mockImplementation(async (id: string) => persisted.get(id));
+    messageMocks.create.mockImplementation(async (params: Record<string, any>, id: string) => {
+      const next = { ...params, id, metadata: { ...(params.metadata || {}) } };
+      persisted.set(id, next);
+      return next;
+    });
+    messageMocks.update.mockImplementation(async (id: string, value: Record<string, any>) => {
+      const current = persisted.get(id);
+      if (current) Object.assign(current, value);
+    });
+    let completionWriteFailed = false;
+    messageMocks.updateMetadata.mockImplementation(async (id: string, value: Record<string, any>) => {
+      const current = persisted.get(id);
+      if (
+        !completionWriteFailed &&
+        value?.[CONVERSATION_GENERATION_TURN_COMPLETE] === true &&
+        current?.metadata?.[CONVERSATION_GENERATION_TOOL_PAUSE]
+      ) {
+        completionWriteFailed = true;
+        throw new Error('completion marker write failed');
+      }
+      if (current) current.metadata = { ...(current.metadata || {}), ...value };
+    });
+    aiChatMocks.getMessagesAndTopics.mockImplementation(async () => ({
+      messages: [{ content: 'hi', id: 'user-1', role: 'user' }, ...persisted.values()],
+      topics: [],
+    }));
+    modelMocks.markForRetry.mockImplementation(async (_id, error) => {
+      Object.assign(row, { error, revision: 4, status: 'pending' });
+      return { ...row };
+    });
+    vi.mocked(buildConversationChatPayload).mockImplementation(async ({ messages }: { messages: unknown[] }) => ({
+      payload: {
+        messages,
+        model: 'test-model',
+        tool_choice: 'auto',
+        tools: [{ function: { name: 'plugin____search' }, type: 'function' }],
+      },
+    }) as never);
+    let round = 0;
+    vi.mocked(consumeProtocolResponse).mockImplementation(async () => {
+      round += 1;
+      if (round <= toolRounds) {
+        return {
+          content: 'searching',
+          toolCalls: [
+            {
+              function: {
+                arguments: pause === 'tool_stall' ? '{"q":"same"}' : JSON.stringify({ q: round }),
+                name: 'plugin____search',
+              },
+              id: `call-${round}`,
+            },
+          ],
+        };
+      }
+      return {
+        content: 'closing',
+        toolCalls: [
+          { function: { arguments: '{"q":"after"}', name: 'plugin____search' }, id: 'call-after' },
+        ],
+      };
+    });
+
+    await expect(runOperation(row)).rejects.toThrow('completion marker write failed');
+    const closingId = row.assistantMessageId;
+    const failedMetadata = persisted.get(closingId)?.metadata;
+    expect(failedMetadata?.[CONVERSATION_GENERATION_TOOL_PAUSE]).toBe(pause);
+    expect(failedMetadata?.latency).toEqual(expect.any(Number));
+    expect(failedMetadata).not.toHaveProperty(CONVERSATION_GENERATION_TURN_COMPLETE);
+    expect(vi.mocked(executeConversationToolStep)).toHaveBeenCalledTimes(toolRounds);
+
+    row.attempt = 2;
+    const retryIndex = runtimeMocks.chat.mock.calls.length;
+    await runOperation(row);
+
+    const retryPayload = runtimeMocks.chat.mock.calls[retryIndex]?.[0] as {
+      messages?: Array<{ content?: string }>;
+      tools?: unknown;
+    };
+    expect(retryPayload.tools).toBeUndefined();
+    expect(retryPayload.messages?.at(-1)?.content).toBe(TOOL_PAUSE_INSTRUCTION);
+    expect(vi.mocked(executeConversationToolStep)).toHaveBeenCalledTimes(toolRounds);
+    expect(row.assistantMessageId).toBe(closingId);
+    const completed = persisted.get(closingId)?.metadata;
+    expect(completed?.[CONVERSATION_GENERATION_TOOL_PAUSE]).toBe(pause);
+    expect(completed?.[CONVERSATION_GENERATION_TURN_COMPLETE]).toBe(true);
+    expect(completed).not.toHaveProperty(CONVERSATION_GENERATION_STOP_REASON);
+    const settled = generationDebugMocks.logGenerationDebugSafe.mock.calls.find(
+      (call: unknown[]) => call[0] === 'execute_settled',
+    );
+    expect(settled?.[1]).toEqual(expect.objectContaining({ outcome: 'succeeded', stopReason: pause }));
+  };
+
+  it('keeps tool_stall when generation metadata is saved before the completion write fails', async () => {
+    try {
+      await expectPauseSurvivesGenerationMetadata('tool_stall');
+    } finally {
+      vi.mocked(buildConversationChatPayload).mockResolvedValue({ payload: { messages: [] } });
+    }
+  });
+
+  it('keeps tool_cap when generation metadata is saved before the completion write fails', async () => {
+    try {
+      await expectPauseSurvivesGenerationMetadata('tool_cap');
+    } finally {
+      vi.mocked(buildConversationChatPayload).mockResolvedValue({ payload: { messages: [] } });
+    }
+  });
+
   it('does not write tool_cap when a tool stops the loop', async () => {
     vi.mocked(executeConversationToolStep).mockResolvedValue({
       content: 'tool result',

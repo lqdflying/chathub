@@ -1581,7 +1581,14 @@ const executeChat = async (
             // Flatten ModelUsage + ModelPerformance onto MessageMetadata
             // (same as browser generateAIChat onFinish). Nested `{ usage }`
             // is unread by the token popover and per-bubble Usage extras.
-            ...(generationMetadata ? { metadata: generationMetadata } : {}),
+            ...(generationMetadata
+              ? {
+                  metadata: {
+                    ...currentAssistant?.metadata,
+                    ...generationMetadata,
+                  },
+                }
+              : {}),
           });
         }
 
@@ -1618,7 +1625,14 @@ const executeChat = async (
             content: content || '',
             error: error as any,
             reasoning: reasoning ?? undefined,
-            ...(generationMetadata ? { metadata: generationMetadata } : {}),
+            ...(generationMetadata
+              ? {
+                  metadata: {
+                    ...currentAssistant?.metadata,
+                    ...generationMetadata,
+                  },
+                }
+              : {}),
           });
           if (!options?.skipFinalize)
             await finalize(model, operation, 'failed', error, db, assistantId);
