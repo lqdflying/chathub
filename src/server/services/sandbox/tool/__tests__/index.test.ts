@@ -357,7 +357,7 @@ describe('invokeSandboxTool', () => {
 
     const controller = new AbortController();
     controller.abort();
-    mocks.withWorkspace.mockRejectedValueOnce(new Error('The operation was aborted.'));
+    const callsBefore = mocks.withWorkspace.mock.calls.length;
     await expect(
       invokeSandboxTool({
         apiName: 'runCommand',
@@ -365,6 +365,24 @@ describe('invokeSandboxTool', () => {
         db: {} as any,
         sessionId: 'agent-1',
         signal: controller.signal,
+        topicId: 'topic-1',
+        userId: 'user-1',
+      }),
+    ).rejects.toMatchObject({ code: 'Cancelled', message: 'The sandbox call was cancelled.' });
+    expect(mocks.withWorkspace.mock.calls.length).toBe(callsBefore);
+
+    const during = new AbortController();
+    mocks.withWorkspace.mockImplementationOnce(async () => {
+      during.abort();
+      throw new Error('The operation was aborted.');
+    });
+    await expect(
+      invokeSandboxTool({
+        apiName: 'runCommand',
+        args: { command: 'sleep 30' },
+        db: {} as any,
+        sessionId: 'agent-1',
+        signal: during.signal,
         topicId: 'topic-1',
         userId: 'user-1',
       }),

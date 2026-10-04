@@ -324,8 +324,8 @@ User-facing setup:
   `getCommandOutput`, `stopCommand`, `runPython` (the old `python` API),
   `readFile`, `writeFile`, `editFile`, `listFiles`, `exportFile`. Each returns
   a JSON `SandboxToolResult`; failures are `success: false` results. A caller
-  abort is rethrown so durable Stop does not persist that JSON or continue
-  the turn.
+  abort is rethrown, including when file collection resolves after Stop, so
+  durable Stop does not persist that JSON or continue the turn.
 - **Dispatch** — Graphile `invokeConversationTool` and the browser's
   `invokeSandboxTool` store action (tRPC `sandbox.invoke`) both call
   `invokeSandboxTool` (`src/server/services/sandbox/tool/`), which validates

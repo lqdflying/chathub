@@ -4,6 +4,51 @@ import { setTimeout as sleep } from 'node:timers/promises';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { executeConversationToolStep } from '@/server/services/conversationGeneration/tools';
+import { invokeSandboxTool } from '@/server/services/sandbox/tool';
+import { SandboxIdentifier } from '@/tools/sandbox/const';
+
+const generationStepMocks = vi.hoisted(() => ({
+  claimStep: vi.fn(),
+  findCompletedStepByHash: vi.fn(),
+  updateStep: vi.fn(),
+}));
+const messageStepMocks = vi.hoisted(() => ({
+  create: vi.fn(),
+  findToolMessageByCall: vi.fn(),
+  update: vi.fn(),
+  updatePluginState: vi.fn(),
+}));
+
+vi.mock('@/database/models/conversationGeneration', () => ({
+  ConversationGenerationModel: class {
+    claimStep = generationStepMocks.claimStep;
+    findCompletedStepByHash = generationStepMocks.findCompletedStepByHash;
+    updateStep = generationStepMocks.updateStep;
+  },
+}));
+vi.mock('@/database/models/message', () => ({
+  MessageModel: class {
+    create = messageStepMocks.create;
+    findToolMessageByCall = messageStepMocks.findToolMessageByCall;
+    update = messageStepMocks.update;
+    updatePluginState = messageStepMocks.updatePluginState;
+  },
+}));
+vi.mock('@/server/services/sandbox/conversationFiles', () => ({
+  listConversationSandboxInputs: async () => [],
+  persistSandboxOutputFiles: async ({ files }: { files: Array<{ filename: string }> }) =>
+    files.map((file, index) => ({
+      fileId: `out-${index}`,
+      filename: file.filename,
+      url: `https://app.example/f/${file.filename}`,
+    })),
+}));
+vi.mock('@/server/services/search', () => ({ SearchService: class {} }));
+vi.mock('@/tools/web-browsing/ExecutionRuntime', () => ({
+  WebBrowsingExecutionRuntime: class {},
+}));
+
 const fetchMock = vi.fn();
 
 vi.mock('@/envs/sandbox', () => ({
@@ -39,6 +84,7 @@ vi.mock('@/envs/sandbox', () => ({
 }));
 
 vi.mock('@/libs/logger/generationDebug', () => ({
+  hashGenerationDebugValue: (value: string) => value,
   logGenerationDebugSafe: vi.fn(),
 }));
 
@@ -1343,6 +1389,166 @@ describe('OpenSandboxProvider', () => {
       outcome: 'not_configured',
     });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects Stop during Python manifest and output downloads', async () => {
+    const manifestController = new AbortController();
+    install({
+      command: () => stream([{ text: 'done', type: 'stdout' }, { type: 'execution_complete' }]),
+      route: (rest, url, init) => {
+        if (rest === '/files/download' && url.searchParams.get('path')?.endsWith('/manifest.json')) {
+          manifestController.abort();
+          init.signal?.throwIfAborted();
+          throw new Error('The workspace did not forward cancellation');
+        }
+      },
+    });
+
+    await expect(
+      invokeSandboxTool({
+        apiName: 'runPython',
+        args: { code: 'print("done")' },
+        db: {} as any,
+        sessionId: 'agent-1',
+        signal: manifestController.signal,
+        topicId: 'topic-1',
+        userId: 'user-1',
+      }),
+    ).rejects.toMatchObject({ code: 'Cancelled' });
+
+    const fileController = new AbortController();
+    install({
+      command: () => stream([{ text: 'done', type: 'stdout' }, { type: 'execution_complete' }]),
+      files: {
+        ...manifest([{ changed: true, name: 'out.txt', sha256: sha('out'), size: 3 }]),
+        '/tmp/workspace/out.txt': 'out',
+      },
+      route: (rest, url, init) => {
+        if (rest === '/files/download' && url.searchParams.get('path')?.endsWith('/out.txt')) {
+          fileController.abort();
+          init.signal?.throwIfAborted();
+          throw new Error('The workspace did not forward cancellation');
+        }
+      },
+    });
+
+    await expect(
+      invokeSandboxTool({
+        apiName: 'runPython',
+        args: { code: 'print("done")' },
+        db: {} as any,
+        sessionId: 'agent-1',
+        signal: fileController.signal,
+        topicId: 'topic-1',
+        userId: 'user-1',
+      }),
+    ).rejects.toMatchObject({ code: 'Cancelled' });
+  });
+
+  it('rejects Stop during the post-run sync upload without a tool result', async () => {
+    const controller = new AbortController();
+    install({
+      command: () => stream([{ text: 'done', type: 'stdout' }, { type: 'execution_complete' }]),
+      files: {
+        ...manifest([{ changed: true, name: 'out.txt', sha256: sha('out'), size: 3 }]),
+        '/tmp/workspace/out.txt': 'out',
+      },
+      route: async (rest, _url, init) => {
+        if (rest !== '/files/upload' || !(init.body instanceof FormData)) return;
+        const metadata = init.body.getAll('metadata') as Blob[];
+        for (const part of metadata) {
+          const parsed = JSON.parse(await part.text()) as { path?: string };
+          if (parsed.path?.endsWith('/synced.json')) {
+            controller.abort();
+            init.signal?.throwIfAborted();
+            throw new Error('The workspace did not forward cancellation');
+          }
+        }
+        return json({});
+      },
+    });
+
+    await expect(
+      invokeSandboxTool({
+        apiName: 'runPython',
+        args: { code: 'print("done")' },
+        db: {} as any,
+        sessionId: 'agent-1',
+        signal: controller.signal,
+        topicId: 'topic-1',
+        userId: 'user-1',
+      }),
+    ).rejects.toMatchObject({ code: 'Cancelled' });
+  });
+
+  it('still returns stdout when output collection fails without Stop', async () => {
+    install();
+
+    await expect(
+      invokeSandboxTool({
+        apiName: 'runPython',
+        args: { code: 'print(1)' },
+        db: {} as any,
+        sessionId: 'agent-1',
+        topicId: 'topic-1',
+        userId: 'user-1',
+      }),
+    ).resolves.toMatchObject({
+      output: [{ data: 'ok', type: 'stdout' }],
+      success: true,
+    });
+  });
+
+  it('does not persist a durable tool result when Stop hits output collection', async () => {
+    generationStepMocks.findCompletedStepByHash.mockResolvedValue(undefined);
+    generationStepMocks.claimStep.mockResolvedValue({ id: 'step-1' });
+    generationStepMocks.updateStep.mockClear().mockResolvedValue({ id: 'step-1' });
+    messageStepMocks.create.mockClear().mockResolvedValue({ id: 'tool-1' });
+    messageStepMocks.findToolMessageByCall.mockResolvedValue(undefined);
+    const controller = new AbortController();
+    install({
+      command: () => stream([{ text: 'done', type: 'stdout' }, { type: 'execution_complete' }]),
+      route: (rest, url, init) => {
+        if (rest === '/files/download' && url.searchParams.get('path')?.endsWith('/manifest.json')) {
+          controller.abort();
+          init.signal?.throwIfAborted();
+          throw new Error('The workspace did not forward cancellation');
+        }
+      },
+    });
+
+    await expect(
+      executeConversationToolStep({
+        assistantMessage: {
+          id: 'assistant-1',
+          role: 'assistant',
+          sessionId: 'agent-1',
+          topicId: 'topic-1',
+        } as any,
+        attempt: 1,
+        db: {} as any,
+        operationId: 'operation-1',
+        payload: {
+          apiName: 'runPython',
+          arguments: JSON.stringify({ code: 'print("done")' }),
+          id: 'tool-1',
+          identifier: SandboxIdentifier,
+          type: 'builtin',
+        } as any,
+        signal: controller.signal,
+        userId: 'user-1',
+      }),
+    ).rejects.toMatchObject({ code: 'Cancelled' });
+
+    expect(messageStepMocks.create).not.toHaveBeenCalled();
+    expect(generationStepMocks.updateStep).toHaveBeenCalledWith(
+      'step-1',
+      expect.objectContaining({ status: 'failed' }),
+    );
+    expect(generationStepMocks.updateStep).not.toHaveBeenCalledWith(
+      'step-1',
+      expect.objectContaining({ status: 'succeeded' }),
+    );
   });
 });
 

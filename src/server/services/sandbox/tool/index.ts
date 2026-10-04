@@ -362,16 +362,23 @@ class SandboxToolRunner {
   }
 }
 
+const throwIfCallerCancelled = (signal?: AbortSignal) => {
+  if (signal?.aborted) {
+    throw new SandboxError('Cancelled', 'The sandbox call was cancelled.');
+  }
+};
+
 /**
  * Runs one Sandbox tool call for a conversation and returns the result the
- * model sees (serialized as the tool message content). A caller abort
- * (`Cancelled`, or any error while the abort signal is already set) is
- * rethrown so durable Stop does not persist a tool error or start the next
- * assistant turn. Every other failure comes back as `success: false`.
+ * model sees (serialized as the tool message content). A caller abort is
+ * rethrown even when the workspace swallowed it and resolved (Python output
+ * collection and the sync record do that). Every other failure comes back as
+ * `success: false`.
  */
 export const invokeSandboxTool = async (
   params: InvokeSandboxToolParams,
 ): Promise<SandboxToolResult> => {
+  throwIfCallerCancelled(params.signal);
   const apiName = resolveSandboxApiName(params.apiName);
   const isPython = apiName === SandboxApiName.runPython;
 
@@ -388,7 +395,9 @@ export const invokeSandboxTool = async (
   try {
     // The schema for each API name produces that API's arguments.
     const call = runner[apiName].bind(runner) as (args: unknown) => Promise<SandboxToolResult>;
-    return await call(parsed.data);
+    const result = await call(parsed.data);
+    throwIfCallerCancelled(params.signal);
+    return result;
   } catch (error) {
     if (params.signal?.aborted || (error instanceof SandboxError && error.code === 'Cancelled')) {
       throw error;

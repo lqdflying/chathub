@@ -121,8 +121,10 @@ anything else (unreachable server, a stream that ends without a result, an
 unexpected response) deletes it so the next call starts fresh. A caller abort
 interrupts the running foreground command (its id comes from the stream's
 `init` event) before the error surfaces as `Cancelled`. `invokeSandboxTool`
-rethrows that error, and any error once `signal` is already aborted, so the
-worker does not store it as a failed tool result.
+rethrows that error. It also throws `Cancelled` when the caller signal is
+already aborted, including when output collection or the sync-record upload
+swallowed the abort and resolved. The worker does not store that call as a
+tool result.
 
 `getSandboxProvider()` always returns `OpenSandboxProvider`; without
 `OPENSANDBOX_SERVER_URL` and `OPENSANDBOX_IMAGE` every call fails with
