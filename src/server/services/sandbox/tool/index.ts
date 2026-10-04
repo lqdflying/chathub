@@ -364,8 +364,10 @@ class SandboxToolRunner {
 
 /**
  * Runs one Sandbox tool call for a conversation and returns the result the
- * model sees (serialized as the tool message content). Failures come back as
- * `success: false` results, never as exceptions.
+ * model sees (serialized as the tool message content). A caller abort
+ * (`Cancelled`, or any error while the abort signal is already set) is
+ * rethrown so durable Stop does not persist a tool error or start the next
+ * assistant turn. Every other failure comes back as `success: false`.
  */
 export const invokeSandboxTool = async (
   params: InvokeSandboxToolParams,
@@ -388,6 +390,9 @@ export const invokeSandboxTool = async (
     const call = runner[apiName].bind(runner) as (args: unknown) => Promise<SandboxToolResult>;
     return await call(parsed.data);
   } catch (error) {
+    if (params.signal?.aborted || (error instanceof SandboxError && error.code === 'Cancelled')) {
+      throw error;
+    }
     const message =
       error instanceof SandboxError || error instanceof Error ? error.message : 'Sandbox failed.';
     return isPython ? pythonFailure(message) : failure(message);

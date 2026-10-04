@@ -344,7 +344,9 @@ export class OpenSandboxProvider implements SandboxProvider {
    * coming call. One that does not respond, is too close to its optional max
    * lifetime to finish the call, or was created with a different network
    * policy, image, or layout, is deleted, and the caller creates a fresh one.
-   * So does a failed lookup: reuse must never be why a call fails.
+   * Other Running sandboxes with the same session key are deleted after one
+   * is chosen. A failed lookup does not delete anything: reuse must never be
+   * why a call fails.
    */
   private async reuseSandbox(
     client: OpenSandboxClient,
@@ -365,7 +367,13 @@ export class OpenSandboxProvider implements SandboxProvider {
       return { lookupFailed: true, retired: false };
     }
     let retired = false;
+    let chosen: { createdAt?: number; execd: ExecdEndpoint; id: string } | undefined;
+    const extras: string[] = [];
     for (const { createdAt, id, metadata } of found) {
+      if (chosen) {
+        extras.push(id);
+        continue;
+      }
       if (
         this.retireAt(createdAt) - Date.now() < runBudgetMs ||
         !networkCompatible(metadata?.[NETWORK_METADATA_KEY], fingerprints.network) ||
@@ -379,14 +387,16 @@ export class OpenSandboxProvider implements SandboxProvider {
         await client.renewExpiration(id, new Date(Date.now() + runBudgetMs), signal);
         const execd = await client.getExecdEndpoint(id, signal);
         if (await client.pingExecd(execd, AbortSignal.timeout(REUSE_PING_TIMEOUT_MS))) {
-          return { retired, sandbox: { createdAt, execd, id } };
+          chosen = { createdAt, execd, id };
+          continue;
         }
       } catch (error) {
         if (signal.aborted) throw error;
       }
       await this.deleteQuietly(client, id);
     }
-    return { retired };
+    for (const id of extras) await this.deleteQuietly(client, id);
+    return chosen ? { retired, sandbox: chosen } : { retired };
   }
 
   /** When the optional age cap is on, the time a sandbox stops being reused. */

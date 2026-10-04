@@ -643,6 +643,21 @@ describe('OpenSandboxProvider', () => {
       expect(calls.renewals[0].expiresAt).toBeLessThanOrEqual(Date.now() + IDLE_MS);
     });
 
+    it('deletes other running sandboxes for the same session after reuse', async () => {
+      const calls = install({
+        existing: [
+          { createdAt: ago(60_000), id: 'sbx-keep', metadata: session('topic-a') },
+          { createdAt: ago(30_000), id: 'sbx-extra', metadata: session('topic-a') },
+        ],
+      });
+
+      await runIn('topic-a');
+
+      expect(calls.creates).toBe(0);
+      expect(calls.commandIds).toEqual(['sbx-keep']);
+      expect(calls.deletedIds).toEqual(['sbx-extra']);
+    });
+
     it('reuses the running sandbox of the same session', async () => {
       const calls = install();
 

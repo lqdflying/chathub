@@ -348,4 +348,34 @@ describe('invokeSandboxTool', () => {
     });
     expect(await call('runPython', { code: '   ' })).toMatchObject({ success: false });
   });
+
+  it('rethrows a cancelled call and any error after the caller aborts', async () => {
+    const cancelled = new SandboxError('Cancelled', 'The sandbox call was cancelled.');
+    mocks.withWorkspace.mockRejectedValueOnce(cancelled);
+
+    await expect(call('runCommand', { command: 'sleep 30' })).rejects.toBe(cancelled);
+
+    const controller = new AbortController();
+    controller.abort();
+    mocks.withWorkspace.mockRejectedValueOnce(new Error('The operation was aborted.'));
+    await expect(
+      invokeSandboxTool({
+        apiName: 'runCommand',
+        args: { command: 'sleep 30' },
+        db: {} as any,
+        sessionId: 'agent-1',
+        signal: controller.signal,
+        topicId: 'topic-1',
+        userId: 'user-1',
+      }),
+    ).rejects.toThrow('The operation was aborted.');
+
+    mocks.withWorkspace.mockRejectedValueOnce(
+      new SandboxError('Unavailable', 'OpenSandbox is down.'),
+    );
+    await expect(call('runCommand', { command: 'true' })).resolves.toEqual({
+      error: 'OpenSandbox is down.',
+      success: false,
+    });
+  });
 });

@@ -33,8 +33,10 @@ flowchart LR
 `src/tools/sandbox/` holds the manifest, `systemRole.ts`, the per-API Render,
 and `const.ts` (identifiers, API names, `SANDBOX_WORKDIR = /tmp/workspace`).
 Every API returns a JSON `SandboxToolResult` (`packages/types/src/tool/sandbox.ts`)
-as the tool message content; failures are `success: false` results, never
-exceptions.
+as the tool message content. Failures are `success: false` results, so the
+model can retry. A caller abort is the exception: `Cancelled`, or any error
+once the worker abort signal is already set, is rethrown. Durable Stop then
+does not persist a tool message or start the next assistant turn.
 
 | API | Arguments | Result |
 | --- | --- | --- |
@@ -48,7 +50,9 @@ exceptions.
 | `listFiles` | `path?`, `depth?` (1–5, default 2) | `entries` (max 500), `truncated` |
 | `exportFile` | `paths[]` | `files[]` (`fileId`, `filename`, `url`), `skipped` |
 
-Relative paths resolve against `/tmp/workspace`. Arguments are validated with
+Relative paths resolve against `/tmp/workspace`. An absolute path is used as
+given. It is a path inside the sandbox container, not on the ChatHub host.
+`runCommand` can reach the same places. Arguments are validated with
 zod (`src/server/services/sandbox/tool/schemas.ts`), which also accepts numbers
 and booleans sent as strings and `null` for omitted values. `timeout` is
 seconds; `resolveTimeoutMs` clamps it to `[1s, SANDBOX_MAX_TIMEOUT]` and an
@@ -116,7 +120,9 @@ failure it is kept only for `SandboxRequestError`, `Timeout`, and `Cancelled`;
 anything else (unreachable server, a stream that ends without a result, an
 unexpected response) deletes it so the next call starts fresh. A caller abort
 interrupts the running foreground command (its id comes from the stream's
-`init` event) before the error surfaces as `Cancelled`.
+`init` event) before the error surfaces as `Cancelled`. `invokeSandboxTool`
+rethrows that error, and any error once `signal` is already aborted, so the
+worker does not store it as a failed tool result.
 
 `getSandboxProvider()` always returns `OpenSandboxProvider`; without
 `OPENSANDBOX_SERVER_URL` and `OPENSANDBOX_IMAGE` every call fails with

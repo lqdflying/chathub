@@ -411,6 +411,37 @@ describe('executeConversationToolStep', () => {
     );
   });
 
+  it('does not continue the model when a Sandbox call is aborted', async () => {
+    const cancelled = new Error('The sandbox call was cancelled.');
+    sandboxMocks.invokeSandboxTool.mockRejectedValue(cancelled);
+    const signal = AbortSignal.abort('cancelled');
+
+    await expect(
+      executeConversationToolStep({
+        assistantMessage,
+        attempt: 1,
+        db: {} as any,
+        operationId: 'operation-1',
+        payload: payload({
+          apiName: 'runCommand',
+          arguments: '{"command":"sleep 30"}',
+          identifier: SandboxIdentifier,
+        }),
+        signal,
+        userId: 'user-1',
+      }),
+    ).rejects.toBe(cancelled);
+
+    expect(messageMocks.create).not.toHaveBeenCalled();
+    expect(generationMocks.updateStep).toHaveBeenCalledWith(
+      'step-1',
+      expect.objectContaining({
+        error: expect.objectContaining({ message: 'The sandbox call was cancelled.' }),
+        status: 'failed',
+      }),
+    );
+  });
+
   it('runs a legacy python call on the sandbox and continues the model', async () => {
     const result = await executeConversationToolStep({
       assistantMessage,
