@@ -51,7 +51,7 @@ If you are accessing the internet, use the Python standard library (urllib, http
 
 If you are generating files:
 - Write each deliverable as a new file in the top level of the working directory. A file only inside a subdirectory is not returned.
-- A file left unchanged from an earlier call is not listed again. Write it again, or reuse the files[].url already returned.
+- A file left unchanged from an earlier call is not listed again, even if the same bytes are written to the same name. Reuse the files[].url already returned, or copy it to a new filename when a fresh file is required.
 - When python returns files, link each files[].url exactly. Do not link the bare filename or the chat site plus the filename.
 - Prefer these libraries when they are installed in the sandbox:
   - pdf --> reportlab
