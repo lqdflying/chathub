@@ -52,7 +52,7 @@ const run = (code: string, files: ReturnType<typeof file>[] = [], timeoutMs?: nu
   provider().run({ code, files, language: 'python3', timeoutMs });
 
 describe.runIf(serverUrl)('OpenSandbox live', () => {
-  it('runs print, a trailing expression, stderr, and syscalls Dify blocked', async () => {
+  it('runs print, a trailing expression, stderr, subprocesses, and file removal', async () => {
     const result = await run(
       [
         'import os, subprocess, sys',

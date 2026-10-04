@@ -2,8 +2,8 @@
  * Runner ChatHub uploads next to the user code and starts with execd's
  * command API (`python3 <runner>`), one process per run.
  *
- * The guest is an ordinary Linux container or microVM, so none of the Dify
- * jail stubs (subprocess, unlink, chdir, threading.Timer) apply. The runner
+ * The guest is an ordinary Linux container or microVM, so subprocess,
+ * unlink, chdir, and threads work as usual. The runner
  * pins the working directory, keeps absolute writes on their real paths, and
  * copies a file that is still there at the end into the workdir under its
  * basename. It forces the Agg backend, turns

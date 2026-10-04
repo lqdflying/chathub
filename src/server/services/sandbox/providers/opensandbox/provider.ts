@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
 
-import { codeInterpreterEnv } from '@/envs/codeInterpreter';
+import { sandboxEnv } from '@/envs/sandbox';
 import { logGenerationDebugSafe } from '@/libs/logger/generationDebug';
 
 import {
@@ -143,27 +143,27 @@ export class OpenSandboxProvider implements SandboxProvider {
     sessionIdleTimeout?: number;
     sessionMaxLifetime?: number;
   }) {
-    this.baseUrl = (options?.baseUrl ?? codeInterpreterEnv.OPENSANDBOX_SERVER_URL)?.replace(
+    this.baseUrl = (options?.baseUrl ?? sandboxEnv.OPENSANDBOX_SERVER_URL)?.replace(
       /\/+$/,
       '',
     );
-    this.apiKey = options?.apiKey ?? codeInterpreterEnv.OPENSANDBOX_API_KEY;
-    this.image = (options?.image ?? codeInterpreterEnv.OPENSANDBOX_IMAGE)?.trim() || undefined;
-    this.cpu = codeInterpreterEnv.OPENSANDBOX_CPU;
-    this.egressAllow = (codeInterpreterEnv.OPENSANDBOX_EGRESS_ALLOW ?? '')
+    this.apiKey = options?.apiKey ?? sandboxEnv.OPENSANDBOX_API_KEY;
+    this.image = (options?.image ?? sandboxEnv.OPENSANDBOX_IMAGE)?.trim() || undefined;
+    this.cpu = sandboxEnv.OPENSANDBOX_CPU;
+    this.egressAllow = (sandboxEnv.OPENSANDBOX_EGRESS_ALLOW ?? '')
       .split(',')
       .map((item) => item.trim())
       .filter(Boolean);
-    this.memory = codeInterpreterEnv.OPENSANDBOX_MEMORY;
-    this.readyTimeout = codeInterpreterEnv.OPENSANDBOX_READY_TIMEOUT;
+    this.memory = sandboxEnv.OPENSANDBOX_MEMORY;
+    this.readyTimeout = sandboxEnv.OPENSANDBOX_READY_TIMEOUT;
     this.sessionIdleTimeout =
-      options?.sessionIdleTimeout ?? codeInterpreterEnv.OPENSANDBOX_SESSION_IDLE_TIMEOUT;
+      options?.sessionIdleTimeout ?? sandboxEnv.OPENSANDBOX_SESSION_IDLE_TIMEOUT;
     this.sessionMaxLifetime =
-      options?.sessionMaxLifetime ?? codeInterpreterEnv.OPENSANDBOX_SESSION_MAX_LIFETIME;
-    this.timeout = codeInterpreterEnv.CODE_INTERPRETER_TIMEOUT;
-    this.maxFileBytes = codeInterpreterEnv.CODE_INTERPRETER_MAX_FILE_BYTES;
-    this.maxFileCount = codeInterpreterEnv.CODE_INTERPRETER_MAX_FILE_COUNT;
-    this.maxStdoutChars = codeInterpreterEnv.CODE_INTERPRETER_MAX_STDOUT_CHARS;
+      options?.sessionMaxLifetime ?? sandboxEnv.OPENSANDBOX_SESSION_MAX_LIFETIME;
+    this.timeout = sandboxEnv.SANDBOX_TIMEOUT;
+    this.maxFileBytes = sandboxEnv.SANDBOX_MAX_FILE_BYTES;
+    this.maxFileCount = sandboxEnv.SANDBOX_MAX_FILE_COUNT;
+    this.maxStdoutChars = sandboxEnv.SANDBOX_MAX_OUTPUT_CHARS;
   }
 
   isConfigured() {
@@ -209,7 +209,7 @@ export class OpenSandboxProvider implements SandboxProvider {
       settle({ outcome: 'not_configured' });
       throw new SandboxError(
         'NotConfigured',
-        'OPENSANDBOX_SERVER_URL and OPENSANDBOX_IMAGE must both be set',
+        'Sandbox is not configured: set OPENSANDBOX_SERVER_URL and OPENSANDBOX_IMAGE. The DifySandbox backend was removed.',
       );
     }
 

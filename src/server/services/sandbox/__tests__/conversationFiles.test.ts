@@ -50,13 +50,13 @@ vi.mock('@/server/services/file', () => ({
 vi.mock('@/server/services/file/uploadTarget', () => ({
   createUploadTarget: vi.fn().mockReturnValue({ path: 'files/scope/1/out.bin' }),
 }));
-vi.mock('@/envs/codeInterpreter', () => ({
-  codeInterpreterEnv: {
-    get CODE_INTERPRETER_MAX_FILE_BYTES() {
-      return Number(process.env.CODE_INTERPRETER_MAX_FILE_BYTES ?? 10 * 1024 * 1024);
+vi.mock('@/envs/sandbox', () => ({
+  sandboxEnv: {
+    get SANDBOX_MAX_FILE_BYTES() {
+      return Number(process.env.SANDBOX_MAX_FILE_BYTES ?? 10 * 1024 * 1024);
     },
-    get CODE_INTERPRETER_MAX_FILE_COUNT() {
-      return Number(process.env.CODE_INTERPRETER_MAX_FILE_COUNT ?? 20);
+    get SANDBOX_MAX_FILE_COUNT() {
+      return Number(process.env.SANDBOX_MAX_FILE_COUNT ?? 20);
     },
   },
 }));
@@ -74,7 +74,7 @@ const bytesFor = (id: string) => new Uint8Array(Buffer.from(id));
 describe('sandbox conversation files', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    delete process.env.CODE_INTERPRETER_MAX_FILE_COUNT;
+    delete process.env.SANDBOX_MAX_FILE_COUNT;
     fileEnvMock.S3_PUBLIC_DOMAIN = undefined;
     fileEnvMock.S3_SET_ACL = false;
     messageMocks.query.mockResolvedValue([]);
@@ -198,7 +198,7 @@ describe('sandbox conversation files', () => {
       }
       throw new Error(`unexpected extra page ${current}`);
     });
-    process.env.CODE_INTERPRETER_MAX_FILE_COUNT = '1';
+    process.env.SANDBOX_MAX_FILE_COUNT = '1';
 
     const files = await gatherConversationSandboxFiles({
       db: {} as any,
@@ -240,7 +240,7 @@ describe('sandbox conversation files', () => {
   });
 
   it('prefers newer attachments when over the file-count cap', async () => {
-    process.env.CODE_INTERPRETER_MAX_FILE_COUNT = '2';
+    process.env.SANDBOX_MAX_FILE_COUNT = '2';
     messageMocks.query.mockResolvedValue([
       { fileList: [{ id: 'new', name: 'new.txt' }], id: 'm3', role: 'user' },
       { fileList: [{ id: 'mid', name: 'mid.txt' }], id: 'm2', role: 'user' },

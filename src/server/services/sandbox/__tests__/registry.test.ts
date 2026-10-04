@@ -1,45 +1,32 @@
 /** @vitest-environment node */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('@/envs/codeInterpreter', () => ({
-  codeInterpreterEnv: {
-    get SANDBOX_PROVIDER() {
-      return process.env.SANDBOX_PROVIDER ?? 'dify';
-    },
-    CODE_INTERPRETER_SANDBOX_URL: undefined,
+vi.mock('@/envs/sandbox', () => ({
+  sandboxEnv: {
+    OPENSANDBOX_CPU: '1',
     OPENSANDBOX_EGRESS_ALLOW: undefined,
+    OPENSANDBOX_IMAGE: undefined,
+    OPENSANDBOX_MEMORY: '2Gi',
+    OPENSANDBOX_READY_TIMEOUT: 5000,
     OPENSANDBOX_SERVER_URL: undefined,
+    OPENSANDBOX_SESSION_IDLE_TIMEOUT: 1_800_000,
+    OPENSANDBOX_SESSION_MAX_LIFETIME: 0,
+    SANDBOX_MAX_FILE_BYTES: 1024,
+    SANDBOX_MAX_FILE_COUNT: 20,
+    SANDBOX_MAX_OUTPUT_CHARS: 30_000,
+    SANDBOX_MAX_TIMEOUT: 600_000,
+    SANDBOX_TIMEOUT: 60_000,
   },
 }));
 
-import { getSandboxProvider } from '../registry';
+import { getSandboxProvider, isSandboxConfigured } from '../registry';
 
 describe('sandbox provider registry', () => {
-  afterEach(() => {
-    delete process.env.SANDBOX_PROVIDER;
+  it('always uses OpenSandbox', () => {
+    expect(getSandboxProvider().id).toBe('opensandbox');
   });
 
-  it('defaults to the Dify provider', () => {
-    expect(getSandboxProvider().id).toBe('dify');
-  });
-
-  it('selects the OpenSandbox provider', () => {
-    process.env.SANDBOX_PROVIDER = 'OpenSandbox';
-    const provider = getSandboxProvider();
-    expect(provider.id).toBe('opensandbox');
-    expect(provider.isConfigured()).toBe(false);
-  });
-
-  it('returns not_configured for an unknown provider without throwing at boot', async () => {
-    process.env.SANDBOX_PROVIDER = 'microsandbox';
-    const provider = getSandboxProvider();
-    expect(provider.id).toBe('microsandbox');
-    expect(provider.isConfigured()).toBe(false);
-    await expect(
-      provider.run({ code: 'print(1)', files: [], language: 'python3' }),
-    ).rejects.toMatchObject({
-      code: 'NotConfigured',
-      outcome: 'not_configured',
-    });
+  it('is not configured without a server URL and image', () => {
+    expect(isSandboxConfigured()).toBe(false);
   });
 });

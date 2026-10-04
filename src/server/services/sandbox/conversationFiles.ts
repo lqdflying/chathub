@@ -6,7 +6,7 @@ import mime from 'mime';
 
 import { FileModel } from '@/database/models/file';
 import { MessageModel } from '@/database/models/message';
-import { codeInterpreterEnv } from '@/envs/codeInterpreter';
+import { sandboxEnv } from '@/envs/sandbox';
 import { fileEnv } from '@/envs/file';
 import { hashGenerationDebugValue, logGenerationDebugSafe } from '@/libs/logger/generationDebug';
 import { toPersistedConversationSessionId } from '@/server/services/conversationGeneration/inboxSession';
@@ -94,8 +94,8 @@ export const gatherConversationSandboxFiles = async ({
   const messageModel = new MessageModel(db, userId);
   const fileModel = new FileModel(db, userId);
   const fileService = new FileService(db, userId);
-  const maxFileBytes = codeInterpreterEnv.CODE_INTERPRETER_MAX_FILE_BYTES;
-  const maxFileCount = codeInterpreterEnv.CODE_INTERPRETER_MAX_FILE_COUNT;
+  const maxFileBytes = sandboxEnv.SANDBOX_MAX_FILE_BYTES;
+  const maxFileCount = sandboxEnv.SANDBOX_MAX_FILE_COUNT;
   const newestFirst: UIChatMessage[] = [];
   let pending: Array<{ filename: string; id: string }> = [];
 

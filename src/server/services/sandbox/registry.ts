@@ -1,50 +1,7 @@
-import { codeInterpreterEnv } from '@/envs/codeInterpreter';
-
-import { DifySandboxProvider } from './providers/dify/provider';
 import { OpenSandboxProvider } from './providers/opensandbox/provider';
-import {
-  SandboxError,
-  type SandboxProvider,
-  type SandboxRunResult,
-} from './types';
+import type { SandboxProvider } from './types';
 
-class UnconfiguredSandboxProvider implements SandboxProvider {
-  readonly id: string;
-
-  constructor(id: string) {
-    this.id = id;
-  }
-
-  isConfigured() {
-    return false;
-  }
-
-  async run(): Promise<SandboxRunResult> {
-    throw new SandboxError(
-      'NotConfigured',
-      `Unknown SANDBOX_PROVIDER "${this.id}". Supported: dify, opensandbox.`,
-    );
-  }
-}
-
-export const resolveSandboxProviderId = () => {
-  const raw = codeInterpreterEnv.SANDBOX_PROVIDER?.trim().toLowerCase();
-  return raw || 'dify';
-};
-
-export const getSandboxProvider = (): SandboxProvider => {
-  const id = resolveSandboxProviderId();
-  switch (id) {
-    case 'dify': {
-      return new DifySandboxProvider();
-    }
-    case 'opensandbox': {
-      return new OpenSandboxProvider();
-    }
-    default: {
-      return new UnconfiguredSandboxProvider(id);
-    }
-  }
-};
+/** OpenSandbox is the only backend; the DifySandbox provider was removed. */
+export const getSandboxProvider = (): SandboxProvider => new OpenSandboxProvider();
 
 export const isSandboxConfigured = () => getSandboxProvider().isConfigured();

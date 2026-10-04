@@ -6,13 +6,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const fetchMock = vi.fn();
 
-vi.mock('@/envs/codeInterpreter', () => ({
-  codeInterpreterEnv: {
-    CODE_INTERPRETER_MAX_FILE_BYTES: 1024,
-    CODE_INTERPRETER_MAX_FILE_COUNT: 20,
-    CODE_INTERPRETER_MAX_STDOUT_CHARS: 200_000,
-    get CODE_INTERPRETER_TIMEOUT() {
-      return Number(process.env.CODE_INTERPRETER_TIMEOUT ?? 60_000);
+vi.mock('@/envs/sandbox', () => ({
+  sandboxEnv: {
+    SANDBOX_MAX_FILE_BYTES: 1024,
+    SANDBOX_MAX_FILE_COUNT: 20,
+    SANDBOX_MAX_OUTPUT_CHARS: 200_000,
+    get SANDBOX_TIMEOUT() {
+      return Number(process.env.SANDBOX_TIMEOUT ?? 60_000);
     },
     get OPENSANDBOX_API_KEY() {
       return process.env.OPENSANDBOX_API_KEY;
@@ -309,7 +309,7 @@ describe('OpenSandboxProvider', () => {
     delete process.env.OPENSANDBOX_API_KEY;
     delete process.env.OPENSANDBOX_IMAGE;
     delete process.env.OPENSANDBOX_EGRESS_ALLOW;
-    delete process.env.CODE_INTERPRETER_TIMEOUT;
+    delete process.env.SANDBOX_TIMEOUT;
     delete process.env.OPENSANDBOX_SESSION_IDLE_TIMEOUT;
     delete process.env.OPENSANDBOX_SESSION_MAX_LIFETIME;
     vi.useRealTimers();
@@ -409,7 +409,7 @@ describe('OpenSandboxProvider', () => {
   });
 
   it('treats an execd kill at the run timeout as a timeout', async () => {
-    process.env.CODE_INTERPRETER_TIMEOUT = '40';
+    process.env.SANDBOX_TIMEOUT = '40';
     const calls = install({
       command: async () => {
         await new Promise((resolve) => setTimeout(resolve, 60));
@@ -438,7 +438,7 @@ describe('OpenSandboxProvider', () => {
   });
 
   it('aborts when execd never settles the stream', async () => {
-    process.env.CODE_INTERPRETER_TIMEOUT = '10';
+    process.env.SANDBOX_TIMEOUT = '10';
     const calls = install({
       command: (init) =>
         new Promise<Response>((_resolve, reject) => {
@@ -768,7 +768,7 @@ describe('OpenSandboxProvider', () => {
     });
 
     it('keeps a session sandbox after a run timeout', async () => {
-      process.env.CODE_INTERPRETER_TIMEOUT = '40';
+      process.env.SANDBOX_TIMEOUT = '40';
       const calls = install({
         command: async () => {
           await sleep(60);

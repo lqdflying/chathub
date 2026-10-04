@@ -748,7 +748,7 @@ export const findUnsupportedConversationTool = async ({
     // the tagged model output. They do not need a browser runtime.
     if (builtin && (builtin.manifest.api?.length ?? 0) === 0) continue;
     // Code Interpreter is often always-on. Presence must not defer the whole
-    // turn: Graphile runs it on the DifySandbox sidecar at invoke time.
+    // turn: Graphile runs it on OpenSandbox at invoke time.
     if (identifier === CodeInterpreterIdentifier) continue;
     if (identifier === DalleManifest.identifier) {
       return {
