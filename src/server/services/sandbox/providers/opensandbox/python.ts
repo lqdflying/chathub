@@ -1,3 +1,5 @@
+import { SANDBOX_CONTROL_DIR, SANDBOX_WORKDIR } from '@/tools/sandbox/const';
+
 /**
  * Runner ChatHub uploads next to the user code and starts with execd's
  * command API (`python3 <runner>`), one process per `runPython` call.
@@ -20,7 +22,7 @@
  * execd's optional Landlock floor (read+write /tmp).
  * @see https://github.com/opensandbox-group/OpenSandbox/blob/main/docs/architecture/data-plane/execd.md
  */
-export const OPENSANDBOX_WORKDIR = '/tmp/workspace';
+export const OPENSANDBOX_WORKDIR = SANDBOX_WORKDIR;
 // Bump when the workdir or control files move, so parked sandboxes that use
 // the old layout are replaced instead of reused.
 export const OPENSANDBOX_LAYOUT_VERSION = '2';
@@ -29,7 +31,7 @@ export const OPENSANDBOX_LAYOUT_VERSION = '2';
 // to be a single-face TTF. The runner links it into the workdir as STSong.ttf.
 export const OPENSANDBOX_FONT_PATH = '/usr/share/fonts/truetype/STSong.ttf';
 // Hidden, so the manifest never lists it as an output.
-export const CONTROL_DIR = `${OPENSANDBOX_WORKDIR}/.chathub`;
+export const CONTROL_DIR = SANDBOX_CONTROL_DIR;
 export const RUNNER_PATH = `${CONTROL_DIR}/run.py`;
 export const USER_CODE_PATH = `${CONTROL_DIR}/code.py`;
 export const MANIFEST_PATH = `${CONTROL_DIR}/manifest.json`;

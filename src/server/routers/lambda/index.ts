@@ -9,7 +9,6 @@ import { aiModelRouter } from './aiModel';
 import { aiProviderRouter } from './aiProvider';
 import { apiKeyRouter } from './apiKey';
 import { chunkRouter } from './chunk';
-import { codeInterpreterRouter } from './codeInterpreter';
 import { comfyuiRouter } from './comfyui';
 import { configRouter } from './config';
 import { conversationGenerationRouter } from './conversationGeneration';
@@ -30,6 +29,7 @@ import { picbedRouter } from './picbed';
 import { pluginRouter } from './plugin';
 import { ragEvalRouter } from './ragEval';
 import { ragProviderRouter } from './ragProvider';
+import { sandboxRouter } from './sandbox';
 import { sessionRouter } from './session';
 import { sessionGroupRouter } from './sessionGroup';
 import { skillRouter } from './skill';
@@ -46,7 +46,6 @@ export const lambdaRouter = router({
   aiProvider: aiProviderRouter,
   apiKey: apiKeyRouter,
   chunk: chunkRouter,
-  codeInterpreter: codeInterpreterRouter,
   comfyui: comfyuiRouter,
   config: configRouter,
   conversationGeneration: conversationGenerationRouter,
@@ -67,6 +66,7 @@ export const lambdaRouter = router({
   plugin: pluginRouter,
   ragEval: ragEvalRouter,
   ragProvider: ragProviderRouter,
+  sandbox: sandboxRouter,
   session: sessionRouter,
   sessionGroup: sessionGroupRouter,
   skill: skillRouter,

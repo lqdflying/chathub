@@ -42,6 +42,26 @@
     "saved": "Saved to fixed memory #{{index}}",
     "updated": "Updated fixed memory #{{index}}"
   },
+  "sandbox": {
+    "background": "Background",
+    "binaryFile": "Binary file ({{size}} bytes)",
+    "bytesWritten": "{{bytes}} bytes written",
+    "command": "Command",
+    "emptyDirectory": "Empty directory",
+    "entries": "{{count}} entries",
+    "exitCode": "Exit code {{code}}",
+    "exportedFiles": "Exported files:",
+    "lines": "Lines {{start}}–{{end}} of {{total}}",
+    "log": "Output:",
+    "replacements": "{{count}} replaced",
+    "running": "Running",
+    "skipped": "Skipped:",
+    "stderr": "Errors:",
+    "stdout": "Output:",
+    "stopped": "Stopped",
+    "timedOut": "Timed out",
+    "truncated": "Truncated"
+  },
   "search": {
     "createNewSearch": "Create a new search record",
     "emptyResult": "No results found, please modify your keywords and try again",

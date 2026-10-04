@@ -300,6 +300,21 @@ export default {
 
   pluginList: '插件列表',
 
+  sandbox: {
+    apiName: {
+      editFile: '编辑文件',
+      exportFile: '导出文件',
+      getCommandOutput: '读取命令输出',
+      listFiles: '列出文件',
+      python: '运行 Python',
+      readFile: '读取文件',
+      runCommand: '运行命令',
+      runPython: '运行 Python',
+      stopCommand: '停止命令',
+      writeFile: '写入文件',
+    },
+    title: '沙盒',
+  },
   search: {
     apiName: {
       crawlMultiPages: '读取多个页面内容',

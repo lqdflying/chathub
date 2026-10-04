@@ -2,7 +2,7 @@ import remarkParse from 'remark-parse';
 import { unified } from 'unified';
 import { SKIP, visit } from 'unist-util-visit';
 
-import { CodeInterpreterIdentifier } from '@/tools/code-interpreter';
+import { isSandboxToolIdentifier } from '@/tools/sandbox/const';
 
 export interface GeneratedFileLink {
   filename: string;
@@ -71,7 +71,7 @@ export const generatedFileLinksFromMessages = (
   mergeGeneratedFileLinks(
     [],
     messages.flatMap((message) => {
-      if (message.role !== 'tool' || message.plugin?.identifier !== CodeInterpreterIdentifier) {
+      if (message.role !== 'tool' || !isSandboxToolIdentifier(message.plugin?.identifier)) {
         return [];
       }
       return readGeneratedFileLinks(message.content ?? '');

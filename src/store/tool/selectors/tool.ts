@@ -2,6 +2,7 @@ import { ToolNameResolver } from '@lobechat/context-engine';
 import { pluginPrompts } from '@lobechat/prompts';
 import { LobeChatPluginManifest } from '@lobehub/chat-plugin-sdk';
 
+import { resolveBuiltinToolAlias } from '@/tools/sandbox/const';
 import { MetaData } from '@/types/meta';
 import { LobeToolMeta } from '@/types/tool/tool';
 
@@ -53,8 +54,10 @@ const metaList =
   };
 
 const getMetaById =
-  (id: string, showDalle: boolean = true) =>
+  (rawId: string, showDalle: boolean = true) =>
   (s: ToolStoreState): MetaData | undefined => {
+    // Old tool messages keep a retired builtin identifier.
+    const id = resolveBuiltinToolAlias(rawId);
     const item = metaList(showDalle)(s).find((m) => m.identifier === id);
 
     if (!item)

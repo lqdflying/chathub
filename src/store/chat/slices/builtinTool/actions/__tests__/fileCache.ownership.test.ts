@@ -52,18 +52,18 @@ describe('generated file cache ownership', () => {
       user: { id: 'account-a' },
     });
     useChatStore.setState({
-      codeInterpreterImageMap: {},
+      sandboxFileMap: {},
       conversationClearGeneration: 0,
       dalleImageMap: {},
     });
   });
 
-  it('does not repopulate the interpreter cache after an A-to-B-to-A reset', async () => {
+  it('does not repopulate the sandbox file cache after an A-to-B-to-A reset', async () => {
     const fileResponse = createDeferred<{ filename: string; id: string; url: string }>();
     vi.spyOn(fileService, 'getFile').mockReturnValue(fileResponse.promise as never);
 
     renderHook(() =>
-      useChatStore.getState().useFetchInterpreterFileItem('interpreter-file-id'),
+      useChatStore.getState().useFetchSandboxFileItem('interpreter-file-id'),
     );
 
     await waitFor(() => {
@@ -73,7 +73,7 @@ describe('generated file cache ownership', () => {
     act(() => {
       useUserStore.setState({ authUserId: 'account-b', user: { id: 'account-b' } });
       useChatStore.setState((state) => ({
-        codeInterpreterImageMap: {},
+        sandboxFileMap: {},
         conversationClearGeneration: state.conversationClearGeneration + 1,
       }));
       useUserStore.setState({ authUserId: 'account-a', user: { id: 'account-a' } });
@@ -90,11 +90,11 @@ describe('generated file cache ownership', () => {
     });
 
     expect(swrKeys).toContainEqual([
-      'FetchCodeInterpreterFileItem',
+      'FetchSandboxFileItem',
       'user:account-a',
       'interpreter-file-id',
     ]);
-    expect(useChatStore.getState().codeInterpreterImageMap).toEqual({});
+    expect(useChatStore.getState().sandboxFileMap).toEqual({});
   });
 
   it('does not repopulate the DALL-E cache after an A-to-B-to-A reset', async () => {

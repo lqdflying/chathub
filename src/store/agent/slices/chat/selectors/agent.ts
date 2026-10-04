@@ -10,6 +10,7 @@ import { VoiceList } from '@lobehub/tts';
 
 import { DEFAULT_OPENING_QUESTIONS } from '@/features/AgentSetting/store/selectors';
 import { AgentStoreState } from '@/store/agent/initialState';
+import { normalizeBuiltinToolIds } from '@/tools/sandbox/const';
 import { merge } from '@/utils/merge';
 
 const isInboxSession = (s: AgentStoreState) => s.activeId === INBOX_SESSION_ID;
@@ -64,7 +65,7 @@ const currentAgentModelProvider = (s: AgentStoreState) => {
 const currentAgentPlugins = (s: AgentStoreState) => {
   const config = currentAgentConfig(s);
 
-  return config?.plugins || [];
+  return normalizeBuiltinToolIds(config?.plugins || []);
 };
 
 const displayableAgentPlugins = currentAgentPlugins;

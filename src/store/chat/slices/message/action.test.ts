@@ -735,8 +735,8 @@ describe('chatMessage actions', () => {
         activePageContentUrl: 'https://example.com',
         activeThreadId: 'thread-id',
         activeTopicId: 'topic-id',
-        codeInterpreterExecuting: { 'tool-message': true },
-        codeInterpreterImageMap: {
+        sandboxExecuting: { 'tool-message': true },
+        sandboxFileMap: {
           'image-id': { id: 'image-id' } as any,
         },
         creatingThreadId: 'thread-create-operation',
@@ -792,8 +792,8 @@ describe('chatMessage actions', () => {
         activePageContentUrl: undefined,
         activeThreadId: undefined,
         activeTopicId: null,
-        codeInterpreterExecuting: {},
-        codeInterpreterImageMap: {},
+        sandboxExecuting: {},
+        sandboxFileMap: {},
         creatingThreadId: undefined,
         creatingTopic: false,
         dalleImageLoading: {},

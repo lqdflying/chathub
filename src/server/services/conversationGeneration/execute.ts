@@ -95,7 +95,7 @@ import {
 } from '@/server/services/sandbox/fileLinks';
 import { composeSystemRole } from '@/services/chat/composeSystemRole';
 import { resolveOpenAICompatibleChatRoute } from '@/services/chat/openAICompatibleRoute';
-import { CodeInterpreterIdentifier } from '@/tools/code-interpreter';
+import { isSandboxToolIdentifier } from '@/tools/sandbox/const';
 
 import {
   annotateAssistantError,
@@ -1753,7 +1753,7 @@ const executeChat = async (
               outcome: invocation.success ? 'completed' : 'failed',
               toolCallId: tool.id,
             });
-            if (tool.identifier === CodeInterpreterIdentifier) {
+            if (isSandboxToolIdentifier(tool.identifier)) {
               generatedFileLinks = mergeGeneratedFileLinks(
                 generatedFileLinks,
                 readGeneratedFileLinks(invocation.content),

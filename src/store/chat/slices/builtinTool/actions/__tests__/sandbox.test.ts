@@ -15,8 +15,8 @@ const createDeferred = <Result>() => {
 
 vi.mock('@/libs/trpc/client', () => ({
   lambdaClient: {
-    codeInterpreter: {
-      run: {
+    sandbox: {
+      invoke: {
         mutate: vi.fn(),
       },
     },
@@ -41,30 +41,28 @@ vi.mock('@/store/chat/selectors', () => ({
   },
 }));
 
-describe('code interpreter actions', () => {
+describe('sandbox actions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useChatStore.setState({
       activeId: 'session-1',
       activeTopicId: 'topic-1',
-      codeInterpreterExecuting: {},
       conversationClearGeneration: 0,
       internal_updateMessageContent: vi.fn(),
+      sandboxExecuting: {},
       updatePluginState: vi.fn(),
-      uploadInterpreterFiles: vi.fn(),
     });
   });
 
   it('returns an explicit failed outcome without continuing after the sandbox rejects', async () => {
     const executionError = new Error('Python execution failed');
-    (lambdaClient.codeInterpreter.run.mutate as Mock).mockRejectedValue(executionError);
+    (lambdaClient.sandbox.invoke.mutate as Mock).mockRejectedValue(executionError);
     const { result } = renderHook(() => useChatStore());
 
     let executionResult;
     await act(async () => {
-      executionResult = await result.current.python('tool-message', {
+      executionResult = await result.current.invokeSandboxTool('tool-message', 'runPython', {
         code: 'raise RuntimeError()',
-        packages: [],
       });
     });
 
@@ -77,26 +75,25 @@ describe('code interpreter actions', () => {
     expect(result.current.updatePluginState).toHaveBeenCalledWith('tool-message', {
       error: serializedError,
     });
-    expect(result.current.codeInterpreterExecuting['tool-message']).toBe(false);
+    expect(result.current.sandboxExecuting['tool-message']).toBe(false);
   });
 
   it('returns the sandbox response and continues after successful execution', async () => {
     const response = { output: [{ data: 'success', type: 'stdout' }], success: true };
-    (lambdaClient.codeInterpreter.run.mutate as Mock).mockResolvedValue(response);
+    (lambdaClient.sandbox.invoke.mutate as Mock).mockResolvedValue(response);
     const { result } = renderHook(() => useChatStore());
 
     let executionResult;
     await act(async () => {
-      executionResult = await result.current.python('tool-message', {
-        code: 'print("success")',
-        packages: [],
+      executionResult = await result.current.invokeSandboxTool('tool-message', 'runCommand', {
+        command: 'echo success',
       });
     });
 
-    expect(lambdaClient.codeInterpreter.run.mutate).toHaveBeenCalledWith({
-      code: 'print("success")',
+    expect(lambdaClient.sandbox.invoke.mutate).toHaveBeenCalledWith({
+      apiName: 'runCommand',
+      arguments: { command: 'echo success' },
       groupId: undefined,
-      packages: [],
       sessionId: 'session-1',
       threadId: 'thread-1',
       topicId: 'topic-1',
@@ -110,31 +107,29 @@ describe('code interpreter actions', () => {
       'tool-message',
       JSON.stringify(response),
     );
-    expect(result.current.codeInterpreterExecuting['tool-message']).toBe(false);
-    expect(result.current.uploadInterpreterFiles).not.toHaveBeenCalled();
+    expect(result.current.sandboxExecuting['tool-message']).toBe(false);
   });
 
   it('drops a sandbox result that completes after conversation history is cleared', async () => {
     const deferredExecution = createDeferred<{ success: boolean }>();
-    (lambdaClient.codeInterpreter.run.mutate as Mock).mockReturnValue(deferredExecution.promise);
+    (lambdaClient.sandbox.invoke.mutate as Mock).mockReturnValue(deferredExecution.promise);
     const { result } = renderHook(() => useChatStore());
-    let executionPromise!: ReturnType<typeof result.current.python>;
+    let executionPromise!: ReturnType<typeof result.current.invokeSandboxTool>;
 
     act(() => {
-      executionPromise = result.current.python('tool-message', {
+      executionPromise = result.current.invokeSandboxTool('tool-message', 'runPython', {
         code: 'print("stale")',
-        packages: [],
       });
     });
 
     await vi.waitFor(() => {
-      expect(lambdaClient.codeInterpreter.run.mutate).toHaveBeenCalledOnce();
+      expect(lambdaClient.sandbox.invoke.mutate).toHaveBeenCalledOnce();
     });
 
     act(() => {
       useChatStore.setState((state) => ({
-        codeInterpreterExecuting: {},
         conversationClearGeneration: state.conversationClearGeneration + 1,
+        sandboxExecuting: {},
       }));
     });
     deferredExecution.resolve({ success: true });
@@ -151,7 +146,6 @@ describe('code interpreter actions', () => {
     });
     expect(result.current.internal_updateMessageContent).not.toHaveBeenCalled();
     expect(result.current.updatePluginState).not.toHaveBeenCalled();
-    expect(result.current.uploadInterpreterFiles).not.toHaveBeenCalled();
-    expect(result.current.codeInterpreterExecuting).toEqual({});
+    expect(result.current.sandboxExecuting).toEqual({});
   });
 });

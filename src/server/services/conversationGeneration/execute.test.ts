@@ -4,7 +4,7 @@ import { TRPCError } from '@trpc/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { UserModel } from '@/database/models/user';
-import { CodeInterpreterIdentifier } from '@/tools/code-interpreter';
+import { SandboxIdentifier } from '@/tools/sandbox/const';
 import * as compactionHelpers from '@/helpers/contextCompaction';
 import {
   ConversationWriteRejectedError,
@@ -1175,7 +1175,7 @@ describe('executeConversationGeneration chat resume', () => {
             success: true,
           }),
           id: 'tool-1',
-          plugin: { identifier: CodeInterpreterIdentifier },
+          plugin: { identifier: SandboxIdentifier },
           role: 'tool',
         },
       ],

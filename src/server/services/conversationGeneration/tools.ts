@@ -27,14 +27,14 @@ import {
   updateFixedMemoryEntry,
 } from '@/helpers/assistantMemory';
 import { hashGenerationDebugValue, logGenerationDebugSafe } from '@/libs/logger/generationDebug';
-import { runCodeInterpreter } from '@/server/services/codeInterpreter';
 import { mcpService } from '@/server/services/mcp';
 import { McpOAuthService } from '@/server/services/mcp/oauth';
+import { invokeSandboxTool } from '@/server/services/sandbox';
 import { SearchService } from '@/server/services/search';
-import { builtinTools } from '@/tools';
-import { CodeInterpreterIdentifier } from '@/tools/code-interpreter';
+import { builtinToolIdentifiers, builtinTools } from '@/tools';
 import { DalleManifest } from '@/tools/dalle';
 import { MemoryApiName, MemoryManifest } from '@/tools/memory';
+import { isSandboxToolIdentifier } from '@/tools/sandbox/const';
 import { SkillLoaderApiName, SkillLoaderManifest } from '@/tools/skills';
 import { WebBrowsingApiName, WebBrowsingManifest } from '@/tools/web-browsing';
 import { WebBrowsingExecutionRuntime } from '@/tools/web-browsing/ExecutionRuntime';
@@ -43,8 +43,7 @@ import { toPersistedConversationMessageSessionId } from './inboxSession';
 
 const searchRuntime = new WebBrowsingExecutionRuntime({ searchService: new SearchService() });
 
-const BUILTIN_TOOL_IDENTIFIERS = new Set(builtinTools.map((tool) => tool.identifier));
-const isBuiltinToolIdentifier = (identifier: string) => BUILTIN_TOOL_IDENTIFIERS.has(identifier);
+const isBuiltinToolIdentifier = (identifier: string) => builtinToolIdentifiers.has(identifier);
 
 const hashInput = (value: unknown) =>
   createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -425,17 +424,15 @@ export const invokeConversationTool = async ({
     };
   }
 
-  if (identifier === CodeInterpreterIdentifier) {
-    const packages = Array.isArray(args.packages)
-      ? args.packages.filter((item: unknown): item is string => typeof item === 'string')
-      : [];
-    const result = await runCodeInterpreter({
-      code: typeof args.code === 'string' ? args.code : '',
+  if (isSandboxToolIdentifier(identifier)) {
+    const result = await invokeSandboxTool({
+      apiName: payload.apiName,
+      args,
       db,
       groupId: assistantMessage.groupId,
       operationHash: operationId ? hashGenerationDebugValue(operationId) : undefined,
-      packages,
       sessionId: assistantMessage.sessionId,
+      signal,
       threadId: assistantMessage.threadId,
       topicId: assistantMessage.topicId,
       userId,
@@ -747,9 +744,9 @@ export const findUnsupportedConversationTool = async ({
     // system role. The worker already includes that prompt; the UI renders
     // the tagged model output. They do not need a browser runtime.
     if (builtin && (builtin.manifest.api?.length ?? 0) === 0) continue;
-    // Code Interpreter is often always-on. Presence must not defer the whole
-    // turn: Graphile runs it on OpenSandbox at invoke time.
-    if (identifier === CodeInterpreterIdentifier) continue;
+    // The Sandbox is often always-on. Presence must not defer the whole turn:
+    // Graphile runs it on OpenSandbox at invoke time.
+    if (isSandboxToolIdentifier(identifier)) continue;
     if (identifier === DalleManifest.identifier) {
       return {
         identifier,

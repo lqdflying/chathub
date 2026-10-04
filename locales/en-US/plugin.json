@@ -291,6 +291,21 @@
     "title": "Memory"
   },
   "pluginList": "Plugin List",
+  "sandbox": {
+    "apiName": {
+      "editFile": "Edit file",
+      "exportFile": "Export files",
+      "getCommandOutput": "Read command output",
+      "listFiles": "List files",
+      "python": "Run Python",
+      "readFile": "Read file",
+      "runCommand": "Run command",
+      "runPython": "Run Python",
+      "stopCommand": "Stop command",
+      "writeFile": "Write file"
+    },
+    "title": "Sandbox"
+  },
   "search": {
     "apiName": {
       "crawlMultiPages": "Read Multiple Pages Content",

@@ -1,9 +1,9 @@
 import { LobeBuiltinTool } from '@lobechat/types';
 
 import { ArtifactsManifest } from './artifacts';
-import { CodeInterpreterManifest } from './code-interpreter';
 import { DalleManifest } from './dalle';
 import { MemoryManifest } from './memory';
+import { LEGACY_BUILTIN_TOOL_ALIASES, SandboxManifest } from './sandbox';
 import { SkillLoaderManifest } from './skills';
 import { WebBrowsingManifest } from './web-browsing';
 
@@ -39,8 +39,14 @@ export const builtinTools: LobeBuiltinTool[] = [
     type: 'builtin',
   },
   {
-    identifier: CodeInterpreterManifest.identifier,
-    manifest: CodeInterpreterManifest,
+    identifier: SandboxManifest.identifier,
+    manifest: SandboxManifest,
     type: 'builtin',
   },
 ];
+
+/** Current builtin identifiers plus retired ones still found on stored messages. */
+export const builtinToolIdentifiers: ReadonlySet<string> = new Set([
+  ...builtinTools.map((tool) => tool.identifier),
+  ...Object.keys(LEGACY_BUILTIN_TOOL_ALIASES),
+]);

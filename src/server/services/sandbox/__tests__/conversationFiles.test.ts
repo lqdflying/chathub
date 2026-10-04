@@ -61,7 +61,7 @@ vi.mock('@/envs/sandbox', () => ({
   },
 }));
 
-import { CodeInterpreterIdentifier } from '@/tools/code-interpreter';
+import { SandboxIdentifier } from '@/tools/sandbox/const';
 
 import {
   listConversationSandboxInputs,
@@ -118,7 +118,7 @@ describe('sandbox conversation files', () => {
             { fileId: 'good', filename: 'b.txt' },
           ],
         }),
-        plugin: { identifier: CodeInterpreterIdentifier },
+        plugin: { identifier: SandboxIdentifier },
         role: 'tool',
       },
     ]);

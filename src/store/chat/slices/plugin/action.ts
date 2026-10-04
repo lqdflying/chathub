@@ -39,6 +39,7 @@ import { useToolStore } from '@/store/tool';
 import { pluginSelectors } from '@/store/tool/selectors';
 import { useUserStore } from '@/store/user';
 import { builtinTools } from '@/tools';
+import { isSandboxToolIdentifier } from '@/tools/sandbox/const';
 import { merge } from '@/utils/merge';
 import { safeParseJSON } from '@/utils/safeParseJSON';
 import { setNamespace } from '@/utils/storeDebug';
@@ -551,8 +552,13 @@ export const chatPlugin: StateCreator<
 
       // run tool api call
       // postToolCalling
-      // @ts-ignore
-      const { [payload.apiName]: action } = get();
+      // Sandbox APIs share one action; their names would otherwise need a store
+      // key each, and legacy Code Interpreter messages still say `python`.
+      const action = isSandboxToolIdentifier(payload.identifier)
+        ? (messageId: string, args: Record<string, unknown>) =>
+            get().invokeSandboxTool(messageId, payload.apiName, args)
+        : // @ts-ignore
+          get()[payload.apiName];
       if (!action) {
         settledOutcome = 'skipped';
         return {

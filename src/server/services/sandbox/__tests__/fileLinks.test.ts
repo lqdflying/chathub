@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { CodeInterpreterIdentifier } from '@/tools/code-interpreter';
+import { SandboxIdentifier } from '@/tools/sandbox/const';
 
 import {
   generatedFileLinksFromMessages,
@@ -202,7 +202,7 @@ describe('rewriteGeneratedFileLinks', () => {
         { content: 'hello', role: 'assistant' },
         {
           content: JSON.stringify({ files: [pdf], success: true }),
-          plugin: { identifier: CodeInterpreterIdentifier },
+          plugin: { identifier: SandboxIdentifier },
           role: 'tool',
         },
         {

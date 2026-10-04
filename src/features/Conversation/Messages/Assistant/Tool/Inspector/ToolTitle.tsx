@@ -14,6 +14,7 @@ import { pluginHelpers, useToolStore } from '@/store/tool';
 import { toolSelectors } from '@/store/tool/selectors';
 import { shinyTextStylish } from '@/styles/loading';
 import { MemoryManifest } from '@/tools/memory';
+import { LegacyCodeInterpreterIdentifier, SandboxIdentifier } from '@/tools/sandbox/const';
 import { SkillLoaderManifest } from '@/tools/skills';
 import { WebBrowsingManifest } from '@/tools/web-browsing';
 
@@ -63,6 +64,11 @@ const ToolTitle = memo<ToolTitleProps>(({ identifier, messageId, index, apiName,
         id: MemoryManifest.identifier,
         title: t('memory.title'),
       },
+      ...[SandboxIdentifier, LegacyCodeInterpreterIdentifier].map((id) => ({
+        apiName: t(`sandbox.apiName.${apiName}`, apiName),
+        id,
+        title: t('sandbox.title'),
+      })),
       {
         apiName: t('skillLoader.apiName.load_skill', apiName),
         id: SkillLoaderManifest.identifier,

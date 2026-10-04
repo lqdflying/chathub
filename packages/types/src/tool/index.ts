@@ -29,5 +29,6 @@ export * from './diagnostics';
 export * from './interpreter';
 export * from './intervention';
 export * from './plugin';
+export * from './sandbox';
 export * from './search';
 export * from './tool';

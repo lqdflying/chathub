@@ -3,7 +3,7 @@ import type { ChatToolPayload, UIChatMessage } from '@lobechat/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ArtifactsManifest } from '@/tools/artifacts';
-import { CodeInterpreterIdentifier } from '@/tools/code-interpreter';
+import { SandboxIdentifier } from '@/tools/sandbox/const';
 import { DalleManifest } from '@/tools/dalle';
 import { MemoryApiName, MemoryManifest } from '@/tools/memory';
 import { WebBrowsingApiName, WebBrowsingManifest } from '@/tools/web-browsing';
@@ -34,7 +34,7 @@ const searchMocks = vi.hoisted(() => ({
 const pluginMocks = vi.hoisted(() => ({ findById: vi.fn() }));
 const skillMocks = vi.hoisted(() => ({ findById: vi.fn() }));
 const mcpMocks = vi.hoisted(() => ({ callTool: vi.fn() }));
-const codeInterpreterMocks = vi.hoisted(() => ({ runCodeInterpreter: vi.fn() }));
+const sandboxMocks = vi.hoisted(() => ({ invokeSandboxTool: vi.fn() }));
 
 vi.mock('@/database/models/conversationGeneration', () => ({
   ConversationGenerationModel: class {
@@ -66,8 +66,8 @@ vi.mock('@/database/models/skill', () => ({
   },
 }));
 vi.mock('@/server/services/mcp', () => ({ mcpService: { callTool: mcpMocks.callTool } }));
-vi.mock('@/server/services/codeInterpreter', () => ({
-  runCodeInterpreter: codeInterpreterMocks.runCodeInterpreter,
+vi.mock('@/server/services/sandbox', () => ({
+  invokeSandboxTool: sandboxMocks.invokeSandboxTool,
 }));
 vi.mock('@/server/services/mcp/oauth', () => ({
   McpOAuthService: class {
@@ -118,7 +118,7 @@ describe('executeConversationToolStep', () => {
       state: { results: [] },
       success: false,
     });
-    codeInterpreterMocks.runCodeInterpreter.mockResolvedValue({
+    sandboxMocks.invokeSandboxTool.mockResolvedValue({
       output: [{ data: 'ok', type: 'stdout' }],
       success: true,
     });
@@ -388,7 +388,30 @@ describe('executeConversationToolStep', () => {
     );
   });
 
-  it('runs code interpreter on the sidecar and continues the model', async () => {
+  it('dispatches a Sandbox API by name, including under the legacy identifier', async () => {
+    sandboxMocks.invokeSandboxTool.mockResolvedValue({ exitCode: 2, stdout: '', success: false });
+
+    const result = await executeConversationToolStep({
+      assistantMessage,
+      attempt: 1,
+      db: {} as any,
+      operationId: 'operation-1',
+      payload: payload({
+        apiName: 'runCommand',
+        arguments: '{"command":"git status"}',
+        identifier: 'lobe-code-interpreter',
+      }),
+      userId: 'user-1',
+    });
+
+    expect(result).toMatchObject({ shouldContinue: true, success: false });
+    expect(JSON.parse(result.content)).toEqual({ exitCode: 2, stdout: '', success: false });
+    expect(sandboxMocks.invokeSandboxTool).toHaveBeenCalledWith(
+      expect.objectContaining({ apiName: 'runCommand', args: { command: 'git status' } }),
+    );
+  });
+
+  it('runs a legacy python call on the sandbox and continues the model', async () => {
     const result = await executeConversationToolStep({
       assistantMessage,
       attempt: 1,
@@ -397,7 +420,7 @@ describe('executeConversationToolStep', () => {
       payload: payload({
         apiName: 'python',
         arguments: '{"code":"print(1)","packages":[]}',
-        identifier: CodeInterpreterIdentifier,
+        identifier: SandboxIdentifier,
       }),
       userId: 'user-1',
     });
@@ -409,9 +432,10 @@ describe('executeConversationToolStep', () => {
     });
     expect(result.content).toContain('"success":true');
     expect(result.content).not.toContain('connected browser');
-    expect(codeInterpreterMocks.runCodeInterpreter).toHaveBeenCalledWith(
+    expect(sandboxMocks.invokeSandboxTool).toHaveBeenCalledWith(
       expect.objectContaining({
-        code: 'print(1)',
+        apiName: 'python',
+        args: { code: 'print(1)', packages: [] },
         sessionId: 'session-1',
         threadId: 'thread-1',
         topicId: 'topic-1',
@@ -604,7 +628,7 @@ describe('findUnsupportedConversationTool', () => {
       findUnsupportedConversationTool({
         config: {
           model: 'model-1',
-          plugins: [CodeInterpreterIdentifier],
+          plugins: [SandboxIdentifier],
           provider: 'provider-1',
         },
         db: {} as any,
@@ -618,7 +642,7 @@ describe('findUnsupportedConversationTool', () => {
       findUnsupportedConversationTool({
         config: {
           model: 'model-1',
-          plugins: [CodeInterpreterIdentifier, DalleManifest.identifier],
+          plugins: [SandboxIdentifier, DalleManifest.identifier],
           provider: 'provider-1',
         },
         db: {} as any,

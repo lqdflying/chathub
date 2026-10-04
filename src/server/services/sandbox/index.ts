@@ -1,5 +1,7 @@
 export { listConversationSandboxInputs, persistSandboxOutputFiles } from './conversationFiles';
 export { getSandboxProvider, isSandboxConfigured } from './registry';
+export { buildSandboxSessionKey } from './session';
+export { invokeSandboxTool, type InvokeSandboxToolParams } from './tool';
 export {
   SandboxError,
   type SandboxFile,

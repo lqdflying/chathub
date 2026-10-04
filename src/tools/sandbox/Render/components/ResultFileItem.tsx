@@ -71,8 +71,8 @@ const ResultFileCard = memo<CodeInterpreterFileItem>(({ filename, fileId, previe
   const { message } = App.useApp();
   const [copied, setCopied] = useState(false);
   const copyResetTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const [useFetchInterpreterFileItem] = useChatStore((s) => [s.useFetchInterpreterFileItem]);
-  const { data } = useFetchInterpreterFileItem(fileId);
+  const [useFetchSandboxFileItem] = useChatStore((s) => [s.useFetchSandboxFileItem]);
+  const { data } = useFetchSandboxFileItem(fileId);
 
   const baseName = basename(data?.filename ?? filename);
   const resolvedUrl = url || data?.url || previewUrl;

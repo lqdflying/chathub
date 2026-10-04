@@ -20,9 +20,9 @@ vi.mock('@/services/file', () => ({
 }));
 
 vi.mock('@/store/chat', () => ({
-  useChatStore: (selector: (state: { useFetchInterpreterFileItem: () => { data: undefined } }) => unknown) =>
+  useChatStore: (selector: (state: { useFetchSandboxFileItem: () => { data: undefined } }) => unknown) =>
     selector({
-      useFetchInterpreterFileItem: () => ({ data: undefined }),
+      useFetchSandboxFileItem: () => ({ data: undefined }),
     }),
 }));
 

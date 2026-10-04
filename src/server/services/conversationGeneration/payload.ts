@@ -47,6 +47,7 @@ import { buildModelExtendParams, resolveModelSearchConfig } from '@/services/cha
 import { trimMinimaxChatContext } from '@/services/chat/trimMinimaxContext';
 import { builtinTools } from '@/tools';
 import { MemoryManifest } from '@/tools/memory';
+import { normalizeBuiltinToolIds } from '@/tools/sandbox/const';
 import { SkillLoaderManifest } from '@/tools/skills';
 import { WebBrowsingManifest } from '@/tools/web-browsing';
 
@@ -121,7 +122,7 @@ export const buildConversationChatPayload = async ({
   const model = config.model;
   const provider = config.provider;
   const chatConfig = config.chatConfig;
-  const pluginIds = config.plugins || [];
+  const pluginIds = normalizeBuiltinToolIds(config.plugins || []);
   const skillIds = [...new Set(config.activatedSkillIds || [])].slice(0, MAX_ACTIVE_SKILLS);
   const skillRecords = (
     await Promise.all(skillIds.map((identifier) => new SkillModel(db, userId).findById(identifier)))

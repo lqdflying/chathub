@@ -13,7 +13,7 @@ import { toPersistedConversationSessionId } from '@/server/services/conversation
 import { loadConversationThreadMessages } from '@/server/services/conversationGeneration/threadScope';
 import { FileService } from '@/server/services/file';
 import { createUploadTarget } from '@/server/services/file/uploadTarget';
-import { CodeInterpreterIdentifier } from '@/tools/code-interpreter';
+import { isSandboxToolIdentifier } from '@/tools/sandbox/const';
 
 import type { SandboxFile, SandboxInputRef } from './types';
 
@@ -64,7 +64,7 @@ const collectPendingFiles = (scoped: UIChatMessage[], maxFileCount: number) => {
     const identifier =
       (message.plugin as { identifier?: string } | undefined)?.identifier ??
       (message as { tools?: Array<{ identifier?: string }> }).tools?.[0]?.identifier;
-    if (identifier !== CodeInterpreterIdentifier || !message.content) continue;
+    if (!isSandboxToolIdentifier(identifier) || !message.content) continue;
     try {
       const prior = JSON.parse(message.content) as { files?: CodeInterpreterFileItem[] };
       for (const file of prior.files ?? []) push(file.fileId, file.filename);

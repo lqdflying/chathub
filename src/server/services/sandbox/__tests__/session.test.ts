@@ -1,9 +1,7 @@
 /** @vitest-environment node */
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
-import { buildSandboxSessionKey } from '../index';
-
-vi.mock('@/server/services/sandbox', () => ({}));
+import { buildSandboxSessionKey } from '../session';
 
 const base = { sessionId: 'agent-1', topicId: 'topic-1', userId: 'user-1' };
 
