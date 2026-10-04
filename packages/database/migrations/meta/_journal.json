@@ -434,6 +434,13 @@
       "when": 1788300000000,
       "tag": "0061_token_estimation_profiles",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1788310000000,
+      "tag": "0062_sandbox_tool_identifier",
+      "breakpoints": true
     }
   ],
   "version": "6"
