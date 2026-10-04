@@ -229,7 +229,13 @@ sandbox again after a ChatHub restart.
   included) and must answer execd `/ping` within 5s. One that does not is
   deleted, and the run creates a new one. A lookup error other than the
   ready-budget abort falls back to a new sandbox. If the lookup itself hits
-  `OPENSANDBOX_READY_TIMEOUT`, the run fails.
+  `OPENSANDBOX_READY_TIMEOUT`, the run fails. A sandbox is also replaced when
+  its `chathub-network` label is not the fingerprint of the policy this run
+  would send (`open` when there is no policy). A sandbox created before that
+  label existed is replaced as soon as a policy is configured, so an older
+  unrestricted container cannot keep an allowlist or `enableNetwork: false`
+  from applying. Image, CPU, and memory changes still wait for the next
+  sandbox, as before.
 - **After a run**, the sandbox is renewed to the idle deadline
   (`OPENSANDBOX_SESSION_IDLE_TIMEOUT`, default 30 min) and the server reaps
   it if no run comes. Every run restarts the timer, so a conversation that
@@ -249,8 +255,12 @@ sandbox again after a ChatHub restart.
   no `createdAt`, is deleted instead of reused, and the next run creates a
   fresh one.
 - **Outputs.** The runner stamps the size and mtime of the top-level files
-  before the user code runs. The manifest's `changed` flag is false for
-  files the run left untouched, and ChatHub does not return those again.
+  before the user code runs. The manifest lists only files this run created
+  or changed, and it does not hash the ones it leaves out, so retained
+  history cannot grow the manifest past its cap. ChatHub also uploads an
+  empty manifest before the process starts. An abrupt exit (`os._exit`, a
+  kill before the runner finishes) therefore publishes no previous files.
+  Ordinary handled errors still write the manifest and keep the sandbox.
   `plot_N.png` numbering continues after the plots already in the workdir.
 - **Concurrency.** Runs with the same key take turns inside one ChatHub
   process (a per-key promise chain), so two tool calls in one turn neither

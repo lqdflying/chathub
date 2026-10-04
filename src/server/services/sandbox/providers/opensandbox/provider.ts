@@ -47,6 +47,11 @@ const FAILED_STATES = new Set(['Failed', 'Stopping', 'Terminated']);
 // Container label (OpenSandbox metadata) that ties a sandbox to one
 // conversation scope. The value is the hashed `sessionKey`.
 export const SESSION_METADATA_KEY = 'chathub-session';
+// Container label recording the network policy this sandbox was created with.
+// `open` means no policy. A reused sandbox with any other value, or with the
+// label missing while a policy is now required, is replaced.
+export const NETWORK_METADATA_KEY = 'chathub-network';
+export const OPEN_NETWORK_FINGERPRINT = 'open';
 // A reused sandbox that does not answer quickly is treated as gone.
 const REUSE_PING_TIMEOUT_MS = 5000;
 // execd reports a signal death as exit "-1" with "signal: killed".
@@ -105,6 +110,15 @@ export const buildNetworkPolicy = (
     egress: allowList.map((target) => ({ action: 'allow', target })),
   };
 };
+
+/** Stable label value for the policy `createSandbox` will send. */
+export const networkPolicyFingerprint = (policy: OpenSandboxNetworkPolicy | undefined) => {
+  if (!policy) return OPEN_NETWORK_FINGERPRINT;
+  return createHash('sha256').update(JSON.stringify(policy)).digest('hex').slice(0, 32);
+};
+
+const networkCompatible = (recorded: string | undefined, fingerprint: string) =>
+  recorded === fingerprint || (!recorded && fingerprint === OPEN_NETWORK_FINGERPRINT);
 
 export class OpenSandboxProvider implements SandboxProvider {
   readonly id = 'opensandbox';
@@ -216,8 +230,11 @@ export class OpenSandboxProvider implements SandboxProvider {
 
     try {
       const readySignal = AbortSignal.timeout(this.readyTimeout);
+      const networkFingerprint = networkPolicyFingerprint(
+        buildNetworkPolicy(input.enableNetwork, this.egressAllow),
+      );
       const lookup = sessionKey
-        ? await this.reuseSandbox(client, sessionKey, runBudgetMs, readySignal)
+        ? await this.reuseSandbox(client, sessionKey, runBudgetMs, networkFingerprint, readySignal)
         : undefined;
       retired = !!lookup?.retired;
       lookupFailed = !!lookup?.lookupFailed;
@@ -242,6 +259,10 @@ export class OpenSandboxProvider implements SandboxProvider {
       const uploads: Array<{ content: Uint8Array; path: string }> = [
         { content: utf8(buildRunnerScript()), path: RUNNER_PATH },
         { content: utf8(input.code), path: USER_CODE_PATH },
+        // Drop the previous run's manifest before the process starts. An
+        // abrupt exit never rewrites it, and collection must not republish
+        // that run's files.
+        { content: utf8('[]'), path: MANIFEST_PATH },
       ];
       for (const file of input.files) {
         const name = safeBasename(file.filename);
@@ -317,15 +338,17 @@ export class OpenSandboxProvider implements SandboxProvider {
     signal: AbortSignal,
   ) {
     const requestedAt = Date.now();
+    const networkPolicy = buildNetworkPolicy(input.enableNetwork, this.egressAllow);
     const created = await client.createSandbox(
       {
         entrypoint: SANDBOX_ENTRYPOINT,
         image: { uri: this.image! },
         metadata: {
-          name: 'chathub-code-interpreter',
+          [NETWORK_METADATA_KEY]: networkPolicyFingerprint(networkPolicy),
           ...(sessionKey ? { [SESSION_METADATA_KEY]: sessionKey } : {}),
+          name: 'chathub-code-interpreter',
         },
-        networkPolicy: buildNetworkPolicy(input.enableNetwork, this.egressAllow),
+        networkPolicy,
         resourceLimits: { cpu: this.cpu, memory: this.memory },
         // Covers this run only. A session sandbox is extended by the idle
         // timeout after each run, so a crash mid-run still frees it soon.
@@ -350,14 +373,16 @@ export class OpenSandboxProvider implements SandboxProvider {
 
   /**
    * Finds this conversation's running sandbox and pushes its expiry past the
-   * coming run. One that does not respond, or is too close to its optional max
-   * lifetime to finish the run, is deleted, and the caller creates a fresh
-   * one. So does a failed lookup: reuse must never be why a run fails.
+   * coming run. One that does not respond, is too close to its optional max
+   * lifetime to finish the run, or was created with a different network
+   * policy, is deleted, and the caller creates a fresh one. So does a failed
+   * lookup: reuse must never be why a run fails.
    */
   private async reuseSandbox(
     client: OpenSandboxClient,
     sessionKey: string,
     runBudgetMs: number,
+    networkFingerprint: string,
     signal: AbortSignal,
   ): Promise<{
     lookupFailed?: boolean;
@@ -372,8 +397,12 @@ export class OpenSandboxProvider implements SandboxProvider {
       return { lookupFailed: true, retired: false };
     }
     let retired = false;
-    for (const { createdAt, id } of found) {
-      if (this.retireAt(createdAt) - Date.now() < runBudgetMs) {
+    for (const { createdAt, id, metadata } of found) {
+      const recordedNetwork = metadata?.[NETWORK_METADATA_KEY];
+      if (
+        this.retireAt(createdAt) - Date.now() < runBudgetMs ||
+        !networkCompatible(recordedNetwork, networkFingerprint)
+      ) {
         retired = true;
         await this.deleteQuietly(client, id);
         continue;

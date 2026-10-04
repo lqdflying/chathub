@@ -7,6 +7,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { OPENSANDBOX_MANIFEST_MAX_BYTES } from '../client';
 import { buildRunnerScript, parseOutputManifest } from '../python';
 
 // Just enough of pyplot for the hook: figures are numbered paths.
@@ -121,10 +122,40 @@ describe('OpenSandbox runner script', () => {
 
     expect(status).toBe(0);
     expect(manifest?.map(({ changed, name }) => ({ changed, name }))).toEqual([
-      { changed: false, name: 'a.txt' },
       { changed: true, name: 'b.txt' },
       { changed: true, name: 'c.txt' },
     ]);
+    expect(existsSync(join(workdir, 'a.txt'))).toBe(true);
+  });
+
+  it('leaves unchanged history out of the manifest so it stays under the cap', () => {
+    mkdirSync(workdir, { recursive: true });
+    for (let index = 0; index < 2200; index += 1) {
+      writeFileSync(join(workdir, `old-${index}.txt`), 'x');
+    }
+
+    const { manifest } = run('open("new-result.txt", "w").write("n")');
+    const raw = readFileSync(join(workdir, '.chathub', 'manifest.json'));
+
+    expect(raw.byteLength).toBeLessThan(OPENSANDBOX_MANIFEST_MAX_BYTES);
+    expect(manifest?.map((entry) => entry.name)).toEqual(['new-result.txt']);
+    expect(existsSync(join(workdir, 'old-0.txt'))).toBe(true);
+  });
+
+  it('drops the previous manifest before user code so an abrupt exit lists nothing', () => {
+    const control = join(workdir, '.chathub');
+    mkdirSync(control, { recursive: true });
+    writeFileSync(join(workdir, 'result_20.txt'), 'old');
+    writeFileSync(
+      join(control, 'manifest.json'),
+      JSON.stringify([{ changed: true, name: 'result_20.txt', sha256: 'x', size: 3 }]),
+    );
+
+    const { manifest, status } = run('import os; os._exit(0)');
+
+    expect(status).toBe(0);
+    expect(manifest).toEqual([]);
+    expect(existsSync(join(workdir, 'result_20.txt'))).toBe(true);
   });
 
   it('does not echo None or a trailing statement', () => {
@@ -152,9 +183,9 @@ describe('OpenSandbox runner script', () => {
 
     expect(stderr).toBe('');
     expect(manifest?.map(({ changed, name }) => ({ changed, name }))).toEqual([
-      { changed: false, name: 'plot_1.png' },
       { changed: true, name: 'plot_2.png' },
     ]);
+    expect(existsSync(join(workdir, 'plot_1.png'))).toBe(true);
   });
 
   it('exits 1 with a user-only traceback and still writes the manifest', () => {

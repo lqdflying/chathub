@@ -281,8 +281,19 @@ export class OpenSandboxClient {
     const payload = (await response.json()) as { items?: unknown };
     if (!Array.isArray(payload.items)) return [];
     return payload.items.flatMap((item) => {
-      const { createdAt, id } = (item ?? {}) as { createdAt?: unknown; id?: unknown };
-      return typeof id === 'string' && id ? [{ createdAt: parseTimestamp(createdAt), id }] : [];
+      const { createdAt, id, metadata } = (item ?? {}) as {
+        createdAt?: unknown;
+        id?: unknown;
+        metadata?: unknown;
+      };
+      if (typeof id !== 'string' || !id) return [];
+      const labels: Record<string, string> = {};
+      if (metadata && typeof metadata === 'object') {
+        for (const [key, value] of Object.entries(metadata)) {
+          if (typeof value === 'string') labels[key] = value;
+        }
+      }
+      return [{ createdAt: parseTimestamp(createdAt), id, metadata: labels }];
     });
   }
 

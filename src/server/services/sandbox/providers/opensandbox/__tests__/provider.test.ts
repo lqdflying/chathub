@@ -45,7 +45,13 @@ vi.mock('@/libs/logger/generationDebug', () => ({
 import { logGenerationDebugSafe } from '@/libs/logger/generationDebug';
 
 import { OPENSANDBOX_MANIFEST_MAX_BYTES } from '../client';
-import { buildNetworkPolicy, OpenSandboxProvider } from '../provider';
+import {
+  buildNetworkPolicy,
+  NETWORK_METADATA_KEY,
+  OPEN_NETWORK_FINGERPRINT,
+  OpenSandboxProvider,
+  networkPolicyFingerprint,
+} from '../provider';
 
 const SERVER = 'http://opensandbox:8090';
 const EXECD_PATH = '/proxy/44772';
@@ -93,6 +99,8 @@ interface Scenario {
   // Sandboxes already running on the server.
   existing?: ExistingSandbox[];
   files?: Record<string, string>;
+  // Uploads replace the initial files, and downloads read that store.
+  persistUploads?: boolean;
   pingFailures?: number;
   states?: string[];
 }
@@ -129,6 +137,7 @@ const install = (scenario: Scenario = {}) => {
   const live = new Map<string, Omit<ExistingSandbox, 'id'>>(
     (scenario.existing ?? []).map(({ id, ...rest }) => [id, rest]),
   );
+  const disk = new Map<string, string>(Object.entries(scenario.files ?? {}));
 
   fetchMock.mockImplementation(async (input: string, init: RequestInit = {}) => {
     const url = new URL(input);
@@ -156,7 +165,12 @@ const install = (scenario: Scenario = {}) => {
       const [key, value] = query.metadata.split('=');
       const items = [...live]
         .filter(([, sandbox]) => sandbox.metadata[key] === value)
-        .map(([id, { createdAt }]) => ({ createdAt, id, status: { state: 'Running' } }));
+        .map(([id, { createdAt, metadata }]) => ({
+          createdAt,
+          id,
+          metadata,
+          status: { state: 'Running' },
+        }));
       return json({ items, pagination: { hasNextPage: false } });
     }
 
@@ -197,7 +211,9 @@ const install = (scenario: Scenario = {}) => {
       const files = form.getAll('file') as Blob[];
       for (const [index, part] of metadata.entries()) {
         const { path: filePath } = JSON.parse(await part.text()) as { path: string };
-        calls.uploads.push({ content: await files[index].text(), path: filePath });
+        const content = await files[index].text();
+        calls.uploads.push({ content, path: filePath });
+        if (scenario.persistUploads) disk.set(filePath, content);
       }
       return json({});
     }
@@ -214,7 +230,7 @@ const install = (scenario: Scenario = {}) => {
       calls.downloads.push(filePath);
       const custom = scenario.downloads?.[filePath];
       if (custom) return custom();
-      const content = scenario.files?.[filePath];
+      const content = scenario.persistUploads ? disk.get(filePath) : scenario.files?.[filePath];
       return content === undefined
         ? json({ code: 'FILE_NOT_FOUND', message: 'file not found' }, 404)
         : new Response(content);
@@ -264,7 +280,8 @@ const run = (code = 'x', files: ReturnType<typeof file>[] = []) =>
 const runIn = (sessionKey: string, code = 'x') =>
   new OpenSandboxProvider().run({ code, files: [], language: 'python3', sessionKey });
 
-const session = (key: string) => ({
+const session = (key: string, network = OPEN_NETWORK_FINGERPRINT) => ({
+  'chathub-network': network,
   'chathub-session': key,
   'name': 'chathub-code-interpreter',
 });
@@ -336,10 +353,11 @@ describe('OpenSandboxProvider', () => {
     expect(result.files.map((item) => item.filename)).toEqual(['notes.txt', 'chart.png']);
     expect(Buffer.from(result.files[1].content).toString()).toBe('png');
 
-    const [runner, code, ...inputs] = calls.uploads;
+    const [runner, code, manifestReset, ...inputs] = calls.uploads;
     expect(runner.path).toBe('/tmp/chathub-ci/.chathub/run.py');
     expect(runner.content).toContain('_PyplotHook');
     expect(code).toEqual({ content: 'print("hello")', path: '/tmp/chathub-ci/.chathub/code.py' });
+    expect(manifestReset).toEqual({ content: '[]', path: '/tmp/chathub-ci/.chathub/manifest.json' });
     expect(inputs).toEqual([
       { content: 'a,b', path: '/tmp/chathub-ci/data.csv' },
       { content: 'orig', path: '/tmp/chathub-ci/notes.txt' },
@@ -770,7 +788,10 @@ describe('OpenSandboxProvider', () => {
       await runIn('topic-a');
 
       expect(calls.lists).toEqual([]);
-      expect(calls.createBody?.metadata).toEqual({ name: 'chathub-code-interpreter' });
+      expect(calls.createBody?.metadata).toEqual({
+        name: 'chathub-code-interpreter',
+        [NETWORK_METADATA_KEY]: OPEN_NETWORK_FINGERPRINT,
+      });
       expect(calls.deletedIds).toEqual(['sbx-1']);
     });
 
@@ -810,6 +831,126 @@ describe('OpenSandboxProvider', () => {
 
       expect(result.files.map((item) => item.filename)).toEqual(['new.png']);
       expect(calls.downloads).not.toContain('/tmp/chathub-ci/old.png');
+    });
+
+    it('replaces a reused sandbox when the network policy is tightened', async () => {
+      const calls = install();
+
+      await runIn('topic-a');
+      process.env.OPENSANDBOX_EGRESS_ALLOW = 'pypi.org';
+      await new OpenSandboxProvider().run({
+        code: 'x',
+        files: [],
+        language: 'python3',
+        sessionKey: 'topic-a',
+      });
+
+      expect(calls.creates).toBe(2);
+      expect(calls.deletedIds).toContain('sbx-1');
+      expect(calls.commandIds).toEqual(['sbx-1', 'sbx-2']);
+      expect(calls.createBody?.networkPolicy).toEqual({
+        defaultAction: 'deny',
+        egress: [{ action: 'allow', target: 'pypi.org' }],
+      });
+      expect(calls.createBody?.metadata).toMatchObject({
+        [NETWORK_METADATA_KEY]: networkPolicyFingerprint(
+          buildNetworkPolicy(undefined, ['pypi.org']),
+        ),
+      });
+    });
+
+    it('replaces a reused sandbox when networking is turned off', async () => {
+      const calls = install();
+      const provider = () => new OpenSandboxProvider();
+
+      await provider().run({
+        code: 'x',
+        enableNetwork: true,
+        files: [],
+        language: 'python3',
+        sessionKey: 'topic-a',
+      });
+      await provider().run({
+        code: 'x',
+        enableNetwork: false,
+        files: [],
+        language: 'python3',
+        sessionKey: 'topic-a',
+      });
+
+      expect(calls.creates).toBe(2);
+      expect(calls.deletedIds).toContain('sbx-1');
+      expect(calls.createBody?.networkPolicy).toEqual({ defaultAction: 'deny', egress: [] });
+    });
+
+    it('reuses a sandbox when the network policy is unchanged', async () => {
+      process.env.OPENSANDBOX_EGRESS_ALLOW = 'pypi.org';
+      const calls = install();
+
+      await runIn('topic-a', 'first');
+      await new OpenSandboxProvider().run({
+        code: 'second',
+        files: [],
+        language: 'python3',
+        sessionKey: 'topic-a',
+      });
+
+      expect(calls.creates).toBe(1);
+      expect(calls.deleted).toBe(0);
+      expect(calls.commandIds).toEqual(['sbx-1', 'sbx-1']);
+    });
+
+    it('replaces a legacy sandbox that has no policy label when a policy is required', async () => {
+      process.env.OPENSANDBOX_EGRESS_ALLOW = 'pypi.org';
+      const calls = install({
+        existing: [
+          {
+            createdAt: ago(60_000),
+            id: 'sbx-old',
+            metadata: { 'chathub-session': 'topic-a', name: 'chathub-code-interpreter' },
+          },
+        ],
+      });
+
+      await runIn('topic-a');
+
+      expect(calls.deletedIds).toContain('sbx-old');
+      expect(calls.creates).toBe(1);
+      expect(calls.commandIds).toEqual(['sbx-1']);
+    });
+
+    it('does not attach a previous run\'s files when the process exits before the manifest', async () => {
+      const previous = Array.from({ length: 21 }, (_, index) => ({
+        changed: true as const,
+        name: `result_${index}.txt`,
+        sha256: sha(`v${index}`),
+        size: String(index).length + 1,
+      }));
+      const files: Record<string, string> = {
+        '/tmp/chathub-ci/.chathub/manifest.json': JSON.stringify(previous),
+      };
+      for (const [index, entry] of previous.entries()) {
+        files[`/tmp/chathub-ci/${entry.name}`] = `v${index}`;
+      }
+      const calls = install({
+        command: () => stream([{ type: 'execution_complete' }]),
+        files,
+        persistUploads: true,
+      });
+
+      const result = await new OpenSandboxProvider().run({
+        code: 'import os; os._exit(0)',
+        files: previous.slice(0, 20).map((entry, index) => file(entry.name, `v${index}`)),
+        language: 'python3',
+        sessionKey: 'topic-a',
+      });
+
+      expect(result).toMatchObject({ files: [], success: true });
+      expect(calls.uploads).toContainEqual({
+        content: '[]',
+        path: '/tmp/chathub-ci/.chathub/manifest.json',
+      });
+      expect(calls.downloads).toEqual(['/tmp/chathub-ci/.chathub/manifest.json']);
     });
   });
 

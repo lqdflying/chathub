@@ -8,8 +8,9 @@
  * copies a file that is still there at the end into the workdir under its
  * basename. It forces the Agg backend, turns
  * `plt.show()` into PNG files, echoes a trailing expression the way a
- * notebook would, and writes a sha256 manifest of the workdir, flagging the
- * files this run created or changed, so ChatHub downloads only those.
+ * notebook would, and writes a sha256 manifest of only the files this run
+ * created or changed. Unchanged files stay in the sandbox and are not listed,
+ * so a long history cannot grow the manifest past its cap.
  *
  * Jupyter is deliberately not used: execd opens a new kernel websocket per
  * cell and matches replies by message type only, and its code streams hung
@@ -51,6 +52,11 @@ export const buildRunnerScript = (
     `CONTROL = ${JSON.stringify(controlDir)}`,
     `FONT = ${JSON.stringify(fontPath)}`,
     'os.chdir(WORKDIR)',
+    'os.makedirs(CONTROL, exist_ok=True)',
+    // A previous run's manifest must not survive an abrupt exit. The real
+    // manifest is written again after user code finishes.
+    'with io.open(os.path.join(CONTROL, "manifest.json"), "w", encoding="utf-8") as _reset:',
+    '    _reset.write("[]")',
     'os.environ["MPLBACKEND"] = "Agg"',
     'for _stream in (sys.stdout, sys.stderr):',
     '    try:',
@@ -318,11 +324,13 @@ export const buildRunnerScript = (
     '        continue',
     '    if _name.startswith("fontlist-v") or _name.endswith(".matplotlib-lock"):',
     '        continue',
+    '    if _BEFORE.get(_name) == _stamp(_path):',
+    '        continue',
     '    _hash = hashlib.sha256()',
     '    with io.open(_path, "rb") as _fh:',
     '        for _chunk in iter(lambda: _fh.read(1 << 20), b""):',
     '            _hash.update(_chunk)',
-    '    _out.append({"name": _name, "sha256": _hash.hexdigest(), "size": os.path.getsize(_path), "changed": _BEFORE.get(_name) != _stamp(_path)})',
+    '    _out.append({"name": _name, "sha256": _hash.hexdigest(), "size": os.path.getsize(_path), "changed": True})',
     'with io.open(os.path.join(CONTROL, "manifest.json"), "w", encoding="utf-8") as _fh:',
     '    json.dump(_out, _fh)',
     'sys.stdout.flush()',
