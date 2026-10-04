@@ -231,20 +231,22 @@ sandbox again after a ChatHub restart.
   run.
 - **After a run**, the sandbox is renewed to the idle deadline
   (`OPENSANDBOX_SESSION_IDLE_TIMEOUT`, default 30 min) and the server reaps
-  it if no run comes. A failing script or a run timeout keeps it; any other
+  it if no run comes. Every run restarts the timer, so a conversation that
+  keeps running code keeps its sandbox. A failing script or a run timeout keeps it; any other
   failure (upload, stream, collect, server errors) deletes it, so the next
   run starts clean.
-- **Max lifetime.** The server's `max_sandbox_timeout_seconds` only rejects
-  a create request whose TTL is longer. `renew-expiration` ignores it and
+- **`max_sandbox_timeout_seconds` does not limit this.** The server checks
+  it only when a sandbox is created; `renew-expiration` ignores it and
   nothing caps total lifetime (`server.max_sandbox_timeout_seconds` in
   `opensandbox_server/config.py`, and the renew route's docstring). ChatHub
-  enforces the cap itself: it never renews a sandbox past `createdAt` (from
-  the list response) + `OPENSANDBOX_SESSION_MAX_LIFETIME` (default 1h; match
-  it to `max_sandbox_timeout_seconds`), and parks it until that time at the
-  latest. A sandbox with less than one run budget left, or with no
-  `createdAt`, is deleted instead of reused. The server purges a parked
-  sandbox at its expiry, and the next lookup then finds nothing and creates
-  a fresh one.
+  creates with a TTL of ready + run budget + 120s, so the setting never
+  rejects a ChatHub create either.
+- **Optional max lifetime.** `OPENSANDBOX_SESSION_MAX_LIFETIME` (default 0,
+  off) caps a sandbox's age even while its conversation is active. With it
+  set, ChatHub never renews a sandbox past `createdAt` (from the list
+  response) + the cap. A sandbox with less than one run budget left, or with
+  no `createdAt`, is deleted instead of reused, and the next run creates a
+  fresh one.
 - **What carries over:** files in `/tmp/chathub-ci` and elsewhere, installed
   packages, background processes. **What does not:** Python variables and
   imports, because every run is a new `python3` process.
@@ -337,10 +339,11 @@ Verified end to end with runc against `opensandbox/server:release-1.1.0` and
 `release-1.1.1-rc.1` (live suite 56/56 runs, raw command API 125/125, no
 leftover sandboxes); Kata and gVisor were not available there. Session
 sandboxes were verified against `release-1.1.0` and `release-1.1.1-rc.1`
-with `max_sandbox_timeout_seconds = 3600` (live suite 9/9 on each): a subprocess install and a workdir
-file reached the next run, a parked sandbox's `expiresAt` was its
-`createdAt` + max lifetime, a sandbox past its lifetime was replaced, and
-the server purged an expired sandbox and dropped it from the metadata list. Setup:
+with `max_sandbox_timeout_seconds = 3600` (live suite 9/9 on each): a
+subprocess install and a workdir file reached the next run; with a max
+lifetime set, a parked sandbox's `expiresAt` was its `createdAt` + the cap
+and a sandbox past it was replaced; and the server purged an expired
+sandbox and dropped it from the metadata list. Setup:
 [Code Interpreter Sandbox](https://github.com/lqdflying/chathub/wiki/Code-Interpreter-Sandbox).
 
 ## Future backends

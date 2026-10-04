@@ -33,7 +33,7 @@ vi.mock('@/envs/codeInterpreter', () => ({
       return Number(process.env.OPENSANDBOX_SESSION_IDLE_TIMEOUT ?? 1_800_000);
     },
     get OPENSANDBOX_SESSION_MAX_LIFETIME() {
-      return Number(process.env.OPENSANDBOX_SESSION_MAX_LIFETIME ?? 3_600_000);
+      return Number(process.env.OPENSANDBOX_SESSION_MAX_LIFETIME ?? 0);
     },
   },
 }));
@@ -294,6 +294,7 @@ describe('OpenSandboxProvider', () => {
     delete process.env.OPENSANDBOX_EGRESS_ALLOW;
     delete process.env.CODE_INTERPRETER_TIMEOUT;
     delete process.env.OPENSANDBOX_SESSION_IDLE_TIMEOUT;
+    delete process.env.OPENSANDBOX_SESSION_MAX_LIFETIME;
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
@@ -618,72 +619,103 @@ describe('OpenSandboxProvider', () => {
       expect(calls.commandIds).toEqual(['sbx-1']);
     });
 
-    it('retires a session sandbox too close to its max lifetime to host the run', async () => {
+    it('keeps reusing an active session sandbox at any age without a max lifetime', async () => {
       const calls = install({
-        existing: [
-          {
-            createdAt: ago(MAX_LIFETIME_MS - RUN_BUDGET_MS + 5000),
-            id: 'sbx-old',
-            metadata: session('topic-a'),
-          },
-        ],
+        existing: [{ createdAt: ago(5 * MAX_LIFETIME_MS), id: 'sbx-old', metadata: session('topic-a') }],
       });
 
       await runIn('topic-a');
+      const parkedAt = Date.now();
 
-      expect(calls.deletedIds).toEqual(['sbx-old']);
-      expect(calls.renewals.map((item) => item.id)).toEqual(['sbx-1']);
-      expect(calls.commandIds).toEqual(['sbx-1']);
-      expect(settledFields()).toMatchObject([{ sandboxRetired: true, sandboxReused: false }]);
+      expect(calls.commandIds).toEqual(['sbx-old']);
+      expect(calls.deleted).toBe(0);
+      expect(calls.renewals.at(-1)?.id).toBe('sbx-old');
+      expect(calls.renewals.at(-1)!.expiresAt).toBeGreaterThan(parkedAt + IDLE_MS - 5000);
+      expect(calls.renewals.at(-1)!.expiresAt).toBeLessThanOrEqual(parkedAt + IDLE_MS);
+      expect(settledFields()).toMatchObject([{ sandboxRetired: false, sandboxReused: true }]);
     });
 
-    it('retires a session sandbox whose creation time is unknown', async () => {
+    it('reuses a session sandbox whose creation time is unknown without a max lifetime', async () => {
       const calls = install({ existing: [{ id: 'sbx-old', metadata: session('topic-a') }] });
-
-      await runIn('topic-a');
-
-      expect(calls.deletedIds).toEqual(['sbx-old']);
-      expect(calls.commandIds).toEqual(['sbx-1']);
-    });
-
-    it('never renews a session sandbox past its max lifetime', async () => {
-      const createdAt = ago(MAX_LIFETIME_MS - 10 * 60_000);
-      const calls = install({
-        existing: [{ createdAt, id: 'sbx-old', metadata: session('topic-a') }],
-      });
 
       await runIn('topic-a');
 
       expect(calls.commandIds).toEqual(['sbx-old']);
       expect(calls.deleted).toBe(0);
-      // Idle timeout (30 min) would pass the cap (10 min left), so the cap wins.
-      expect(calls.renewals.at(-1)).toEqual({
-        expiresAt: Date.parse(createdAt) + MAX_LIFETIME_MS,
-        id: 'sbx-old',
-      });
     });
 
-    it('deletes a session sandbox after a run once no further run fits its lifetime', async () => {
-      vi.useFakeTimers({ now: Date.now(), toFake: ['Date'] });
-      const calls = install({
-        command: () => {
-          vi.setSystemTime(Date.now() + 10_000);
-          return stream([{ type: 'execution_complete' }]);
-        },
-        existing: [
-          {
-            createdAt: ago(MAX_LIFETIME_MS - RUN_BUDGET_MS - 5000),
-            id: 'sbx-old',
-            metadata: session('topic-a'),
-          },
-        ],
+    describe('with a max lifetime', () => {
+      beforeEach(() => {
+        process.env.OPENSANDBOX_SESSION_MAX_LIFETIME = String(MAX_LIFETIME_MS);
       });
 
-      await runIn('topic-a');
+      it('retires a session sandbox too close to its max lifetime to host the run', async () => {
+        const calls = install({
+          existing: [
+            {
+              createdAt: ago(MAX_LIFETIME_MS - RUN_BUDGET_MS + 5000),
+              id: 'sbx-old',
+              metadata: session('topic-a'),
+            },
+          ],
+        });
 
-      expect(calls.commandIds).toEqual(['sbx-old']);
-      expect(calls.deletedIds).toEqual(['sbx-old']);
-      expect(calls.renewals.map((item) => item.id)).toEqual(['sbx-old']);
+        await runIn('topic-a');
+
+        expect(calls.deletedIds).toEqual(['sbx-old']);
+        expect(calls.renewals.map((item) => item.id)).toEqual(['sbx-1']);
+        expect(calls.commandIds).toEqual(['sbx-1']);
+        expect(settledFields()).toMatchObject([{ sandboxRetired: true, sandboxReused: false }]);
+      });
+
+      it('retires a session sandbox whose creation time is unknown', async () => {
+        const calls = install({ existing: [{ id: 'sbx-old', metadata: session('topic-a') }] });
+
+        await runIn('topic-a');
+
+        expect(calls.deletedIds).toEqual(['sbx-old']);
+        expect(calls.commandIds).toEqual(['sbx-1']);
+      });
+
+      it('never renews a session sandbox past its max lifetime', async () => {
+        const createdAt = ago(MAX_LIFETIME_MS - 10 * 60_000);
+        const calls = install({
+          existing: [{ createdAt, id: 'sbx-old', metadata: session('topic-a') }],
+        });
+
+        await runIn('topic-a');
+
+        expect(calls.commandIds).toEqual(['sbx-old']);
+        expect(calls.deleted).toBe(0);
+        // Idle timeout (30 min) would pass the cap (10 min left), so the cap wins.
+        expect(calls.renewals.at(-1)).toEqual({
+          expiresAt: Date.parse(createdAt) + MAX_LIFETIME_MS,
+          id: 'sbx-old',
+        });
+      });
+
+      it('deletes a session sandbox after a run once no further run fits its lifetime', async () => {
+        vi.useFakeTimers({ now: Date.now(), toFake: ['Date'] });
+        const calls = install({
+          command: () => {
+            vi.setSystemTime(Date.now() + 10_000);
+            return stream([{ type: 'execution_complete' }]);
+          },
+          existing: [
+            {
+              createdAt: ago(MAX_LIFETIME_MS - RUN_BUDGET_MS - 5000),
+              id: 'sbx-old',
+              metadata: session('topic-a'),
+            },
+          ],
+        });
+
+        await runIn('topic-a');
+
+        expect(calls.commandIds).toEqual(['sbx-old']);
+        expect(calls.deletedIds).toEqual(['sbx-old']);
+        expect(calls.renewals.map((item) => item.id)).toEqual(['sbx-old']);
+      });
     });
 
     it('creates a fresh session sandbox when the lookup fails', async () => {

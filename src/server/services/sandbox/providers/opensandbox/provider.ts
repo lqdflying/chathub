@@ -159,9 +159,9 @@ export class OpenSandboxProvider implements SandboxProvider {
   /**
    * With a `sessionKey` and a non-zero idle timeout, runs in one conversation
    * share a sandbox: installs, files, and background processes carry over, and
-   * the sandbox is removed after the idle timeout. Python variables do not:
-   * every run is a new process. A sandbox never outlives the max lifetime
-   * from its creation; the next run after that gets a fresh one.
+   * the sandbox is removed only after the idle timeout without a run. Python
+   * variables do not carry over: every run is a new process. An optional max
+   * lifetime replaces a sandbox once it reaches that age.
    */
   async run(input: SandboxRunInput): Promise<SandboxRunResult> {
     const sessionKey = this.sessionIdleTimeout > 0 ? input.sessionKey : undefined;
@@ -222,7 +222,7 @@ export class OpenSandboxProvider implements SandboxProvider {
       retired = !!lookup?.retired;
       lookupFailed = !!lookup?.lookupFailed;
       let execd: ExecdEndpoint;
-      let createdAt: number;
+      let createdAt: number | undefined;
       if (lookup?.sandbox) {
         ({ createdAt, execd, id: sandboxId } = lookup.sandbox);
         reused = true;
@@ -235,7 +235,7 @@ export class OpenSandboxProvider implements SandboxProvider {
           readySignal,
         ));
       }
-      retireAt = createdAt + this.sessionMaxLifetime;
+      retireAt = this.retireAt(createdAt);
 
       phase = 'upload';
       const inputHashes = new Map<string, string>();
@@ -350,9 +350,9 @@ export class OpenSandboxProvider implements SandboxProvider {
 
   /**
    * Finds this conversation's running sandbox and pushes its expiry past the
-   * coming run. One that does not respond, or is too close to its max lifetime
-   * to finish the run, is deleted, and the caller creates a fresh one. So does
-   * a failed lookup: reuse must never be why a run fails.
+   * coming run. One that does not respond, or is too close to its optional max
+   * lifetime to finish the run, is deleted, and the caller creates a fresh
+   * one. So does a failed lookup: reuse must never be why a run fails.
    */
   private async reuseSandbox(
     client: OpenSandboxClient,
@@ -362,7 +362,7 @@ export class OpenSandboxProvider implements SandboxProvider {
   ): Promise<{
     lookupFailed?: boolean;
     retired: boolean;
-    sandbox?: { createdAt: number; execd: ExecdEndpoint; id: string };
+    sandbox?: { createdAt?: number; execd: ExecdEndpoint; id: string };
   }> {
     let found: Awaited<ReturnType<OpenSandboxClient['findRunningSandboxes']>>;
     try {
@@ -373,11 +373,7 @@ export class OpenSandboxProvider implements SandboxProvider {
     }
     let retired = false;
     for (const { createdAt, id } of found) {
-      // Without a creation time the age cap cannot be enforced.
-      if (
-        createdAt === undefined ||
-        createdAt + this.sessionMaxLifetime - Date.now() < runBudgetMs
-      ) {
+      if (this.retireAt(createdAt) - Date.now() < runBudgetMs) {
         retired = true;
         await this.deleteQuietly(client, id);
         continue;
@@ -394,6 +390,13 @@ export class OpenSandboxProvider implements SandboxProvider {
       await this.deleteQuietly(client, id);
     }
     return { retired };
+  }
+
+  /** When the optional age cap is on, the time a sandbox stops being reused. */
+  private retireAt(createdAt: number | undefined) {
+    if (this.sessionMaxLifetime <= 0) return Number.POSITIVE_INFINITY;
+    // Without a creation time the cap cannot be enforced.
+    return (createdAt ?? Number.NEGATIVE_INFINITY) + this.sessionMaxLifetime;
   }
 
   private async waitUntilRunning(
@@ -540,9 +543,10 @@ export class OpenSandboxProvider implements SandboxProvider {
   }
 
   /**
-   * Keeps a session sandbox for the idle timeout, never past its retire time.
-   * One too close to that to host another run is deleted now. Best effort: if
-   * the renew fails, the sandbox still expires at its earlier deadline.
+   * Keeps a session sandbox for the idle timeout, and with an age cap never
+   * past its retire time; one too close to that to host another run is
+   * deleted now. Best effort: if the renew fails, the sandbox still expires at
+   * its earlier deadline.
    */
   private async parkSandbox(
     client: OpenSandboxClient,

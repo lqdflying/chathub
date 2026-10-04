@@ -180,7 +180,7 @@ describe.runIf(serverUrl)('OpenSandbox live', () => {
       expect(sandbox.createdAt).toBeGreaterThan(Date.now() - 120_000);
     });
 
-    it('replaces a session sandbox once it nears its max lifetime', async () => {
+    it('replaces a session sandbox once it nears an optional max lifetime', async () => {
       const sessionKey = newSessionKey();
       const timeoutMs = 5000;
       // Room for one 5s run plus the 120s margin, and 15s more.

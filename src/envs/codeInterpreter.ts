@@ -55,11 +55,13 @@ export const getCodeInterpreterConfig = () =>
       // run, so installs and files carry over between calls. 0 = a fresh sandbox
       // for every run. Milliseconds.
       OPENSANDBOX_SESSION_IDLE_TIMEOUT: z.coerce.number().int().min(0).default(1_800_000),
-      // Hard cap on a session sandbox's age, counted from creation. ChatHub never
-      // renews one past it, so the server purges it and the next run starts a
-      // fresh one. The server's max_sandbox_timeout_seconds limits only the
-      // create TTL, not renewals, so set this to match it. Milliseconds.
-      OPENSANDBOX_SESSION_MAX_LIFETIME: z.coerce.number().int().positive().default(3_600_000),
+      // Optional cap on a session sandbox's age, counted from creation. 0 = no
+      // cap: a sandbox lives while its conversation keeps running code and is
+      // removed only after the idle timeout. With a cap, ChatHub never renews
+      // one past it and the next run starts fresh. The server's
+      // max_sandbox_timeout_seconds limits only the create TTL, not renewals,
+      // so it cannot do this. Milliseconds.
+      OPENSANDBOX_SESSION_MAX_LIFETIME: z.coerce.number().int().min(0).default(0),
       // Backend selector: `dify` or `opensandbox`. Unknown values stay boot-safe.
       SANDBOX_PROVIDER: z.string().default('dify'),
     },
