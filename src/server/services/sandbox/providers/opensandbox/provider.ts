@@ -44,6 +44,11 @@ const RUN_ABORT_GRACE_MS = 5000;
 const TTL_MARGIN_SECONDS = 120;
 const MIN_TTL_SECONDS = 60;
 const FAILED_STATES = new Set(['Failed', 'Stopping', 'Terminated']);
+// Container label (OpenSandbox metadata) that ties a sandbox to one
+// conversation scope. The value is the hashed `sessionKey`.
+export const SESSION_METADATA_KEY = 'chathub-session';
+// A reused sandbox that does not answer quickly is treated as gone.
+const REUSE_PING_TIMEOUT_MS = 5000;
 // execd reports a signal death as exit "-1" with "signal: killed".
 const KILLED_EXIT = '-1';
 
@@ -74,6 +79,21 @@ const utf8 = (value: string) => new Uint8Array(Buffer.from(value, 'utf8'));
 const isAbortError = (error: unknown) =>
   error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError');
 
+// Runs that share a session sandbox take turns inside this process, so two
+// tool calls in one turn neither race the lookup nor share the workdir.
+const sessionQueues = new Map<string, Promise<unknown>>();
+
+const withSessionLock = async <T>(key: string, task: () => Promise<T>): Promise<T> => {
+  const previous = sessionQueues.get(key) ?? Promise.resolve();
+  const current = previous.catch(() => undefined).then(task);
+  sessionQueues.set(key, current);
+  try {
+    return await current;
+  } finally {
+    if (sessionQueues.get(key) === current) sessionQueues.delete(key);
+  }
+};
+
 export const buildNetworkPolicy = (
   enableNetwork: boolean | undefined,
   allowList: string[],
@@ -98,9 +118,17 @@ export class OpenSandboxProvider implements SandboxProvider {
   private maxStdoutChars: number;
   private memory: string;
   private readyTimeout: number;
+  private sessionIdleTimeout: number;
+  private sessionMaxLifetime: number;
   private timeout: number;
 
-  constructor(options?: { apiKey?: string; baseUrl?: string; image?: string }) {
+  constructor(options?: {
+    apiKey?: string;
+    baseUrl?: string;
+    image?: string;
+    sessionIdleTimeout?: number;
+    sessionMaxLifetime?: number;
+  }) {
     this.baseUrl = (options?.baseUrl ?? codeInterpreterEnv.OPENSANDBOX_SERVER_URL)?.replace(
       /\/+$/,
       '',
@@ -114,6 +142,10 @@ export class OpenSandboxProvider implements SandboxProvider {
       .filter(Boolean);
     this.memory = codeInterpreterEnv.OPENSANDBOX_MEMORY;
     this.readyTimeout = codeInterpreterEnv.OPENSANDBOX_READY_TIMEOUT;
+    this.sessionIdleTimeout =
+      options?.sessionIdleTimeout ?? codeInterpreterEnv.OPENSANDBOX_SESSION_IDLE_TIMEOUT;
+    this.sessionMaxLifetime =
+      options?.sessionMaxLifetime ?? codeInterpreterEnv.OPENSANDBOX_SESSION_MAX_LIFETIME;
     this.timeout = codeInterpreterEnv.CODE_INTERPRETER_TIMEOUT;
     this.maxFileBytes = codeInterpreterEnv.CODE_INTERPRETER_MAX_FILE_BYTES;
     this.maxFileCount = codeInterpreterEnv.CODE_INTERPRETER_MAX_FILE_COUNT;
@@ -124,7 +156,20 @@ export class OpenSandboxProvider implements SandboxProvider {
     return !!this.baseUrl && !!this.image;
   }
 
+  /**
+   * With a `sessionKey` and a non-zero idle timeout, runs in one conversation
+   * share a sandbox: installs, files, and background processes carry over, and
+   * the sandbox is removed after the idle timeout. Python variables do not:
+   * every run is a new process. A sandbox never outlives the max lifetime
+   * from its creation; the next run after that gets a fresh one.
+   */
   async run(input: SandboxRunInput): Promise<SandboxRunResult> {
+    const sessionKey = this.sessionIdleTimeout > 0 ? input.sessionKey : undefined;
+    if (!sessionKey) return this.runOnce(input);
+    return withSessionLock(sessionKey, () => this.runOnce(input, sessionKey));
+  }
+
+  private async runOnce(input: SandboxRunInput, sessionKey?: string): Promise<SandboxRunResult> {
     const startedAt = Date.now();
     const timeoutMs = input.timeoutMs ?? this.timeout;
     const baseFields = {
@@ -132,6 +177,7 @@ export class OpenSandboxProvider implements SandboxProvider {
       operationHash: input.operationHash,
       packageCount: input.packageCount ?? 0,
       provider: this.id,
+      sessionScoped: !!sessionKey,
       timeoutMs,
     };
     const settle = (fields: Record<string, unknown>) =>
@@ -159,28 +205,37 @@ export class OpenSandboxProvider implements SandboxProvider {
 
     const client = new OpenSandboxClient({ apiKey: this.apiKey, baseUrl: this.baseUrl });
     let phase: RunPhase = 'ready';
+    // Room a session sandbox needs before its retire time to host one run.
+    const runBudgetMs = timeoutMs + TTL_MARGIN_SECONDS * 1000;
     let sandboxId: string | undefined;
+    let retireAt = 0;
+    let keepSandbox = false;
+    let reused = false;
+    let retired = false;
+    let lookupFailed = false;
 
     try {
       const readySignal = AbortSignal.timeout(this.readyTimeout);
-      const created = await client.createSandbox(
-        {
-          entrypoint: SANDBOX_ENTRYPOINT,
-          image: { uri: this.image },
-          metadata: { name: 'chathub-code-interpreter' },
-          networkPolicy: buildNetworkPolicy(input.enableNetwork, this.egressAllow),
-          resourceLimits: { cpu: this.cpu, memory: this.memory },
-          timeout: Math.max(
-            MIN_TTL_SECONDS,
-            Math.ceil((this.readyTimeout + timeoutMs) / 1000) + TTL_MARGIN_SECONDS,
-          ),
-        },
-        readySignal,
-      );
-      sandboxId = created.id;
-      await this.waitUntilRunning(client, sandboxId, created.state, readySignal);
-      const execd = await client.getExecdEndpoint(sandboxId, readySignal);
-      await this.waitForExecd(client, execd, readySignal);
+      const lookup = sessionKey
+        ? await this.reuseSandbox(client, sessionKey, runBudgetMs, readySignal)
+        : undefined;
+      retired = !!lookup?.retired;
+      lookupFailed = !!lookup?.lookupFailed;
+      let execd: ExecdEndpoint;
+      let createdAt: number;
+      if (lookup?.sandbox) {
+        ({ createdAt, execd, id: sandboxId } = lookup.sandbox);
+        reused = true;
+      } else {
+        ({ createdAt, execd, id: sandboxId } = await this.createSandbox(
+          client,
+          input,
+          timeoutMs,
+          sessionKey,
+          readySignal,
+        ));
+      }
+      retireAt = createdAt + this.sessionMaxLifetime;
 
       phase = 'upload';
       const inputHashes = new Map<string, string>();
@@ -218,26 +273,127 @@ export class OpenSandboxProvider implements SandboxProvider {
       const outcome: SandboxOutcome = success ? 'ok' : 'error';
       const durationMs = Date.now() - startedAt;
 
+      // A failing script is still a healthy sandbox worth keeping.
+      keepSandbox = !!sessionKey;
       settle({
         exitCode: command.exitCode,
         fileOutCount: files.length,
         outcome,
+        sandboxLookupFailed: lookupFailed,
+        sandboxRetired: retired,
+        sandboxReused: reused,
         stdoutChars: stdout.length,
       });
 
       return { durationMs, exitCode: command.exitCode, files, outcome, stderr, stdout, success };
     } catch (error) {
       const classified = this.classifyError(error, phase, timeoutMs);
+      // execd killed the process at the timeout; the sandbox itself is fine.
+      // Any other failure may mean a broken sandbox, so the next run starts fresh.
+      keepSandbox = !!sessionKey && classified.code === 'Timeout';
       settle({
         errorKind: classified.code,
         failurePhase: phase,
         httpStatus: classified.httpStatus,
         outcome: classified.outcome,
+        sandboxLookupFailed: lookupFailed,
+        sandboxRetired: retired,
+        sandboxReused: reused,
       });
       throw classified;
     } finally {
-      if (sandboxId) await this.deleteQuietly(client, sandboxId);
+      if (sandboxId) {
+        if (keepSandbox) await this.parkSandbox(client, sandboxId, retireAt, runBudgetMs);
+        else await this.deleteQuietly(client, sandboxId);
+      }
     }
+  }
+
+  private async createSandbox(
+    client: OpenSandboxClient,
+    input: SandboxRunInput,
+    timeoutMs: number,
+    sessionKey: string | undefined,
+    signal: AbortSignal,
+  ) {
+    const requestedAt = Date.now();
+    const created = await client.createSandbox(
+      {
+        entrypoint: SANDBOX_ENTRYPOINT,
+        image: { uri: this.image! },
+        metadata: {
+          name: 'chathub-code-interpreter',
+          ...(sessionKey ? { [SESSION_METADATA_KEY]: sessionKey } : {}),
+        },
+        networkPolicy: buildNetworkPolicy(input.enableNetwork, this.egressAllow),
+        resourceLimits: { cpu: this.cpu, memory: this.memory },
+        // Covers this run only. A session sandbox is extended by the idle
+        // timeout after each run, so a crash mid-run still frees it soon.
+        timeout: Math.max(
+          MIN_TTL_SECONDS,
+          Math.ceil((this.readyTimeout + timeoutMs) / 1000) + TTL_MARGIN_SECONDS,
+        ),
+      },
+      signal,
+    );
+    try {
+      await this.waitUntilRunning(client, created.id, created.state, signal);
+      const execd = await client.getExecdEndpoint(created.id, signal);
+      await this.waitForExecd(client, execd, signal);
+      return { createdAt: created.createdAt ?? requestedAt, execd, id: created.id };
+    } catch (error) {
+      // The caller never learns the id, so the sandbox is removed here.
+      await this.deleteQuietly(client, created.id);
+      throw error;
+    }
+  }
+
+  /**
+   * Finds this conversation's running sandbox and pushes its expiry past the
+   * coming run. One that does not respond, or is too close to its max lifetime
+   * to finish the run, is deleted, and the caller creates a fresh one. So does
+   * a failed lookup: reuse must never be why a run fails.
+   */
+  private async reuseSandbox(
+    client: OpenSandboxClient,
+    sessionKey: string,
+    runBudgetMs: number,
+    signal: AbortSignal,
+  ): Promise<{
+    lookupFailed?: boolean;
+    retired: boolean;
+    sandbox?: { createdAt: number; execd: ExecdEndpoint; id: string };
+  }> {
+    let found: Awaited<ReturnType<OpenSandboxClient['findRunningSandboxes']>>;
+    try {
+      found = await client.findRunningSandboxes({ [SESSION_METADATA_KEY]: sessionKey }, signal);
+    } catch (error) {
+      if (signal.aborted) throw error;
+      return { lookupFailed: true, retired: false };
+    }
+    let retired = false;
+    for (const { createdAt, id } of found) {
+      // Without a creation time the age cap cannot be enforced.
+      if (
+        createdAt === undefined ||
+        createdAt + this.sessionMaxLifetime - Date.now() < runBudgetMs
+      ) {
+        retired = true;
+        await this.deleteQuietly(client, id);
+        continue;
+      }
+      try {
+        await client.renewExpiration(id, new Date(Date.now() + runBudgetMs), signal);
+        const execd = await client.getExecdEndpoint(id, signal);
+        if (await client.pingExecd(execd, AbortSignal.timeout(REUSE_PING_TIMEOUT_MS))) {
+          return { retired, sandbox: { createdAt, execd, id } };
+        }
+      } catch (error) {
+        if (signal.aborted) throw error;
+      }
+      await this.deleteQuietly(client, id);
+    }
+    return { retired };
   }
 
   private async waitUntilRunning(
@@ -360,6 +516,7 @@ export class OpenSandboxProvider implements SandboxProvider {
         if (files.length >= this.maxFileCount) break;
         const name = safeBasename(entry.name);
         if (!name || name !== entry.name) continue;
+        if (!entry.changed) continue;
         if (entry.size <= 0 || entry.size > this.maxFileBytes) continue;
         if (inputHashes.get(name) === entry.sha256) continue;
         const content = await client.downloadFile(
@@ -379,6 +536,35 @@ export class OpenSandboxProvider implements SandboxProvider {
         provider: this.id,
       });
       return [];
+    }
+  }
+
+  /**
+   * Keeps a session sandbox for the idle timeout, never past its retire time.
+   * One too close to that to host another run is deleted now. Best effort: if
+   * the renew fails, the sandbox still expires at its earlier deadline.
+   */
+  private async parkSandbox(
+    client: OpenSandboxClient,
+    sandboxId: string,
+    retireAt: number,
+    runBudgetMs: number,
+  ) {
+    const now = Date.now();
+    if (retireAt - now < runBudgetMs) return this.deleteQuietly(client, sandboxId);
+    try {
+      await client.renewExpiration(
+        sandboxId,
+        new Date(Math.min(now + this.sessionIdleTimeout, retireAt)),
+        AbortSignal.timeout(DELETE_TIMEOUT_MS),
+      );
+    } catch (error) {
+      logGenerationDebugSafe('sandbox_cleanup_failed', {
+        errorKind: error instanceof Error ? error.name : 'unknown',
+        httpStatus: error instanceof OpenSandboxHttpError ? error.status : undefined,
+        operation: 'renew',
+        provider: this.id,
+      });
     }
   }
 

@@ -103,7 +103,27 @@ describe('OpenSandbox runner script', () => {
     expect(status).toBe(0);
     expect(stdout).toBe(`cwd ${workdir}\n42\n`);
     expect(manifest).toEqual([
-      { name: 'out.txt', sha256: createHash('sha256').update('hello').digest('hex'), size: 5 },
+      {
+        changed: true,
+        name: 'out.txt',
+        sha256: createHash('sha256').update('hello').digest('hex'),
+        size: 5,
+      },
+    ]);
+  });
+
+  it('marks files a later run in the same workdir did not touch as unchanged', () => {
+    run(['open("a.txt", "w").write("a")', 'open("b.txt", "w").write("b")'].join('\n'));
+
+    const { manifest, status } = run(
+      ['open("b.txt", "a").write("b")', 'open("c.txt", "w").write("c")'].join('\n'),
+    );
+
+    expect(status).toBe(0);
+    expect(manifest?.map(({ changed, name }) => ({ changed, name }))).toEqual([
+      { changed: false, name: 'a.txt' },
+      { changed: true, name: 'b.txt' },
+      { changed: true, name: 'c.txt' },
     ]);
   });
 
@@ -121,6 +141,20 @@ describe('OpenSandbox runner script', () => {
 
     expect(stderr).toBe('');
     expect(manifest?.map((entry) => entry.name)).toEqual(['plot_1.png', 'plot_2.png', 'plot_3.png']);
+  });
+
+  it('numbers plots after the ones an earlier run left in the workdir', () => {
+    run(['import matplotlib.pyplot as plt', 'plt.figure()', 'plt.show()'].join('\n'));
+
+    const { manifest, stderr } = run(
+      ['import matplotlib.pyplot as plt', 'plt.figure()', 'plt.show()'].join('\n'),
+    );
+
+    expect(stderr).toBe('');
+    expect(manifest?.map(({ changed, name }) => ({ changed, name }))).toEqual([
+      { changed: false, name: 'plot_1.png' },
+      { changed: true, name: 'plot_2.png' },
+    ]);
   });
 
   it('exits 1 with a user-only traceback and still writes the manifest', () => {
@@ -494,6 +528,17 @@ describe('parseOutputManifest', () => {
     expect(parseOutputManifest('{"name":"a"}')).toEqual([]);
     expect(
       parseOutputManifest('[{"name":"a.txt","sha256":"x","size":1},{"name":2}]'),
-    ).toEqual([{ name: 'a.txt', sha256: 'x', size: 1 }]);
+    ).toEqual([{ changed: true, name: 'a.txt', sha256: 'x', size: 1 }]);
+  });
+
+  it('treats a missing changed flag as changed', () => {
+    expect(
+      parseOutputManifest(
+        '[{"name":"a.txt","sha256":"x","size":1,"changed":false},{"name":"b.txt","sha256":"y","size":2}]',
+      ).map(({ changed, name }) => ({ changed, name })),
+    ).toEqual([
+      { changed: false, name: 'a.txt' },
+      { changed: true, name: 'b.txt' },
+    ]);
   });
 });

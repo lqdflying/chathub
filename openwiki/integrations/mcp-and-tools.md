@@ -332,9 +332,14 @@ The ChatHub image is distroless and has no CPython. User-facing setup:
   Python string.
 - **OpenSandbox** — `SANDBOX_PROVIDER=opensandbox` with
   `OPENSANDBOX_SERVER_URL` / `OPENSANDBOX_API_KEY` / `OPENSANDBOX_IMAGE`. One
-  fresh sandbox per run (create → execd ping → upload runner, code, files →
-  `python3` via execd's command API → manifest → download → delete), all
-  through the lifecycle server's proxy. No Jupyter. Real Linux userland;
+  sandbox per conversation (find or create → execd ping → upload runner,
+  code, files → `python3` via execd's command API → manifest → download →
+  park), all through the lifecycle server's proxy. Installs and files carry
+  over between runs, Python variables do not. It is deleted after
+  `OPENSANDBOX_SESSION_IDLE_TIMEOUT` (default 30 min) without a run and
+  replaced once it reaches `OPENSANDBOX_SESSION_MAX_LIFETIME` (default 1h);
+  `0` idle = a fresh sandbox per run. Only files the run created or changed
+  are returned. No Jupyter. Real Linux userland;
   isolation is the server's runtime (gVisor or Kata). An absolute write outside
   `/dev`, `/proc`, and `/sys` stays on that path; if the file still exists at
   the end it is collected as its basename. The newest file contents win;
@@ -358,8 +363,10 @@ The ChatHub image is distroless and has no CPython. User-facing setup:
   (`docker/opensandbox-python/`). The tool `packages` argument is counted
   for debug only.
 - **Debug** — `sandbox_run_started` / `sandbox_run_settled` on
-  `CHATHUB_GENERATION_DEBUG` (includes `provider`; OpenSandbox failures add
-  `failurePhase`), plus OpenSandbox `sandbox_collect_failed` /
+  `CHATHUB_GENERATION_DEBUG` (includes `provider`; OpenSandbox adds
+  `sessionScoped` / `sandboxReused` / `sandboxRetired` / `sandboxLookupFailed`,
+  and `failurePhase` on
+  failure), plus OpenSandbox `sandbox_collect_failed` /
   `sandbox_cleanup_failed`. Never log code, stdout, or
   filenames. `browser_tool_stubbed` is DALL·E only.
 

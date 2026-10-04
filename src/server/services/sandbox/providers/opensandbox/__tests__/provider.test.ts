@@ -1,5 +1,6 @@
 /** @vitest-environment node */
 import { createHash } from 'node:crypto';
+import { setTimeout as sleep } from 'node:timers/promises';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -28,6 +29,12 @@ vi.mock('@/envs/codeInterpreter', () => ({
     get OPENSANDBOX_SERVER_URL() {
       return process.env.OPENSANDBOX_SERVER_URL;
     },
+    get OPENSANDBOX_SESSION_IDLE_TIMEOUT() {
+      return Number(process.env.OPENSANDBOX_SESSION_IDLE_TIMEOUT ?? 1_800_000);
+    },
+    get OPENSANDBOX_SESSION_MAX_LIFETIME() {
+      return Number(process.env.OPENSANDBOX_SESSION_MAX_LIFETIME ?? 3_600_000);
+    },
   },
 }));
 
@@ -35,12 +42,17 @@ vi.mock('@/libs/logger/generationDebug', () => ({
   logGenerationDebugSafe: vi.fn(),
 }));
 
+import { logGenerationDebugSafe } from '@/libs/logger/generationDebug';
+
 import { OPENSANDBOX_MANIFEST_MAX_BYTES } from '../client';
 import { buildNetworkPolicy, OpenSandboxProvider } from '../provider';
 
 const SERVER = 'http://opensandbox:8090';
-const SANDBOX_ID = 'sbx-1';
-const EXECD = `${SERVER}/v1/sandboxes/${SANDBOX_ID}/proxy/44772`;
+const EXECD_PATH = '/proxy/44772';
+const IDLE_MS = 1_800_000;
+const MAX_LIFETIME_MS = 3_600_000;
+// Default 60s run timeout plus the 120s TTL margin.
+const RUN_BUDGET_MS = 180_000;
 
 const sha = (value: string) => createHash('sha256').update(value).digest('hex');
 
@@ -65,10 +77,21 @@ interface DownloadState {
   sent: number;
 }
 
+interface ExistingSandbox {
+  createdAt?: string;
+  id: string;
+  metadata: Record<string, string>;
+}
+
 interface Scenario {
   command?: (init: RequestInit) => Promise<Response> | Response;
   create?: () => Response;
+  list?: (init: RequestInit) => Promise<Response> | Response;
+  // Sandboxes whose execd never answers.
+  deadPings?: string[];
   downloads?: Record<string, () => Response>;
+  // Sandboxes already running on the server.
+  existing?: ExistingSandbox[];
   files?: Record<string, string>;
   pingFailures?: number;
   states?: string[];
@@ -76,47 +99,99 @@ interface Scenario {
 
 interface Calls {
   commandBody?: Record<string, unknown>;
+  commandIds: string[];
   createBody?: Record<string, unknown>;
+  creates: number;
   deleted: number;
+  deletedIds: string[];
   downloads: string[];
   headers: Array<Record<string, string>>;
+  lists: Array<Record<string, string>>;
   pings: number;
+  renewals: Array<{ expiresAt: number; id: string }>;
   uploads: Array<{ content: string; path: string }>;
 }
 
 const install = (scenario: Scenario = {}) => {
-  const calls: Calls = { deleted: 0, downloads: [], headers: [], pings: 0, uploads: [] };
+  const calls: Calls = {
+    commandIds: [],
+    creates: 0,
+    deleted: 0,
+    deletedIds: [],
+    downloads: [],
+    headers: [],
+    lists: [],
+    pings: 0,
+    renewals: [],
+    uploads: [],
+  };
   const states = [...(scenario.states ?? ['Running'])];
+  const live = new Map<string, Omit<ExistingSandbox, 'id'>>(
+    (scenario.existing ?? []).map(({ id, ...rest }) => [id, rest]),
+  );
 
   fetchMock.mockImplementation(async (input: string, init: RequestInit = {}) => {
     const url = new URL(input);
     const method = init.method ?? 'GET';
     calls.headers.push({ ...(init.headers as Record<string, string>) });
-    const path = `${url.origin}${url.pathname}`;
+    expect(url.origin).toBe(SERVER);
 
-    if (path === `${SERVER}/v1/sandboxes` && method === 'POST') {
+    if (url.pathname === '/v1/sandboxes' && method === 'POST') {
       calls.createBody = JSON.parse(String(init.body));
-      return scenario.create?.() ?? json({ id: SANDBOX_ID, status: { state: 'Pending' } });
+      calls.creates += 1;
+      const custom = scenario.create?.();
+      if (custom) return custom;
+      const id = `sbx-${calls.creates}`;
+      const createdAt = new Date().toISOString();
+      live.set(id, {
+        createdAt,
+        metadata: (calls.createBody?.metadata ?? {}) as Record<string, string>,
+      });
+      return json({ createdAt, id, status: { state: 'Pending' } });
     }
-    if (path === `${SERVER}/v1/sandboxes/${SANDBOX_ID}` && method === 'GET') {
+    if (url.pathname === '/v1/sandboxes' && method === 'GET') {
+      const query = Object.fromEntries(url.searchParams);
+      calls.lists.push(query);
+      if (scenario.list) return scenario.list(init);
+      const [key, value] = query.metadata.split('=');
+      const items = [...live]
+        .filter(([, sandbox]) => sandbox.metadata[key] === value)
+        .map(([id, { createdAt }]) => ({ createdAt, id, status: { state: 'Running' } }));
+      return json({ items, pagination: { hasNextPage: false } });
+    }
+
+    const [, id, rest = ''] = url.pathname.match(/^\/v1\/sandboxes\/([^/]+)(\/.*)?$/) ?? [];
+    if (!id) throw new Error(`Unexpected request ${method} ${input}`);
+
+    if (rest === '' && method === 'GET') {
       const state = states.length > 1 ? states.shift() : states[0];
-      return json({ id: SANDBOX_ID, status: { message: 'image pull failed', state } });
+      return json({ id, status: { message: 'image pull failed', state } });
     }
-    if (path === `${SERVER}/v1/sandboxes/${SANDBOX_ID}` && method === 'DELETE') {
+    if (rest === '' && method === 'DELETE') {
       calls.deleted += 1;
+      calls.deletedIds.push(id);
+      live.delete(id);
       return new Response(null, { status: 204 });
     }
-    if (path === `${SERVER}/v1/sandboxes/${SANDBOX_ID}/endpoints/44772`) {
-      expect(url.searchParams.get('use_server_proxy')).toBe('true');
-      return json({ endpoint: `opensandbox:8090/v1/sandboxes/${SANDBOX_ID}/proxy/44772` });
+    if (rest === '/renew-expiration' && method === 'POST') {
+      const { expiresAt } = JSON.parse(String(init.body)) as { expiresAt: string };
+      calls.renewals.push({ expiresAt: Date.parse(expiresAt), id });
+      return json({ expiresAt });
     }
-    if (path === `${EXECD}/ping`) {
+    if (rest === '/endpoints/44772') {
+      expect(url.searchParams.get('use_server_proxy')).toBe('true');
+      return json({ endpoint: `opensandbox:8090/v1/sandboxes/${id}${EXECD_PATH}` });
+    }
+    if (rest === `${EXECD_PATH}/ping`) {
+      if (scenario.deadPings?.includes(id)) {
+        return json({ message: 'Could not connect to the backend sandbox' }, 502);
+      }
       calls.pings += 1;
       return calls.pings <= (scenario.pingFailures ?? 0)
         ? json({ message: 'Could not connect to the backend sandbox' }, 502)
         : new Response('pong');
     }
-    if (path === `${EXECD}/files/upload`) {
+    if (rest === `${EXECD_PATH}/files/upload`) {
       const form = init.body as FormData;
       const metadata = form.getAll('metadata') as Blob[];
       const files = form.getAll('file') as Blob[];
@@ -126,14 +201,15 @@ const install = (scenario: Scenario = {}) => {
       }
       return json({});
     }
-    if (path === `${EXECD}/command`) {
+    if (rest === `${EXECD_PATH}/command`) {
       calls.commandBody = JSON.parse(String(init.body));
+      calls.commandIds.push(id);
       return (
         scenario.command?.(init) ??
         stream([{ text: 'ok', type: 'stdout' }, { type: 'execution_complete' }])
       );
     }
-    if (path === `${EXECD}/files/download`) {
+    if (rest === `${EXECD_PATH}/files/download`) {
       const filePath = url.searchParams.get('path') ?? '';
       calls.downloads.push(filePath);
       const custom = scenario.downloads?.[filePath];
@@ -149,7 +225,9 @@ const install = (scenario: Scenario = {}) => {
   return calls;
 };
 
-const manifest = (entries: Array<{ name: string; sha256: string; size: number }>) => ({
+const manifest = (
+  entries: Array<{ changed?: boolean; name: string; sha256: string; size: number }>,
+) => ({
   '/tmp/chathub-ci/.chathub/manifest.json': JSON.stringify(entries),
 });
 
@@ -183,12 +261,29 @@ const file = (filename: string, content: string) => ({
 const run = (code = 'x', files: ReturnType<typeof file>[] = []) =>
   new OpenSandboxProvider().run({ code, files, language: 'python3' });
 
+const runIn = (sessionKey: string, code = 'x') =>
+  new OpenSandboxProvider().run({ code, files: [], language: 'python3', sessionKey });
+
+const session = (key: string) => ({
+  'chathub-session': key,
+  'name': 'chathub-code-interpreter',
+});
+
+const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
+
+const settledFields = () =>
+  vi
+    .mocked(logGenerationDebugSafe)
+    .mock.calls.filter(([event]) => event === 'sandbox_run_settled')
+    .map(([, fields]) => fields);
+
 describe('OpenSandboxProvider', () => {
   beforeEach(() => {
     process.env.OPENSANDBOX_SERVER_URL = SERVER;
     process.env.OPENSANDBOX_API_KEY = 'server-secret';
     process.env.OPENSANDBOX_IMAGE = 'chathub-sandbox:1';
     fetchMock.mockReset();
+    vi.mocked(logGenerationDebugSafe).mockClear();
     vi.stubGlobal('fetch', fetchMock);
   });
 
@@ -198,6 +293,8 @@ describe('OpenSandboxProvider', () => {
     delete process.env.OPENSANDBOX_IMAGE;
     delete process.env.OPENSANDBOX_EGRESS_ALLOW;
     delete process.env.CODE_INTERPRETER_TIMEOUT;
+    delete process.env.OPENSANDBOX_SESSION_IDLE_TIMEOUT;
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -463,6 +560,225 @@ describe('OpenSandboxProvider', () => {
     expect(huge.state.sent).toBeGreaterThan(OPENSANDBOX_MANIFEST_MAX_BYTES);
     expect(huge.state.sent).toBeLessThan(full);
     expect(calls.deleted).toBe(1);
+  });
+
+  describe('session sandboxes', () => {
+    it('tags a new session sandbox and parks it for the idle timeout', async () => {
+      const calls = install();
+      const before = Date.now();
+
+      await runIn('topic-a');
+
+      expect(calls.lists).toEqual([{ metadata: 'chathub-session=topic-a', state: 'Running' }]);
+      expect(calls.createBody?.metadata).toEqual(session('topic-a'));
+      expect(calls.deleted).toBe(0);
+      expect(calls.renewals).toHaveLength(1);
+      expect(calls.renewals[0].id).toBe('sbx-1');
+      expect(calls.renewals[0].expiresAt).toBeGreaterThanOrEqual(before + IDLE_MS);
+      expect(calls.renewals[0].expiresAt).toBeLessThanOrEqual(Date.now() + IDLE_MS);
+    });
+
+    it('reuses the running sandbox of the same session', async () => {
+      const calls = install();
+
+      await runIn('topic-a', 'import subprocess; subprocess.run(["pip", "install", "pyarrow"])');
+      await runIn('topic-a', 'import pyarrow');
+
+      expect(calls.creates).toBe(1);
+      expect(calls.commandIds).toEqual(['sbx-1', 'sbx-1']);
+      expect(calls.deleted).toBe(0);
+      // Park after run 1, cover run 2, park after run 2.
+      expect(calls.renewals.map((item) => item.id)).toEqual(['sbx-1', 'sbx-1', 'sbx-1']);
+      expect(calls.renewals[1].expiresAt - Date.now()).toBeLessThanOrEqual(RUN_BUDGET_MS);
+      expect(calls.renewals[1].expiresAt - Date.now()).toBeGreaterThan(RUN_BUDGET_MS - 5000);
+      expect(settledFields()).toMatchObject([
+        { outcome: 'ok', sandboxRetired: false, sandboxReused: false, sessionScoped: true },
+        { outcome: 'ok', sandboxRetired: false, sandboxReused: true, sessionScoped: true },
+      ]);
+    });
+
+    it('keeps different sessions in different sandboxes', async () => {
+      const calls = install();
+
+      await runIn('topic-a');
+      await runIn('topic-b');
+
+      expect(calls.creates).toBe(2);
+      expect(calls.commandIds).toEqual(['sbx-1', 'sbx-2']);
+    });
+
+    it('replaces a session sandbox whose execd no longer answers', async () => {
+      const calls = install({
+        deadPings: ['sbx-old'],
+        existing: [{ createdAt: ago(60_000), id: 'sbx-old', metadata: session('topic-a') }],
+      });
+
+      expect((await runIn('topic-a')).success).toBe(true);
+      expect(calls.deletedIds).toEqual(['sbx-old']);
+      expect(calls.commandIds).toEqual(['sbx-1']);
+    });
+
+    it('retires a session sandbox too close to its max lifetime to host the run', async () => {
+      const calls = install({
+        existing: [
+          {
+            createdAt: ago(MAX_LIFETIME_MS - RUN_BUDGET_MS + 5000),
+            id: 'sbx-old',
+            metadata: session('topic-a'),
+          },
+        ],
+      });
+
+      await runIn('topic-a');
+
+      expect(calls.deletedIds).toEqual(['sbx-old']);
+      expect(calls.renewals.map((item) => item.id)).toEqual(['sbx-1']);
+      expect(calls.commandIds).toEqual(['sbx-1']);
+      expect(settledFields()).toMatchObject([{ sandboxRetired: true, sandboxReused: false }]);
+    });
+
+    it('retires a session sandbox whose creation time is unknown', async () => {
+      const calls = install({ existing: [{ id: 'sbx-old', metadata: session('topic-a') }] });
+
+      await runIn('topic-a');
+
+      expect(calls.deletedIds).toEqual(['sbx-old']);
+      expect(calls.commandIds).toEqual(['sbx-1']);
+    });
+
+    it('never renews a session sandbox past its max lifetime', async () => {
+      const createdAt = ago(MAX_LIFETIME_MS - 10 * 60_000);
+      const calls = install({
+        existing: [{ createdAt, id: 'sbx-old', metadata: session('topic-a') }],
+      });
+
+      await runIn('topic-a');
+
+      expect(calls.commandIds).toEqual(['sbx-old']);
+      expect(calls.deleted).toBe(0);
+      // Idle timeout (30 min) would pass the cap (10 min left), so the cap wins.
+      expect(calls.renewals.at(-1)).toEqual({
+        expiresAt: Date.parse(createdAt) + MAX_LIFETIME_MS,
+        id: 'sbx-old',
+      });
+    });
+
+    it('deletes a session sandbox after a run once no further run fits its lifetime', async () => {
+      vi.useFakeTimers({ now: Date.now(), toFake: ['Date'] });
+      const calls = install({
+        command: () => {
+          vi.setSystemTime(Date.now() + 10_000);
+          return stream([{ type: 'execution_complete' }]);
+        },
+        existing: [
+          {
+            createdAt: ago(MAX_LIFETIME_MS - RUN_BUDGET_MS - 5000),
+            id: 'sbx-old',
+            metadata: session('topic-a'),
+          },
+        ],
+      });
+
+      await runIn('topic-a');
+
+      expect(calls.commandIds).toEqual(['sbx-old']);
+      expect(calls.deletedIds).toEqual(['sbx-old']);
+      expect(calls.renewals.map((item) => item.id)).toEqual(['sbx-old']);
+    });
+
+    it('creates a fresh session sandbox when the lookup fails', async () => {
+      const calls = install({ list: () => json({ code: 'NOT_FOUND', message: 'no route' }, 404) });
+
+      expect((await runIn('topic-a')).success).toBe(true);
+      expect(calls.createBody?.metadata).toEqual(session('topic-a'));
+      expect(settledFields()).toMatchObject([{ sandboxLookupFailed: true, sandboxReused: false }]);
+    });
+
+    it('fails the run when the lookup outlives the ready budget', async () => {
+      const calls = install({
+        list: (init) =>
+          new Promise<Response>((_resolve, reject) => {
+            init.signal?.addEventListener('abort', () => reject(init.signal?.reason));
+          }),
+      });
+
+      await expect(runIn('topic-a')).rejects.toMatchObject({
+        code: 'Unavailable',
+        message: 'OpenSandbox sandbox was not ready within 5000ms.',
+      });
+      expect(calls.creates).toBe(0);
+    }, 10_000);
+
+    it('deletes a session sandbox after an infrastructure failure', async () => {
+      const calls = install({ command: () => stream([{ text: 'partial', type: 'stdout' }]) });
+
+      await expect(runIn('topic-a')).rejects.toMatchObject({ code: 'ExecutionFailed' });
+      expect(calls.deletedIds).toEqual(['sbx-1']);
+      expect(calls.renewals).toEqual([]);
+    });
+
+    it('keeps a session sandbox after a run timeout', async () => {
+      process.env.CODE_INTERPRETER_TIMEOUT = '40';
+      const calls = install({
+        command: async () => {
+          await sleep(60);
+          return stream([exitWith('-1', ['signal: killed'])]);
+        },
+      });
+
+      await expect(runIn('topic-a')).rejects.toMatchObject({ code: 'Timeout' });
+      expect(calls.deleted).toBe(0);
+      expect(calls.renewals.map((item) => item.id)).toEqual(['sbx-1']);
+    });
+
+    it('uses a fresh sandbox per run when the idle timeout is 0', async () => {
+      process.env.OPENSANDBOX_SESSION_IDLE_TIMEOUT = '0';
+      const calls = install();
+
+      await runIn('topic-a');
+
+      expect(calls.lists).toEqual([]);
+      expect(calls.createBody?.metadata).toEqual({ name: 'chathub-code-interpreter' });
+      expect(calls.deletedIds).toEqual(['sbx-1']);
+    });
+
+    it('runs concurrent calls of one session one at a time in one sandbox', async () => {
+      let active = 0;
+      let peak = 0;
+      const calls = install({
+        command: async () => {
+          active += 1;
+          peak = Math.max(peak, active);
+          await sleep(20);
+          active -= 1;
+          return stream([{ type: 'execution_complete' }]);
+        },
+      });
+
+      await Promise.all([runIn('topic-a', 'a'), runIn('topic-a', 'b')]);
+
+      expect(calls.creates).toBe(1);
+      expect(peak).toBe(1);
+      expect(calls.commandIds).toEqual(['sbx-1', 'sbx-1']);
+    });
+
+    it('returns only files the run created or changed', async () => {
+      const calls = install({
+        files: {
+          ...manifest([
+            { changed: false, name: 'old.png', sha256: sha('old'), size: 3 },
+            { changed: true, name: 'new.png', sha256: sha('new'), size: 3 },
+          ]),
+          '/tmp/chathub-ci/new.png': 'new',
+          '/tmp/chathub-ci/old.png': 'old',
+        },
+      });
+
+      const result = await runIn('topic-a');
+
+      expect(result.files.map((item) => item.filename)).toEqual(['new.png']);
+      expect(calls.downloads).not.toContain('/tmp/chathub-ci/old.png');
+    });
   });
 
   it('is not configured without both the server URL and the image', async () => {

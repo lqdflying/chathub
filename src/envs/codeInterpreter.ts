@@ -17,6 +17,8 @@ export const getCodeInterpreterConfig = () =>
       OPENSANDBOX_MEMORY: process.env.OPENSANDBOX_MEMORY,
       OPENSANDBOX_READY_TIMEOUT: process.env.OPENSANDBOX_READY_TIMEOUT,
       OPENSANDBOX_SERVER_URL: process.env.OPENSANDBOX_SERVER_URL,
+      OPENSANDBOX_SESSION_IDLE_TIMEOUT: process.env.OPENSANDBOX_SESSION_IDLE_TIMEOUT,
+      OPENSANDBOX_SESSION_MAX_LIFETIME: process.env.OPENSANDBOX_SESSION_MAX_LIFETIME,
       SANDBOX_PROVIDER: process.env.SANDBOX_PROVIDER,
     },
     server: {
@@ -49,6 +51,15 @@ export const getCodeInterpreterConfig = () =>
       OPENSANDBOX_READY_TIMEOUT: z.coerce.number().int().positive().default(60_000),
       // Lifecycle server base URL, e.g. http://opensandbox:8090
       OPENSANDBOX_SERVER_URL: z.string().url().optional(),
+      // Keep one sandbox per topic (or portal thread) for this long after its last
+      // run, so installs and files carry over between calls. 0 = a fresh sandbox
+      // for every run. Milliseconds.
+      OPENSANDBOX_SESSION_IDLE_TIMEOUT: z.coerce.number().int().min(0).default(1_800_000),
+      // Hard cap on a session sandbox's age, counted from creation. ChatHub never
+      // renews one past it, so the server purges it and the next run starts a
+      // fresh one. The server's max_sandbox_timeout_seconds limits only the
+      // create TTL, not renewals, so set this to match it. Milliseconds.
+      OPENSANDBOX_SESSION_MAX_LIFETIME: z.coerce.number().int().positive().default(3_600_000),
       // Backend selector: `dify` or `opensandbox`. Unknown values stay boot-safe.
       SANDBOX_PROVIDER: z.string().default('dify'),
     },

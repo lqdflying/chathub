@@ -21,6 +21,12 @@ export interface SandboxRunInput {
   language: SandboxLanguage;
   operationHash?: string;
   packageCount?: number;
+  /**
+   * Opaque, hashed conversation scope (user, agent or group, topic, thread).
+   * Providers that can keep a sandbox alive between runs reuse one per key;
+   * others ignore it.
+   */
+  sessionKey?: string;
   timeoutMs?: number;
 }
 
