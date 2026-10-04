@@ -335,12 +335,13 @@ The ChatHub image is distroless and has no CPython. User-facing setup:
   sandbox per conversation (find or create → execd ping → upload runner,
   code, files → `python3` via execd's command API → manifest → download →
   park), all through the lifecycle server's proxy. Installs and files carry
-  over between runs, Python variables do not. It is deleted only after
-  `OPENSANDBOX_SESSION_IDLE_TIMEOUT` (default 30 min) without a run; every
-  run restarts that timer. `0` idle = a fresh sandbox per run. An optional
+  over between runs, Python variables do not. It is removed after
+  `OPENSANDBOX_SESSION_IDLE_TIMEOUT` (default 30 min) without a run, or after
+  an upload, command-stream, or server failure. Every run restarts the idle
+  timer. `0` idle = a fresh sandbox per run. An optional
   `OPENSANDBOX_SESSION_MAX_LIFETIME` (default off) caps its age. Only files the run created or changed
-  are returned. No Jupyter. Real Linux userland;
-  isolation is the server's runtime (gVisor or Kata). An absolute write outside
+  are returned. No Jupyter. Real Linux userland on `runc` (the tested path);
+  Kata is optional and untested. An absolute write outside
   `/dev`, `/proc`, and `/sys` stays on that path; if the file still exists at
   the end it is collected as its basename. The newest file contents win;
   a failed open or a read does not. The runner links `STSong.ttf` into

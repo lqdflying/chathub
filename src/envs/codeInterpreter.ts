@@ -51,9 +51,9 @@ export const getCodeInterpreterConfig = () =>
       OPENSANDBOX_READY_TIMEOUT: z.coerce.number().int().positive().default(60_000),
       // Lifecycle server base URL, e.g. http://opensandbox:8090
       OPENSANDBOX_SERVER_URL: z.string().url().optional(),
-      // Keep one sandbox per topic (or portal thread) for this long after its last
-      // run, so installs and files carry over between calls. 0 = a fresh sandbox
-      // for every run. Milliseconds.
+      // Keep one sandbox per conversation (user, agent or group, topic, and portal
+      // thread) for this long after its last run, so installs and files carry over
+      // between calls. 0 = a fresh sandbox for every run. Milliseconds.
       OPENSANDBOX_SESSION_IDLE_TIMEOUT: z.coerce.number().int().min(0).default(1_800_000),
       // Optional cap on a session sandbox's age, counted from creation. 0 = no
       // cap: a sandbox lives while its conversation keeps running code and is

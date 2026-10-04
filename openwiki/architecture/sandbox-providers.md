@@ -224,32 +224,30 @@ mapping of its own:
 `GET /v1/sandboxes?metadata=chathub-session=<key>&state=Running` finds the
 sandbox again after a ChatHub restart.
 
-- **Before a run**, a found sandbox is renewed to now + run budget + 120s
-  (`POST /v1/sandboxes/{id}/renew-expiration`) and must answer execd `/ping`
-  within 5s. One that does not is deleted, and the run creates a new one.
-  A failed lookup also falls back to a new sandbox, so reuse never fails a
-  run.
+- **Before a run**, a found sandbox is renewed to now + run timeout + 120s
+  (`POST /v1/sandboxes/{id}/renew-expiration`; the ready budget is not
+  included) and must answer execd `/ping` within 5s. One that does not is
+  deleted, and the run creates a new one. A lookup error other than the
+  ready-budget abort falls back to a new sandbox. If the lookup itself hits
+  `OPENSANDBOX_READY_TIMEOUT`, the run fails.
 - **After a run**, the sandbox is renewed to the idle deadline
   (`OPENSANDBOX_SESSION_IDLE_TIMEOUT`, default 30 min) and the server reaps
   it if no run comes. Every run restarts the timer, so a conversation that
-  keeps running code keeps its sandbox. A failing script or a run timeout keeps it; any other
-  failure (upload, stream, collect, server errors) deletes it, so the next
-  run starts clean.
-- **`max_sandbox_timeout_seconds` does not limit this.** The server checks
-  it only when a sandbox is created; `renew-expiration` ignores it and
-  nothing caps total lifetime (`server.max_sandbox_timeout_seconds` in
-  `opensandbox_server/config.py`, and the renew route's docstring). ChatHub
-  creates with a TTL of ready + run budget + 120s, so the setting never
-  rejects a ChatHub create either.
+  keeps running code keeps its sandbox. A failing script, a run timeout, or a
+  failed manifest or download keeps it (`collectOutputs` swallows the error
+  and returns no files). An upload failure, a command stream that does not
+  finish, or a server error deletes it, so the next run starts clean.
+- **What carries over:** files outside the conversation-file set, installed
+  packages, and background processes. Python variables and imports do not,
+  because every run is a new `python3` process. Conversation files are
+  uploaded again on every run and replace a workdir file with the same
+  basename, so a deleted attachment comes back next run.
 - **Optional max lifetime.** `OPENSANDBOX_SESSION_MAX_LIFETIME` (default 0,
   off) caps a sandbox's age even while its conversation is active. With it
   set, ChatHub never renews a sandbox past `createdAt` (from the list
   response) + the cap. A sandbox with less than one run budget left, or with
   no `createdAt`, is deleted instead of reused, and the next run creates a
   fresh one.
-- **What carries over:** files in `/tmp/chathub-ci` and elsewhere, installed
-  packages, background processes. **What does not:** Python variables and
-  imports, because every run is a new `python3` process.
 - **Outputs.** The runner stamps the size and mtime of the top-level files
   before the user code runs. The manifest's `changed` flag is false for
   files the run left untouched, and ChatHub does not return those again.
@@ -260,6 +258,47 @@ sandbox again after a ChatHub restart.
 - `OPENSANDBOX_SESSION_IDLE_TIMEOUT=0` restores one fresh sandbox per run.
   `sandbox_run_settled` logs `sessionScoped`, `sandboxReused`,
   `sandboxRetired`, and `sandboxLookupFailed`.
+
+### Create TTL and renew
+
+OpenSandbox has two lifetime calls. `max_sandbox_timeout_seconds` applies to
+only one of them. Checked against server commit `c7dc78a`.
+
+| Call | Body | Checked against the limit? |
+| --- | --- | --- |
+| `POST /v1/sandboxes` | `timeout` seconds | Yes. `create_sandbox` calls `ensure_timeout_within_limit` (`docker_service.py` 635-638). `validators.py` 187 returns HTTP 400 only when `timeout_seconds > max`. Exactly 3600 is accepted. |
+| `POST /v1/sandboxes/{id}/renew-expiration` | `expiresAt` | No. `renew_expiration` (`docker_service.py` 1328-1369) calls `ensure_future_expiration` (`validators.py` 133-154), which only requires a future time. |
+
+`config.py` 608-615 says the setting does not apply to renew and does not cap
+total lifetime. Omitting the config line sets the limit to `None`, and
+`validators.py` 184-185 then skips the check.
+
+ChatHub always sends `timeout`. A new sandbox uses
+`ceil((OPENSANDBOX_READY_TIMEOUT + CODE_INTERPRETER_TIMEOUT) / 1000) + 120`
+seconds, and at least 60. Defaults are 60s + 60s + 120s = 240s, which is under
+3600. After the run, renew sets `expiresAt` to now plus
+`OPENSANDBOX_SESSION_IDLE_TIMEOUT`. A later run in that chat renews first to
+now plus the run timeout plus 120s, then renews to the idle deadline again
+after the run. With the default 60s ready budget, `CODE_INTERPRETER_TIMEOUT`
+above 3420000 ms makes the create TTL greater than 3600s and every create
+returns HTTP 400. Raise `max_sandbox_timeout_seconds`, or remove the line.
+Keep 3600 otherwise: it blocks other API clients from creating a long-lived
+sandbox, and it does not shorten a ChatHub sandbox.
+
+A create that omits `timeout` skips the cap. `_build_labels_and_env`
+(`container_ops.py`) labels that sandbox for manual cleanup, startup does not
+schedule an expiry, and it never expires. Renew of that sandbox is HTTP 409.
+ChatHub does not use that path. The smoke-test script, the OpenSandbox SDK,
+and the CLI can.
+
+Renew writes the new expiry to `~/.opensandbox/metadata` inside the server
+container (`metadata.py`, `Path.home()`; the image has no `USER`, so
+`/root/.opensandbox`) and tries to update the container label. Docker container
+update does not change labels; the server logs a warning and keeps the file.
+`docker restart` of the same container keeps the file. Recreating the
+container loses it unless `/root/.opensandbox` is a volume. Startup then
+deletes sandboxes whose label still has the short create TTL. The operator
+page mounts `./opensandbox/data:/root/.opensandbox`.
 
 The runner `exec`s the code as `__main__`, echoes a trailing expression with
 `repr()` like a notebook, maps `SystemExit` like a script (0/`None` succeed),
@@ -343,8 +382,13 @@ with `max_sandbox_timeout_seconds = 3600` (live suite 9/9 on each): a
 subprocess install and a workdir file reached the next run; with a max
 lifetime set, a parked sandbox's `expiresAt` was its `createdAt` + the cap
 and a sandbox past it was replaced; and the server purged an expired
-sandbox and dropped it from the metadata list. Setup:
-[Code Interpreter Sandbox](https://github.com/lqdflying/chathub/wiki/Code-Interpreter-Sandbox).
+sandbox and dropped it from the metadata list. On
+`release-1.1.1-rc.1` with `max_sandbox_timeout_seconds = 3600`, a create
+asking for 86400s returned HTTP 400 and a renew to now + 1 day returned
+HTTP 200. Setup:
+[Code Interpreter Sandbox](https://github.com/lqdflying/chathub/wiki/Code-Interpreter-Sandbox)
+and
+[Code Interpreter with OpenSandbox](https://github.com/lqdflying/chathub/wiki/Code-Interpreter-with-OpenSandbox).
 
 ## Future backends
 
@@ -363,7 +407,7 @@ jobs (Excel SOP, OpenAI SDK, …) there.
 
 | Need | Where |
 | --- | --- |
-| Extra PyPI imports | Sidecar `/dependencies/python-requirements.txt`, then recreate |
+| Extra PyPI imports | Dify: sidecar `/dependencies/python-requirements.txt`, then recreate the sidecar. OpenSandbox: `docker/opensandbox-python/requirements.txt`, then rebuild the image |
 | Standing specialty | That assistant’s system prompt (Agent Setting) |
 | One-off task | User message or a Skill — topics have **no** system-prompt field |
 | ChatHub LLM API keys | Stay on the ChatHub container; they are **not** injected into guest Python |
@@ -371,4 +415,6 @@ jobs (Excel SOP, OpenAI SDK, …) there.
 Agent rule: `.cursor/rules/code-interpreter-prompt.mdc`.
 
 User-facing setup:
-[Code Interpreter Sandbox](https://github.com/lqdflying/chathub/wiki/Code-Interpreter-Sandbox).
+[Code Interpreter Sandbox](https://github.com/lqdflying/chathub/wiki/Code-Interpreter-Sandbox)
+(Dify) and
+[Code Interpreter with OpenSandbox](https://github.com/lqdflying/chathub/wiki/Code-Interpreter-with-OpenSandbox).
