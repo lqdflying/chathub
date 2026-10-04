@@ -14,7 +14,7 @@ packages are installed.
 
 | Layer | Where | What belongs there |
 | --- | --- | --- |
-| Product / builtin tool | `src/tools/code-interpreter/index.ts` `systemRole` | How the sandbox works: 60s timeout, files in cwd by basename, matplotlib Agg, prefer pandas/openpyxl/reportlab/docx/pptx/odfpy **when installed**, no per-request pip, `packages` is advisory |
+| Product / builtin tool | `src/tools/code-interpreter/index.ts` `systemRole` | How the sandbox works: operator timeout (default 60s), top-level cwd files from this call, matplotlib Agg and `plot_N.png`, reply-style chart choices, prefer pandas/openpyxl/reportlab/docx/pptx/odfpy **when installed**. `packages` does not install. `pip` inside the code is best-effort and lasts only while that sandbox lives |
 | Sidecar packages | Host `python-requirements.txt` on `/dependencies` | Makes `import` succeed. Recreate `code-interpreter`. Guest Python cannot `pip install` (seccomp) |
 | Assistant prompt | Agent Setting → system role | Standing specialty for **that** assistant (e.g. “`openai` is installed; use it for SDK experiments”) |
 | User general instruction | Settings | All chats for that account |
@@ -24,7 +24,7 @@ packages are installed.
 ## Do not
 
 - Change the builtin prompt because one host installed extra PyPI packages.
-- Claim the LLM can auto-install missing packages (`packages` is debug-only).
+- Claim the `packages` argument installs anything. `pip` inside the code is best-effort and lasts only while that sandbox lives.
 - Inject ChatHub LLM keys into guest Python. `OPENAI_API_KEY` on lobe-chat is
   **not** in the sandbox; network SDKs need sidecar env or a user-supplied key
   plus `ENABLE_NETWORK=true`.

@@ -411,13 +411,15 @@ an in-process libkrun embed.
 
 The builtin Code Interpreter `systemRole`
 (`src/tools/code-interpreter/index.ts`) is **product-level sandbox contract**
-only: timeout, cwd files by basename, matplotlib Agg, prefer office/data
-libraries **when installed**, no per-request pip. Do not add operator-specific
-jobs (Excel SOP, OpenAI SDK, …) there.
+only: operator timeout (default 60s), top-level cwd files from this call,
+matplotlib Agg, prefer office/data libraries **when installed**. The
+`packages` argument does not install anything. `pip` inside the code is
+best-effort and lasts only while that sandbox lives. Do not add
+operator-specific jobs (Excel SOP, OpenAI SDK, …) there.
 
 | Need | Where |
 | --- | --- |
-| Extra PyPI imports | Dify: sidecar `/dependencies/python-requirements.txt`, then recreate the sidecar. OpenSandbox: `docker/opensandbox-python/requirements.txt`, then rebuild the image |
+| Extra PyPI imports | Dify: sidecar `/dependencies/python-requirements.txt`, then recreate the sidecar. OpenSandbox: `docker/opensandbox-python/requirements.txt`, then rebuild the image. `pip` in a call is best-effort and is not a substitute for that image |
 | Standing specialty | That assistant’s system prompt (Agent Setting) |
 | One-off task | User message or a Skill — topics have **no** system-prompt field |
 | ChatHub LLM API keys | Stay on the ChatHub container; they are **not** injected into guest Python |
