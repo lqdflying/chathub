@@ -26,10 +26,10 @@ Do not fake a server result for tools that still need the browser for the
 the user message, mark `deferredBrowserGenerationLanes`, run
 `internal_execAgentRuntime` in the tab.
 
-**Do not** add Code Interpreter to the enqueue defer list just because it is
-enabled. Treat it like Artifacts at enqueue; Graphile runs Python on the
-DifySandbox sidecar (`shouldContinue: true` even on `not_configured` or
-program errors). DALL·E stays stubbed with `shouldContinue: false`.
+**Do not** add the Sandbox (`lobe-sandbox`, formerly Code Interpreter) to the
+enqueue defer list just because it is enabled. Treat it like Artifacts at
+enqueue; Graphile runs every Sandbox API on OpenSandbox (`shouldContinue: true`
+even on `not configured` or command errors). DALL·E stays stubbed with `shouldContinue: false`.
 
 ## Leave is not Stop
 

@@ -39,7 +39,7 @@ interaction, and streaming UX.
 | --- | --- | --- |
 | Memory dream schedule | Graphile worker + sweeper | Settings UI + tRPC read/write |
 | Chat generation | Durable Graphile job | Stream rendering; deferred lane only for unsupported tools |
-| Tool execution | HTTP MCP, Code Interpreter sidecar | DALL·E, Kagi, non-HTTP MCP while tab is open |
+| Tool execution | HTTP MCP, Sandbox (OpenSandbox) | DALL·E, Kagi, non-HTTP MCP while tab is open |
 
 ## Repo layout
 
@@ -112,14 +112,14 @@ browser-fallback turns (`unsupported_tool` / `fetch_on_client`). Follow
 `openwiki/architecture/claude-like-background-generation.md` before changing
 send, stop, invalidate, RAG retrieve, or tool continuation.
 
-## Code Interpreter prompts
+## Sandbox prompts
 
 Builtin `systemRole` stays general sandbox contract. Special tasks go on the
-assistant prompt plus sidecar `python-requirements.txt`, not a ChatHub prompt
-change. There is no topic system-prompt field. Follow
-**`.cursor/rules/code-interpreter-prompt.mdc`**. Jail wrapper / DifySandbox
-syscall work must reproduce on a local sidecar image first:
-**`.cursor/rules/code-interpreter-sandbox-repro.mdc`**.
+assistant prompt plus the sandbox image (`docker/opensandbox`), not a ChatHub
+prompt change. There is no topic system-prompt field. Follow
+**`.cursor/rules/sandbox-prompt.mdc`**. OpenSandbox provider, workspace, or
+image changes must be proven on a local OpenSandbox server first:
+**`.cursor/rules/sandbox-repro.mdc`**.
 
 ## Provider-specific model options
 

@@ -1,0 +1,43 @@
+---
+description: Sandbox tool product prompt stays general; special tasks use the assistant prompt, a Skill, or the sandbox image, not a ChatHub builtin prompt change
+alwaysApply: true
+---
+
+# Sandbox prompt layering
+
+Do **not** bake operator-specific jobs (Excel SOP, OpenAI SDK, a project's
+build steps, etc.) into the builtin Sandbox prompt. That prompt is the
+product-level sandbox contract. It already follows this design — do not
+“fix” it by assuming tools or packages are installed.
+
+## Layers
+
+| Layer | Where | What belongs there |
+| --- | --- | --- |
+| Product / builtin tool | `src/tools/sandbox/systemRole.ts` (manifest in `src/tools/sandbox/index.ts`) | How the sandbox works: working directory `/tmp/workspace`, what carries over between calls, tools the image *usually* has (check with `command -v`), operator time limits (default 60s, `timeout` up to the operator maximum), when to use the file APIs and background commands, how to deliver files (`files[].url`), and the Python guidance (matplotlib Agg and `plot_N.png`, office/data libraries **when installed**, STSong). `packages` does not install. `pip`/`npm` installs are best-effort and last only while that sandbox lives. Static text only (prompt-cache prefix) |
+| Sandbox image | `docker/opensandbox/` (requirements, apt list, Node.js) | Makes `import`, CLIs, and runtimes available. Rebuild the image and point `OPENSANDBOX_IMAGE` at it |
+| Assistant prompt | Agent Setting → system role | Standing specialty for **that** assistant (e.g. “`openai` is installed; use it for SDK experiments”) |
+| User general instruction | Settings | All chats for that account |
+| Topic | **No topic system-prompt field** | Title + compaction `historySummary` only. Use a dedicated assistant, a Skill, or the user message |
+| Skills | `load_skill` | Reusable task bundle without a ChatHub release |
+
+## Do not
+
+- Change the builtin prompt because one host installed extra packages or CLIs.
+- Claim the `packages` argument installs anything.
+- Inject ChatHub LLM keys or other server secrets into the sandbox
+  (`OPENAI_API_KEY` on the ChatHub container is **not** in the sandbox; a
+  network SDK needs a user-supplied key and egress allowed by the operator).
+- Invent a topic prompt. `topics.metadata` has no instruction field.
+
+## Files vs Knowledge Base
+
+Any **chat attachment** on that topic (not Excel-only) is synced into the
+sandbox working directory under size/count caps, once per file id. Knowledge
+Base files are MarkItDown/RAG only unless also attached to the message.
+
+User-facing setup:
+[Code Interpreter with OpenSandbox](https://github.com/lqdflying/chathub/wiki/Code-Interpreter-with-OpenSandbox).
+Maintainer note: `openwiki/architecture/sandbox.md`.
+Runner, client, or workspace changes: prove them on a local OpenSandbox server
+first (`.cursor/rules/sandbox-repro.mdc`).

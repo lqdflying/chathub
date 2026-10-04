@@ -1,0 +1,45 @@
+---
+description: Prove Sandbox / OpenSandbox provider changes on a local OpenSandbox server before canary; mocked fetch tests are not proof
+alwaysApply: true
+---
+
+# Sandbox — local OpenSandbox server first
+
+Before shipping a change to `src/server/services/sandbox/providers/opensandbox/`
+(client, provider lifecycle, workspace operations, Python runner, readiness)
+or to `docker/opensandbox/`, **prove it against a local OpenSandbox server**.
+Mocked-fetch unit tests are not proof of execd stream, background command,
+filesystem, or readiness behavior. Prod canaries are not a substitute.
+
+This does **not** lift `.cursor/rules/commands.mdc`: never `bun run build`,
+`next build`, or `docker build` the ChatHub image. Building the **sandbox**
+image (`docker/opensandbox`) and running a local OpenSandbox server is the
+exception.
+
+## Must
+
+1. Build the sandbox image: `docker build -t chathub-sandbox:1 docker/opensandbox`.
+2. Run `opensandbox/server` with the Docker runtime, its port bound to
+   `127.0.0.1`, `[docker] network_mode = "bridge"`, sandboxes on a dedicated
+   bridge, and an `api_key`.
+3. Run the live suite
+   `src/server/services/sandbox/providers/opensandbox/__tests__/e2e.live.test.ts`
+   with `OPENSANDBOX_E2E_SERVER_URL` / `_API_KEY` / `_IMAGE` (it skips
+   otherwise). Repeat it 5+ times: execd stream bugs are intermittent.
+4. Confirm every sandbox container is gone afterwards, then tear the server,
+   sandboxes, and networks down.
+
+## Do not
+
+- Move back to execd's Jupyter `/code` API without re-running that stress
+  test (its streams hung intermittently on servers `1.1.0` and `1.1.1-rc.1`).
+- Send execd's `argv` command field: execd `1.1.0` rejects it; ChatHub sends
+  `command` strings and quotes nothing into them.
+- Use `/files/search` for listings: its glob matches basenames only and walks
+  everything.
+- Ship / tag / ask the user to recreate prod until the live suite passes on
+  the intended image.
+
+Contract: `openwiki/architecture/sandbox.md`, wiki
+`Code-Interpreter-with-OpenSandbox.md`. Prompt layering:
+`.cursor/rules/sandbox-prompt.mdc`.

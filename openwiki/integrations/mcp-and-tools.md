@@ -311,64 +311,57 @@ For built-in Tools Hub features, also check:
 - `src/app/[variants]/(main)/tools/`
 - `src/app/(backend)/webapi/tools/`
 
-## Code Interpreter runtime
+## Sandbox runtime
 
-The `lobe-code-interpreter` builtin runs Python through a **sandbox provider**
-(DifySandbox by default, or OpenSandbox). Architecture:
-[Sandbox providers](../architecture/sandbox-providers.md).
-The ChatHub image is distroless and has no CPython. User-facing setup:
-[Code Interpreter Sandbox](https://github.com/lqdflying/chathub/wiki/Code-Interpreter-Sandbox).
+The `lobe-sandbox` builtin (formerly Code Interpreter, `lobe-code-interpreter`)
+gives the model a Linux sandbox per conversation on an **OpenSandbox** server,
+the only backend. Architecture: [Sandbox](../architecture/sandbox.md). The
+ChatHub image is distroless and has no CPython or shell for guest code.
+User-facing setup:
+[Code Interpreter with OpenSandbox](https://github.com/lqdflying/chathub/wiki/Code-Interpreter-with-OpenSandbox).
 
-- **Provider** — `SANDBOX_PROVIDER` defaults to `dify`.
-  `src/server/services/sandbox/providers/dify/` owns
-  `POST /v1/sandbox/run` with `X-Api-Key`, body
-  `{ language: "python3", code, preload, enable_network }`. `preload` creates
-  the per-run `0700` workdir as root before seccomp; `code` is the guest
-  wrapper (no mkdir/chdir/unlink). The sidecar must set `ENABLE_PRELOAD=true`
-  or Dify 0.2.10+ strips `preload`. HTTP 200 + envelope `code === 0` is
-  transport OK; `data.error` is process stderr (shown, but warnings do not
-  fail the tool). Wrapper sentinel `success` is the failure flag. Isolation is seccomp +
-  chroot. There is no file-upload API; the Dify provider wraps files into the
-  Python string.
-- **OpenSandbox** — `SANDBOX_PROVIDER=opensandbox` with
-  `OPENSANDBOX_SERVER_URL` / `OPENSANDBOX_API_KEY` / `OPENSANDBOX_IMAGE`. One
-  sandbox per conversation (find or create → execd ping → upload runner,
-  code, files → `python3` via execd's command API → manifest → download →
-  park), all through the lifecycle server's proxy. Installs and files carry
-  over between runs, Python variables do not. It is removed after
-  `OPENSANDBOX_SESSION_IDLE_TIMEOUT` (default 30 min) without a run, or after
-  an upload, command-stream, or server failure. Every run restarts the idle
-  timer. `0` idle = a fresh sandbox per run. An optional
-  `OPENSANDBOX_SESSION_MAX_LIFETIME` (default off) caps its age. Only files the run created or changed
-  are returned. No Jupyter. Real Linux userland on `runc` (the tested path);
-  Kata is optional and untested. An absolute write outside
-  `/dev`, `/proc`, and `/sys` stays on that path; if the file still exists at
-  the end it is collected as its basename. The newest file contents win;
-  a failed open or a read does not. The runner links `STSong.ttf` into
-  the workdir. Output downloads stop at a finite byte cap.
-- **ChatHub adapter** — `src/server/services/codeInterpreter/` gathers
-  conversation files (paginated, newest-first, thread-scoped), calls
-  `getSandboxProvider().run()`, and uploads results with the server file
-  service. Graphile `invokeConversationTool` and leftover client
-  `interpreter.ts` both call `runCodeInterpreter` (the client via tRPC
-  `codeInterpreter.run`).
-- **Thread scope** — a portal-thread run uses that thread (plus its main
-  prefix). A main-topic run excludes portal-thread files.
-- **Enqueue** — Code Interpreter stays off the defer list. Presence must not
-  force the whole turn onto the tab. An unset provider URL
-  (`CODE_INTERPRETER_SANDBOX_URL` or `OPENSANDBOX_SERVER_URL`) returns
-  `not_configured` (`shouldContinue: true`). There is no Pyodide
-  fallback.
-- **Packages** — operator-installed: the Dify `/dependencies` volume /
-  dependencies update API, or the OpenSandbox image
-  (`docker/opensandbox-python/`). The tool `packages` argument is counted
-  for debug only.
+- **APIs** — `runCommand` (bash; `background: true` for servers),
+  `getCommandOutput`, `stopCommand`, `runPython` (the old `python` API),
+  `readFile`, `writeFile`, `editFile`, `listFiles`, `exportFile`. Each returns
+  a JSON `SandboxToolResult`; failures are `success: false` results.
+- **Dispatch** — Graphile `invokeConversationTool` and the browser's
+  `invokeSandboxTool` store action (tRPC `sandbox.invoke`) both call
+  `invokeSandboxTool` (`src/server/services/sandbox/tool/`), which validates
+  arguments per API and runs one `withWorkspace` task. The browser routes
+  every Sandbox API to that one action by identifier, not by API name.
+- **OpenSandbox** — `OPENSANDBOX_SERVER_URL` / `OPENSANDBOX_API_KEY` /
+  `OPENSANDBOX_IMAGE`. One sandbox per conversation (find or create → execd
+  ping → task → park), all through the lifecycle server's proxy. Files,
+  installs, and background processes carry over between calls; Python
+  variables do not. It is removed after `OPENSANDBOX_SESSION_IDLE_TIMEOUT`
+  (default 30 min) without a call, or after an infrastructure failure; a
+  failed request (missing file, unknown command id), a timeout, or a cancel
+  keeps it. `0` idle = a fresh sandbox per call, which disables background
+  commands. An optional `OPENSANDBOX_SESSION_MAX_LIFETIME` caps its age. A
+  parked sandbox on another image or layout is replaced. Real Linux userland
+  on `runc` (the tested path); Kata is optional and untested.
+- **Conversation files** — gathered paginated, newest-first, thread-scoped,
+  and synced by file id: a call uploads only files the sandbox has not
+  received, so edits in the sandbox survive. `runPython` returns top-level
+  files it created or changed; `exportFile` returns any path. Both persist
+  through the server file service.
+- **Thread scope** — a portal-thread call uses that thread (plus its main
+  prefix). A main-topic call excludes portal-thread files.
+- **Enqueue** — the Sandbox stays off the defer list. Presence must not force
+  the whole turn onto the tab. Without `OPENSANDBOX_SERVER_URL` and
+  `OPENSANDBOX_IMAGE` a call returns a `not configured` error
+  (`shouldContinue: true`). There is no in-browser fallback.
+- **Legacy** — old `lobe-code-interpreter` / `python` messages still render
+  and dispatch; plugin lists are normalized on read and migrated by
+  `0062_sandbox_tool_identifier`.
+- **Packages** — operator-installed in the image (`docker/opensandbox/`). The
+  `packages` argument does not install anything.
 - **Debug** — `sandbox_run_started` / `sandbox_run_settled` on
-  `CHATHUB_GENERATION_DEBUG` (includes `provider`; OpenSandbox adds
-  `sessionScoped` / `sandboxReused` / `sandboxRetired` / `sandboxLookupFailed`,
-  and `failurePhase` on
-  failure), plus OpenSandbox `sandbox_collect_failed` /
-  `sandbox_cleanup_failed`. Never log code, stdout, or
+  `CHATHUB_GENERATION_DEBUG` (includes `provider`, `operation` = API name,
+  `sessionScoped` / `sandboxReused` / `sandboxRetired` /
+  `sandboxLookupFailed`, and `failurePhase` on failure), plus
+  `sandbox_collect_failed`, `sandbox_cleanup_failed`, and
+  `sandbox_sync_record_failed`. Never log commands, code, output, or
   filenames. `browser_tool_stubbed` is DALL·E only.
 
 MCP HTTP tools invoked during durable conversation generation run inside

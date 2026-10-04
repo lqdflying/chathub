@@ -4,7 +4,7 @@
 
 > Self-hosted AI chat for Docker and PostgreSQL — a fork of [LobeChat](https://github.com/lobehub/lobe-chat) that grew into its own product.
 
-**ChatHub 2.0** is the current GA. v1.0.0 (May 2026) was a rebranded, self-hosted LobeChat: credentials login, an extended model bank, Tools Hub, MCP OAuth, and per-provider gear. Twenty-eight patch releases later, the runtime contract is different. Closing the tab does not cancel the turn. Knowledge Base is a real RAG stack with its own embedding keys. Python and document conversion are optional sidecars. There is no Electron app and no browser-local database — browsers and PWAs talk to the server; durable data lives in PostgreSQL.
+**ChatHub 2.0** is the current GA. v1.0.0 (May 2026) was a rebranded, self-hosted LobeChat: credentials login, an extended model bank, Tools Hub, MCP OAuth, and per-provider gear. Twenty-eight patch releases later, the runtime contract is different. Closing the tab does not cancel the turn. Knowledge Base is a real RAG stack with its own embedding keys. The Sandbox and document conversion are optional sidecars. There is no Electron app and no browser-local database — browsers and PWAs talk to the server; durable data lives in PostgreSQL.
 
 Upgrade from any 1.x or 2.0.x image the same way as a patch: pull `:latest` or `2.0.10`, restart, let migrations run. **2.0.10** fixes GitHub OAuth `iss` rejection, keeps the SuperGrok weekly bar when billing omits a percent, and points Settings provider help at official vendor sites. [Release notes](https://github.com/lqdflying/chathub/releases/tag/v2.0.10) · [Background Conversation Generation](https://github.com/lqdflying/chathub/wiki/Background-Conversation-Generation) · [Wiki](https://github.com/lqdflying/chathub/wiki)
 
@@ -18,7 +18,7 @@ These are the differences that matter if you used 1.0 or are choosing ChatHub ov
 
 **Knowledge Base is no longer “whatever the chat key can embed.”** Indexing uses a dedicated OpenAI, Cohere, or Voyage provider (`RAG_EMBEDDING_*` or Settings → RAG Provider). Chat keys are never an implicit fallback. PostgreSQL must ship `pgvector` (the Compose example uses the pgvector image). An optional MarkItDown sidecar turns PDF/Office/HTML into structured Markdown before chunking. [Knowledge Base and RAG](https://github.com/lqdflying/chathub/wiki/Knowledge-Base-and-RAG) · [MarkItDown](https://github.com/lqdflying/chathub/wiki/MarkItDown-Sidecar)
 
-**Python runs in a sandbox beside ChatHub, not in the image.** Code Interpreter talks to `langgenius/dify-sandbox:0.2.15` by default, or to an OpenSandbox server (`SANDBOX_PROVIDER=opensandbox`) that keeps one container per conversation, so installs and files carry over. The tested runtime is `runc`; Kata is optional. The ChatHub image stays distroless; Graphile can run guest Python after you close the tab. Omit the sidecar if you do not need it. [Code Interpreter Sandbox](https://github.com/lqdflying/chathub/wiki/Code-Interpreter-Sandbox) · [OpenSandbox](https://github.com/lqdflying/chathub/wiki/Code-Interpreter-with-OpenSandbox)
+**The Sandbox runs beside ChatHub, not in the image.** The Sandbox builtin tool (formerly Code Interpreter) gives the model a Linux container per conversation on an OpenSandbox server: shell commands, git, Node.js, Python, file read/write/edit, background servers, and file export. Files, installs, and background processes carry over within the conversation. The tested runtime is `runc`; Kata is optional. OpenSandbox is the only backend — the DifySandbox backend was removed. The ChatHub image stays distroless; Graphile can run sandbox calls after you close the tab. Omit the server if you do not need it. [OpenSandbox setup](https://github.com/lqdflying/chathub/wiki/Code-Interpreter-with-OpenSandbox)
 
 **Images and documents outlived the chat bubble.** In-chat Image generation is a server task (slow 4K renders survive proxies). Finished pictures live in an Artifacts gallery, matched back to the prompt that created them. SVG, full HTML pages, and Mermaid in replies render inline. [Image Generation](https://github.com/lqdflying/chathub/wiki/Image-Generation) · [Artifacts](https://github.com/lqdflying/chathub/wiki/Artifacts) · [Inline diagrams](https://github.com/lqdflying/chathub/wiki/Inline-SVG-Diagrams)
 
@@ -31,7 +31,7 @@ What 1.0 already was, and 2.0 still is: Docker + PostgreSQL only, built-in usern
 | Deploy | Vercel / Docker / Desktop | Docker + PostgreSQL only |
 | Chat after you leave | Cancels with the tab | Server worker continues |
 | Knowledge embeddings | Implicit chat-provider defaults | Dedicated RAG provider |
-| Code Interpreter | Not a first-class sidecar | Optional DifySandbox or OpenSandbox sibling |
+| Sandbox tool | Not a first-class sidecar | Optional OpenSandbox sibling: shell, git, Node.js, Python |
 | Client | Includes desktop / local DB editions | Browser and PWA against the server |
 
 ---
@@ -44,8 +44,6 @@ services:
     image: docker.io/lqdflying/chathub:latest
     depends_on:
       chathub-db:
-        condition: service_healthy
-      code-interpreter:
         condition: service_healthy
     environment:
       - DATABASE_URL=postgres://user:password@chathub-db:5432/postgres
@@ -64,9 +62,10 @@ services:
       # RAG_EMBEDDING_MODEL=text-embedding-3-small
       # RAG_EMBEDDING_API_KEY=...
       # Optional: FEATURE_FLAGS=-durable_conversation_generation
-      - SANDBOX_PROVIDER=dify
-      - CODE_INTERPRETER_SANDBOX_URL=http://code-interpreter:8194
-      - CODE_INTERPRETER_SANDBOX_API_KEY=<your-sandbox-api-key>
+      # Optional Sandbox tool, on an OpenSandbox server you run separately:
+      # OPENSANDBOX_SERVER_URL=http://opensandbox:8090
+      # OPENSANDBOX_API_KEY=<your-opensandbox-api-key>
+      # OPENSANDBOX_IMAGE=chathub-sandbox:1
     ports:
       - '3210:3210'
 
@@ -83,27 +82,9 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
-
-  code-interpreter:
-    image: langgenius/dify-sandbox:0.2.15
-    restart: always
-    environment:
-      - API_KEY=<your-sandbox-api-key>
-      - GIN_MODE=release
-      - WORKER_TIMEOUT=60
-      - ENABLE_NETWORK=true
-      - ENABLE_PRELOAD=true
-    volumes:
-      - ./data/code-interpreter/dependencies:/dependencies
-    healthcheck:
-      test: ['CMD', 'curl', '-f', 'http://localhost:8194/health']
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 60s
 ```
 
-Omit `code-interpreter`, its `depends_on` entry, and the `SANDBOX_PROVIDER` / `CODE_INTERPRETER_*` variables if you do not need Python. Migrations run on startup. Upgrades, volumes, and 1Panel env files: [Docker Deployment and Upgrades](https://github.com/lqdflying/chathub/wiki/Docker-Deployment-and-Upgrades).
+The Sandbox tool needs an OpenSandbox server and the `docker/opensandbox` image built on its host; leave the `OPENSANDBOX_*` variables unset if you do not need it. Migrations run on startup. Upgrades, volumes, and 1Panel env files: [Docker Deployment and Upgrades](https://github.com/lqdflying/chathub/wiki/Docker-Deployment-and-Upgrades).
 
 ---
 

@@ -299,7 +299,7 @@ session/message/topic/thread, image history, chat-group, agent, file,
 knowledge-base, installed-plugin, profile-statistics, and profile-ranking SWR
 keys include that scope and the ownership-invalidation epoch. Remote
 provider-model fetches re-check the originating scope before writing model cards
-into persisted settings. Code Interpreter and DALL-E file metadata keys also
+into persisted settings. Sandbox and DALL-E file metadata keys also
 include the scope, and their callbacks compare the chat reset generation before
 repopulating cleared maps.
 Mounted components with account-owned local state use the same scope as a React

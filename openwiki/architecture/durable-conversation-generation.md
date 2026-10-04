@@ -451,12 +451,14 @@ reports completion (including thrown failures) to tool diagnostics with
 `runtimePayload.runtimeProvider` (not the raw gateway id) so `DEBUG_*_CACHE`
 diagnostics match the SDK family the worker actually calls.
 
-The worker currently supports builtin web browsing, Code Interpreter
-(DifySandbox sidecar), fixed Memory, activated skills, HTTP MCP, and
-prompt-only builtins with an empty `api` (Artifacts / `lobe-artifacts`).
-Enabling Code Interpreter does not block enqueue. If the model calls it, the
-worker posts to `POST /v1/sandbox/run` and continues (`shouldContinue: true`)
-even when the sidecar is unset (`not_configured`) or the program fails.
+The worker currently supports builtin web browsing, the Sandbox
+(`lobe-sandbox`, formerly Code Interpreter, on OpenSandbox), fixed Memory,
+activated skills, HTTP MCP, and prompt-only builtins with an empty `api`
+(Artifacts / `lobe-artifacts`). Enabling the Sandbox does not block enqueue.
+If the model calls any Sandbox API, the worker runs `invokeSandboxTool` and
+continues (`shouldContinue: true`) even when OpenSandbox is unset (`not
+configured`) or the command fails. A stop or lost heartbeat aborts the call
+and interrupts the running command.
 Image generation (DALL·E / image-designer chat tools), non-HTTP MCP, and
 unknown plugin runtimes are still capability-gated before durable enqueue, so
 the existing browser runtime handles the whole conversation rather than
@@ -1001,8 +1003,9 @@ for HTTP MCP / default tools: leaving the topic does not cancel a successful
 tool result, does not leak `messageInToolsCallingIds`, and continues the
 model in the same tab immediately (`tool_loop_continue`, possibly
 `visible=false`). `resume_model` on return is only if that continue was
-skipped. Code interpreter / image-designer still cannot run on the Graphile
-worker; the connected tab is the producer for those turns. Durable worker
+skipped. Image-designer still cannot run on the Graphile worker; the
+connected tab is the producer for those turns. The Sandbox runs on the
+worker. Durable worker
 turns are unaffected because the worker already runs the loop server-side.
 
 ## Startup schema repair
