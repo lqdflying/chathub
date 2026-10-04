@@ -389,6 +389,10 @@ Operator constraints worth knowing before deploying:
   the host, or one sandbox can reach another's execd through the host port
   (reproduced locally, and closed by those rules).
 - Server `1.1.0` defaults `[docker] network_mode` to `host`; set it.
+- On `1.1.1` or later, set `[docker] publish_host` (`127.0.0.1` when the
+  server runs on the host, the bridge gateway when it runs in a container) so
+  execd ports are not published on every interface. ChatHub needs no change:
+  it reaches execd only through the server proxy.
 - execd `1.1.0` rejects the spec's `argv` command field; ChatHub sends
   `command`.
 
@@ -406,12 +410,20 @@ asking for 86400s returned HTTP 400 and a renew to now + 1 day returned
 HTTP 200. Those runs predate the Sandbox tool and used the Python runner
 only.
 
-The workspace operations were verified against a local
-`opensandbox/server:release-1.1.0` with runc (live suite, test *runs shell
-commands, background processes, and file operations in one sandbox*): exit
-codes and stderr, partial output on a timeout, a background Node server with
-logs, cursor, fetch, and stop, an unknown command id kept the sandbox, file
-write/list/info/read, and a missing file, all in one session sandbox. The
+The workspace operations were verified against local
+`opensandbox/server:release-1.1.0` and `release-1.1.1-rc.1` with runc (live
+suite, test *runs shell commands, background processes, and file operations
+in one sandbox*): exit codes and stderr, partial output on a timeout, a
+background Node server with logs, cursor, fetch, and stop, an unknown command
+id kept the sandbox, file write/list/info/read, and a missing file, all in one
+session sandbox. On `release-1.1.1-rc.1` (with `publish_host = "127.0.0.1"`)
+the suite ran 7 times, including right after a server restart and under full
+CPU load. Both releases default to `opensandbox/execd:v1.1.0`, and their
+lifecycle and execd specs differ only in fields ChatHub does not use
+(snapshot `env`, the Jupyter interrupt wording). One early run failed once:
+the background Node server had not printed `ready` within a fixed 1.5s wait
+while the host's Docker daemon was slow (a label update took 1.3s instead of
+~20ms). The live test now polls for that state instead of sleeping. The
 image's apt layer could not be built in that environment (Debian mirrors
 blocked), so the image-tool and CJK-font live tests need a host with Debian
 mirror access.

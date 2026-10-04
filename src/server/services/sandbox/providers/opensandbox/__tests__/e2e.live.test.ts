@@ -38,6 +38,23 @@ const newSessionKey = () => {
   return key;
 };
 
+/**
+ * Polls until `check` returns a value. Process start-up and exit inside a
+ * sandbox depend on host load, so live checks wait on state, not a fixed sleep.
+ */
+const waitFor = async <T>(
+  check: () => Promise<T | undefined>,
+  { intervalMs = 250, timeoutMs = 20_000 } = {},
+): Promise<T> => {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const value = await check();
+    if (value !== undefined) return value;
+    if (Date.now() > deadline) throw new Error(`Condition not met within ${timeoutMs}ms`);
+    await sleep(intervalMs);
+  }
+};
+
 const sessionSandboxes = (sessionKey: string) =>
   client().findRunningSandboxes(
     { [SESSION_METADATA_KEY]: sessionKey },
@@ -278,11 +295,13 @@ describe.runIf(serverUrl)('OpenSandbox live', () => {
       const commandId = await use((workspace) =>
         workspace.startBackground({ command: 'node app/server.js' }),
       );
-      await sleep(1500);
-      const { logs, status } = await use(async (workspace) => ({
-        logs: await workspace.commandLogs(commandId),
-        status: await workspace.commandStatus(commandId),
-      }));
+      const { logs, status } = await waitFor(async () => {
+        const state = await use(async (workspace) => ({
+          logs: await workspace.commandLogs(commandId),
+          status: await workspace.commandStatus(commandId),
+        }));
+        return state.logs.output.includes('ready') || !state.status.running ? state : undefined;
+      });
       expect(status.running).toBe(true);
       expect(logs.output).toContain('ready');
       expect(logs.cursor).toBeGreaterThan(0);
@@ -299,8 +318,11 @@ describe.runIf(serverUrl)('OpenSandbox live', () => {
       expect(fetched.stdout).toBe('pong');
 
       await use((workspace) => workspace.interrupt(commandId));
-      await sleep(500);
-      expect((await use((workspace) => workspace.commandStatus(commandId))).running).toBe(false);
+      const stopped = await waitFor(async () => {
+        const state = await use((workspace) => workspace.commandStatus(commandId));
+        return state.running ? undefined : state;
+      });
+      expect(stopped.running).toBe(false);
       await expect(use((workspace) => workspace.commandStatus('no-such-command'))).rejects.toMatchObject(
         { name: 'SandboxRequestError' },
       );
