@@ -92,6 +92,7 @@ export type GenerationDebugEvent =
   | 'sandbox_persist_skipped'
   | 'sandbox_run_settled'
   | 'sandbox_run_started'
+  | 'sandbox_sync_record_failed'
   | 'sse_closed'
   | 'sse_opened'
   | 'sse_poll_failed'

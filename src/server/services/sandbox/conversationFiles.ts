@@ -15,7 +15,7 @@ import { FileService } from '@/server/services/file';
 import { createUploadTarget } from '@/server/services/file/uploadTarget';
 import { CodeInterpreterIdentifier } from '@/tools/code-interpreter';
 
-import type { SandboxFile } from './types';
+import type { SandboxFile, SandboxInputRef } from './types';
 
 export const SANDBOX_GATHER_PAGE_SIZE = 1000;
 export const SANDBOX_GATHER_MAX_PAGES = 50;
@@ -76,7 +76,12 @@ const collectPendingFiles = (scoped: UIChatMessage[], maxFileCount: number) => {
   return pending;
 };
 
-export const gatherConversationSandboxFiles = async ({
+/**
+ * Conversation files the sandbox may need, newest first and one per
+ * basename: user uploads, images, and files earlier sandbox calls returned.
+ * Bytes load lazily, only for files the sandbox has not received yet.
+ */
+export const listConversationSandboxInputs = async ({
   db,
   groupId,
   sessionId,
@@ -90,7 +95,7 @@ export const gatherConversationSandboxFiles = async ({
   threadId?: string | null;
   topicId?: string | null;
   userId: string;
-}): Promise<SandboxFile[]> => {
+}): Promise<SandboxInputRef[]> => {
   const messageModel = new MessageModel(db, userId);
   const fileModel = new FileModel(db, userId);
   const fileService = new FileService(db, userId);
@@ -115,27 +120,32 @@ export const gatherConversationSandboxFiles = async ({
     if (pending.length >= maxFileCount || page.length < SANDBOX_GATHER_PAGE_SIZE) break;
   }
 
-  const files: SandboxFile[] = [];
+  const inputs: SandboxInputRef[] = [];
   const usedNames = new Set<string>();
   for (const item of pending) {
     try {
       const record = await fileModel.findById(item.id);
       if (!record?.url) continue;
-      const bytes = await fileService.getFileByteArray(record.url);
-      if (!bytes || bytes.byteLength === 0 || bytes.byteLength > maxFileBytes) continue;
+      if (typeof record.size === 'number' && record.size > maxFileBytes) continue;
       const filename = basename(record.name || item.filename);
       if (usedNames.has(filename)) continue;
       usedNames.add(filename);
-      files.push({
-        content: new Uint8Array(bytes),
+      const key = record.url;
+      inputs.push({
         filename,
+        id: item.id,
+        load: async () => {
+          const bytes = await fileService.getFileByteArray(key);
+          if (!bytes || bytes.byteLength === 0 || bytes.byteLength > maxFileBytes) return undefined;
+          return new Uint8Array(bytes);
+        },
       });
     } catch {
       continue;
     }
   }
 
-  return files;
+  return inputs;
 };
 
 export const persistSandboxOutputFiles = async ({
@@ -187,7 +197,7 @@ export const persistSandboxOutputFiles = async ({
     } catch (error) {
       const errorClass = error instanceof Error ? error.name : 'Error';
       // eslint-disable-next-line no-console
-      console.warn('[code-interpreter] persistSandboxOutputFiles skipped a file', { errorClass });
+      console.warn('[sandbox] persistSandboxOutputFiles skipped a file', { errorClass });
       logGenerationDebugSafe('sandbox_persist_skipped', {
         errorClass,
         filenameHash: hashGenerationDebugValue(file.filename),

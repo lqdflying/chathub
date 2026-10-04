@@ -2,17 +2,18 @@
 /**
  * Live checks against a real OpenSandbox server. Skipped unless
  * OPENSANDBOX_E2E_SERVER_URL is set; see
- * `.cursor/rules/code-interpreter-sandbox-repro.mdc`.
+ * `.cursor/rules/sandbox-repro.mdc`.
  *
  *   OPENSANDBOX_E2E_SERVER_URL=http://127.0.0.1:8090 \
  *   OPENSANDBOX_E2E_API_KEY=... \
- *   OPENSANDBOX_E2E_IMAGE=chathub-sandbox-python:1 \
+ *   OPENSANDBOX_E2E_IMAGE=chathub-sandbox:1 \
  *   npx vitest run src/server/services/sandbox/providers/opensandbox/__tests__/e2e.live.test.ts
  */
 import { setTimeout as sleep } from 'node:timers/promises';
 
 import { afterAll, describe, expect, it } from 'vitest';
 
+import type { SandboxWorkspace } from '../../../types';
 import { OpenSandboxClient } from '../client';
 import { OpenSandboxProvider, SESSION_METADATA_KEY } from '../provider';
 
@@ -22,7 +23,7 @@ const provider = (session?: { sessionMaxLifetime?: number }) =>
   new OpenSandboxProvider({
     apiKey: process.env.OPENSANDBOX_E2E_API_KEY,
     baseUrl: serverUrl,
-    image: process.env.OPENSANDBOX_E2E_IMAGE ?? 'chathub-sandbox-python:1',
+    image: process.env.OPENSANDBOX_E2E_IMAGE ?? 'chathub-sandbox:1',
     ...session,
   });
 
@@ -48,8 +49,34 @@ const file = (filename: string, content: string) => ({
   filename,
 });
 
+const python = (
+  p: OpenSandboxProvider,
+  {
+    code,
+    files = [],
+    sessionKey,
+    timeoutMs = 60_000,
+  }: {
+    code: string;
+    files?: ReturnType<typeof file>[];
+    sessionKey?: string;
+    timeoutMs?: number;
+  },
+) =>
+  p.withWorkspace({ budgetMs: timeoutMs, sessionKey }, (workspace) =>
+    workspace.runPython({
+      code,
+      inputs: files.map((item) => ({
+        filename: item.filename,
+        id: item.filename,
+        load: async () => item.content,
+      })),
+      timeoutMs,
+    }),
+  );
+
 const run = (code: string, files: ReturnType<typeof file>[] = [], timeoutMs?: number) =>
-  provider().run({ code, files, language: 'python3', timeoutMs });
+  python(provider(), { code, files, timeoutMs });
 
 describe.runIf(serverUrl)('OpenSandbox live', () => {
   it('runs print, a trailing expression, stderr, subprocesses, and file removal', async () => {
@@ -146,7 +173,7 @@ describe.runIf(serverUrl)('OpenSandbox live', () => {
     it('keeps installs and files between runs of one session', async () => {
       const sessionKey = newSessionKey();
       const p = provider();
-      const first = await p.run({
+      const first = await python(p, {
         code: [
           // Installs like pip does: from a child process, into site-packages.
           'import subprocess, sys',
@@ -155,21 +182,17 @@ describe.runIf(serverUrl)('OpenSandbox live', () => {
           'import matplotlib.pyplot as plt',
           'plt.plot([1, 2]); plt.show()',
         ].join('\n'),
-        files: [],
-        language: 'python3',
         sessionKey,
       });
       const [sandbox] = await sessionSandboxes(sessionKey);
 
-      const second = await p.run({
+      const second = await python(p, {
         code: [
           'import e2e_installed',
           'print(e2e_installed.VALUE, open("prepared.txt").read())',
           'import matplotlib.pyplot as plt',
           'plt.plot([2, 1]); plt.show()',
         ].join('\n'),
-        files: [],
-        language: 'python3',
         sessionKey,
       });
 
@@ -186,9 +209,9 @@ describe.runIf(serverUrl)('OpenSandbox live', () => {
       // Room for one 5s run plus the 120s margin, and 15s more.
       const sessionMaxLifetime = timeoutMs + 120_000 + 15_000;
       const p = provider({ sessionMaxLifetime });
-      const input = { files: [], language: 'python3' as const, sessionKey, timeoutMs };
+      const input = { sessionKey, timeoutMs };
 
-      await p.run({ ...input, code: 'open("/tmp/old.txt", "w").write("x")' });
+      await python(p, { ...input, code: 'open("/tmp/old.txt", "w").write("x")' });
       const [old] = await sessionSandboxes(sessionKey);
       const detail = (await (
         await fetch(`${serverUrl}/v1/sandboxes/${old.id}`, {
@@ -201,12 +224,70 @@ describe.runIf(serverUrl)('OpenSandbox live', () => {
       );
       await sleep(Math.max(0, old.createdAt! + 16_000 - Date.now()));
 
-      const second = await p.run({ ...input, code: 'import os\nprint(os.path.exists("/tmp/old.txt"))' });
+      const second = await python(p, {
+        ...input,
+        code: 'import os\nprint(os.path.exists("/tmp/old.txt"))',
+      });
 
       expect(second.stdout).toBe('False');
       const current = await sessionSandboxes(sessionKey);
       expect(current).toHaveLength(1);
       expect(current[0].id).not.toBe(old.id);
+    });
+
+    it('runs shell commands, background processes, and file operations in one sandbox', async () => {
+      const sessionKey = newSessionKey();
+      const p = provider();
+      const use = <T>(task: (workspace: SandboxWorkspace) => Promise<T>) =>
+        p.withWorkspace({ budgetMs: 60_000, sessionKey }, task);
+
+      const tools = await use((workspace) =>
+        workspace.exec({
+          command: 'git --version && node --version && npm --version && rg --version | head -1',
+          timeoutMs: 30_000,
+        }),
+      );
+      expect(tools).toMatchObject({ exitCode: 0, timedOut: false });
+      expect(tools.stdout).toMatch(/git version/);
+      expect(tools.stdout).toMatch(/^v\d+\./m);
+
+      await use((workspace) =>
+        workspace.writeFile(
+          `${workspace.workdir}/app/server.js`,
+          new Uint8Array(
+            Buffer.from(
+              "require('http').createServer((q, s) => s.end('pong')).listen(3000, () => console.log('ready'));",
+            ),
+          ),
+        ),
+      );
+      const commandId = await use((workspace) =>
+        workspace.startBackground({ command: 'node app/server.js' }),
+      );
+      await sleep(1500);
+      const { logs, status } = await use(async (workspace) => ({
+        logs: await workspace.commandLogs(commandId),
+        status: await workspace.commandStatus(commandId),
+      }));
+      expect(status.running).toBe(true);
+      expect(logs.output).toContain('ready');
+      expect(logs.cursor).toBeGreaterThan(0);
+
+      const curl = await use((workspace) =>
+        workspace.exec({ command: 'curl -s localhost:3000', timeoutMs: 10_000 }),
+      );
+      expect(curl.stdout).toBe('pong');
+
+      await use((workspace) => workspace.interrupt(commandId));
+      await sleep(500);
+      expect((await use((workspace) => workspace.commandStatus(commandId))).running).toBe(false);
+
+      const listing = await use((workspace) => workspace.listDirectory(workspace.workdir, 2));
+      expect(listing.map((entry) => entry.path)).toContain('/tmp/workspace/app/server.js');
+      const read = await use((workspace) =>
+        workspace.readFile('/tmp/workspace/app/server.js', 1024 * 1024),
+      );
+      expect(Buffer.from(read).toString()).toContain('pong');
     });
   });
 

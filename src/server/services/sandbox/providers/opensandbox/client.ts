@@ -40,6 +40,18 @@ export interface ExecdEndpoint {
   url: string;
 }
 
+/** execd `FileInfo`; `mode` is the octal permission written as decimal, e.g. 644. */
+export interface ExecdFileInfo {
+  mode?: number;
+  modifiedAt?: string;
+  path: string;
+  size: number;
+  type: string;
+}
+
+// Directory listings are JSON arrays; this bounds what one call may buffer.
+export const OPENSANDBOX_LISTING_MAX_BYTES = 4 * 1024 * 1024;
+
 export class OpenSandboxHttpError extends Error {
   readonly status: number;
 
@@ -120,6 +132,19 @@ const readCappedBody = async (response: Response, maxBytes: number) => {
   return body;
 };
 
+const toFileInfo = (raw: unknown): ExecdFileInfo | undefined => {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const { mode, modified_at, path, size, type } = raw as Record<string, unknown>;
+  if (typeof path !== 'string' || !path) return undefined;
+  return {
+    mode: typeof mode === 'number' ? mode : undefined,
+    modifiedAt: typeof modified_at === 'string' ? modified_at : undefined,
+    path,
+    size: typeof size === 'number' && Number.isFinite(size) ? size : 0,
+    type: typeof type === 'string' ? type : 'other',
+  };
+};
+
 const readErrorMessage = async (response: Response, fallback: string) => {
   const text = await response.text().catch(() => '');
   let message = text;
@@ -167,21 +192,26 @@ export async function* parseEventStream(response: Response): AsyncGenerator<Open
     }
   };
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    let index = buffer.indexOf('\n');
-    while (index >= 0) {
-      const event = parseLine(buffer.slice(0, index));
-      buffer = buffer.slice(index + 1);
-      if (event) yield event;
-      index = buffer.indexOf('\n');
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let index = buffer.indexOf('\n');
+      while (index >= 0) {
+        const event = parseLine(buffer.slice(0, index));
+        buffer = buffer.slice(index + 1);
+        if (event) yield event;
+        index = buffer.indexOf('\n');
+      }
     }
+    buffer += decoder.decode();
+    const last = parseLine(buffer);
+    if (last) yield last;
+  } finally {
+    // A consumer that stops early (a background start) closes the stream.
+    await reader.cancel().catch(() => undefined);
   }
-  buffer += decoder.decode();
-  const last = parseLine(buffer);
-  if (last) yield last;
 }
 
 export class OpenSandboxClient {
@@ -335,19 +365,31 @@ export class OpenSandboxClient {
   }
 
   /**
-   * Foreground command over SSE. execd enforces `timeoutMs` itself (SIGKILL,
-   * reported as an `error` event with `evalue` "-1"); a non-zero exit is an
-   * `error` event with the exit code as `evalue`, success is
+   * Shell command over SSE; execd runs it with `bash -c`. The first event is
+   * `init`, whose `text` is the command id. execd enforces `timeoutMs` itself
+   * (SIGKILL, reported as an `error` event with `evalue` "-1"); a non-zero
+   * exit is an `error` event with the exit code as `evalue`, success is
    * `execution_complete`. stdout/stderr arrive one event per line, newline
-   * stripped.
+   * stripped. A background command sends `init` and `execution_complete` as
+   * soon as it starts; its output is read with `getCommandLogs`.
    */
   async *runCommand(
     execd: ExecdEndpoint,
-    { command, cwd, timeoutMs }: { command: string; cwd: string; timeoutMs: number },
+    {
+      background,
+      command,
+      cwd,
+      timeoutMs,
+    }: { background?: boolean; command: string; cwd: string; timeoutMs?: number },
     signal: AbortSignal,
   ): AsyncGenerator<OpenSandboxStreamEvent> {
     const response = await fetch(`${execd.url}/command`, {
-      body: JSON.stringify({ command, cwd, timeout: timeoutMs }),
+      body: JSON.stringify({
+        ...(background ? { background: true } : {}),
+        command,
+        cwd,
+        ...(timeoutMs ? { timeout: timeoutMs } : {}),
+      }),
       headers: this.headers({
         ...execd.headers,
         'Accept': 'text/event-stream',
@@ -356,22 +398,128 @@ export class OpenSandboxClient {
       method: 'POST',
       signal,
     });
-    await ensureOk(response, 'OpenSandbox could not run the code');
+    await ensureOk(response, 'OpenSandbox could not run the command');
     yield* parseEventStream(response);
+  }
+
+  async getCommandStatus(execd: ExecdEndpoint, id: string, signal: AbortSignal) {
+    const response = await fetch(`${execd.url}/command/status/${encodeURIComponent(id)}`, {
+      headers: this.headers(execd.headers),
+      signal,
+    });
+    await ensureOk(response, 'OpenSandbox could not read the command status');
+    const payload = (await response.json()) as {
+      error?: unknown;
+      exit_code?: unknown;
+      running?: unknown;
+    };
+    return {
+      error: typeof payload.error === 'string' && payload.error ? payload.error : undefined,
+      exitCode: typeof payload.exit_code === 'number' ? payload.exit_code : undefined,
+      running: payload.running === true,
+    };
+  }
+
+  /**
+   * Combined stdout/stderr of a background command from byte offset
+   * `cursor`. The body is plain text; the next offset comes back in the
+   * `EXECD-COMMANDS-TAIL-CURSOR` header. `onChunk` receives the decoded body
+   * as it arrives so the caller can keep a bounded view of a large log.
+   */
+  async getCommandLogs(
+    execd: ExecdEndpoint,
+    id: string,
+    cursor: number | undefined,
+    signal: AbortSignal,
+    onChunk: (text: string) => void,
+  ) {
+    const query = cursor === undefined ? '' : `?cursor=${Math.max(0, Math.floor(cursor))}`;
+    const response = await fetch(`${execd.url}/command/${encodeURIComponent(id)}/logs${query}`, {
+      headers: this.headers(execd.headers),
+      signal,
+    });
+    await ensureOk(response, 'OpenSandbox could not read the command output');
+    const rawCursor = Number(response.headers.get('execd-commands-tail-cursor'));
+    const decoder = new TextDecoder('utf8');
+    if (response.body) {
+      const reader = response.body.getReader();
+      try {
+        let next = await reader.read();
+        while (!next.done) {
+          if (next.value?.byteLength) onChunk(decoder.decode(next.value, { stream: true }));
+          next = await reader.read();
+        }
+      } finally {
+        await reader.cancel().catch(() => undefined);
+      }
+    }
+    onChunk(decoder.decode());
+    return { cursor: Number.isFinite(rawCursor) && rawCursor >= 0 ? rawCursor : undefined };
+  }
+
+  /** Stops a running command and its process group. */
+  async interruptCommand(execd: ExecdEndpoint, id: string, signal: AbortSignal) {
+    const response = await fetch(`${execd.url}/command?id=${encodeURIComponent(id)}`, {
+      headers: this.headers(execd.headers),
+      method: 'DELETE',
+      signal,
+    });
+    await response.body?.cancel();
+    if (!response.ok) {
+      throw new OpenSandboxHttpError(
+        response.status,
+        `OpenSandbox could not stop the command (HTTP ${response.status})`,
+      );
+    }
+  }
+
+  /** Metadata for one path, or undefined when it does not exist. */
+  async getFileInfo(execd: ExecdEndpoint, path: string, signal: AbortSignal) {
+    const response = await fetch(`${execd.url}/files/info?path=${encodeURIComponent(path)}`, {
+      headers: this.headers(execd.headers),
+      signal,
+    });
+    if (response.status === 404) {
+      await response.body?.cancel();
+      return undefined;
+    }
+    await ensureOk(response, 'OpenSandbox could not read file metadata');
+    const payload = (await response.json()) as Record<string, unknown>;
+    return toFileInfo(payload?.[path] ?? Object.values(payload ?? {})[0]);
+  }
+
+  /** Entries under `path` up to `depth` levels, in execd's lexical order. */
+  async listDirectory(execd: ExecdEndpoint, path: string, depth: number, signal: AbortSignal) {
+    const query = new URLSearchParams({ depth: String(depth), path });
+    const response = await fetch(`${execd.url}/directories/list?${query}`, {
+      headers: this.headers(execd.headers),
+      signal,
+    });
+    await ensureOk(response, 'OpenSandbox could not list the directory');
+    const body = await readCappedBody(response, OPENSANDBOX_LISTING_MAX_BYTES);
+    const parsed = JSON.parse(Buffer.from(body).toString('utf8')) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.flatMap((item) => {
+      const info = toFileInfo(item);
+      return info ? [info] : [];
+    });
   }
 
   async uploadFiles(
     execd: ExecdEndpoint,
-    files: Array<{ content: Uint8Array; path: string }>,
+    files: Array<{ content: Uint8Array; mode?: number; path: string }>,
     signal: AbortSignal,
   ) {
     if (files.length === 0) return;
-    // Each file is a `metadata` JSON part followed by its `file` part.
+    // Each file is a `metadata` JSON part followed by its `file` part. execd
+    // creates missing parent directories and applies `mode`.
     const form = new FormData();
     for (const file of files) {
       form.append(
         'metadata',
-        new Blob([JSON.stringify({ mode: 666, path: file.path })], { type: 'application/json' }),
+        new Blob([JSON.stringify({ mode: file.mode ?? 666, path: file.path })], {
+          type: 'application/json',
+        }),
         'metadata',
       );
       form.append(
@@ -386,7 +534,7 @@ export class OpenSandboxClient {
       method: 'POST',
       signal,
     });
-    await ensureOk(response, 'OpenSandbox could not upload conversation files');
+    await ensureOk(response, 'OpenSandbox could not upload files');
   }
 
   async downloadFile(execd: ExecdEndpoint, path: string, signal: AbortSignal, maxBytes: number) {
@@ -394,7 +542,7 @@ export class OpenSandboxClient {
       `${execd.url}/files/download?path=${encodeURIComponent(path)}`,
       { headers: this.headers(execd.headers), signal },
     );
-    await ensureOk(response, 'OpenSandbox could not download an output file');
+    await ensureOk(response, 'OpenSandbox could not download a file');
     return readCappedBody(response, maxBytes);
   }
 }

@@ -6,40 +6,27 @@ import { logGenerationDebugSafe } from '@/libs/logger/generationDebug';
 
 import {
   SandboxError,
-  type SandboxFile,
-  type SandboxOutcome,
   type SandboxProvider,
-  type SandboxRunInput,
-  type SandboxRunResult,
+  SandboxRequestError,
+  type SandboxSessionOptions,
+  type SandboxWorkspace,
 } from '../../types';
 import {
   type ExecdEndpoint,
-  OPENSANDBOX_MANIFEST_MAX_BYTES,
   OpenSandboxClient,
   OpenSandboxHttpError,
   type OpenSandboxNetworkPolicy,
 } from './client';
-import {
-  buildRunnerScript,
-  MANIFEST_PATH,
-  OPENSANDBOX_WORKDIR,
-  parseOutputManifest,
-  RUN_COMMAND,
-  RUNNER_PATH,
-  USER_CODE_PATH,
-} from './python';
+import { OPENSANDBOX_LAYOUT_VERSION } from './python';
+import { combineSignals, OpenSandboxWorkspace, type WorkspacePhase } from './workspace';
 
 // Keeps the container alive; execd (injected by the server) does the work.
-// `tail` exists in every Debian/Ubuntu/Alpine-based Python image.
+// `tail` exists in every Debian/Ubuntu/Alpine-based image.
 export const SANDBOX_ENTRYPOINT = ['tail', '-f', '/dev/null'];
 
 const STATE_POLL_MS = 250;
-const STEP_TIMEOUT_MS = 30_000;
 const DELETE_TIMEOUT_MS = 10_000;
-// execd kills the process at the run timeout; the client waits a little
-// longer so the kill is reported instead of racing an abort.
-const RUN_ABORT_GRACE_MS = 5000;
-// Server-side TTL on top of the run budget, so a sandbox ChatHub failed to
+// Server-side TTL on top of the call budget, so a sandbox ChatHub failed to
 // delete (crash, network loss) is still reaped.
 const TTL_MARGIN_SECONDS = 120;
 const MIN_TTL_SECONDS = 60;
@@ -52,39 +39,15 @@ export const SESSION_METADATA_KEY = 'chathub-session';
 // label missing while a policy is now required, is replaced.
 export const NETWORK_METADATA_KEY = 'chathub-network';
 export const OPEN_NETWORK_FINGERPRINT = 'open';
+// Container label recording the image and workspace layout. A parked sandbox
+// whose label differs (or is missing) is replaced, so a new image or layout
+// takes effect without waiting for old sandboxes to go idle.
+export const RUNTIME_METADATA_KEY = 'chathub-runtime';
+export const SANDBOX_METADATA_NAME = 'chathub-sandbox';
 // A reused sandbox that does not answer quickly is treated as gone.
 const REUSE_PING_TIMEOUT_MS = 5000;
-// execd reports a signal death as exit "-1" with "signal: killed".
-const KILLED_EXIT = '-1';
 
-type RunPhase = 'collect' | 'ready' | 'run' | 'upload';
-
-interface CommandResult {
-  exitCode?: number;
-  killed: boolean;
-  stderr: string;
-  stdout: string;
-}
-
-const truncateChars = (value: string, maxChars: number) => {
-  if (value.length <= maxChars) return value;
-  return `${value.slice(0, maxChars)}\n…[output truncated]`;
-};
-
-const safeBasename = (filename: string) => {
-  const name = filename.replaceAll('\\', '/').split('/').pop() ?? '';
-  if (!name || name === '.' || name === '..') return undefined;
-  return name;
-};
-
-const sha256Hex = (content: Uint8Array) => createHash('sha256').update(content).digest('hex');
-
-const utf8 = (value: string) => new Uint8Array(Buffer.from(value, 'utf8'));
-
-const isAbortError = (error: unknown) =>
-  error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError');
-
-// Runs that share a session sandbox take turns inside this process, so two
+// Calls that share a session sandbox take turns inside this process, so two
 // tool calls in one turn neither race the lookup nor share the workdir.
 const sessionQueues = new Map<string, Promise<unknown>>();
 
@@ -98,6 +61,9 @@ const withSessionLock = async <T>(key: string, task: () => Promise<T>): Promise<
     if (sessionQueues.get(key) === current) sessionQueues.delete(key);
   }
 };
+
+const isAbortError = (error: unknown) =>
+  error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError');
 
 export const buildNetworkPolicy = (
   enableNetwork: boolean | undefined,
@@ -117,8 +83,19 @@ export const networkPolicyFingerprint = (policy: OpenSandboxNetworkPolicy | unde
   return createHash('sha256').update(JSON.stringify(policy)).digest('hex').slice(0, 32);
 };
 
+/** Stable label value for the image and workspace layout a sandbox runs. */
+export const runtimeFingerprint = (image: string) =>
+  createHash('sha256')
+    .update(JSON.stringify({ image, layout: OPENSANDBOX_LAYOUT_VERSION }))
+    .digest('hex')
+    .slice(0, 32);
+
 const networkCompatible = (recorded: string | undefined, fingerprint: string) =>
   recorded === fingerprint || (!recorded && fingerprint === OPEN_NETWORK_FINGERPRINT);
+
+/** A failure that leaves the sandbox healthy, so a session keeps it. */
+const keepsSandbox = (error: SandboxError) =>
+  error instanceof SandboxRequestError || error.code === 'Timeout' || error.code === 'Cancelled';
 
 export class OpenSandboxProvider implements SandboxProvider {
   readonly id = 'opensandbox';
@@ -129,12 +106,11 @@ export class OpenSandboxProvider implements SandboxProvider {
   private image?: string;
   private maxFileBytes: number;
   private maxFileCount: number;
-  private maxStdoutChars: number;
+  private maxOutputChars: number;
   private memory: string;
   private readyTimeout: number;
   private sessionIdleTimeout: number;
   private sessionMaxLifetime: number;
-  private timeout: number;
 
   constructor(options?: {
     apiKey?: string;
@@ -143,10 +119,7 @@ export class OpenSandboxProvider implements SandboxProvider {
     sessionIdleTimeout?: number;
     sessionMaxLifetime?: number;
   }) {
-    this.baseUrl = (options?.baseUrl ?? sandboxEnv.OPENSANDBOX_SERVER_URL)?.replace(
-      /\/+$/,
-      '',
-    );
+    this.baseUrl = (options?.baseUrl ?? sandboxEnv.OPENSANDBOX_SERVER_URL)?.replace(/\/+$/, '');
     this.apiKey = options?.apiKey ?? sandboxEnv.OPENSANDBOX_API_KEY;
     this.image = (options?.image ?? sandboxEnv.OPENSANDBOX_IMAGE)?.trim() || undefined;
     this.cpu = sandboxEnv.OPENSANDBOX_CPU;
@@ -160,44 +133,55 @@ export class OpenSandboxProvider implements SandboxProvider {
       options?.sessionIdleTimeout ?? sandboxEnv.OPENSANDBOX_SESSION_IDLE_TIMEOUT;
     this.sessionMaxLifetime =
       options?.sessionMaxLifetime ?? sandboxEnv.OPENSANDBOX_SESSION_MAX_LIFETIME;
-    this.timeout = sandboxEnv.SANDBOX_TIMEOUT;
     this.maxFileBytes = sandboxEnv.SANDBOX_MAX_FILE_BYTES;
     this.maxFileCount = sandboxEnv.SANDBOX_MAX_FILE_COUNT;
-    this.maxStdoutChars = sandboxEnv.SANDBOX_MAX_OUTPUT_CHARS;
+    this.maxOutputChars = sandboxEnv.SANDBOX_MAX_OUTPUT_CHARS;
   }
 
   isConfigured() {
     return !!this.baseUrl && !!this.image;
   }
 
-  /**
-   * With a `sessionKey` and a non-zero idle timeout, runs in one conversation
-   * share a sandbox: installs, files, and background processes carry over, and
-   * the sandbox is removed only after the idle timeout without a run. Python
-   * variables do not carry over: every run is a new process. An optional max
-   * lifetime replaces a sandbox once it reaches that age.
-   */
-  async run(input: SandboxRunInput): Promise<SandboxRunResult> {
-    const sessionKey = this.sessionIdleTimeout > 0 ? input.sessionKey : undefined;
-    if (!sessionKey) return this.runOnce(input);
-    return withSessionLock(sessionKey, () => this.runOnce(input, sessionKey));
+  get keepsSessions() {
+    return this.sessionIdleTimeout > 0;
   }
 
-  private async runOnce(input: SandboxRunInput, sessionKey?: string): Promise<SandboxRunResult> {
+  /**
+   * Runs `task` against one sandbox. With a `sessionKey` and a non-zero idle
+   * timeout, calls in one conversation share a sandbox: files, installs, and
+   * background processes carry over, and the sandbox is removed only after
+   * the idle timeout without a call. Without either, the sandbox lives for
+   * this call only. An optional max lifetime replaces a sandbox once it
+   * reaches that age.
+   */
+  async withWorkspace<T>(
+    options: SandboxSessionOptions,
+    task: (workspace: SandboxWorkspace) => Promise<T>,
+  ): Promise<T> {
+    const sessionKey = this.keepsSessions ? options.sessionKey : undefined;
+    if (!sessionKey) return this.runInSandbox(options, task);
+    return withSessionLock(sessionKey, () => this.runInSandbox(options, task, sessionKey));
+  }
+
+  private async runInSandbox<T>(
+    options: SandboxSessionOptions,
+    task: (workspace: SandboxWorkspace) => Promise<T>,
+    sessionKey?: string,
+  ): Promise<T> {
     const startedAt = Date.now();
-    const timeoutMs = input.timeoutMs ?? this.timeout;
+    const budgetMs = options.budgetMs;
     const baseFields = {
-      fileInCount: input.files.length,
-      operationHash: input.operationHash,
-      packageCount: input.packageCount ?? 0,
+      operation: options.apiName,
+      operationHash: options.operationHash,
       provider: this.id,
       sessionScoped: !!sessionKey,
-      timeoutMs,
+      timeoutMs: budgetMs,
     };
     const settle = (fields: Record<string, unknown>) =>
       logGenerationDebugSafe('sandbox_run_settled', {
         ...baseFields,
         durationMs: Date.now() - startedAt,
+        fileInCount: 0,
         fileOutCount: 0,
         stdoutChars: 0,
         ...fields,
@@ -213,14 +197,11 @@ export class OpenSandboxProvider implements SandboxProvider {
       );
     }
 
-    if (input.language !== 'python3') {
-      throw new SandboxError('ExecutionFailed', 'OpenSandbox provider only supports python3.');
-    }
-
     const client = new OpenSandboxClient({ apiKey: this.apiKey, baseUrl: this.baseUrl });
-    let phase: RunPhase = 'ready';
-    // Room a session sandbox needs before its retire time to host one run.
-    const runBudgetMs = timeoutMs + TTL_MARGIN_SECONDS * 1000;
+    // Room a session sandbox needs before its retire time to host one call.
+    const runBudgetMs = budgetMs + TTL_MARGIN_SECONDS * 1000;
+    let phase: WorkspacePhase = 'ready';
+    let workspace: OpenSandboxWorkspace | undefined;
     let sandboxId: string | undefined;
     let retireAt = 0;
     let keepSandbox = false;
@@ -229,12 +210,15 @@ export class OpenSandboxProvider implements SandboxProvider {
     let lookupFailed = false;
 
     try {
-      const readySignal = AbortSignal.timeout(this.readyTimeout);
-      const networkFingerprint = networkPolicyFingerprint(
-        buildNetworkPolicy(input.enableNetwork, this.egressAllow),
-      );
+      const readySignal = combineSignals(AbortSignal.timeout(this.readyTimeout), options.signal);
+      const fingerprints = {
+        network: networkPolicyFingerprint(
+          buildNetworkPolicy(options.enableNetwork, this.egressAllow),
+        ),
+        runtime: runtimeFingerprint(this.image),
+      };
       const lookup = sessionKey
-        ? await this.reuseSandbox(client, sessionKey, runBudgetMs, networkFingerprint, readySignal)
+        ? await this.reuseSandbox(client, sessionKey, runBudgetMs, fingerprints, readySignal)
         : undefined;
       retired = !!lookup?.retired;
       lookupFailed = !!lookup?.lookupFailed;
@@ -244,77 +228,60 @@ export class OpenSandboxProvider implements SandboxProvider {
         ({ createdAt, execd, id: sandboxId } = lookup.sandbox);
         reused = true;
       } else {
+        if (options.createIfMissing === false) {
+          throw new SandboxError(
+            'NotFound',
+            'This conversation has no running sandbox. It was removed after being idle or replaced, so its files and processes are gone.',
+          );
+        }
         ({ createdAt, execd, id: sandboxId } = await this.createSandbox(
           client,
-          input,
-          timeoutMs,
+          options,
+          budgetMs,
           sessionKey,
           readySignal,
         ));
       }
       retireAt = this.retireAt(createdAt);
 
-      phase = 'upload';
-      const inputHashes = new Map<string, string>();
-      const uploads: Array<{ content: Uint8Array; path: string }> = [
-        { content: utf8(buildRunnerScript()), path: RUNNER_PATH },
-        { content: utf8(input.code), path: USER_CODE_PATH },
-        // Drop the previous run's manifest before the process starts. An
-        // abrupt exit never rewrites it, and collection must not republish
-        // that run's files.
-        { content: utf8('[]'), path: MANIFEST_PATH },
-      ];
-      for (const file of input.files) {
-        const name = safeBasename(file.filename);
-        if (!name || inputHashes.has(name) || file.content.byteLength > this.maxFileBytes) continue;
-        inputHashes.set(name, sha256Hex(file.content));
-        uploads.push({ content: file.content, path: `${OPENSANDBOX_WORKDIR}/${name}` });
-      }
-      await client.uploadFiles(execd, uploads, AbortSignal.timeout(STEP_TIMEOUT_MS));
-
-      phase = 'run';
-      const runStartedAt = Date.now();
-      const command = await this.runCommand(client, execd, timeoutMs);
-      if (command.killed && Date.now() - runStartedAt >= timeoutMs) {
-        throw new SandboxError('Timeout', `Code Interpreter sandbox timed out after ${timeoutMs}ms.`);
-      }
-
-      phase = 'collect';
-      const files = await this.collectOutputs(client, execd, inputHashes);
-
-      const success = command.exitCode === 0;
-      const killedNote = command.killed
-        ? 'Process was killed before it finished (it may have run out of memory).'
-        : '';
-      const stderr = truncateChars(
-        [command.stderr, killedNote].filter(Boolean).join('\n'),
-        this.maxStdoutChars,
+      workspace = new OpenSandboxWorkspace(
+        client,
+        execd,
+        !reused,
+        {
+          maxFileBytes: this.maxFileBytes,
+          maxFileCount: this.maxFileCount,
+          maxOutputChars: this.maxOutputChars,
+        },
+        options.signal,
       );
-      const stdout = truncateChars(command.stdout, this.maxStdoutChars);
-      const outcome: SandboxOutcome = success ? 'ok' : 'error';
-      const durationMs = Date.now() - startedAt;
+      const result = await task(workspace);
 
-      // A failing script is still a healthy sandbox worth keeping.
+      // A failing command is still a healthy sandbox worth keeping.
       keepSandbox = !!sessionKey;
+      const { exitCode, fileInCount, fileOutCount, stdoutChars, timedOut } = workspace.stats;
       settle({
-        exitCode: command.exitCode,
-        fileOutCount: files.length,
-        outcome,
+        exitCode,
+        fileInCount,
+        fileOutCount,
+        outcome: timedOut ? 'timeout' : exitCode === undefined || exitCode === 0 ? 'ok' : 'error',
         sandboxLookupFailed: lookupFailed,
         sandboxRetired: retired,
         sandboxReused: reused,
-        stdoutChars: stdout.length,
+        stdoutChars,
       });
-
-      return { durationMs, exitCode: command.exitCode, files, outcome, stderr, stdout, success };
+      return result;
     } catch (error) {
-      const classified = this.classifyError(error, phase, timeoutMs);
-      // execd killed the process at the timeout; the sandbox itself is fine.
-      // Any other failure may mean a broken sandbox, so the next run starts fresh.
-      keepSandbox = !!sessionKey && classified.code === 'Timeout';
+      if (workspace) phase = workspace.phase;
+      const classified = this.classifyError(error, phase, budgetMs, options.signal);
+      // execd killed a process at its time limit, the caller stopped, or the
+      // request itself was wrong: the sandbox is fine. Any other failure may
+      // mean a broken sandbox, so the next call starts fresh.
+      keepSandbox = !!sessionKey && keepsSandbox(classified);
       settle({
         errorKind: classified.code,
         failurePhase: phase,
+        fileInCount: workspace?.stats.fileInCount ?? 0,
         httpStatus: classified.httpStatus,
         outcome: classified.outcome,
         sandboxLookupFailed: lookupFailed,
@@ -332,29 +299,30 @@ export class OpenSandboxProvider implements SandboxProvider {
 
   private async createSandbox(
     client: OpenSandboxClient,
-    input: SandboxRunInput,
-    timeoutMs: number,
+    options: SandboxSessionOptions,
+    budgetMs: number,
     sessionKey: string | undefined,
     signal: AbortSignal,
   ) {
     const requestedAt = Date.now();
-    const networkPolicy = buildNetworkPolicy(input.enableNetwork, this.egressAllow);
+    const networkPolicy = buildNetworkPolicy(options.enableNetwork, this.egressAllow);
     const created = await client.createSandbox(
       {
         entrypoint: SANDBOX_ENTRYPOINT,
         image: { uri: this.image! },
         metadata: {
           [NETWORK_METADATA_KEY]: networkPolicyFingerprint(networkPolicy),
+          [RUNTIME_METADATA_KEY]: runtimeFingerprint(this.image!),
           ...(sessionKey ? { [SESSION_METADATA_KEY]: sessionKey } : {}),
-          name: 'chathub-code-interpreter',
+          name: SANDBOX_METADATA_NAME,
         },
         networkPolicy,
         resourceLimits: { cpu: this.cpu, memory: this.memory },
-        // Covers this run only. A session sandbox is extended by the idle
-        // timeout after each run, so a crash mid-run still frees it soon.
+        // Covers this call only. A session sandbox is extended by the idle
+        // timeout after each call, so a crash mid-call still frees it soon.
         timeout: Math.max(
           MIN_TTL_SECONDS,
-          Math.ceil((this.readyTimeout + timeoutMs) / 1000) + TTL_MARGIN_SECONDS,
+          Math.ceil((this.readyTimeout + budgetMs) / 1000) + TTL_MARGIN_SECONDS,
         ),
       },
       signal,
@@ -373,16 +341,16 @@ export class OpenSandboxProvider implements SandboxProvider {
 
   /**
    * Finds this conversation's running sandbox and pushes its expiry past the
-   * coming run. One that does not respond, is too close to its optional max
-   * lifetime to finish the run, or was created with a different network
-   * policy, is deleted, and the caller creates a fresh one. So does a failed
-   * lookup: reuse must never be why a run fails.
+   * coming call. One that does not respond, is too close to its optional max
+   * lifetime to finish the call, or was created with a different network
+   * policy, image, or layout, is deleted, and the caller creates a fresh one.
+   * So does a failed lookup: reuse must never be why a call fails.
    */
   private async reuseSandbox(
     client: OpenSandboxClient,
     sessionKey: string,
     runBudgetMs: number,
-    networkFingerprint: string,
+    fingerprints: { network: string; runtime: string },
     signal: AbortSignal,
   ): Promise<{
     lookupFailed?: boolean;
@@ -398,10 +366,10 @@ export class OpenSandboxProvider implements SandboxProvider {
     }
     let retired = false;
     for (const { createdAt, id, metadata } of found) {
-      const recordedNetwork = metadata?.[NETWORK_METADATA_KEY];
       if (
         this.retireAt(createdAt) - Date.now() < runBudgetMs ||
-        !networkCompatible(recordedNetwork, networkFingerprint)
+        !networkCompatible(metadata?.[NETWORK_METADATA_KEY], fingerprints.network) ||
+        metadata?.[RUNTIME_METADATA_KEY] !== fingerprints.runtime
       ) {
         retired = true;
         await this.deleteQuietly(client, id);
@@ -467,115 +435,11 @@ export class OpenSandboxProvider implements SandboxProvider {
     }
   }
 
-  private async runCommand(
-    client: OpenSandboxClient,
-    execd: ExecdEndpoint,
-    timeoutMs: number,
-  ): Promise<CommandResult> {
-    // Keep one char past the cap so truncateChars still marks the cut.
-    const cap = this.maxStdoutChars + 1;
-    const lines = { stderr: [] as string[], stdout: [] as string[] };
-    const sizes = { stderr: 0, stdout: 0 };
-    const result: Omit<CommandResult, 'stderr' | 'stdout'> = { killed: false };
-    let settled = false;
-
-    const events = client.runCommand(
-      execd,
-      { command: RUN_COMMAND, cwd: OPENSANDBOX_WORKDIR, timeoutMs },
-      AbortSignal.timeout(timeoutMs + RUN_ABORT_GRACE_MS),
-    );
-    for await (const event of events) {
-      switch (event.type) {
-        case 'stdout':
-        case 'stderr': {
-          const text = event.text ?? '';
-          if (sizes[event.type] < cap) {
-            lines[event.type].push(text);
-            sizes[event.type] += text.length + 1;
-          }
-          break;
-        }
-        case 'execution_complete': {
-          result.exitCode = 0;
-          settled = true;
-          break;
-        }
-        case 'error': {
-          const evalue = String(event.error?.evalue ?? '').trim();
-          const exitCode = Number.parseInt(evalue, 10);
-          if (evalue === KILLED_EXIT) {
-            result.killed = true;
-          } else if (Number.isInteger(exitCode)) {
-            result.exitCode = exitCode;
-          } else {
-            lines.stderr.push(`${event.error?.ename ?? 'Error'}: ${evalue}`);
-          }
-          settled = true;
-          break;
-        }
-      }
-    }
-
-    if (!settled) {
-      throw new SandboxError('ExecutionFailed', 'OpenSandbox ended the run without a result.');
-    }
-    return {
-      ...result,
-      stderr: lines.stderr.join('\n').slice(0, cap),
-      stdout: lines.stdout.join('\n').slice(0, cap),
-    };
-  }
-
-  /**
-   * Best effort: a missing manifest (the process was killed, or the code
-   * replaced the runner's exit path) or a failed download keeps
-   * stdout/stderr and returns no files.
-   */
-  private async collectOutputs(
-    client: OpenSandboxClient,
-    execd: ExecdEndpoint,
-    inputHashes: Map<string, string>,
-  ): Promise<SandboxFile[]> {
-    try {
-      const manifest = await client.downloadFile(
-        execd,
-        MANIFEST_PATH,
-        AbortSignal.timeout(STEP_TIMEOUT_MS),
-        OPENSANDBOX_MANIFEST_MAX_BYTES,
-      );
-      const files: SandboxFile[] = [];
-      for (const entry of parseOutputManifest(Buffer.from(manifest).toString('utf8'))) {
-        if (files.length >= this.maxFileCount) break;
-        const name = safeBasename(entry.name);
-        if (!name || name !== entry.name) continue;
-        if (!entry.changed) continue;
-        if (entry.size <= 0 || entry.size > this.maxFileBytes) continue;
-        if (inputHashes.get(name) === entry.sha256) continue;
-        const content = await client.downloadFile(
-          execd,
-          `${OPENSANDBOX_WORKDIR}/${name}`,
-          AbortSignal.timeout(STEP_TIMEOUT_MS),
-          this.maxFileBytes,
-        );
-        if (content.byteLength === 0 || content.byteLength > this.maxFileBytes) continue;
-        files.push({ content, filename: name });
-      }
-      return files;
-    } catch (error) {
-      logGenerationDebugSafe('sandbox_collect_failed', {
-        errorKind: error instanceof Error ? error.name : 'unknown',
-        httpStatus: error instanceof OpenSandboxHttpError ? error.status : undefined,
-        provider: this.id,
-      });
-      return [];
-    }
-  }
-
   /**
    * Keeps a session sandbox for the idle timeout, and with an age cap never
-   * past its retire time; one too close to that to host another run is
-   * deleted now. Best effort: if the renew fails, the sandbox still expires at
-   * its earlier deadline.
+   * past its retire time; one too close to that to host another call is
+   * deleted now. Best effort: if the renew fails, the sandbox still expires
+   * at its earlier deadline.
    */
   private async parkSandbox(
     client: OpenSandboxClient,
@@ -614,8 +478,17 @@ export class OpenSandboxProvider implements SandboxProvider {
     }
   }
 
-  private classifyError(error: unknown, phase: RunPhase, timeoutMs: number): SandboxError {
+  private classifyError(
+    error: unknown,
+    phase: WorkspacePhase,
+    budgetMs: number,
+    callerSignal?: AbortSignal,
+  ): SandboxError {
     if (error instanceof SandboxError) return error;
+
+    if (callerSignal?.aborted && isAbortError(error)) {
+      return new SandboxError('Cancelled', 'The sandbox call was cancelled.');
+    }
 
     if (error instanceof OpenSandboxHttpError) {
       const httpStatus = error.status;
@@ -624,6 +497,13 @@ export class OpenSandboxProvider implements SandboxProvider {
           httpStatus,
         });
       }
+      // execd answered (it reports a bad path or cwd as 400 or 500), so the
+      // request failed, not the sandbox. 502-504 come from the server proxy
+      // when execd is gone.
+      const execdAnswered =
+        phase !== 'ready' &&
+        ((httpStatus >= 400 && httpStatus < 500 && httpStatus !== 429) || httpStatus === 500);
+      if (execdAnswered) return new SandboxRequestError(error.message, { httpStatus });
       if (httpStatus === 429 || httpStatus >= 500) {
         return new SandboxError('Unavailable', error.message, { httpStatus });
       }
@@ -632,10 +512,7 @@ export class OpenSandboxProvider implements SandboxProvider {
 
     if (isAbortError(error)) {
       if (phase === 'run') {
-        return new SandboxError(
-          'Timeout',
-          `Code Interpreter sandbox timed out after ${timeoutMs}ms.`,
-        );
+        return new SandboxError('Timeout', `Sandbox timed out after ${budgetMs}ms.`);
       }
       if (phase === 'ready') {
         return new SandboxError(

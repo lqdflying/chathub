@@ -10,7 +10,7 @@ vi.mock('@/envs/sandbox', () => ({
   sandboxEnv: {
     SANDBOX_MAX_FILE_BYTES: 1024,
     SANDBOX_MAX_FILE_COUNT: 20,
-    SANDBOX_MAX_OUTPUT_CHARS: 200_000,
+    SANDBOX_MAX_OUTPUT_CHARS: 30_000,
     get SANDBOX_TIMEOUT() {
       return Number(process.env.SANDBOX_TIMEOUT ?? 60_000);
     },
@@ -44,6 +44,7 @@ vi.mock('@/libs/logger/generationDebug', () => ({
 
 import { logGenerationDebugSafe } from '@/libs/logger/generationDebug';
 
+import type { SandboxWorkspace } from '../../../types';
 import { OPENSANDBOX_MANIFEST_MAX_BYTES } from '../client';
 import {
   buildNetworkPolicy,
@@ -51,6 +52,8 @@ import {
   OPEN_NETWORK_FINGERPRINT,
   OpenSandboxProvider,
   networkPolicyFingerprint,
+  RUNTIME_METADATA_KEY,
+  runtimeFingerprint,
 } from '../provider';
 
 const SERVER = 'http://opensandbox:8090';
@@ -102,6 +105,12 @@ interface Scenario {
   // Uploads replace the initial files, and downloads read that store.
   persistUploads?: boolean;
   pingFailures?: number;
+  // Extra execd routes; return undefined to fall through to the defaults.
+  route?: (
+    rest: string,
+    url: URL,
+    init: RequestInit,
+  ) => Promise<Response | undefined> | Response | undefined;
   states?: string[];
 }
 
@@ -117,6 +126,7 @@ interface Calls {
   lists: Array<Record<string, string>>;
   pings: number;
   renewals: Array<{ expiresAt: number; id: string }>;
+  uploadModes: number[];
   uploads: Array<{ content: string; path: string }>;
 }
 
@@ -131,6 +141,7 @@ const install = (scenario: Scenario = {}) => {
     lists: [],
     pings: 0,
     renewals: [],
+    uploadModes: [],
     uploads: [],
   };
   const states = [...(scenario.states ?? ['Running'])];
@@ -205,14 +216,20 @@ const install = (scenario: Scenario = {}) => {
         ? json({ message: 'Could not connect to the backend sandbox' }, 502)
         : new Response('pong');
     }
+    const routed = await scenario.route?.(rest.replace(EXECD_PATH, ''), url, init);
+    if (routed) return routed;
     if (rest === `${EXECD_PATH}/files/upload`) {
       const form = init.body as FormData;
       const metadata = form.getAll('metadata') as Blob[];
       const files = form.getAll('file') as Blob[];
       for (const [index, part] of metadata.entries()) {
-        const { path: filePath } = JSON.parse(await part.text()) as { path: string };
+        const { mode, path: filePath } = JSON.parse(await part.text()) as {
+          mode: number;
+          path: string;
+        };
         const content = await files[index].text();
         calls.uploads.push({ content, path: filePath });
+        calls.uploadModes.push(mode);
         if (scenario.persistUploads) disk.set(filePath, content);
       }
       return json({});
@@ -244,7 +261,7 @@ const install = (scenario: Scenario = {}) => {
 const manifest = (
   entries: Array<{ changed?: boolean; name: string; sha256: string; size: number }>,
 ) => ({
-  '/tmp/chathub-ci/.chathub/manifest.json': JSON.stringify(entries),
+  '/tmp/workspace/.chathub/manifest.json': JSON.stringify(entries),
 });
 
 const byteStream = (length: number, chunkSize: number, contentLength?: number) => {
@@ -274,16 +291,43 @@ const file = (filename: string, content: string) => ({
   filename,
 });
 
+const inputsOf = (files: ReturnType<typeof file>[]) =>
+  files.map((item) => ({ filename: item.filename, id: item.filename, load: async () => item.content }));
+
+const runTimeout = () => Number(process.env.SANDBOX_TIMEOUT ?? 60_000);
+
+const python = (
+  provider: OpenSandboxProvider,
+  {
+    code = 'x',
+    enableNetwork,
+    files = [],
+    sessionKey,
+  }: {
+    code?: string;
+    enableNetwork?: boolean;
+    files?: ReturnType<typeof file>[];
+    sessionKey?: string;
+  } = {},
+) =>
+  provider.withWorkspace(
+    { apiName: 'runPython', budgetMs: runTimeout(), enableNetwork, sessionKey },
+    (workspace) => workspace.runPython({ code, inputs: inputsOf(files), timeoutMs: runTimeout() }),
+  );
+
 const run = (code = 'x', files: ReturnType<typeof file>[] = []) =>
-  new OpenSandboxProvider().run({ code, files, language: 'python3' });
+  python(new OpenSandboxProvider(), { code, files });
 
 const runIn = (sessionKey: string, code = 'x') =>
-  new OpenSandboxProvider().run({ code, files: [], language: 'python3', sessionKey });
+  python(new OpenSandboxProvider(), { code, sessionKey });
+
+const RUNTIME = runtimeFingerprint('chathub-sandbox:1');
 
 const session = (key: string, network = OPEN_NETWORK_FINGERPRINT) => ({
   'chathub-network': network,
+  'chathub-runtime': RUNTIME,
   'chathub-session': key,
-  'name': 'chathub-code-interpreter',
+  'name': 'chathub-sandbox',
 });
 
 const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
@@ -332,8 +376,8 @@ describe('OpenSandboxProvider', () => {
           { name: 'notes.txt', sha256: sha('edited'), size: 6 },
           { name: 'chart.png', sha256: sha('png'), size: 3 },
         ]),
-        '/tmp/chathub-ci/chart.png': 'png',
-        '/tmp/chathub-ci/notes.txt': 'edited',
+        '/tmp/workspace/chart.png': 'png',
+        '/tmp/workspace/notes.txt': 'edited',
       },
       states: ['Pending', 'Running'],
     });
@@ -345,7 +389,6 @@ describe('OpenSandboxProvider', () => {
 
     expect(result).toMatchObject({
       exitCode: 0,
-      outcome: 'ok',
       stderr: 'warn',
       stdout: 'hello\n42',
       success: true,
@@ -354,17 +397,21 @@ describe('OpenSandboxProvider', () => {
     expect(Buffer.from(result.files[1].content).toString()).toBe('png');
 
     const [runner, code, manifestReset, ...inputs] = calls.uploads;
-    expect(runner.path).toBe('/tmp/chathub-ci/.chathub/run.py');
+    expect(runner.path).toBe('/tmp/workspace/.chathub/run.py');
     expect(runner.content).toContain('_PyplotHook');
-    expect(code).toEqual({ content: 'print("hello")', path: '/tmp/chathub-ci/.chathub/code.py' });
-    expect(manifestReset).toEqual({ content: '[]', path: '/tmp/chathub-ci/.chathub/manifest.json' });
+    expect(code).toEqual({ content: 'print("hello")', path: '/tmp/workspace/.chathub/code.py' });
+    expect(manifestReset).toEqual({ content: '[]', path: '/tmp/workspace/.chathub/manifest.json' });
     expect(inputs).toEqual([
-      { content: 'a,b', path: '/tmp/chathub-ci/data.csv' },
-      { content: 'orig', path: '/tmp/chathub-ci/notes.txt' },
+      { content: 'a,b', path: '/tmp/workspace/data.csv' },
+      { content: 'orig', path: '/tmp/workspace/notes.txt' },
+      {
+        content: JSON.stringify(['data.csv', 'nested/notes.txt']),
+        path: '/tmp/workspace/.chathub/synced.json',
+      },
     ]);
     expect(calls.commandBody).toEqual({
-      command: 'python3 /tmp/chathub-ci/.chathub/run.py',
-      cwd: '/tmp/chathub-ci',
+      command: 'python3 /tmp/workspace/.chathub/run.py',
+      cwd: '/tmp/workspace',
       timeout: 60_000,
     });
     expect(calls.createBody).toMatchObject({
@@ -402,7 +449,6 @@ describe('OpenSandboxProvider', () => {
 
     expect(result).toMatchObject({
       exitCode: 1,
-      outcome: 'error',
       stderr: 'Traceback (most recent call last):\nZeroDivisionError: division by zero',
       success: false,
     });
@@ -419,7 +465,7 @@ describe('OpenSandboxProvider', () => {
 
     await expect(run('while True: pass')).rejects.toMatchObject({
       code: 'Timeout',
-      message: 'Code Interpreter sandbox timed out after 40ms.',
+      message: 'Sandbox timed out after 40ms.',
       outcome: 'timeout',
     });
     expect(calls.commandBody?.timeout).toBe(40);
@@ -489,8 +535,8 @@ describe('OpenSandboxProvider', () => {
 
     const result = await run('x', [file('big.csv', big)]);
 
-    expect(calls.uploads.map((item) => item.path)).not.toContain('/tmp/chathub-ci/big.csv');
-    expect(calls.downloads).toEqual(['/tmp/chathub-ci/.chathub/manifest.json']);
+    expect(calls.uploads.map((item) => item.path)).not.toContain('/tmp/workspace/big.csv');
+    expect(calls.downloads).toEqual(['/tmp/workspace/.chathub/manifest.json']);
     expect(result.files).toEqual([]);
   });
 
@@ -521,7 +567,7 @@ describe('OpenSandboxProvider', () => {
   it('stops reading a forged-small output once it passes the file cap', async () => {
     const big = byteStream(2 * 1024 * 1024, 64 * 1024, 1);
     const calls = install({
-      downloads: { '/tmp/chathub-ci/big.bin': big.response },
+      downloads: { '/tmp/workspace/big.bin': big.response },
       files: manifest([{ name: 'big.bin', sha256: 'guest-controlled', size: 1 }]),
     });
 
@@ -538,7 +584,7 @@ describe('OpenSandboxProvider', () => {
   it('rejects a declared oversized body before reading it', async () => {
     const big = byteStream(2 * 1024 * 1024, 64 * 1024, 2 * 1024 * 1024);
     const calls = install({
-      downloads: { '/tmp/chathub-ci/big.bin': big.response },
+      downloads: { '/tmp/workspace/big.bin': big.response },
       files: manifest([{ name: 'big.bin', sha256: 'guest-controlled', size: 1 }]),
     });
 
@@ -554,7 +600,7 @@ describe('OpenSandboxProvider', () => {
   it('accepts a file that is exactly the per-file cap', async () => {
     const exact = byteStream(1024, 512);
     const calls = install({
-      downloads: { '/tmp/chathub-ci/exact.bin': exact.response },
+      downloads: { '/tmp/workspace/exact.bin': exact.response },
       files: manifest([{ name: 'exact.bin', sha256: 'x', size: 1024 }]),
     });
 
@@ -569,7 +615,7 @@ describe('OpenSandboxProvider', () => {
     const full = OPENSANDBOX_MANIFEST_MAX_BYTES + 1024 * 1024;
     const huge = byteStream(full, 64 * 1024);
     const calls = install({
-      downloads: { '/tmp/chathub-ci/.chathub/manifest.json': huge.response },
+      downloads: { '/tmp/workspace/.chathub/manifest.json': huge.response },
     });
 
     const result = await run('x');
@@ -789,8 +835,9 @@ describe('OpenSandboxProvider', () => {
 
       expect(calls.lists).toEqual([]);
       expect(calls.createBody?.metadata).toEqual({
-        name: 'chathub-code-interpreter',
+        name: 'chathub-sandbox',
         [NETWORK_METADATA_KEY]: OPEN_NETWORK_FINGERPRINT,
+        [RUNTIME_METADATA_KEY]: RUNTIME,
       });
       expect(calls.deletedIds).toEqual(['sbx-1']);
     });
@@ -822,15 +869,15 @@ describe('OpenSandboxProvider', () => {
             { changed: false, name: 'old.png', sha256: sha('old'), size: 3 },
             { changed: true, name: 'new.png', sha256: sha('new'), size: 3 },
           ]),
-          '/tmp/chathub-ci/new.png': 'new',
-          '/tmp/chathub-ci/old.png': 'old',
+          '/tmp/workspace/new.png': 'new',
+          '/tmp/workspace/old.png': 'old',
         },
       });
 
       const result = await runIn('topic-a');
 
       expect(result.files.map((item) => item.filename)).toEqual(['new.png']);
-      expect(calls.downloads).not.toContain('/tmp/chathub-ci/old.png');
+      expect(calls.downloads).not.toContain('/tmp/workspace/old.png');
     });
 
     it('replaces a reused sandbox when the network policy is tightened', async () => {
@@ -838,12 +885,7 @@ describe('OpenSandboxProvider', () => {
 
       await runIn('topic-a');
       process.env.OPENSANDBOX_EGRESS_ALLOW = 'pypi.org';
-      await new OpenSandboxProvider().run({
-        code: 'x',
-        files: [],
-        language: 'python3',
-        sessionKey: 'topic-a',
-      });
+      await python(new OpenSandboxProvider(), { sessionKey: 'topic-a' });
 
       expect(calls.creates).toBe(2);
       expect(calls.deletedIds).toContain('sbx-1');
@@ -863,20 +905,8 @@ describe('OpenSandboxProvider', () => {
       const calls = install();
       const provider = () => new OpenSandboxProvider();
 
-      await provider().run({
-        code: 'x',
-        enableNetwork: true,
-        files: [],
-        language: 'python3',
-        sessionKey: 'topic-a',
-      });
-      await provider().run({
-        code: 'x',
-        enableNetwork: false,
-        files: [],
-        language: 'python3',
-        sessionKey: 'topic-a',
-      });
+      await python(provider(), { enableNetwork: true, sessionKey: 'topic-a' });
+      await python(provider(), { enableNetwork: false, sessionKey: 'topic-a' });
 
       expect(calls.creates).toBe(2);
       expect(calls.deletedIds).toContain('sbx-1');
@@ -888,12 +918,7 @@ describe('OpenSandboxProvider', () => {
       const calls = install();
 
       await runIn('topic-a', 'first');
-      await new OpenSandboxProvider().run({
-        code: 'second',
-        files: [],
-        language: 'python3',
-        sessionKey: 'topic-a',
-      });
+      await python(new OpenSandboxProvider(), { code: 'second', sessionKey: 'topic-a' });
 
       expect(calls.creates).toBe(1);
       expect(calls.deleted).toBe(0);
@@ -907,7 +932,11 @@ describe('OpenSandboxProvider', () => {
           {
             createdAt: ago(60_000),
             id: 'sbx-old',
-            metadata: { 'chathub-session': 'topic-a', name: 'chathub-code-interpreter' },
+            metadata: {
+              'chathub-runtime': RUNTIME,
+              'chathub-session': 'topic-a',
+              'name': 'chathub-sandbox',
+            },
           },
         ],
       });
@@ -927,10 +956,10 @@ describe('OpenSandboxProvider', () => {
         size: String(index).length + 1,
       }));
       const files: Record<string, string> = {
-        '/tmp/chathub-ci/.chathub/manifest.json': JSON.stringify(previous),
+        '/tmp/workspace/.chathub/manifest.json': JSON.stringify(previous),
       };
       for (const [index, entry] of previous.entries()) {
-        files[`/tmp/chathub-ci/${entry.name}`] = `v${index}`;
+        files[`/tmp/workspace/${entry.name}`] = `v${index}`;
       }
       const calls = install({
         command: () => stream([{ type: 'execution_complete' }]),
@@ -938,19 +967,354 @@ describe('OpenSandboxProvider', () => {
         persistUploads: true,
       });
 
-      const result = await new OpenSandboxProvider().run({
+      const result = await python(new OpenSandboxProvider(), {
         code: 'import os; os._exit(0)',
         files: previous.slice(0, 20).map((entry, index) => file(entry.name, `v${index}`)),
-        language: 'python3',
         sessionKey: 'topic-a',
       });
 
       expect(result).toMatchObject({ files: [], success: true });
       expect(calls.uploads).toContainEqual({
         content: '[]',
-        path: '/tmp/chathub-ci/.chathub/manifest.json',
+        path: '/tmp/workspace/.chathub/manifest.json',
       });
-      expect(calls.downloads).toEqual(['/tmp/chathub-ci/.chathub/manifest.json']);
+      expect(calls.downloads).toEqual(['/tmp/workspace/.chathub/manifest.json']);
+    });
+  });
+
+  describe('workspace operations', () => {
+    const useIn = <T>(
+      sessionKey: string | undefined,
+      task: (workspace: SandboxWorkspace) => Promise<T>,
+      options: { createIfMissing?: boolean; signal?: AbortSignal } = {},
+    ) =>
+      new OpenSandboxProvider().withWorkspace(
+        { apiName: 'test', budgetMs: runTimeout(), sessionKey, ...options },
+        task,
+      );
+
+    it('runs a shell command in the workdir and returns its exit code', async () => {
+      const calls = install({
+        command: () =>
+          stream([
+            { text: 'cmd-1', type: 'init' },
+            { text: 'v24.0.0', type: 'stdout' },
+            { text: 'warning', type: 'stderr' },
+            exitWith('3'),
+          ]),
+      });
+
+      const result = await useIn('topic-a', (workspace) =>
+        workspace.exec({ command: 'node --version; exit 3', timeoutMs: 5000 }),
+      );
+
+      expect(result).toMatchObject({
+        exitCode: 3,
+        killed: false,
+        stderr: 'warning',
+        stdout: 'v24.0.0',
+        timedOut: false,
+      });
+      expect(calls.commandBody).toEqual({
+        command: 'node --version; exit 3',
+        cwd: '/tmp/workspace',
+        timeout: 5000,
+      });
+      // A failing command leaves a healthy sandbox.
+      expect(calls.deleted).toBe(0);
+      expect(settledFields()).toMatchObject([{ exitCode: 3, operation: 'test', outcome: 'error' }]);
+    });
+
+    it('returns partial output when a command hits its time limit', async () => {
+      const calls = install({
+        command: async () => {
+          await sleep(40);
+          return stream([{ text: 'step 1', type: 'stdout' }, exitWith('-1', ['signal: killed'])]);
+        },
+      });
+
+      const result = await useIn('topic-a', (workspace) =>
+        workspace.exec({ command: 'sleep 999', cwd: '/srv', timeoutMs: 30 }),
+      );
+
+      expect(result).toMatchObject({ killed: false, stdout: 'step 1', timedOut: true });
+      expect(calls.commandBody?.cwd).toBe('/srv');
+      expect(calls.deleted).toBe(0);
+      expect(settledFields()).toMatchObject([{ outcome: 'timeout' }]);
+    });
+
+    it('keeps the head and tail of long output', async () => {
+      const lines = Array.from({ length: 4000 }, (_, index) => ({
+        text: `line ${index}`,
+        type: 'stdout',
+      }));
+      install({ command: () => stream([...lines, { type: 'execution_complete' }]) });
+
+      const { stdout } = await useIn(undefined, (workspace) =>
+        workspace.exec({ command: 'seq', timeoutMs: 5000 }),
+      );
+
+      expect(stdout.startsWith('line 0\nline 1\n')).toBe(true);
+      expect(stdout.endsWith('line 3998\nline 3999')).toBe(true);
+      expect(stdout).toMatch(/…\[\d+ characters omitted\]…/);
+      expect(stdout.length).toBeLessThan(30_000 + 100);
+    });
+
+    it('starts a background command and reads its status, logs, and stop', async () => {
+      const seen: string[] = [];
+      const calls = install({
+        command: () =>
+          stream([{ text: 'bg-7', type: 'init' }, { type: 'execution_complete' }]),
+        route: (rest, url, init) => {
+          seen.push(`${init.method ?? 'GET'} ${rest}${url.search}`);
+          if (rest === '/command/status/bg-7') return json({ id: 'bg-7', running: true });
+          if (rest === '/command/bg-7/logs') {
+            return new Response('listening on 3000\n', {
+              headers: { 'EXECD-COMMANDS-TAIL-CURSOR': '18' },
+            });
+          }
+          if (rest === '/command' && init.method === 'DELETE') return new Response(null);
+          return undefined;
+        },
+      });
+
+      const result = await useIn('topic-a', async (workspace) => {
+        const id = await workspace.startBackground({ command: 'node server.js' });
+        const status = await workspace.commandStatus(id);
+        const logs = await workspace.commandLogs(id, 5);
+        await workspace.interrupt(id);
+        return { id, logs, status };
+      });
+
+      expect(result).toEqual({
+        id: 'bg-7',
+        logs: { cursor: 18, output: 'listening on 3000\n' },
+        status: { error: undefined, exitCode: undefined, running: true },
+      });
+      expect(calls.commandBody).toEqual({
+        background: true,
+        command: 'node server.js',
+        cwd: '/tmp/workspace',
+      });
+      expect(seen).toEqual([
+        'POST /command',
+        'GET /command/status/bg-7',
+        'GET /command/bg-7/logs?cursor=5',
+        'DELETE /command?id=bg-7',
+      ]);
+    });
+
+    it('reports an unknown command id without discarding the sandbox', async () => {
+      const calls = install({
+        route: (rest) =>
+          rest === '/command/status/gone'
+            ? json({ code: 'INVALID_REQUEST', message: 'command not found: gone' }, 404)
+            : undefined,
+      });
+
+      await expect(
+        useIn('topic-a', (workspace) => workspace.commandStatus('gone')),
+      ).rejects.toMatchObject({
+        code: 'ExecutionFailed',
+        message: 'No background command gone in this sandbox. Its sandbox may have been replaced.',
+        name: 'SandboxRequestError',
+      });
+      expect(calls.deleted).toBe(0);
+      expect(calls.renewals.map((item) => item.id)).toEqual(['sbx-1']);
+    });
+
+    it('reads a file after checking it exists and fits the cap', async () => {
+      const infos: string[] = [];
+      const calls = install({
+        files: { '/tmp/workspace/app.ts': 'export {}' },
+        route: (rest, url) => {
+          if (rest !== '/files/info') return undefined;
+          const path = url.searchParams.get('path')!;
+          infos.push(path);
+          if (path === '/tmp/workspace/app.ts') {
+            return json({ [path]: { mode: 644, path, size: 9, type: 'file' } });
+          }
+          if (path === '/tmp/workspace/src') {
+            return json({ [path]: { mode: 755, path, size: 0, type: 'directory' } });
+          }
+          if (path === '/tmp/workspace/huge.log') {
+            return json({ [path]: { mode: 644, path, size: 4096, type: 'file' } });
+          }
+          return json({ code: 'FILE_NOT_FOUND', message: 'file not found' }, 404);
+        },
+      });
+
+      const results = await useIn('topic-a', async (workspace) => {
+        const text = Buffer.from(await workspace.readFile('/tmp/workspace/app.ts', 1024)).toString();
+        const errors = [];
+        for (const path of ['/tmp/workspace/missing', '/tmp/workspace/src', '/tmp/workspace/huge.log']) {
+          errors.push(await workspace.readFile(path, 1024).catch((error: Error) => error.message));
+        }
+        return { errors, text };
+      });
+
+      expect(results.text).toBe('export {}');
+      expect(results.errors).toEqual([
+        'File not found: /tmp/workspace/missing',
+        '/tmp/workspace/src is a directory. Use listFiles to see its contents.',
+        '/tmp/workspace/huge.log is 4096 bytes, over the 1024-byte limit. Read part of it with runCommand (head, tail, sed -n).',
+      ]);
+      expect(calls.downloads).toEqual(['/tmp/workspace/app.ts']);
+      expect(calls.deleted).toBe(0);
+    });
+
+    it('writes a file and keeps an existing file mode', async () => {
+      const calls = install({
+        route: (rest, url) => {
+          if (rest !== '/files/info') return undefined;
+          const path = url.searchParams.get('path')!;
+          return path === '/tmp/workspace/run.sh'
+            ? json({ [path]: { mode: 755, path, size: 4, type: 'file' } })
+            : json({ code: 'FILE_NOT_FOUND', message: 'file not found' }, 404);
+        },
+      });
+
+      await useIn('topic-a', async (workspace) => {
+        await workspace.writeFile('/tmp/workspace/run.sh', new Uint8Array(Buffer.from('echo')));
+        await workspace.writeFile('/tmp/workspace/new/notes.md', new Uint8Array(Buffer.from('# hi')));
+      });
+
+      expect(calls.uploads).toEqual([
+        { content: 'echo', path: '/tmp/workspace/run.sh' },
+        { content: '# hi', path: '/tmp/workspace/new/notes.md' },
+      ]);
+      expect(calls.uploadModes).toEqual([755, 644]);
+    });
+
+    it('lists a directory with execd metadata', async () => {
+      install({
+        route: (rest, url) =>
+          rest === '/directories/list'
+            ? json(
+                url.searchParams.get('depth') === '2'
+                  ? [
+                      { mode: 755, modified_at: '2026-10-04T00:00:00Z', path: '/w/src', size: 0, type: 'directory' },
+                      { mode: 644, path: '/w/src/a.ts', size: 12, type: 'file' },
+                      { path: '/w/link', size: 0, type: 'symlink' },
+                      { size: 1 },
+                    ]
+                  : [],
+              )
+            : undefined,
+      });
+
+      const entries = await useIn(undefined, (workspace) => workspace.listDirectory('/w', 2));
+
+      expect(entries).toEqual([
+        { mode: 755, modifiedAt: '2026-10-04T00:00:00Z', path: '/w/src', size: 0, type: 'directory' },
+        { mode: 644, modifiedAt: undefined, path: '/w/src/a.ts', size: 12, type: 'file' },
+        { mode: undefined, modifiedAt: undefined, path: '/w/link', size: 0, type: 'symlink' },
+      ]);
+    });
+
+    it('uploads only conversation files a reused sandbox does not have yet', async () => {
+      const loads: string[] = [];
+      const calls = install({ persistUploads: true });
+      const ref = (id: string, filename: string, content: string) => ({
+        filename,
+        id,
+        load: async () => {
+          loads.push(id);
+          return new Uint8Array(Buffer.from(content));
+        },
+      });
+
+      await useIn('topic-a', (workspace) => workspace.syncInputs([ref('f1', 'data.csv', 'a,b')]));
+      await useIn('topic-a', async (workspace) => {
+        await workspace.syncInputs([
+          ref('f2', 'report.pdf', 'pdf'),
+          ref('f1', 'data.csv', 'a,b'),
+          ref('f0', 'data.csv', 'older'),
+        ]);
+        await workspace.markSynced(['out-1']);
+      });
+
+      expect(loads).toEqual(['f1', 'f2']);
+      expect(calls.uploads).toEqual([
+        { content: 'a,b', path: '/tmp/workspace/data.csv' },
+        { content: '["f1"]', path: '/tmp/workspace/.chathub/synced.json' },
+        { content: 'pdf', path: '/tmp/workspace/report.pdf' },
+        { content: '["f1","f2"]', path: '/tmp/workspace/.chathub/synced.json' },
+        { content: '["f1","f2","out-1"]', path: '/tmp/workspace/.chathub/synced.json' },
+      ]);
+      // Only the reused sandbox reads the record; a new one has nothing yet.
+      expect(calls.downloads).toEqual(['/tmp/workspace/.chathub/synced.json']);
+    });
+
+    it('fails with NotFound instead of creating a sandbox when told not to', async () => {
+      const calls = install();
+
+      await expect(
+        useIn('topic-a', (workspace) => workspace.commandStatus('bg-1'), {
+          createIfMissing: false,
+        }),
+      ).rejects.toMatchObject({ code: 'NotFound' });
+      expect(calls.creates).toBe(0);
+    });
+
+    it('replaces a parked sandbox that runs a different image or layout', async () => {
+      const calls = install({
+        existing: [
+          {
+            createdAt: ago(60_000),
+            id: 'sbx-old',
+            metadata: { ...session('topic-a'), [RUNTIME_METADATA_KEY]: runtimeFingerprint('old:1') },
+          },
+          {
+            createdAt: ago(60_000),
+            id: 'sbx-legacy',
+            metadata: {
+              'chathub-network': OPEN_NETWORK_FINGERPRINT,
+              'chathub-session': 'topic-a',
+              'name': 'chathub-code-interpreter',
+            },
+          },
+        ],
+      });
+
+      await runIn('topic-a');
+
+      expect(calls.deletedIds).toEqual(['sbx-old', 'sbx-legacy']);
+      expect(calls.commandIds).toEqual(['sbx-1']);
+      expect(settledFields()).toMatchObject([{ sandboxRetired: true, sandboxReused: false }]);
+    });
+
+    it('stops the command and keeps the sandbox when the caller cancels', async () => {
+      const controller = new AbortController();
+      const interrupts: string[] = [];
+      const calls = install({
+        command: (init) => {
+          const encoder = new TextEncoder();
+          const body = new ReadableStream<Uint8Array>({
+            start(stream) {
+              stream.enqueue(encoder.encode(`${JSON.stringify({ text: 'cmd-9', type: 'init' })}\n\n`));
+              init.signal?.addEventListener('abort', () => stream.error(init.signal?.reason));
+              setTimeout(() => controller.abort(), 20);
+            },
+          });
+          return new Response(body);
+        },
+        route: (rest, url, init) => {
+          if (rest === '/command' && init.method === 'DELETE') {
+            interrupts.push(url.searchParams.get('id')!);
+            return new Response(null);
+          }
+          return undefined;
+        },
+      });
+
+      await expect(
+        useIn('topic-a', (workspace) => workspace.exec({ command: 'sleep 60', timeoutMs: 60_000 }), {
+          signal: controller.signal,
+        }),
+      ).rejects.toMatchObject({ code: 'Cancelled' });
+      expect(interrupts).toEqual(['cmd-9']);
+      expect(calls.deleted).toBe(0);
     });
   });
 
@@ -959,9 +1323,10 @@ describe('OpenSandboxProvider', () => {
     const provider = new OpenSandboxProvider();
 
     expect(provider.isConfigured()).toBe(false);
-    await expect(provider.run({ code: 'x', files: [], language: 'python3' })).rejects.toMatchObject(
-      { code: 'NotConfigured', outcome: 'not_configured' },
-    );
+    await expect(python(provider)).rejects.toMatchObject({
+      code: 'NotConfigured',
+      outcome: 'not_configured',
+    });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

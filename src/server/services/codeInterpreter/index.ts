@@ -4,17 +4,12 @@ import type { LobeChatDatabase } from '@lobechat/database';
 import type { CodeInterpreterResponse } from '@lobechat/types';
 
 import { toPersistedConversationSessionId } from '@/server/services/conversationGeneration/inboxSession';
+import { sandboxEnv } from '@/envs/sandbox';
 import {
-  CodeInterpreterSandboxError,
-  gatherConversationSandboxFiles,
   getSandboxProvider,
+  listConversationSandboxInputs,
   persistSandboxOutputFiles,
-} from '@/server/services/sandbox';
-
-export {
-  CodeInterpreterSandboxError,
-  type CodeInterpreterSandboxOutcome,
-  isSandboxConfigured as isCodeInterpreterSandboxConfigured,
+  SandboxError,
 } from '@/server/services/sandbox';
 
 const MAX_ERROR_CHARS = 100_000;
@@ -90,8 +85,8 @@ export const runCodeInterpreter = async ({
 }: RunCodeInterpreterParams): Promise<CodeInterpreterResponse> => {
   if (!code.trim()) return failedResponse('Code Interpreter received empty code.');
 
-  const packageCount = packages.map((item) => item.trim()).filter(Boolean).length;
-  const files = await gatherConversationSandboxFiles({
+  void packages;
+  const inputs = await listConversationSandboxInputs({
     db,
     groupId,
     sessionId,
@@ -99,24 +94,29 @@ export const runCodeInterpreter = async ({
     topicId,
     userId,
   });
+  const timeoutMs = sandboxEnv.SANDBOX_TIMEOUT;
 
   try {
-    const result = await getSandboxProvider().run({
-      code,
-      files,
-      language: 'python3',
-      operationHash,
-      packageCount,
-      sessionKey: buildSandboxSessionKey({ groupId, sessionId, threadId, topicId, userId }),
-    });
-    const persisted = await persistSandboxOutputFiles({ db, files: result.files, userId });
-    return {
-      files: persisted.length > 0 ? persisted : undefined,
-      output: toOutput(result.stdout, result.stderr),
-      success: result.success,
-    };
+    return await getSandboxProvider().withWorkspace(
+      {
+        apiName: 'runPython',
+        budgetMs: timeoutMs,
+        operationHash,
+        sessionKey: buildSandboxSessionKey({ groupId, sessionId, threadId, topicId, userId }),
+      },
+      async (workspace) => {
+        const result = await workspace.runPython({ code, inputs, timeoutMs });
+        const persisted = await persistSandboxOutputFiles({ db, files: result.files, userId });
+        await workspace.markSynced(persisted.flatMap((file) => (file.fileId ? [file.fileId] : [])));
+        return {
+          files: persisted.length > 0 ? persisted : undefined,
+          output: toOutput(result.stdout, result.stderr),
+          success: result.success,
+        };
+      },
+    );
   } catch (error) {
-    if (error instanceof CodeInterpreterSandboxError) {
+    if (error instanceof SandboxError) {
       return failedResponse(error.message);
     }
     return failedResponse(

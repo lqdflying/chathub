@@ -64,10 +64,22 @@ vi.mock('@/envs/sandbox', () => ({
 import { CodeInterpreterIdentifier } from '@/tools/code-interpreter';
 
 import {
-  SANDBOX_GATHER_PAGE_SIZE,
-  gatherConversationSandboxFiles,
+  listConversationSandboxInputs,
   persistSandboxOutputFiles,
+  SANDBOX_GATHER_PAGE_SIZE,
 } from '../conversationFiles';
+
+// Loads every ref, the way a fresh sandbox does.
+const gatherConversationSandboxFiles = async (
+  args: Parameters<typeof listConversationSandboxInputs>[0],
+) => {
+  const files: Array<{ content: Uint8Array; filename: string }> = [];
+  for (const input of await listConversationSandboxInputs(args)) {
+    const content = await input.load();
+    if (content) files.push({ content, filename: input.filename });
+  }
+  return files;
+};
 
 const bytesFor = (id: string) => new Uint8Array(Buffer.from(id));
 
@@ -124,6 +136,38 @@ describe('sandbox conversation files', () => {
 
     expect(files.map((file) => file.filename)).toEqual(['b.txt']);
     expect(Buffer.from(files[0].content)).toEqual(Buffer.from([1, 2, 3]));
+  });
+
+  it('loads bytes only when a ref is used and skips records over the size cap', async () => {
+    messageMocks.query.mockResolvedValue([
+      {
+        fileList: [
+          { id: 'small', name: 'small.csv' },
+          { id: 'huge', name: 'huge.bin' },
+        ],
+        id: 'm1',
+        role: 'user',
+      },
+    ]);
+    fileModelMocks.findById.mockImplementation(async (id: string) => ({
+      name: id === 'huge' ? 'huge.bin' : 'small.csv',
+      size: id === 'huge' ? 20 * 1024 * 1024 : 3,
+      url: `files/${id}`,
+    }));
+
+    const inputs = await listConversationSandboxInputs({
+      db: {} as any,
+      sessionId: 'session-1',
+      topicId: 'topic-1',
+      userId: 'user-1',
+    });
+
+    expect(inputs.map(({ filename, id }) => ({ filename, id }))).toEqual([
+      { filename: 'small.csv', id: 'small' },
+    ]);
+    expect(fileServiceMocks.getFileByteArray).not.toHaveBeenCalled();
+    expect(Buffer.from((await inputs[0].load())!).toString()).toBe('small');
+    expect(fileServiceMocks.getFileByteArray).toHaveBeenCalledWith('files/small');
   });
 
   it('keeps main-topic files and excludes portal-thread files', async () => {

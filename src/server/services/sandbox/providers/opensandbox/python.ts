@@ -1,6 +1,6 @@
 /**
  * Runner ChatHub uploads next to the user code and starts with execd's
- * command API (`python3 <runner>`), one process per run.
+ * command API (`python3 <runner>`), one process per `runPython` call.
  *
  * The guest is an ordinary Linux container or microVM, so subprocess,
  * unlink, chdir, and threads work as usual. The runner
@@ -20,7 +20,10 @@
  * execd's optional Landlock floor (read+write /tmp).
  * @see https://github.com/opensandbox-group/OpenSandbox/blob/main/docs/architecture/data-plane/execd.md
  */
-export const OPENSANDBOX_WORKDIR = '/tmp/chathub-ci';
+export const OPENSANDBOX_WORKDIR = '/tmp/workspace';
+// Bump when the workdir or control files move, so parked sandboxes that use
+// the old layout are replaced instead of reused.
+export const OPENSANDBOX_LAYOUT_VERSION = '2';
 // The image installs the WenQuanYi collection at this path. ReportLab 5.0.1
 // accepts the 'ttcf' header and embeds subfont 0, so the file does not need
 // to be a single-face TTF. The runner links it into the workdir as STSong.ttf.
@@ -30,6 +33,9 @@ export const CONTROL_DIR = `${OPENSANDBOX_WORKDIR}/.chathub`;
 export const RUNNER_PATH = `${CONTROL_DIR}/run.py`;
 export const USER_CODE_PATH = `${CONTROL_DIR}/code.py`;
 export const MANIFEST_PATH = `${CONTROL_DIR}/manifest.json`;
+// Conversation file ids this sandbox already holds, so later calls upload
+// only new ones and never overwrite a file the model has since edited.
+export const SYNCED_PATH = `${CONTROL_DIR}/synced.json`;
 // Fixed string: user code reaches the sandbox only as an uploaded file.
 export const RUN_COMMAND = `python3 ${RUNNER_PATH}`;
 
