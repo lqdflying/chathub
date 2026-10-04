@@ -235,21 +235,35 @@ describe.runIf(serverUrl)('OpenSandbox live', () => {
       expect(current[0].id).not.toBe(old.id);
     });
 
+    it('has the development tools the Sandbox prompt promises', async () => {
+      const tools = await provider().withWorkspace({ budgetMs: 60_000 }, (workspace) =>
+        workspace.exec({
+          command:
+            'git --version && node --version && npm --version && pnpm --version && rg --version | head -1 && curl --version | head -1 && jq --version',
+          timeoutMs: 30_000,
+        }),
+      );
+
+      expect(tools).toMatchObject({ exitCode: 0, timedOut: false });
+      expect(tools.stdout).toMatch(/git version/);
+      expect(tools.stdout).toMatch(/^v\d+\./m);
+    });
+
     it('runs shell commands, background processes, and file operations in one sandbox', async () => {
       const sessionKey = newSessionKey();
       const p = provider();
       const use = <T>(task: (workspace: SandboxWorkspace) => Promise<T>) =>
         p.withWorkspace({ budgetMs: 60_000, sessionKey }, task);
 
-      const tools = await use((workspace) =>
-        workspace.exec({
-          command: 'git --version && node --version && npm --version && rg --version | head -1',
-          timeoutMs: 30_000,
-        }),
+      const failing = await use((workspace) =>
+        workspace.exec({ command: 'echo out; echo err >&2; exit 3', timeoutMs: 10_000 }),
       );
-      expect(tools).toMatchObject({ exitCode: 0, timedOut: false });
-      expect(tools.stdout).toMatch(/git version/);
-      expect(tools.stdout).toMatch(/^v\d+\./m);
+      expect(failing).toMatchObject({ exitCode: 3, stderr: 'err', stdout: 'out', timedOut: false });
+
+      const slow = await use((workspace) =>
+        workspace.exec({ command: 'echo started; sleep 30', timeoutMs: 2000 }),
+      );
+      expect(slow).toMatchObject({ stdout: 'started', timedOut: true });
 
       await use((workspace) =>
         workspace.writeFile(
@@ -272,22 +286,39 @@ describe.runIf(serverUrl)('OpenSandbox live', () => {
       expect(status.running).toBe(true);
       expect(logs.output).toContain('ready');
       expect(logs.cursor).toBeGreaterThan(0);
+      const later = await use((workspace) => workspace.commandLogs(commandId, logs.cursor));
+      expect(later.output).toBe('');
 
-      const curl = await use((workspace) =>
-        workspace.exec({ command: 'curl -s localhost:3000', timeoutMs: 10_000 }),
+      const fetched = await use((workspace) =>
+        workspace.exec({
+          command:
+            "node -e \"fetch('http://127.0.0.1:3000').then((r) => r.text()).then(console.log)\"",
+          timeoutMs: 10_000,
+        }),
       );
-      expect(curl.stdout).toBe('pong');
+      expect(fetched.stdout).toBe('pong');
 
       await use((workspace) => workspace.interrupt(commandId));
       await sleep(500);
       expect((await use((workspace) => workspace.commandStatus(commandId))).running).toBe(false);
+      await expect(use((workspace) => workspace.commandStatus('no-such-command'))).rejects.toMatchObject(
+        { name: 'SandboxRequestError' },
+      );
 
       const listing = await use((workspace) => workspace.listDirectory(workspace.workdir, 2));
       expect(listing.map((entry) => entry.path)).toContain('/tmp/workspace/app/server.js');
+      const info = await use((workspace) => workspace.fileInfo('/tmp/workspace/app/server.js'));
+      expect(info).toMatchObject({ type: 'file' });
       const read = await use((workspace) =>
         workspace.readFile('/tmp/workspace/app/server.js', 1024 * 1024),
       );
       expect(Buffer.from(read).toString()).toContain('pong');
+      await expect(
+        use((workspace) => workspace.readFile('/tmp/workspace/missing.txt', 1024)),
+      ).rejects.toMatchObject({ message: 'File not found: /tmp/workspace/missing.txt' });
+
+      // Every call above reused the one sandbox; failed requests did not replace it.
+      expect(await sessionSandboxes(sessionKey)).toHaveLength(1);
     });
   });
 

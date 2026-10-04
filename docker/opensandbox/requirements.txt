@@ -1,4 +1,4 @@
-# Libraries Code Interpreter runs may import. Versions verified together on
+# Python libraries Sandbox runs may import. Versions verified together on
 # python:3.12-slim; bump deliberately and rebuild the image.
 matplotlib==3.11.2
 numpy==2.5.3
