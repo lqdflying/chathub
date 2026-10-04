@@ -164,7 +164,7 @@ Repo layout: [Architecture Overview](https://github.com/lqdflying/chathub/wiki/A
 
 ## Docker Release
 
-GitHub Actions builds `docker.io/lqdflying/chathub` on version tags. GA `v*.*.*` updates `:latest`. Canaries (`v*.*.*-canary.*`) do not. Current GA is **v2.0.10**; the next canary is `v2.0.11-canary.N`. [Release Workflow](https://github.com/lqdflying/chathub/wiki/Release-Workflow)
+GitHub Actions builds `docker.io/lqdflying/chathub` on version tags. GA `v*.*.*` updates `:latest`. Canaries (`v*.*.*-canary.*`) do not. Current GA is **v2.0.12**; the next canary is `v2.0.13-canary.N`. [Release Workflow](https://github.com/lqdflying/chathub/wiki/Release-Workflow)
 
 ---
 
