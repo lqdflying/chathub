@@ -9,18 +9,39 @@
  *   OPENSANDBOX_E2E_IMAGE=chathub-sandbox-python:1 \
  *   npx vitest run src/server/services/sandbox/providers/opensandbox/__tests__/e2e.live.test.ts
  */
-import { describe, expect, it } from 'vitest';
+import { setTimeout as sleep } from 'node:timers/promises';
 
-import { OpenSandboxProvider } from '../provider';
+import { afterAll, describe, expect, it } from 'vitest';
+
+import { OpenSandboxClient } from '../client';
+import { OpenSandboxProvider, SESSION_METADATA_KEY } from '../provider';
 
 const serverUrl = process.env.OPENSANDBOX_E2E_SERVER_URL;
 
-const provider = () =>
+const provider = (session?: { sessionMaxLifetime?: number }) =>
   new OpenSandboxProvider({
     apiKey: process.env.OPENSANDBOX_E2E_API_KEY,
     baseUrl: serverUrl,
     image: process.env.OPENSANDBOX_E2E_IMAGE ?? 'chathub-sandbox-python:1',
+    ...session,
   });
+
+const client = () =>
+  new OpenSandboxClient({ apiKey: process.env.OPENSANDBOX_E2E_API_KEY, baseUrl: serverUrl! });
+
+const sessionKeys: string[] = [];
+
+const newSessionKey = () => {
+  const key = `e2e-${Date.now()}-${sessionKeys.length}`;
+  sessionKeys.push(key);
+  return key;
+};
+
+const sessionSandboxes = (sessionKey: string) =>
+  client().findRunningSandboxes(
+    { [SESSION_METADATA_KEY]: sessionKey },
+    AbortSignal.timeout(10_000),
+  );
 
 const file = (filename: string, content: string) => ({
   content: new Uint8Array(Buffer.from(content)),
@@ -111,6 +132,82 @@ describe.runIf(serverUrl)('OpenSandbox live', () => {
     expect(first.success).toBe(true);
     expect(first.files.map((item) => item.filename)).toContain('leak.txt');
     expect((await run('import os\nprint(os.path.exists("/tmp/leak.txt"))')).stdout).toBe('False');
+  });
+
+  describe('session sandboxes', () => {
+    afterAll(async () => {
+      for (const key of sessionKeys) {
+        for (const { id } of await sessionSandboxes(key)) {
+          await client().deleteSandbox(id, AbortSignal.timeout(10_000));
+        }
+      }
+    });
+
+    it('keeps installs and files between runs of one session', async () => {
+      const sessionKey = newSessionKey();
+      const p = provider();
+      const first = await p.run({
+        code: [
+          // Installs like pip does: from a child process, into site-packages.
+          'import subprocess, sys',
+          'subprocess.run([sys.executable, "-c", "import site; open(site.getsitepackages()[0] + \'/e2e_installed.py\', \'w\').write(\'VALUE = 42\')"], check=True)',
+          'open("prepared.txt", "w").write("step 1")',
+          'import matplotlib.pyplot as plt',
+          'plt.plot([1, 2]); plt.show()',
+        ].join('\n'),
+        files: [],
+        language: 'python3',
+        sessionKey,
+      });
+      const [sandbox] = await sessionSandboxes(sessionKey);
+
+      const second = await p.run({
+        code: [
+          'import e2e_installed',
+          'print(e2e_installed.VALUE, open("prepared.txt").read())',
+          'import matplotlib.pyplot as plt',
+          'plt.plot([2, 1]); plt.show()',
+        ].join('\n'),
+        files: [],
+        language: 'python3',
+        sessionKey,
+      });
+
+      expect(first.files.map((item) => item.filename).sort()).toEqual(['plot_1.png', 'prepared.txt']);
+      expect(second).toMatchObject({ stderr: '', stdout: '42 step 1', success: true });
+      expect(second.files.map((item) => item.filename)).toEqual(['plot_2.png']);
+      expect((await sessionSandboxes(sessionKey)).map((item) => item.id)).toEqual([sandbox.id]);
+      expect(sandbox.createdAt).toBeGreaterThan(Date.now() - 120_000);
+    });
+
+    it('replaces a session sandbox once it nears an optional max lifetime', async () => {
+      const sessionKey = newSessionKey();
+      const timeoutMs = 5000;
+      // Room for one 5s run plus the 120s margin, and 15s more.
+      const sessionMaxLifetime = timeoutMs + 120_000 + 15_000;
+      const p = provider({ sessionMaxLifetime });
+      const input = { files: [], language: 'python3' as const, sessionKey, timeoutMs };
+
+      await p.run({ ...input, code: 'open("/tmp/old.txt", "w").write("x")' });
+      const [old] = await sessionSandboxes(sessionKey);
+      const detail = (await (
+        await fetch(`${serverUrl}/v1/sandboxes/${old.id}`, {
+          headers: { 'OPEN-SANDBOX-API-KEY': process.env.OPENSANDBOX_E2E_API_KEY ?? '' },
+        })
+      ).json()) as { expiresAt: string };
+      // Parked until the cap, not for the 30 min idle timeout.
+      expect(Math.abs(Date.parse(detail.expiresAt) - (old.createdAt! + sessionMaxLifetime))).toBeLessThan(
+        1000,
+      );
+      await sleep(Math.max(0, old.createdAt! + 16_000 - Date.now()));
+
+      const second = await p.run({ ...input, code: 'import os\nprint(os.path.exists("/tmp/old.txt"))' });
+
+      expect(second.stdout).toBe('False');
+      const current = await sessionSandboxes(sessionKey);
+      expect(current).toHaveLength(1);
+      expect(current[0].id).not.toBe(old.id);
+    });
   });
 
   it('reports exceptions as plain-text user tracebacks', async () => {

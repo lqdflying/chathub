@@ -187,7 +187,8 @@ are not the jail. Agent rule:
 [OpenSandbox](https://github.com/opensandbox-group/OpenSandbox) lifecycle
 server over plain HTTP (no SDK dependency). Each `run()`:
 
-1. `POST /v1/sandboxes` with `OPENSANDBOX_IMAGE`, entrypoint
+1. Reuses the conversation's running sandbox (see *Session sandboxes*), or
+   `POST /v1/sandboxes` with `OPENSANDBOX_IMAGE`, entrypoint
    `tail -f /dev/null` (the server injects execd), CPU/memory caps, and a TTL
    of ready + run budget + 120s so the server reaps a sandbox ChatHub failed
    to delete.
@@ -199,8 +200,8 @@ server over plain HTTP (no SDK dependency). Each `run()`:
 4. `POST /command` with the fixed string `python3 /tmp/chathub-ci/.chathub/run.py`
    and `timeout` = `CODE_INTERPRETER_TIMEOUT`, so execd kills the process
    itself. User code reaches the sandbox only as a file.
-5. Downloads `.chathub/manifest.json` (name, size, sha256 of top-level
-   files), then only new or changed files. The manifest and each file are
+5. Downloads `.chathub/manifest.json` (name, size, sha256, and whether this
+   run created or changed each top-level file), then only those files. The manifest and each file are
    read in chunks and rejected once they pass a finite cap
    (`OPENSANDBOX_MANIFEST_MAX_BYTES`, or `CODE_INTERPRETER_MAX_FILE_BYTES`
    for a file). A `Content-Length` above the cap cancels the body before it
@@ -208,7 +209,57 @@ server over plain HTTP (no SDK dependency). Each `run()`:
    arrive. Guest sizes are not trusted. Best effort: a missing manifest, an
    over-cap body, or a failed download keeps stdout/stderr and returns no
    files.
-6. Deletes the sandbox in `finally`.
+6. In `finally`, parks a session sandbox for the next run, or deletes the
+   sandbox.
+
+### Session sandboxes
+
+Runs in one conversation share a sandbox, so a `pip install` or a prepared
+file from one call is there for the next. The conversation scope is the one
+input files are gathered from: user, agent or group (the inbox counts as
+none), topic, and portal thread, so an agent's messages outside any topic are
+a scope too. `buildSandboxSessionKey` hashes it to 32 hex chars, and the
+sandbox carries it as the `chathub-session` metadata label. ChatHub keeps no
+mapping of its own:
+`GET /v1/sandboxes?metadata=chathub-session=<key>&state=Running` finds the
+sandbox again after a ChatHub restart.
+
+- **Before a run**, a found sandbox is renewed to now + run budget + 120s
+  (`POST /v1/sandboxes/{id}/renew-expiration`) and must answer execd `/ping`
+  within 5s. One that does not is deleted, and the run creates a new one.
+  A failed lookup also falls back to a new sandbox, so reuse never fails a
+  run.
+- **After a run**, the sandbox is renewed to the idle deadline
+  (`OPENSANDBOX_SESSION_IDLE_TIMEOUT`, default 30 min) and the server reaps
+  it if no run comes. Every run restarts the timer, so a conversation that
+  keeps running code keeps its sandbox. A failing script or a run timeout keeps it; any other
+  failure (upload, stream, collect, server errors) deletes it, so the next
+  run starts clean.
+- **`max_sandbox_timeout_seconds` does not limit this.** The server checks
+  it only when a sandbox is created; `renew-expiration` ignores it and
+  nothing caps total lifetime (`server.max_sandbox_timeout_seconds` in
+  `opensandbox_server/config.py`, and the renew route's docstring). ChatHub
+  creates with a TTL of ready + run budget + 120s, so the setting never
+  rejects a ChatHub create either.
+- **Optional max lifetime.** `OPENSANDBOX_SESSION_MAX_LIFETIME` (default 0,
+  off) caps a sandbox's age even while its conversation is active. With it
+  set, ChatHub never renews a sandbox past `createdAt` (from the list
+  response) + the cap. A sandbox with less than one run budget left, or with
+  no `createdAt`, is deleted instead of reused, and the next run creates a
+  fresh one.
+- **What carries over:** files in `/tmp/chathub-ci` and elsewhere, installed
+  packages, background processes. **What does not:** Python variables and
+  imports, because every run is a new `python3` process.
+- **Outputs.** The runner stamps the size and mtime of the top-level files
+  before the user code runs. The manifest's `changed` flag is false for
+  files the run left untouched, and ChatHub does not return those again.
+  `plot_N.png` numbering continues after the plots already in the workdir.
+- **Concurrency.** Runs with the same key take turns inside one ChatHub
+  process (a per-key promise chain), so two tool calls in one turn neither
+  create two sandboxes nor share the workdir mid-run.
+- `OPENSANDBOX_SESSION_IDLE_TIMEOUT=0` restores one fresh sandbox per run.
+  `sandbox_run_settled` logs `sessionScoped`, `sandboxReused`,
+  `sandboxRetired`, and `sandboxLookupFailed`.
 
 The runner `exec`s the code as `__main__`, echoes a trailing expression with
 `repr()` like a notebook, maps `SystemExit` like a script (0/`None` succeed),
@@ -253,7 +304,8 @@ roughly 1 of 6 local runs (setup and user cells alike, servers `1.1.0` and
 `print('done')` cell stayed open 593s, kept alive by execd `ping` events, so
 no socket timeout fires. The command API has no kernel, removes the Jupyter boot from
 every run (~6s → ~2s locally), and works with any image that has `python3`.
-Per-run state is not lost: each run already got a fresh sandbox.
+Interpreter state does not carry over either way: each run is a new process,
+and a session sandbox keeps files and installs, not variables.
 
 **Image.** The official `opensandbox/code-interpreter` image has no numpy,
 pandas, or matplotlib, and its Pythons are only on `PATH` via its entrypoint.
@@ -285,7 +337,13 @@ Operator constraints worth knowing before deploying:
 
 Verified end to end with runc against `opensandbox/server:release-1.1.0` and
 `release-1.1.1-rc.1` (live suite 56/56 runs, raw command API 125/125, no
-leftover sandboxes); Kata and gVisor were not available there. Setup:
+leftover sandboxes); Kata and gVisor were not available there. Session
+sandboxes were verified against `release-1.1.0` and `release-1.1.1-rc.1`
+with `max_sandbox_timeout_seconds = 3600` (live suite 9/9 on each): a
+subprocess install and a workdir file reached the next run; with a max
+lifetime set, a parked sandbox's `expiresAt` was its `createdAt` + the cap
+and a sandbox past it was replaced; and the server purged an expired
+sandbox and dropped it from the metadata list. Setup:
 [Code Interpreter Sandbox](https://github.com/lqdflying/chathub/wiki/Code-Interpreter-Sandbox).
 
 ## Future backends

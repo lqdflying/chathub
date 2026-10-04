@@ -8,8 +8,8 @@
  * copies a file that is still there at the end into the workdir under its
  * basename. It forces the Agg backend, turns
  * `plt.show()` into PNG files, echoes a trailing expression the way a
- * notebook would, and writes a sha256 manifest of the workdir so ChatHub
- * downloads only new or changed files.
+ * notebook would, and writes a sha256 manifest of the workdir, flagging the
+ * files this run created or changed, so ChatHub downloads only those.
  *
  * Jupyter is deliberately not used: execd opens a new kernel websocket per
  * cell and matches replies by message type only, and its code streams hung
@@ -33,6 +33,8 @@ export const MANIFEST_PATH = `${CONTROL_DIR}/manifest.json`;
 export const RUN_COMMAND = `python3 ${RUNNER_PATH}`;
 
 export interface OutputManifestEntry {
+  /** False when the file existed before this run and was not touched. */
+  changed: boolean;
   name: string;
   sha256: string;
   size: number;
@@ -234,6 +236,10 @@ export const buildRunnerScript = (
     'if FONT and os.path.isfile(FONT) and not os.path.lexists(_dest):',
     '    os.symlink(FONT, _dest)',
     '_PLOTS = {"n": 1}',
+    // A reused sandbox keeps earlier plots; continue the numbering.
+    'for _existing in os.listdir(WORKDIR):',
+    '    if _existing.startswith("plot_") and _existing.endswith(".png") and _existing[5:-4].isdigit():',
+    '        _PLOTS["n"] = max(_PLOTS["n"], int(_existing[5:-4]) + 1)',
     'def _save_figures(plt):',
     '    for num in list(plt.get_fignums()):',
     '        fig = plt.figure(num)',
@@ -274,6 +280,16 @@ export const buildRunnerScript = (
     '        value = eval(compile(last, "<code>", "eval"), scope)',
     '        if value is not None:',
     '            print(repr(value))',
+    // Snapshot after the upload and before user code, so a reused sandbox
+    // reports only files this run created or changed.
+    'def _stamp(path):',
+    '    st = os.stat(path)',
+    '    return [st.st_size, st.st_mtime_ns]',
+    '_BEFORE = {}',
+    'for _name in os.listdir(WORKDIR):',
+    '    _path = os.path.join(WORKDIR, _name)',
+    '    if not os.path.islink(_path) and os.path.isfile(_path):',
+    '        _BEFORE[_name] = _stamp(_path)',
     '_status = 0',
     'try:',
     '    _run()',
@@ -306,7 +322,7 @@ export const buildRunnerScript = (
     '    with io.open(_path, "rb") as _fh:',
     '        for _chunk in iter(lambda: _fh.read(1 << 20), b""):',
     '            _hash.update(_chunk)',
-    '    _out.append({"name": _name, "sha256": _hash.hexdigest(), "size": os.path.getsize(_path)})',
+    '    _out.append({"name": _name, "sha256": _hash.hexdigest(), "size": os.path.getsize(_path), "changed": _BEFORE.get(_name) != _stamp(_path)})',
     'with io.open(os.path.join(CONTROL, "manifest.json"), "w", encoding="utf-8") as _fh:',
     '    json.dump(_out, _fh)',
     'sys.stdout.flush()',
@@ -326,10 +342,10 @@ export const parseOutputManifest = (text: string): OutputManifestEntry[] => {
 
   return parsed.flatMap((item) => {
     if (!item || typeof item !== 'object') return [];
-    const { name, sha256, size } = item as Record<string, unknown>;
+    const { changed, name, sha256, size } = item as Record<string, unknown>;
     if (typeof name !== 'string' || typeof sha256 !== 'string' || typeof size !== 'number') {
       return [];
     }
-    return [{ name, sha256, size }];
+    return [{ changed: changed !== false, name, sha256, size }];
   });
 };

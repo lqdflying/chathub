@@ -70,6 +70,13 @@ const declaredLength = (response: Response) => {
   return Number.isFinite(value) && value >= 0 ? value : undefined;
 };
 
+// Server timestamps are RFC 3339; one without an offset is UTC, not local time.
+const parseTimestamp = (value: unknown) => {
+  if (typeof value !== 'string' || !value) return undefined;
+  const ms = Date.parse(/(?:z|[+-]\d{2}:?\d{2})$/i.test(value) ? value : `${value}Z`);
+  return Number.isFinite(ms) ? ms : undefined;
+};
+
 const readCappedBody = async (response: Response, maxBytes: number) => {
   const declared = declaredLength(response);
   if (declared !== undefined && declared > maxBytes) {
@@ -203,11 +210,16 @@ export class OpenSandboxClient {
       signal,
     });
     await ensureOk(response, 'OpenSandbox could not create a sandbox');
-    const payload = (await response.json()) as { id?: unknown; status?: { state?: unknown } };
+    const payload = (await response.json()) as {
+      createdAt?: unknown;
+      id?: unknown;
+      status?: { state?: unknown };
+    };
     if (typeof payload.id !== 'string' || !payload.id) {
       throw new OpenSandboxHttpError(response.status, 'OpenSandbox returned no sandbox id.');
     }
     return {
+      createdAt: parseTimestamp(payload.createdAt),
       id: payload.id,
       state: typeof payload.status?.state === 'string' ? payload.status.state : undefined,
     };
@@ -249,6 +261,43 @@ export class OpenSandboxClient {
       headers,
       url: /^https?:\/\//i.test(endpoint) ? endpoint : `${this.protocol}//${endpoint}`,
     };
+  }
+
+  /**
+   * Running sandboxes whose metadata matches every pair. The Docker runtime
+   * stores metadata as container labels, so this survives ChatHub restarts and
+   * is shared by every ChatHub process.
+   */
+  async findRunningSandboxes(metadata: Record<string, string>, signal: AbortSignal) {
+    const filter = Object.entries(metadata)
+      .map(([key, value]) => `${key}=${value}`)
+      .join('&');
+    const query = new URLSearchParams({ metadata: filter, state: 'Running' });
+    const response = await fetch(`${this.baseUrl}/v1/sandboxes?${query}`, {
+      headers: this.headers(),
+      signal,
+    });
+    await ensureOk(response, 'OpenSandbox could not list sandboxes');
+    const payload = (await response.json()) as { items?: unknown };
+    if (!Array.isArray(payload.items)) return [];
+    return payload.items.flatMap((item) => {
+      const { createdAt, id } = (item ?? {}) as { createdAt?: unknown; id?: unknown };
+      return typeof id === 'string' && id ? [{ createdAt: parseTimestamp(createdAt), id }] : [];
+    });
+  }
+
+  /** Sets an absolute expiry; unlike create, the server's max timeout does not cap it. */
+  async renewExpiration(id: string, expiresAt: Date, signal: AbortSignal) {
+    const response = await fetch(
+      `${this.baseUrl}/v1/sandboxes/${encodeURIComponent(id)}/renew-expiration`,
+      {
+        body: JSON.stringify({ expiresAt: expiresAt.toISOString() }),
+        headers: this.headers({ 'Content-Type': 'application/json' }),
+        method: 'POST',
+        signal,
+      },
+    );
+    await ensureOk(response, 'OpenSandbox could not renew the sandbox');
   }
 
   async deleteSandbox(id: string, signal: AbortSignal) {
