@@ -93,7 +93,11 @@ const SessionPanel = memo<PropsWithChildren>(({ children }) => {
           <div
             style={{
               boxSizing: 'border-box',
+              display: 'flex',
+              flexDirection: 'column',
               height: '100%',
+              minHeight: 0,
+              overflow: 'hidden',
               padding: `0 ${CHAT_PANEL_GAP}px ${CHAT_PANEL_GAP}px`,
             }}
           >

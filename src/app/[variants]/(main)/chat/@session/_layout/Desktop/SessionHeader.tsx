@@ -31,6 +31,7 @@ export const useStyles = createStyles(({ css, token }) => ({
   top: css`
     position: sticky;
     z-index: 2;
+    flex: none;
     inset-block-start: 0;
 
     padding-block: 10px 8px;
@@ -175,7 +176,7 @@ const Header = memo(() => {
   };
 
   return (
-    <Flexbox className={styles.top} gap={10} paddingInline={8}>
+    <Flexbox className={styles.top} flex={'none'} gap={10} paddingInline={8}>
       <Flexbox align={'flex-start'} horizontal justify={'space-between'}>
         <Flexbox
           align={'center'}
