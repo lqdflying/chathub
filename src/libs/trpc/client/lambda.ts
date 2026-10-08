@@ -81,14 +81,16 @@ const safeRPCErrorMessage = (error: unknown) => {
   return `The application gateway returned an unusable ${responseError.details.bodyKind} response.${diagnosticSuffix}`;
 };
 
-// A finished 2xx/3xx with a non-JSON body, or a dropped connection, is a resume
-// or radio interrupt. SWR retries it. Status 400 and above stays visible.
-const isTransientRpcTransportError = (error: unknown) => {
+// Query reads that finish below HTTP 400, or never receive an error status, are
+// resume or radio interrupts. SWR retries them. A received status of 400 or
+// above stays visible, including a failed body read. Mutations stay visible.
+const isTransientRpcTransportError = (error: unknown, operationType: string) => {
+  if (operationType !== 'query') return false;
+
   const responseError = findRPCResponseError(error);
   if (!responseError) return false;
 
-  const { httpStatus, reason } = responseError.details;
-  if (reason === 'network_error' || reason === 'response_read_failed') return true;
+  const { httpStatus } = responseError.details;
   return httpStatus === undefined || httpStatus < 400;
 };
 
@@ -121,7 +123,7 @@ const errorHandlingLink: TRPCLink<LambdaRouter> = () => {
               }
 
               default: {
-                if (isTransientRpcTransportError(err)) break;
+                if (isTransientRpcTransportError(err, op.type)) break;
 
                 fetchErrorNotification.error({
                   errorMessage: safeRPCErrorMessage(err),

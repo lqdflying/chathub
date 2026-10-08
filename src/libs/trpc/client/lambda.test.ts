@@ -297,14 +297,14 @@ describe('lambda tRPC client links', () => {
   ])('does not toast a HTTP 200 %s body', async (_label, body, contentType) => {
     fetchErrorSpy.mockClear();
     loginRedirectSpy.mockClear();
-    const fetchMock = vi.fn(async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => {
       return new Response(body, {
         headers: { 'content-type': contentType },
         status: 200,
       });
     });
     const client = createLambdaClient({
-      fetch: fetchMock as typeof fetch,
+      fetch: fetchMock,
       getAuthHeaders: async () => ({}),
     });
 
@@ -397,5 +397,109 @@ describe('lambda tRPC client links', () => {
 
     expect(fetchErrorSpy).not.toHaveBeenCalled();
     expect(loginRedirectSpy).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['network rejection', async () => {
+      throw new TypeError('Load failed');
+    }],
+    ['unusable HTTP 200', async () =>
+      new Response('<!DOCTYPE html><html><body>gateway page</body></html>', {
+        headers: { 'content-type': 'text/html' },
+        status: 200,
+      })],
+  ] as const)('notifies once when a settings mutation hits a %s', async (_label, respond) => {
+    fetchErrorSpy.mockClear();
+    loginRedirectSpy.mockClear();
+    const fetchMock = vi.fn<typeof fetch>(respond);
+    const client = createLambdaClient({
+      fetch: fetchMock,
+      getAuthHeaders: async () => ({}),
+    });
+
+    await expect(
+      client.user.updateSettings.mutate({ general: { themeMode: 'dark' } }),
+    ).rejects.toBeTruthy();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[1]?.method).toBe('POST');
+    expect(fetchErrorSpy).toHaveBeenCalledTimes(1);
+    expect(loginRedirectSpy).not.toHaveBeenCalled();
+  });
+
+  it('stays quiet when a settings mutation sets showNotification to false', async () => {
+    fetchErrorSpy.mockClear();
+    loginRedirectSpy.mockClear();
+    const client = createLambdaClient({
+      fetch: vi.fn<typeof fetch>(async () => {
+        throw new TypeError('Load failed');
+      }),
+      getAuthHeaders: async () => ({}),
+    });
+
+    await expect(
+      client.user.updateSettings.mutate(
+        { general: { themeMode: 'dark' } },
+        { context: { showNotification: false } },
+      ),
+    ).rejects.toBeTruthy();
+
+    expect(fetchErrorSpy).not.toHaveBeenCalled();
+    expect(loginRedirectSpy).not.toHaveBeenCalled();
+  });
+
+  it.each([403, 502])(
+    'notifies when HTTP %i headers arrive but the body read fails',
+    async (status) => {
+      fetchErrorSpy.mockClear();
+      loginRedirectSpy.mockClear();
+      const response = new Response('partial', { status });
+      vi.spyOn(response, 'arrayBuffer').mockRejectedValue(new TypeError('terminated'));
+      const client = createLambdaClient({
+        fetch: vi.fn<typeof fetch>(async () => response),
+        getAuthHeaders: async () => ({}),
+      });
+
+      await expect(client.user.getUserState.query()).rejects.toBeTruthy();
+
+      expect(fetchErrorSpy).toHaveBeenCalledTimes(1);
+      expect(fetchErrorSpy).toHaveBeenCalledWith(expect.objectContaining({ status }));
+      expect(loginRedirectSpy).not.toHaveBeenCalled();
+    },
+  );
+
+  it('stays quiet when an HTTP 200 body read fails on a query', async () => {
+    fetchErrorSpy.mockClear();
+    loginRedirectSpy.mockClear();
+    const response = new Response('partial', { status: 200 });
+    vi.spyOn(response, 'arrayBuffer').mockRejectedValue(new TypeError('terminated'));
+    const client = createLambdaClient({
+      fetch: vi.fn<typeof fetch>(async () => response),
+      getAuthHeaders: async () => ({}),
+    });
+
+    await expect(client.user.getUserState.query()).rejects.toBeTruthy();
+
+    expect(fetchErrorSpy).not.toHaveBeenCalled();
+    expect(loginRedirectSpy).not.toHaveBeenCalled();
+  });
+
+  it('redirects when HTTP 401 headers arrive but the body read fails', async () => {
+    fetchErrorSpy.mockClear();
+    loginRedirectSpy.mockClear();
+    // The HTML 401 case above already armed the redirect debounce.
+    vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 10_000);
+    const response = new Response('partial', { status: 401 });
+    vi.spyOn(response, 'arrayBuffer').mockRejectedValue(new TypeError('terminated'));
+    const client = createLambdaClient({
+      fetch: vi.fn<typeof fetch>(async () => response),
+      getAuthHeaders: async () => ({}),
+    });
+
+    await expect(client.user.getUserState.query()).rejects.toBeTruthy();
+
+    expect(loginRedirectSpy).toHaveBeenCalledTimes(1);
+    expect(fetchErrorSpy).not.toHaveBeenCalled();
+    vi.mocked(Date.now).mockRestore();
   });
 });

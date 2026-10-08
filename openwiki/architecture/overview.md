@@ -46,13 +46,15 @@ Electron runtime, PGlite, IndexedDB/Dexie persistence, desktop IPC, or a
 browser-local service implementation.
 
 Locking a phone, switching apps, or a short network drop can finish an in-flight
-lambda GET as HTTP 200 with an empty or cut-off body, or as a network read
-failure. That failure still rejects so client data hooks can retry. It does not
-open the global Request failed toast. A response at status 400 or above still
-notifies, as one card. The production service worker sends same-origin `/trpc/`
-and `/webapi/` through `NetworkOnly` ahead of Serwist's default cache, and
-lambda fetches use `cache: 'no-store'`, so a bad GET is not replayed after the
-network returns. `/api/` stays on the default cache.
+lambda query below HTTP 400, or with no HTTP status. That query still rejects
+so client data hooks can retry, and it does not open the global Request failed
+toast. A received status of 400 or above opens one card, including when the
+body cannot be read. HTTP 401 uses the login redirect. A mutation keeps its
+failure notification unless the caller set `showNotification` to false. The
+production service worker sends same-origin `/trpc/` and `/webapi/` through
+`NetworkOnly` ahead of Serwist's default cache, and lambda fetches use
+`cache: 'no-store'`, so a bad GET is not replayed after the network returns.
+`/api/` stays on the default cache.
 
 **Design default:** new product behavior is **server-side** (tRPC, Graphile
 Worker, `src/server/services/`). The browser is a **thin client** — render UI,
