@@ -6,7 +6,7 @@
 
 **ChatHub 2.0** is the current GA. v1.0.0 (May 2026) was a rebranded, self-hosted LobeChat: credentials login, an extended model bank, Tools Hub, MCP OAuth, and per-provider gear. Twenty-eight patch releases later, the runtime contract is different. Closing the tab does not cancel the turn. Knowledge Base is a real RAG stack with its own embedding keys. The Sandbox and document conversion are optional sidecars. There is no Electron app and no browser-local database — browsers and PWAs talk to the server; durable data lives in PostgreSQL.
 
-Upgrade from any 1.x or 2.0.x image the same way as a patch: pull `:latest` or `2.0.13`, restart, let migrations run. **2.0.13** drops the Dify Code Interpreter sidecar. The Sandbox tool runs only on an OpenSandbox server you operate beside ChatHub. [Release notes](https://github.com/lqdflying/chathub/releases/tag/v2.0.13) · [OpenSandbox setup](https://github.com/lqdflying/chathub/wiki/Code-Interpreter-with-OpenSandbox) · [Wiki](https://github.com/lqdflying/chathub/wiki)
+Upgrade from any 1.x or 2.0.x image the same way as a patch: pull `:latest` or `2.0.14`, restart, let migrations run. **2.0.13** drops the Dify Code Interpreter sidecar. The Sandbox tool runs only on an OpenSandbox server you operate beside ChatHub. [Release notes](https://github.com/lqdflying/chathub/releases/tag/v2.0.14) · [OpenSandbox setup](https://github.com/lqdflying/chathub/wiki/Code-Interpreter-with-OpenSandbox) · [Wiki](https://github.com/lqdflying/chathub/wiki)
 
 ---
 
@@ -145,7 +145,7 @@ Repo layout: [Architecture Overview](https://github.com/lqdflying/chathub/wiki/A
 
 ## Docker Release
 
-GitHub Actions builds `docker.io/lqdflying/chathub` on version tags. GA `v*.*.*` updates `:latest`. Canaries (`v*.*.*-canary.*`) do not. Current GA is **v2.0.12**; the next canary is `v2.0.13-canary.N`. [Release Workflow](https://github.com/lqdflying/chathub/wiki/Release-Workflow)
+GitHub Actions builds `docker.io/lqdflying/chathub` on version tags. GA `v*.*.*` updates `:latest`. Canaries (`v*.*.*-canary.*`) do not. Current GA is **v2.0.14**; the next canary is `v2.0.15-canary.N`. [Release Workflow](https://github.com/lqdflying/chathub/wiki/Release-Workflow)
 
 ---
 
