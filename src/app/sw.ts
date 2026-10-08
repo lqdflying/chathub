@@ -1,6 +1,8 @@
 import { defaultCache } from '@serwist/next/worker';
 import type { PrecacheEntry, SerwistGlobalConfig } from 'serwist';
-import { Serwist } from 'serwist';
+import { NetworkOnly, Serwist } from 'serwist';
+
+import { isRpcNetworkOnlyPath } from './swRpcPaths';
 
 // This declares the value of `injectionPoint` to TypeScript.
 // `injectionPoint` is the string that will be replaced by the
@@ -19,7 +21,14 @@ const serwist = new Serwist({
   clientsClaim: true,
   navigationPreload: true,
   precacheEntries: self.__SW_MANIFEST,
-  runtimeCaching: defaultCache,
+  runtimeCaching: [
+    {
+      handler: new NetworkOnly(),
+      matcher: ({ sameOrigin, url: { pathname } }) =>
+        sameOrigin && isRpcNetworkOnlyPath(pathname),
+    },
+    ...defaultCache,
+  ],
   skipWaiting: true,
 });
 

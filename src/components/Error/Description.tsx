@@ -26,12 +26,15 @@ export const getFetchErrorResponseKey = (status?: number) =>
     : ('response.UnknownChatFetchError' as const);
 
 const Description = memo<{ message: string; status?: number }>(({ message, status }) => {
-  const { t } = useTranslation('error');
+  const { t, i18n } = useTranslation('error');
   const [show, setShow] = useState(false);
   const responseKey = getFetchErrorResponseKey(status);
+  const responseCopy = i18n.exists(responseKey, { ns: 'error' })
+    ? t(responseKey as any)
+    : t('response.UnknownChatFetchError');
   return (
     <Flexbox gap={8}>
-      {t(responseKey as any)}
+      {responseCopy}
       <Flexbox
         gap={4}
         horizontal

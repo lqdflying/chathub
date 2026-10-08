@@ -69,6 +69,8 @@ const isAbortError = (error: unknown) => {
   );
 };
 
+const LAMBDA_FETCH_ERROR_NOTIFICATION_KEY = 'lambda-fetch-error';
+
 const safeRPCErrorMessage = (error: unknown) => {
   const responseError = findRPCResponseError(error);
   if (!responseError) return error instanceof Error ? error.message : 'Request failed';
@@ -77,6 +79,17 @@ const safeRPCErrorMessage = (error: unknown) => {
     ? ` Diagnostic ID: ${responseError.details.diagnosticId}.`
     : '';
   return `The application gateway returned an unusable ${responseError.details.bodyKind} response.${diagnosticSuffix}`;
+};
+
+// A finished 2xx/3xx with a non-JSON body, or a dropped connection, is a resume
+// or radio interrupt. SWR retries it. Status 400 and above stays visible.
+const isTransientRpcTransportError = (error: unknown) => {
+  const responseError = findRPCResponseError(error);
+  if (!responseError) return false;
+
+  const { httpStatus, reason } = responseError.details;
+  if (reason === 'network_error' || reason === 'response_read_failed') return true;
+  return httpStatus === undefined || httpStatus < 400;
 };
 
 // Handle Lambda RPC errors and keep invalid proxy bodies out of user-visible notifications.
@@ -108,8 +121,11 @@ const errorHandlingLink: TRPCLink<LambdaRouter> = () => {
               }
 
               default: {
+                if (isTransientRpcTransportError(err)) break;
+
                 fetchErrorNotification.error({
                   errorMessage: safeRPCErrorMessage(err),
+                  key: LAMBDA_FETCH_ERROR_NOTIFICATION_KEY,
                   status,
                 });
               }
@@ -165,6 +181,8 @@ const createLambdaLinks = ({
 }: LambdaClientOptions = {}) => {
   const fetchImpl = customFetch || globalThis.fetch.bind(globalThis);
   const guardedFetch = createGuardedRPCFetch(fetchImpl);
+  const noStoreFetch: typeof fetch = (input, init) =>
+    guardedFetch(input, { ...init, cache: 'no-store' });
 
   const headersForDiagnostics = async (
     diagnosticId?: string,
@@ -179,7 +197,7 @@ const createLambdaLinks = ({
   };
 
   const isolatedLink = httpLink<LambdaRouter>({
-    fetch: guardedFetch,
+    fetch: noStoreFetch,
     headers: ({ op }) =>
       headersForDiagnostics(
         diagnosticIdFromContext(op.context),
@@ -190,7 +208,7 @@ const createLambdaLinks = ({
   });
 
   const verifiedAccountLink = httpLink<LambdaRouter>({
-    fetch: guardedFetch,
+    fetch: noStoreFetch,
     headers: async ({ op }) => {
       const accountMutationSnapshot = await assertAccountOwnership();
       const headers = new Headers(
@@ -208,7 +226,7 @@ const createLambdaLinks = ({
   });
 
   const batchedLink = httpBatchLink<LambdaRouter>({
-    fetch: guardedFetch,
+    fetch: noStoreFetch,
     headers: ({ opList }) =>
       headersForDiagnostics(
         opList.map((op) => diagnosticIdFromContext(op.context)).find(Boolean),

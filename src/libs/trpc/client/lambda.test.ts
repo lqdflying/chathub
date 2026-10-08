@@ -289,4 +289,113 @@ describe('lambda tRPC client links', () => {
       expect(fetchErrorSpy).not.toHaveBeenCalled();
     },
   );
+
+  it.each([
+    ['empty', '', 'application/json'],
+    ['truncated JSON', '{"result":', 'application/json'],
+    ['HTML', '<!DOCTYPE html><html><body>gateway page</body></html>', 'text/html'],
+  ])('does not toast a HTTP 200 %s body', async (_label, body, contentType) => {
+    fetchErrorSpy.mockClear();
+    loginRedirectSpy.mockClear();
+    const fetchMock = vi.fn(async () => {
+      return new Response(body, {
+        headers: { 'content-type': contentType },
+        status: 200,
+      });
+    });
+    const client = createLambdaClient({
+      fetch: fetchMock as typeof fetch,
+      getAuthHeaders: async () => ({}),
+    });
+
+    await expect(client.user.getUserState.query()).rejects.toBeTruthy();
+
+    expect(fetchMock).toHaveBeenCalled();
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ cache: 'no-store' });
+    expect(fetchErrorSpy).not.toHaveBeenCalled();
+    expect(loginRedirectSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not toast a WebKit Load failed without an abort signal', async () => {
+    fetchErrorSpy.mockClear();
+    loginRedirectSpy.mockClear();
+    const client = createLambdaClient({
+      fetch: vi.fn(async () => {
+        throw new TypeError('Load failed');
+      }) as typeof fetch,
+      getAuthHeaders: async () => ({}),
+    });
+
+    await expect(client.user.getUserState.query()).rejects.toBeTruthy();
+    expect(fetchErrorSpy).not.toHaveBeenCalled();
+    expect(loginRedirectSpy).not.toHaveBeenCalled();
+  });
+
+  it('toasts an HTTP 502 HTML body on one shared key', async () => {
+    fetchErrorSpy.mockClear();
+    loginRedirectSpy.mockClear();
+    const client = createLambdaClient({
+      fetch: vi.fn(
+        async () =>
+          new Response('<!DOCTYPE html><html><body>gateway page</body></html>', {
+            headers: { 'content-type': 'text/html' },
+            status: 502,
+          }),
+      ) as typeof fetch,
+      getAuthHeaders: async () => ({}),
+    });
+
+    await expect(client.user.getUserState.query()).rejects.toBeTruthy();
+    await expect(client.user.getUserState.query()).rejects.toBeTruthy();
+
+    expect(fetchErrorSpy).toHaveBeenCalledTimes(2);
+    expect(fetchErrorSpy.mock.calls[0]?.[0]).toMatchObject({
+      key: 'lambda-fetch-error',
+      status: 502,
+    });
+    expect(fetchErrorSpy.mock.calls[1]?.[0].key).toBe('lambda-fetch-error');
+    expect(loginRedirectSpy).not.toHaveBeenCalled();
+  });
+
+  it('redirects on HTTP 401 HTML and does not toast', async () => {
+    fetchErrorSpy.mockClear();
+    loginRedirectSpy.mockClear();
+    const client = createLambdaClient({
+      fetch: vi.fn(
+        async () =>
+          new Response('<!DOCTYPE html><html><body>gateway page</body></html>', {
+            headers: { 'content-type': 'text/html' },
+            status: 401,
+          }),
+      ) as typeof fetch,
+      getAuthHeaders: async () => ({}),
+    });
+
+    await expect(client.user.getUserState.query()).rejects.toBeTruthy();
+
+    expect(loginRedirectSpy).toHaveBeenCalledTimes(1);
+    expect(fetchErrorSpy).not.toHaveBeenCalled();
+  });
+
+  it('suppresses the toast for an HTTP 502 HTML body when showNotification is false', async () => {
+    fetchErrorSpy.mockClear();
+    loginRedirectSpy.mockClear();
+    const client = createLambdaClient({
+      fetch: vi.fn(
+        async () =>
+          new Response('<!DOCTYPE html><html><body>gateway page</body></html>', {
+            headers: { 'content-type': 'text/html' },
+            status: 502,
+          }),
+      ) as typeof fetch,
+      getAuthHeaders: async () => ({}),
+    });
+
+    await expect(
+      client.user.getUserState.query(undefined, { context: { showNotification: false } }),
+    ).rejects.toBeTruthy();
+
+    expect(fetchErrorSpy).not.toHaveBeenCalled();
+    expect(loginRedirectSpy).not.toHaveBeenCalled();
+  });
 });
