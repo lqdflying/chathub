@@ -61,6 +61,9 @@ vi.mock('@/app/[variants]/(main)/settings/provider/ProviderMenu', () => ({
       <button onClick={() => onProviderSelect('openai')} type="button">
         select openai
       </button>
+      <button onClick={() => onProviderSelect('moonshot')} type="button">
+        select moonshot
+      </button>
     </div>
   ),
 }));
@@ -88,13 +91,44 @@ const nativePush = window.history.pushState.bind(window.history);
 const nativeReplace = window.history.replaceState.bind(window.history);
 const previousNuqs = (window.history as History & { nuqs?: unknown }).nuqs;
 
-window.history.pushState = (...args: Parameters<History['pushState']>) => {
-  nativePush(...args);
-  notify();
+// Mirrors Next's installed history wrapper: __NA/_N skip search-param sync,
+// and an external write does not update React until a later turn. Notifying
+// on every write hides the list inside the first click and cannot catch a
+// second tap. See next/dist/client/components/app-router.js.
+const isNextHistoryBypass = (data: unknown) => {
+  if (!data || typeof data !== 'object') return false;
+  const state = data as Record<string, unknown>;
+  return Boolean(state.__NA || state._N);
 };
-window.history.replaceState = (...args: Parameters<History['replaceState']>) => {
-  nativeReplace(...args);
-  notify();
+
+const storeExternalHistory = (
+  method: History['pushState'],
+  data: unknown,
+  unused: string,
+  url?: string | URL | null,
+) => {
+  if (isNextHistoryBypass(data)) {
+    method.call(window.history, data, unused, url);
+    return;
+  }
+  const state: Record<string, unknown> =
+    data && typeof data === 'object' ? { ...(data as Record<string, unknown>) } : {};
+  const current = window.history.state;
+  if (current && typeof current === 'object') {
+    if (current.__NA) state.__NA = current.__NA;
+    if (current.__PRIVATE_NEXTJS_INTERNALS_TREE) {
+      state.__PRIVATE_NEXTJS_INTERNALS_TREE = current.__PRIVATE_NEXTJS_INTERNALS_TREE;
+    }
+  }
+  method.call(window.history, state, unused, url);
+  if (url) setTimeout(notify, 0);
+};
+
+window.history.pushState = (data, unused, url) => {
+  storeExternalHistory(nativePush, data, unused, url);
+};
+window.history.replaceState = (data, unused, url) => {
+  storeExternalHistory(nativeReplace, data, unused, url);
 };
 
 const router = {
@@ -153,7 +187,7 @@ const select = async () => {
 };
 
 beforeEach(() => {
-  window.history.replaceState(null, '', '/me/settings');
+  nativeReplace({ __NA: true, __PRIVATE_NEXTJS_INTERNALS_TREE: ['settings'] }, '', '/me/settings');
   window.history.pushState(null, '', '/settings?active=provider');
 });
 
@@ -199,14 +233,16 @@ it('stays on the provider list when Back happens before the query throttle flush
   fireEvent.click(screen.getByText('back'));
   await waitFor(() => expect(screen.getByTestId('list')).toBeTruthy(), { interval: 1 });
 
-  fireEvent.click(screen.getByText('select openai'));
-  expect(screen.getByText('openai')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'select openai' }));
+  expect(screen.getByTestId('list')).toBeTruthy();
   expect(window.location.search).toContain('provider=openai');
 
-  fireEvent.click(screen.getByText('back'));
-  await waitFor(() => expect(screen.getByTestId('list')).toBeTruthy(), { interval: 1 });
+  fireEvent.click(screen.getByRole('button', { name: 'back' }));
+  await waitFor(() => expect(window.location.search).not.toContain('provider=openai'), {
+    interval: 1,
+  });
+  expect(screen.getByTestId('list')).toBeTruthy();
   expect(window.location.pathname).toBe('/settings');
-  expect(window.location.search).not.toContain('provider=openai');
 
   await act(async () => {
     await new Promise((resolve) => {
@@ -232,4 +268,48 @@ it('keeps a fresh direct provider visit in Settings on header Back', async () =>
 
   await traversed('back');
   expect(window.location.pathname).toBe('/me/settings');
+});
+
+const returnToListInOneBack = async (listHistoryLength: number) => {
+  await waitFor(() => expect(screen.getByTestId('detail')).toBeTruthy());
+  expect(window.history.length).toBe(listHistoryLength + 1);
+
+  fireEvent.click(screen.getByRole('button', { name: 'back' }));
+  await waitFor(() => expect(screen.getByTestId('list')).toBeTruthy());
+  expect(window.location.pathname).toBe('/settings');
+  expect(window.location.search).not.toContain('provider=');
+
+  await traversed('back');
+  expect(window.location.pathname).toBe('/me/settings');
+};
+
+it('creates one detail entry when the same visible row is tapped twice', async () => {
+  render(<Harness />);
+  expect(screen.getByTestId('list')).toBeTruthy();
+  const listHistoryLength = window.history.length;
+
+  fireEvent.click(screen.getByRole('button', { name: 'select openai' }));
+  expect(screen.getByTestId('list')).toBeTruthy();
+  expect(window.history.length).toBe(listHistoryLength + 1);
+
+  fireEvent.click(screen.getByRole('button', { name: 'select openai' }));
+  expect(screen.getByTestId('list')).toBeTruthy();
+  expect(window.history.length).toBe(listHistoryLength + 1);
+
+  await returnToListInOneBack(listHistoryLength);
+});
+
+it('creates one detail entry when two different visible rows are tapped', async () => {
+  render(<Harness />);
+  expect(screen.getByTestId('list')).toBeTruthy();
+  const listHistoryLength = window.history.length;
+
+  fireEvent.click(screen.getByRole('button', { name: 'select openai' }));
+  expect(screen.getByTestId('list')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'select moonshot' }));
+  expect(screen.getByTestId('list')).toBeTruthy();
+  expect(window.history.length).toBe(listHistoryLength + 1);
+
+  await waitFor(() => expect(screen.getByTestId('detail').textContent).toBe('detail moonshot'));
+  await returnToListInOneBack(listHistoryLength);
 });

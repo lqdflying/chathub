@@ -32,7 +32,12 @@ const Header = memo<HeaderProps>(({ activeSettingsKey }) => {
   const handleBackClick = () => {
     if (isSessionActive && showMobileWorkspace) {
       router.push('/chat');
-    } else if (activeSettingsKey === 'provider' && providerName !== null) {
+    } else if (
+      activeSettingsKey === 'provider' &&
+      (providerName !== null || readProviderDetailEntry())
+    ) {
+      // The detail entry can exist before nuqs shows its id. Pop that entry
+      // instead of leaving Settings.
       if (readProviderDetailEntry()) {
         window.history.back();
         return;

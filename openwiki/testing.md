@@ -72,6 +72,7 @@ Cover the real nuqs adapter with `history.back()` and `history.forward()`. Do no
 - a committed selection, header Back, then one more Back to `/me/settings`
 - Back, Forward, header Back, then one more Back, with no duplicate list entry
 - a second selection still inside the nuqs throttle window, then header Back: stay on the list and do not reopen the detail
+- repeated taps on rows that are still visible, including a different provider, create one detail entry. Do not pass Next's `__NA` or `_N` history flags into that write; Next treats them as an internal history update and skips search-param sync
 - a direct detail URL with empty `history.state` clears the provider query and stays in Settings
 
 Suites:

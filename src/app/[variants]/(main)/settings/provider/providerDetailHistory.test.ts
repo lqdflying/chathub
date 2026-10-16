@@ -12,16 +12,34 @@ describe('provider detail history', () => {
     window.history.replaceState(null, '', '/settings?active=provider');
   });
 
-  it('pushes a mobile detail entry without dropping the previous history state', () => {
-    window.history.replaceState({ __NA: true }, '', '/settings?active=provider');
+  it('pushes one detail entry and does not pass Next history bypass flags', () => {
+    window.history.replaceState(
+      { _N: true, __NA: true, __PRIVATE_NEXTJS_INTERNALS_TREE: ['settings'] },
+      '',
+      '/settings?active=provider',
+    );
 
     expect(providerSelectHistoryMode(true)).toBe('push');
     const preserved = pushProviderDetailEntry('openai');
+    const length = window.history.length;
 
-    expect(preserved).toMatchObject({ __NA: true, chathubProviderDetail: 'openai' });
+    expect(preserved).toMatchObject({
+      __PRIVATE_NEXTJS_INTERNALS_TREE: ['settings'],
+      chathubProviderDetail: 'openai',
+    });
+    expect(preserved).not.toHaveProperty('__NA');
+    expect(preserved).not.toHaveProperty('_N');
     expect(window.location.search).toContain('provider=openai');
     expect(readProviderDetailEntry()).toBe('openai');
-    expect(window.history.state).toMatchObject({ __NA: true, chathubProviderDetail: 'openai' });
+    expect(window.history.state).not.toHaveProperty('__NA');
+
+    const replaced = pushProviderDetailEntry('moonshot');
+
+    expect(window.history.length).toBe(length);
+    expect(replaced).toMatchObject({ chathubProviderDetail: 'moonshot' });
+    expect(replaced).not.toHaveProperty('__NA');
+    expect(readProviderDetailEntry()).toBe('moonshot');
+    expect(window.location.search).toContain('provider=moonshot');
   });
 
   it('does not push a history entry for desktop selection', () => {
@@ -31,7 +49,11 @@ describe('provider detail history', () => {
   });
 
   it('restores the detail marker after a query update clears history.state', () => {
-    window.history.replaceState({ __NA: true }, '', '/settings?active=provider');
+    window.history.replaceState(
+      { __NA: true, __PRIVATE_NEXTJS_INTERNALS_TREE: ['settings'] },
+      '',
+      '/settings?active=provider',
+    );
     const preserved = pushProviderDetailEntry('openai');
     expect(preserved).not.toBeNull();
     window.history.replaceState(null, '', window.location.href);
@@ -39,7 +61,10 @@ describe('provider detail history', () => {
     retainProviderDetailEntry('openai', preserved!);
 
     expect(readProviderDetailEntry()).toBe('openai');
-    expect(window.history.state).toMatchObject({ __NA: true });
+    expect(window.history.state).toMatchObject({
+      __PRIVATE_NEXTJS_INTERNALS_TREE: ['settings'],
+    });
+    expect(window.history.state).not.toHaveProperty('__NA');
   });
 
   it('does not stamp the list entry when the detail update was cancelled', () => {

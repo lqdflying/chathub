@@ -95,6 +95,22 @@ describe('mobile settings header provider back', () => {
     expect(mocks.setActive).not.toHaveBeenCalled();
   });
 
+  it('pops a detail entry before the provider id is shown', () => {
+    mocks.providerName = null;
+    window.history.replaceState(
+      { chathubProviderDetail: 'openai' },
+      '',
+      '/settings?active=provider&provider=openai',
+    );
+    renderHeader();
+
+    fireEvent.click(screen.getByRole('button', { name: 'back' }));
+
+    expect(window.history.back).toHaveBeenCalledOnce();
+    expect(mocks.push).not.toHaveBeenCalled();
+    expect(mocks.setProviderName).not.toHaveBeenCalled();
+  });
+
   it('clears the provider query for a direct visit that did not push a detail entry', () => {
     renderHeader();
 

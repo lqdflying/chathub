@@ -1,11 +1,17 @@
 const PROVIDER_DETAIL_HISTORY_KEY = 'chathubProviderDetail';
 
+// Next's app-router history wrapper skips useSearchParams sync when the
+// data already contains these flags. It copies them itself for an external write.
+const NEXT_HISTORY_BYPASS_KEYS = ['__NA', '_N'] as const;
+
 export type ProviderHistoryMode = 'push' | 'replace';
 
 const copyHistoryState = (): Record<string, unknown> => {
   const state = window.history.state;
-  if (state && typeof state === 'object') return { ...state };
-  return {};
+  if (!state || typeof state !== 'object') return {};
+  const copy: Record<string, unknown> = { ...state };
+  for (const key of NEXT_HISTORY_BYPASS_KEYS) delete copy[key];
+  return copy;
 };
 
 export const providerSelectHistoryMode = (mobile?: boolean): ProviderHistoryMode =>
@@ -25,12 +31,15 @@ const detailPath = (providerId: string) => {
   return `${url.pathname}${url.search}${url.hash}`;
 };
 
-// Returns the state written onto the new entry, or null when the browser
-// refuses the push. Callers must not history.back() without that entry.
+// Returns the state written onto the detail entry, or null when the browser
+// refuses the update. A second tap before the list unmounts replaces that
+// entry so Back still returns to the list.
 export const pushProviderDetailEntry = (providerId: string): Record<string, unknown> | null => {
   const state = { ...copyHistoryState(), [PROVIDER_DETAIL_HISTORY_KEY]: providerId };
+  const path = detailPath(providerId);
+  const write = readProviderDetailEntry() ? window.history.replaceState : window.history.pushState;
   try {
-    window.history.pushState(state, '', detailPath(providerId));
+    write.call(window.history, state, '', path);
   } catch {
     return null;
   }
