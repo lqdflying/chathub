@@ -2,10 +2,14 @@
 
 import { ChatHeader } from '@lobehub/ui/mobile';
 import { useQueryState } from 'nuqs';
-import { memo } from 'react';
+import { memo, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
+import {
+  consumeProviderDetailHistoryPush,
+  syncProviderDetailHistoryOnPop,
+} from '@/app/[variants]/(main)/settings/provider/providerDetailHistory';
 import { enableAuth } from '@/const/auth';
 import { useQueryRoute } from '@/hooks/useQueryRoute';
 import { useShowMobileWorkspace } from '@/hooks/useShowMobileWorkspace';
@@ -28,10 +32,25 @@ const Header = memo<HeaderProps>(({ activeSettingsKey }) => {
   const isSessionActive = useSessionStore((s) => !!s.activeId);
   const isProvider = !!providerName;
 
+  useEffect(() => {
+    const onPopState = () => {
+      // The history entry is already applied. React query state can still
+      // show the detail id during this tick.
+      syncProviderDetailHistoryOnPop(new URLSearchParams(window.location.search).get('provider'));
+    };
+
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
+
   const handleBackClick = () => {
     if (isSessionActive && showMobileWorkspace) {
       router.push('/chat');
     } else if (activeSettingsKey === 'provider' && providerName !== null) {
+      if (consumeProviderDetailHistoryPush()) {
+        window.history.back();
+        return;
+      }
       setProviderName(null);
       setActiveSettingsKey('provider');
     } else {

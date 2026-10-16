@@ -7,14 +7,18 @@ import { isCustomBranding } from '@/const/version';
 import DesktopLayout from '../_layout/Desktop';
 import MobileLayout from '../_layout/Mobile';
 import ProviderDetailPage from '../detail';
+import { selectProviderHistory } from '../providerDetailHistory';
 import Footer from './Footer';
 
 const Page = (props: { mobile?: boolean }) => {
   const [Provider, setProvider] = useQueryState('provider', parseAsString.withDefault('all'));
   const { mobile } = props;
   const ProviderLayout = mobile ? MobileLayout : DesktopLayout;
+  const onProviderSelect = (providerKey: string) => {
+    void setProvider(providerKey, { history: selectProviderHistory(mobile) });
+  };
   return (
-    <ProviderLayout onProviderSelect={setProvider}>
+    <ProviderLayout onProviderSelect={onProviderSelect}>
       <ProviderDetailPage id={Provider} />
       {!isCustomBranding && <Footer />}
     </ProviderLayout>
