@@ -8,10 +8,14 @@ import WideScreenContainer from '@/features/Conversation/components/WideScreenCo
 import { useChatStore } from '@/store/chat';
 import { chatSelectors } from '@/store/chat/selectors';
 
+import { SandboxFileDownloadSync } from '../../SandboxFileDownloads';
 import AutoScroll from '../AutoScroll';
 import SkeletonList from '../SkeletonList';
-import { SandboxFileDownloadSync } from '../../SandboxFileDownloads';
-import { VirtuosoContext, resetVirtuosoVisibleItems, setVirtuosoGlobalRef } from './VirtuosoContext';
+import {
+  VirtuosoContext,
+  resetVirtuosoVisibleItems,
+  setVirtuosoGlobalRef,
+} from './VirtuosoContext';
 import { ENABLE_LIGHT_SCROLL_MARKDOWN, resolveVirtuosoOverscan } from './scrollViewport';
 import { useSustainedScrolling } from './useSustainedScrolling';
 
@@ -89,54 +93,54 @@ const VirtualizedList = memo<VirtualizedListProps>(({ mobile, dataSource, itemCo
     <>
       <SandboxFileDownloadSync />
       <VirtuosoContext value={virtuosoRef}>
-      <Virtuoso
-        atBottomStateChange={setAtBottom}
-        atBottomThreshold={50 * (mobile ? 2 : 1)}
-        components={{
-          List,
-        }}
-
-        computeItemKey={(_, item) => item}
-        context={{
-          isScrolling: ENABLE_LIGHT_SCROLL_MARKDOWN ? lightScroll : false,
-        }}
-        data={dataSource}
-        followOutput={getFollowOutput}
-        increaseViewportBy={overscan}
-        initialTopMostItemIndex={dataSource?.length - 1}
-        isScrolling={setIsScrolling}
-        itemContent={itemContent}
-        ref={virtuosoRef}
-        // https://github.com/petyosi/react-virtuoso/discussions/1083
-        skipAnimationFrameInResizeObserver
-      />
-      <WideScreenContainer
-        onChange={() => {
-          if (!atBottom) return;
-          setTimeout(scrollToBottom, 100);
-        }}
-        style={{
-          position: 'relative',
-        }}
-      >
-        <AutoScroll
-          atBottom={atBottom}
-          isScrolling={isScrolling}
-          onScrollToBottom={(type) => {
-            switch (type) {
-              case 'auto': {
-                scrollToBottom();
-                break;
-              }
-              case 'click': {
-                scrollToBottom('smooth');
-                break;
-              }
-            }
+        <Virtuoso
+          atBottomStateChange={setAtBottom}
+          atBottomThreshold={50 * (mobile ? 2 : 1)}
+          components={{
+            List,
           }}
+
+          computeItemKey={(_, item) => item}
+          context={{
+            isScrolling: ENABLE_LIGHT_SCROLL_MARKDOWN ? lightScroll : false,
+          }}
+          data={dataSource}
+          followOutput={getFollowOutput}
+          increaseViewportBy={overscan}
+          initialTopMostItemIndex={dataSource?.length - 1}
+          isScrolling={setIsScrolling}
+          itemContent={itemContent}
+          ref={virtuosoRef}
+          // https://github.com/petyosi/react-virtuoso/discussions/1083
+          skipAnimationFrameInResizeObserver
         />
-      </WideScreenContainer>
-    </VirtuosoContext>
+        <WideScreenContainer
+          onChange={() => {
+            if (!atBottom) return;
+            setTimeout(scrollToBottom, 100);
+          }}
+          style={{
+            position: 'relative',
+          }}
+        >
+          <AutoScroll
+            atBottom={atBottom}
+            isScrolling={isScrolling}
+            onScrollToBottom={(type) => {
+              switch (type) {
+                case 'auto': {
+                  scrollToBottom();
+                  break;
+                }
+                case 'click': {
+                  scrollToBottom('smooth');
+                  break;
+                }
+              }
+            }}
+          />
+        </WideScreenContainer>
+      </VirtuosoContext>
     </>
   );
 });

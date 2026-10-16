@@ -5,12 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import AppLink from '@/layout/GlobalProvider/AppLink';
 import { setIosDownloadUi } from '@/utils/client/downloadFile';
 
+import { SandboxFileDownloadSync } from './SandboxFileDownloads';
 import {
   lookupGeneratedFileDownload,
   readSandboxFileDownloads,
   replaceGeneratedFileDownloads,
 } from './generatedFileDownloads';
-import { SandboxFileDownloadSync } from './SandboxFileDownloads';
 
 vi.stubGlobal('React', React);
 
@@ -41,6 +41,25 @@ const toolMessage = (identifier: string, files: unknown[]) => ({
   plugin: { identifier },
   role: 'tool',
 });
+
+class ChatBoundary extends React.Component<
+  { children: React.ReactNode; onError: (_error: Error) => void },
+  { failed: boolean }
+> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: Error) {
+    this.props.onError(error);
+  }
+
+  render() {
+    return this.state.failed ? <div>chat failed</div> : this.props.children;
+  }
+}
 
 describe('readSandboxFileDownloads', () => {
   it('keeps public-domain and public-ACL outputs and ignores other tools', () => {
@@ -78,6 +97,31 @@ describe('readSandboxFileDownloads', () => {
         url: 'https://bucket.s3.amazonaws.com/files/scope/sheet.xlsx',
       },
     ]);
+  });
+
+  it('skips malformed historical tool content and keeps a valid output', () => {
+    const url = 'https://cdn.example/files/scope/report.docx';
+
+    expect(
+      readSandboxFileDownloads([
+        { content: null, plugin: { identifier: 'lobe-sandbox' }, role: 'tool' },
+        { content: 'null', plugin: { identifier: 'lobe-sandbox' }, role: 'tool' },
+        { content: 'not json', plugin: { identifier: 'lobe-sandbox' }, role: 'tool' },
+        { content: '{"files":{}}', plugin: { identifier: 'lobe-sandbox' }, role: 'tool' },
+        {
+          content: '{"files":[null,"nope",{"fileId":1}]}',
+          plugin: { identifier: 'lobe-sandbox' },
+          role: 'tool',
+        },
+        {
+          content: JSON.stringify({
+            files: [null, { fileId: 'pub', filename: 'report.docx', url }],
+          }),
+          plugin: { identifier: 'lobe-code-interpreter' },
+          role: 'tool',
+        },
+      ]),
+    ).toEqual([{ fileId: 'pub', filename: 'report.docx', url }]);
   });
 });
 
@@ -192,5 +236,34 @@ describe('SandboxFileDownloadSync', () => {
 
     view.unmount();
     expect(lookupGeneratedFileDownload(url)).toBeUndefined();
+  });
+
+  it('registers a valid output when historical tool content is malformed', () => {
+    const onError = vi.fn();
+    const url = 'https://cdn.example/files/scope/report.docx';
+    messages.current = [
+      { content: null, plugin: { identifier: 'lobe-sandbox' }, role: 'tool' },
+      { content: 'null', plugin: { identifier: 'lobe-sandbox' }, role: 'tool' },
+      { content: 'not json', plugin: { identifier: 'lobe-sandbox' }, role: 'tool' },
+      { content: '{"files":{}}', plugin: { identifier: 'lobe-sandbox' }, role: 'tool' },
+      {
+        content: '{"files":[null,"nope"]}',
+        plugin: { identifier: 'lobe-sandbox' },
+        role: 'tool',
+      },
+      toolMessage('lobe-code-interpreter', [{ fileId: 'pub', filename: 'report.docx', url }]),
+    ];
+
+    render(
+      <ChatBoundary onError={onError}>
+        <SandboxFileDownloadSync />
+        <div>chat visible</div>
+      </ChatBoundary>,
+    );
+
+    expect(screen.getByText('chat visible')).toBeTruthy();
+    expect(screen.queryByText('chat failed')).toBeNull();
+    expect(onError).not.toHaveBeenCalled();
+    expect(lookupGeneratedFileDownload(url)?.fileId).toBe('pub');
   });
 });
