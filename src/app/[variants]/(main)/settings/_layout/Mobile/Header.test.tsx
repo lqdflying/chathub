@@ -2,10 +2,6 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import {
-  markProviderDetailHistoryPush,
-  resetProviderDetailHistoryPush,
-} from '@/app/[variants]/(main)/settings/provider/providerDetailHistory';
 import { SettingsTabs } from '@/store/global/initialState';
 
 import Header from './Header';
@@ -23,15 +19,9 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@lobehub/ui/mobile', () => ({
   ChatHeader: Object.assign(
-    ({
-      center,
-      onBackClick,
-    }: {
-      center?: React.ReactNode;
-      onBackClick?: () => void;
-    }) => (
+    ({ center, onBackClick }: { center?: React.ReactNode; onBackClick?: () => void }) => (
       <header>
-        <button type="button" onClick={onBackClick}>
+        <button onClick={onBackClick} type="button">
           back
         </button>
         {center}
@@ -75,7 +65,6 @@ const renderHeader = () => render(<Header activeSettingsKey={SettingsTabs.Provid
 
 describe('mobile settings header provider back', () => {
   beforeEach(() => {
-    resetProviderDetailHistoryPush();
     mocks.activeId = undefined;
     mocks.providerName = 'openai';
     mocks.showMobileWorkspace = false;
@@ -87,12 +76,16 @@ describe('mobile settings header provider back', () => {
   });
 
   afterEach(() => {
-    resetProviderDetailHistoryPush();
     vi.restoreAllMocks();
+    window.history.replaceState(null, '', '/settings?active=provider');
   });
 
-  it('pops the provider detail history entry instead of clearing the query', () => {
-    markProviderDetailHistoryPush();
+  it('pops a detail entry that this visit pushed', () => {
+    window.history.replaceState(
+      { __NA: true, chathubProviderDetail: 'openai' },
+      '',
+      '/settings?active=provider&provider=openai',
+    );
     renderHeader();
 
     fireEvent.click(screen.getByRole('button', { name: 'back' }));
@@ -102,21 +95,8 @@ describe('mobile settings header provider back', () => {
     expect(mocks.setActive).not.toHaveBeenCalled();
   });
 
-  it('clears the provider query when this visit did not push a detail entry', () => {
+  it('clears the provider query for a direct visit that did not push a detail entry', () => {
     renderHeader();
-
-    fireEvent.click(screen.getByRole('button', { name: 'back' }));
-
-    expect(window.history.back).not.toHaveBeenCalled();
-    expect(mocks.setProviderName).toHaveBeenCalledWith(null);
-    expect(mocks.setActive).toHaveBeenCalledWith('provider');
-  });
-
-  it('clears the mark when popstate returns to the provider list', () => {
-    markProviderDetailHistoryPush();
-    renderHeader();
-    window.history.replaceState(null, '', '/settings?active=provider');
-    window.dispatchEvent(new PopStateEvent('popstate'));
 
     fireEvent.click(screen.getByRole('button', { name: 'back' }));
 

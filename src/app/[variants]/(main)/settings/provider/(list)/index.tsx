@@ -7,7 +7,7 @@ import { isCustomBranding } from '@/const/version';
 import DesktopLayout from '../_layout/Desktop';
 import MobileLayout from '../_layout/Mobile';
 import ProviderDetailPage from '../detail';
-import { selectProviderHistory } from '../providerDetailHistory';
+import { pushProviderDetailEntry, retainProviderDetailEntry } from '../providerDetailHistory';
 import Footer from './Footer';
 
 const Page = (props: { mobile?: boolean }) => {
@@ -15,7 +15,24 @@ const Page = (props: { mobile?: boolean }) => {
   const { mobile } = props;
   const ProviderLayout = mobile ? MobileLayout : DesktopLayout;
   const onProviderSelect = (providerKey: string) => {
-    void setProvider(providerKey, { history: selectProviderHistory(mobile) });
+    if (!mobile) {
+      void setProvider(providerKey, { history: 'replace' });
+      return;
+    }
+
+    const preservedState = pushProviderDetailEntry(providerKey);
+    if (!preservedState) {
+      void setProvider(providerKey, { history: 'replace' });
+      return;
+    }
+
+    // An outside pushState aborts nuqs' queued write. Queue the query update
+    // after that abort, and replace so nuqs does not add a second detail entry.
+    queueMicrotask(() => {
+      void setProvider(providerKey, { history: 'replace' }).then(() => {
+        retainProviderDetailEntry(providerKey, preservedState);
+      });
+    });
   };
   return (
     <ProviderLayout onProviderSelect={onProviderSelect}>

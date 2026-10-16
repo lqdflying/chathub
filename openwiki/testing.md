@@ -63,6 +63,25 @@ Run the model-runtime tests and inspect stream fixtures. Provider changes often 
 
 For OpenAI-compatible streaming changes, include `packages/model-runtime/src/utils/response.test.ts`, `packages/model-runtime/src/core/streams/protocol.test.ts`, and `packages/model-runtime/src/core/openaiCompatibleFactory/index.test.ts`. Keepalive coverage should verify the immediate comment, idle heartbeat, complete-frame boundaries, pending-handshake cancellation, and typed first-chunk errors. Also run `packages/fetch-sse/src/__tests__/fetchSSE.test.ts` and `packages/utils/src/client/fetchEventSource/parse.test.ts` when changing SSE comments or parsing.
 
+### Settings provider navigation
+
+Mobile list-to-detail pushes one history entry in the click handler, before nuqs flushes its throttled query write. The marker is `history.state.chathubProviderDetail`. nuqs then replaces that same entry, and the marker is written back only while the document is still that detail URL.
+
+Cover the real nuqs adapter with `history.back()` and `history.forward()`. Do not stub `history.back` to a no-op for these cases:
+
+- a committed selection, header Back, then one more Back to `/me/settings`
+- Back, Forward, header Back, then one more Back, with no duplicate list entry
+- a second selection still inside the nuqs throttle window, then header Back: stay on the list and do not reopen the detail
+- a direct detail URL with empty `history.state` clears the provider query and stays in Settings
+
+Suites:
+
+- `src/app/[variants]/(main)/settings/provider/providerDetailHistory.test.ts`
+- `src/app/[variants]/(main)/settings/provider/providerDetailHistory.integration.test.tsx`
+- `src/app/[variants]/(main)/settings/_layout/Mobile/Header.test.tsx`
+
+Run them with `--maxWorkers=1 --no-file-parallelism`.
+
 ### Context-engine changes
 
 Run the context-engine tests and the chat context engineering test. Pipeline ordering issues usually show up here first.
