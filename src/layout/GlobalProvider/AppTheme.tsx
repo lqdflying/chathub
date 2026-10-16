@@ -10,7 +10,6 @@ import {
 import { ThemeAppearance, createStyles } from 'antd-style';
 import 'antd/dist/reset.css';
 import Image from 'next/image';
-import Link from 'next/link';
 import { ReactNode, memo, useEffect } from 'react';
 
 import AntdStaticMethods from '@/components/AntdStaticMethods';
@@ -26,6 +25,8 @@ import { useUserStore } from '@/store/user';
 import { userGeneralSettingsSelectors } from '@/store/user/selectors';
 import { GlobalStyle } from '@/styles';
 import { setCookie } from '@/utils/client/cookie';
+
+import AppLink from './AppLink';
 
 const useStyles = createStyles(({ css, token }) => ({
   app: css`
@@ -149,7 +150,7 @@ const AppTheme = memo<AppThemeProps>(
         <AntdStaticMethods />
         <ConfigProvider
           config={{
-            aAs: Link,
+            aAs: AppLink,
             imgAs: Image,
             imgUnoptimized: true,
             proxy: globalCDN ? 'unpkg' : undefined,

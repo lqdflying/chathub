@@ -42,6 +42,16 @@ export const isInStandaloneMode = () => {
   );
 };
 
+// iPadOS reports itself as Mac OS. Touch points separate it from a desktop Mac app.
+export const isAppleInstalledApp = () => {
+  if (!isInStandaloneMode()) return false;
+
+  const os = getPlatform()?.toLowerCase();
+  if (os === 'ios') return true;
+
+  return navigator.maxTouchPoints > 1 && /macintosh/i.test(navigator.userAgent);
+};
+
 export const isSonomaOrLaterSafari = () => {
   if (isOnServerSide) return false;
 

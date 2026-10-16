@@ -150,6 +150,13 @@
   },
   "information": "Community and News",
   "installPWA": "Install browser app",
+  "iosFileSave": {
+    "content": "Choose Save to Files in the share sheet to keep {{name}}.",
+    "failed": "This file cannot be saved here.",
+    "fetchFailed": "Could not download this file.",
+    "ok": "Save to Files",
+    "title": "Save file"
+  },
   "lang": {
     "ar": "Arabic",
     "bg-BG": "Bulgarian",

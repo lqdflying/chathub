@@ -124,6 +124,13 @@ export default {
   },
   information: '社区与资讯',
   installPWA: '安装浏览器应用 (PWA)',
+  iosFileSave: {
+    content: '在系统分享菜单中选择“存储到文件”，即可保存 {{name}}。',
+    failed: '无法保存这个文件。',
+    fetchFailed: '无法下载这个文件。',
+    ok: '存储到文件',
+    title: '保存文件',
+  },
   lang: {
     'ar': '阿拉伯语',
     'bg-BG': '保加利亚语',

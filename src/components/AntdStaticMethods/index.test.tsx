@@ -1,13 +1,15 @@
 // EntryComponent.test.tsx
 import { render } from '@testing-library/react';
 import { App } from 'antd';
+import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
 import EntryComponent, { message, modal, notification } from './index';
 
-// 模拟 App.useApp 方法返回的对象
+vi.stubGlobal('React', React);
+
 const mockUseApp = {
-  message: { success: vi.fn() },
+  message: { error: vi.fn(), success: vi.fn() },
   modal: { confirm: vi.fn() },
   notification: { open: vi.fn() },
 };
@@ -16,6 +18,10 @@ vi.mock('antd', () => ({
   App: {
     useApp: vi.fn(() => mockUseApp),
   },
+}));
+
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({ t: (key: string) => key }),
 }));
 
 describe('EntryComponent', () => {
