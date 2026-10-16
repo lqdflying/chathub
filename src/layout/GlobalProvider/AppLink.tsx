@@ -3,7 +3,12 @@
 import Link from 'next/link';
 import { MouseEvent, ReactNode } from 'react';
 
-import { downloadFile } from '@/utils/client/downloadFile';
+import {
+  type GeneratedFileDownload,
+  lookupGeneratedFileDownload,
+} from '@/features/Conversation/generatedFileDownloads';
+import { fileService } from '@/services/file';
+import { downloadFile, reportIosDownloadFailure } from '@/utils/client/downloadFile';
 import { isAppleInstalledApp } from '@/utils/platform';
 
 export const isSameOriginFileUrl = (href: unknown): href is string => {
@@ -23,15 +28,35 @@ const linkText = (children: ReactNode): string => {
   return children.map((child) => linkText(child)).join('');
 };
 
-export const appFileDownloadName = (href: string, children: ReactNode) => {
+const visibleFileName = (children: ReactNode) => {
   const text = linkText(children).trim();
   if (text && !text.includes('/') && /\.[\dA-Za-z]+$/.test(text)) return text;
+  return undefined;
+};
+
+export const appFileDownloadName = (href: string, children: ReactNode) => {
+  const text = visibleFileName(children);
+  if (text) return text;
 
   try {
     const path = new URL(href, window.location.href).pathname;
     return decodeURIComponent(path.split('/').pop() || 'download');
   } catch {
     return 'download';
+  }
+};
+
+const saveKnownFile = async (file: GeneratedFileDownload, children: ReactNode) => {
+  const name = visibleFileName(children) ?? file.filename;
+  try {
+    const item = await fileService.getFile(file.fileId);
+    if (!item.url) {
+      reportIosDownloadFailure('fetch_failed');
+      return;
+    }
+    await downloadFile(item.url, name, false);
+  } catch {
+    reportIosDownloadFailure('fetch_failed');
   }
 };
 
@@ -49,9 +74,16 @@ const AppLink = ({ href, onClick, children, ...rest }: AppLinkProps) => {
       onClick={(event) => {
         onClick?.(event);
         if (event.defaultPrevented) return;
-        if (!isAppleInstalledApp() || !isSameOriginFileUrl(href)) return;
+        if (!isAppleInstalledApp() || typeof href !== 'string') return;
+
+        const known = lookupGeneratedFileDownload(href);
+        if (!known && !isSameOriginFileUrl(href)) return;
 
         event.preventDefault();
+        if (known) {
+          void saveKnownFile(known, children);
+          return;
+        }
         void downloadFile(href, appFileDownloadName(href, children), false);
       }}
     >

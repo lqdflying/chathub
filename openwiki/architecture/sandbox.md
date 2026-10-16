@@ -159,10 +159,14 @@ tool result.
    `downloadFile` (fetch blob + object URL) because browsers ignore
    `<a download>` on cross-origin S3 URLs.
 
-Installed iPhone and iPad apps do not open `/webapi/files/` links in a new
-window. `downloadFile` fetches the file with the session cookie and passes a
-`File` to `navigator.share`. The user saves it from the system share sheet.
-Other clients still use a blob object URL and `<a download>`.
+Installed iPhone and iPad apps do not open these links in a new window. A
+same-origin `/webapi/files/` link is fetched with the session cookie. A public
+storage URL in the reply is matched to the sandbox tool's file id and
+downloaded through that same proxy, so the save does not depend on bucket
+CORS. `downloadFile` passes a `File` to `navigator.share`. The user saves it
+from the system share sheet. If the fetch outlives the tap, a second
+confirmation opens the sheet. Other clients still use a blob object URL and
+`<a download>`.
 
 ### File sync
 

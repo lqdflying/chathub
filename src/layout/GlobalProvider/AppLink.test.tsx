@@ -29,6 +29,11 @@ vi.mock('next/link', () => ({
 
 vi.mock('@/utils/client/downloadFile', () => ({
   downloadFile: (...args: unknown[]) => downloadFile(...args),
+  reportIosDownloadFailure: vi.fn(),
+}));
+
+vi.mock('@/services/file', () => ({
+  fileService: { getFile: vi.fn() },
 }));
 
 vi.mock('@/utils/platform', () => ({

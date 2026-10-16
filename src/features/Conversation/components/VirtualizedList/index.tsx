@@ -10,6 +10,7 @@ import { chatSelectors } from '@/store/chat/selectors';
 
 import AutoScroll from '../AutoScroll';
 import SkeletonList from '../SkeletonList';
+import { SandboxFileDownloadSync } from '../../SandboxFileDownloads';
 import { VirtuosoContext, resetVirtuosoVisibleItems, setVirtuosoGlobalRef } from './VirtuosoContext';
 import { ENABLE_LIGHT_SCROLL_MARKDOWN, resolveVirtuosoOverscan } from './scrollViewport';
 import { useSustainedScrolling } from './useSustainedScrolling';
@@ -85,7 +86,9 @@ const VirtualizedList = memo<VirtualizedListProps>(({ mobile, dataSource, itemCo
   if (isFirstLoading || !isCurrentChatLoaded) return <SkeletonList mobile={mobile} />;
 
   return (
-    <VirtuosoContext value={virtuosoRef}>
+    <>
+      <SandboxFileDownloadSync />
+      <VirtuosoContext value={virtuosoRef}>
       <Virtuoso
         atBottomStateChange={setAtBottom}
         atBottomThreshold={50 * (mobile ? 2 : 1)}
@@ -103,9 +106,9 @@ const VirtualizedList = memo<VirtualizedListProps>(({ mobile, dataSource, itemCo
         initialTopMostItemIndex={dataSource?.length - 1}
         isScrolling={setIsScrolling}
         itemContent={itemContent}
+        ref={virtuosoRef}
         // https://github.com/petyosi/react-virtuoso/discussions/1083
         skipAnimationFrameInResizeObserver
-        ref={virtuosoRef}
       />
       <WideScreenContainer
         onChange={() => {
@@ -134,6 +137,7 @@ const VirtualizedList = memo<VirtualizedListProps>(({ mobile, dataSource, itemCo
         />
       </WideScreenContainer>
     </VirtuosoContext>
+    </>
   );
 });
 

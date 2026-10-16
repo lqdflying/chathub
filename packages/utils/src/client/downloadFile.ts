@@ -35,13 +35,13 @@ const saveWithAnchor = (blob: Blob, fileName: string) => {
   window.URL.revokeObjectURL(blobUrl);
 };
 
-const reportIosDownloadError = (reason: IosDownloadFailure) => {
+export const reportIosDownloadFailure = (reason: IosDownloadFailure) => {
   iosDownloadUi?.reportError(reason);
 };
 
 const promptIosSave = async (file: File) => {
   if (!iosDownloadUi) {
-    reportIosDownloadError('share_unavailable');
+    reportIosDownloadFailure('share_unavailable');
     return;
   }
   await iosDownloadUi.promptSave(file);
@@ -57,7 +57,7 @@ const shareInstalledFile = async (file: File) => {
   }
 
   if (!canShare || !navigator.share) {
-    reportIosDownloadError('share_unavailable');
+    reportIosDownloadFailure('share_unavailable');
     return;
   }
 
@@ -76,7 +76,7 @@ const shareInstalledFile = async (file: File) => {
       await promptIosSave(file);
       return;
     }
-    reportIosDownloadError('share_unavailable');
+    reportIosDownloadFailure('share_unavailable');
   }
 };
 
@@ -111,7 +111,7 @@ export const downloadFile = async (
     console.log('Download failed:', error);
 
     if (installedAppleApp) {
-      reportIosDownloadError('fetch_failed');
+      reportIosDownloadFailure('fetch_failed');
       return;
     }
 
