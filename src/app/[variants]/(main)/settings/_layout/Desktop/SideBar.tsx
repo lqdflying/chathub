@@ -23,7 +23,14 @@ interface SidebarLayoutProps extends FlexboxProps {
   title?: string;
 }
 
-const SidebarLayout = ({ children, className, title, desc, ...rest }: SidebarLayoutProps) => {
+const SidebarLayout = ({
+  children,
+  className,
+  title,
+  desc,
+  style,
+  ...rest
+}: SidebarLayoutProps) => {
   const { cx, styles } = useStyles();
   const { t } = useTranslation('setting');
   return (
@@ -31,11 +38,13 @@ const SidebarLayout = ({ children, className, title, desc, ...rest }: SidebarLay
       className={cx(styles.container, className)}
       flex={'none'}
       gap={20}
+      height={'100%'}
+      style={{ minHeight: 0, overflow: 'hidden', ...style }}
       width={280}
       {...rest}
     >
       <PanelTitle desc={desc || t('header.desc')} title={title || t('header.title')} />
-      <Flexbox flex={1}>
+      <Flexbox flex={1} style={{ minHeight: 0, overflowY: 'auto' }}>
         <Suspense fallback={<CircleLoading />}>{children}</Suspense>
       </Flexbox>
       <BrandWatermark paddingInline={12} />

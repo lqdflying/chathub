@@ -22,6 +22,19 @@ describe('DesktopSettingsLayout shrink chain', () => {
     expect(src).not.toMatch(/style=\{\{\s*background:[^}]*flex:\s*'1'[^}]*\}\}/);
   });
 
+  it('scrolls the settings category menu inside the viewport', () => {
+    const sideBar = readFileSync(join(dir, 'SideBar.tsx'), 'utf8');
+    expect(sideBar).toContain("height={'100%'}");
+    expect(sideBar).toContain("minHeight: 0, overflow: 'hidden'");
+    expect(sideBar).toContain("flex={1} style={{ minHeight: 0, overflowY: 'auto' }}");
+
+    const header = readFileSync(join(dir, 'Header.tsx'), 'utf8');
+    expect(header).toContain("overflowY: 'auto'");
+    expect(header).toContain('minHeight: 0');
+    expect(header).toContain("flex={1} style={{ minHeight: 0, overflowY: 'auto' }}");
+    expect(header).not.toContain("justifyContent: 'space-between'");
+  });
+
   it('keeps every desktop Settings / provider width ancestor shrinkable', () => {
     const chain = [
       join(root, 'src/app/[variants]/(main)/settings/_layout/Desktop/index.tsx'),

@@ -84,7 +84,8 @@ const Header = memo<HeaderProps>(({ activeKey, children, getContainer, title }) 
             display: 'flex',
             flexDirection: 'column',
             gap: 20,
-            justifyContent: 'space-between',
+            minHeight: 0,
+            overflowY: 'auto',
             padding: 16,
           },
           header: { display: 'none' },
@@ -93,7 +94,9 @@ const Header = memo<HeaderProps>(({ activeKey, children, getContainer, title }) 
         width={260}
         zIndex={10}
       >
-        {children}
+        <Flexbox flex={1} style={{ minHeight: 0, overflowY: 'auto' }}>
+          {children}
+        </Flexbox>
         <BrandWatermark paddingInline={12} />
       </Drawer>
     </>
