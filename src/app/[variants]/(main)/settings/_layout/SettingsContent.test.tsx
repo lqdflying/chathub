@@ -138,6 +138,12 @@ describe('SettingsContent', () => {
     expect(screen.getByTestId('settings-component-11').dataset.mobile).toBe('true');
   });
 
+  it('renders the RAG Provider page with its mobile layout', () => {
+    render(<SettingsContent activeTab={SettingsTabs.RagProvider} mobile />);
+
+    expect(screen.getByTestId('settings-component-4').dataset.mobile).toBe('true');
+  });
+
   it('retries a current-scope request failure and restores the tab loading UI', async () => {
     let finishRetry!: () => void;
     const retryRequest = new Promise<void>((resolve) => {

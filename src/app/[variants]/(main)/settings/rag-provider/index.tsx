@@ -9,7 +9,7 @@ import {
 import { Alert, Button, Icon } from '@lobehub/ui';
 import { App, Form, Input, Select, Skeleton, Tag } from 'antd';
 import { KeyRound, PlugZap, RotateCcw, Save } from 'lucide-react';
-import { memo, useEffect, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
@@ -23,7 +23,7 @@ type FormValues = RagProviderUpdate;
 
 const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-const RagProviderSettings = memo(() => {
+const RagProviderSettings = memo<{ mobile?: boolean }>(({ mobile }) => {
   const { t } = useTranslation('setting');
   const { message, modal } = App.useApp();
   const [form] = Form.useForm<FormValues>();
@@ -131,8 +131,19 @@ const RagProviderSettings = memo(() => {
     }
   };
 
+  const frame = (children: ReactNode) => (
+    <Flexbox
+      gap={16}
+      paddingBlock={mobile ? 16 : undefined}
+      paddingInline={mobile ? 16 : undefined}
+      style={{ maxWidth: 720, width: '100%' }}
+    >
+      {children}
+    </Flexbox>
+  );
+
   if (statusError && !status) {
-    return (
+    return frame(
       <Alert
         action={
           <Button icon={RotateCcw} onClick={() => mutate()} size={'small'}>
@@ -142,14 +153,14 @@ const RagProviderSettings = memo(() => {
         message={errorMessage(statusError)}
         showIcon
         type={'error'}
-      />
+      />,
     );
   }
 
-  if (isLoading || !status) return <Skeleton active paragraph={{ rows: 6 }} title={false} />;
+  if (isLoading || !status) return frame(<Skeleton active paragraph={{ rows: 6 }} title={false} />);
 
-  return (
-    <Flexbox gap={16} style={{ maxWidth: 720, width: '100%' }}>
+  return frame(
+    <>
       <Alert
         message={t(`ragProvider.status.${status.source}`)}
         showIcon
@@ -219,7 +230,7 @@ const RagProviderSettings = memo(() => {
           </Button>
         )}
       </Flexbox>
-    </Flexbox>
+    </>,
   );
 });
 

@@ -178,9 +178,13 @@ const SettingsContent = ({ mobile, activeTab, showLLM = true }: SettingsContentP
 
     const componentProps: { mobile?: boolean } = {};
     if (
-      [SettingsTabs.About, SettingsTabs.Agent, SettingsTabs.Provider, SettingsTabs.Skills].includes(
-        tab as any,
-      )
+      [
+        SettingsTabs.About,
+        SettingsTabs.Agent,
+        SettingsTabs.Provider,
+        SettingsTabs.RagProvider,
+        SettingsTabs.Skills,
+      ].includes(tab as any)
     ) {
       componentProps.mobile = mobile;
     }
