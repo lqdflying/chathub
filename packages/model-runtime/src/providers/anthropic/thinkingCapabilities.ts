@@ -45,6 +45,22 @@ export const anthropicNoForcedToolChoiceModels = new Set([
 ]);
 
 /**
+ * Claude 5.1+ check every replayed thinking block against the `system`,
+ * `tools`, and messages before it. ChatHub's history window, compaction, and
+ * one-block-per-turn replay edit that prefix, which returns HTTP 400 on
+ * accounts created on or after 2026-08-31 unless `thinking.block_binding` is set.
+ * https://platform.claude.com/docs/en/build-with-claude/preserved-thinking
+ */
+export const anthropicPrefixCheckedThinkingModels = new Set([
+  'claude-fable-5-1',
+  'claude-opus-5-5',
+  'claude-sonnet-5-5',
+  'claude-haiku-5-5',
+]);
+
+export const ANTHROPIC_THINKING_BINDING_BETA = 'thinking-binding-controls-2026-08-01';
+
+/**
  * Non-default `temperature` / `top_p` / `top_k` (or `temperature` and `top_p`
  * together) return HTTP 400 on these, whether or not thinking is on.
  * https://platform.claude.com/docs/en/build-with-claude/thinking

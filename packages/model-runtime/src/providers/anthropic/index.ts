@@ -29,8 +29,10 @@ import { StreamingResponse } from '../../utils/response';
 import { createAnthropicGenerateObject } from './generateObject';
 import { handleAnthropicError } from './handleAnthropicError';
 import {
+  ANTHROPIC_THINKING_BINDING_BETA,
   anthropicAdaptiveCapableModels,
   anthropicNoSamplingParamsModels,
+  anthropicPrefixCheckedThinkingModels,
   getAnthropicDefaultEffort,
   getAnthropicRuntimeMaxOutput,
   isAnthropicAdaptiveThinkingOnlyModel,
@@ -60,6 +62,17 @@ export const normalizeAnthropicBaseURL = (baseURL: string): string => {
   if (/\/v1$/i.test(trimmed)) return trimmed.replace(/\/v1$/i, '');
   return trimmed;
 };
+
+/** Removing every earlier thinking block is always a valid edit for the prefix check. */
+const stripThinkingBlocks = (messages: Anthropic.MessageParam[]): Anthropic.MessageParam[] =>
+  messages.map((message) => {
+    if (message.role !== 'assistant' || typeof message.content === 'string') return message;
+
+    const content = message.content.filter(
+      (block) => block.type !== 'thinking' && block.type !== 'redacted_thinking',
+    );
+    return content.length > 0 ? { ...message, content } : message;
+  });
 
 type CacheTTL = Anthropic.Messages.CacheControlEphemeral['ttl'];
 
@@ -247,7 +260,15 @@ export class LobeAnthropicAI implements LobeRuntimeAI {
       }
 
       await options?.onRequestPrepared?.(requestPayload, { apiMode: 'messages' });
+      const usesThinkingBinding = 'block_binding' in ((anthropicPayload.thinking ?? {}) as object);
       let response = await this.client.messages.create(requestPayload, {
+        ...(usesThinkingBinding && {
+          headers: {
+            'anthropic-beta': [process.env.ANTHROPIC_BETA_HEADERS, ANTHROPIC_THINKING_BINDING_BETA]
+              .filter(Boolean)
+              .join(','),
+          },
+        }),
         signal: options?.signal,
       });
 
@@ -304,6 +325,32 @@ export class LobeAnthropicAI implements LobeRuntimeAI {
   }
 
   private async buildAnthropicPayload(payload: ChatStreamPayload) {
+    return this.applyThinkingBlockBinding(await this.buildAnthropicPayloadBase(payload));
+  }
+
+  /**
+   * Native adaptive requests to prefix-checked models drop thinking blocks whose
+   * prefix changed instead of failing. Every other request to those models
+   * (thinking off, or a compatible gateway that does not document the beta)
+   * sends no earlier thinking blocks, which the API always accepts.
+   */
+  private applyThinkingBlockBinding(
+    params: Anthropic.MessageCreateParams,
+  ): Anthropic.MessageCreateParams {
+    if (!anthropicPrefixCheckedThinkingModels.has(params.model)) return params;
+
+    const thinking = params.thinking as { type?: string } | undefined;
+    if (this.id === ModelProvider.Anthropic && thinking?.type === 'adaptive') {
+      return {
+        ...params,
+        thinking: { ...thinking, block_binding: { prefix_mismatch_behavior: 'drop_block' } },
+      } as unknown as Anthropic.MessageCreateParams;
+    }
+
+    return { ...params, messages: stripThinkingBlocks(params.messages) };
+  }
+
+  private async buildAnthropicPayloadBase(payload: ChatStreamPayload) {
     const {
       messages,
       model,

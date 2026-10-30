@@ -328,6 +328,26 @@ const toError = (error: unknown): ConversationGenerationError => {
       type: AgentRuntimeErrorType.ExceededContextWindow,
     };
   }
+  // Provider runtimes throw plain `ChatCompletionErrorPayload` objects
+  // (`{ error: { message }, errorType, provider }`), not `Error` instances.
+  if (error && typeof error === 'object' && !(error instanceof Error)) {
+    const payload = error as {
+      error?: { message?: unknown };
+      errorType?: unknown;
+      provider?: unknown;
+    };
+    const upstreamMessage =
+      typeof payload.error?.message === 'string' ? payload.error.message : undefined;
+    const errorType = typeof payload.errorType === 'string' ? payload.errorType : undefined;
+    if (upstreamMessage || errorType) {
+      const provider = typeof payload.provider === 'string' ? `${payload.provider}: ` : '';
+      return {
+        body: error,
+        message: `${provider}${upstreamMessage ?? errorType}`,
+        type: 'GenerationError',
+      };
+    }
+  }
   return {
     body: error instanceof Error ? { name: error.name } : undefined,
     message: error instanceof Error ? error.message : String(error),
@@ -624,7 +644,7 @@ export const executeConversationGeneration = async ({
           }
           return;
         }
-        throw error instanceof Error ? error : new Error(String(error));
+        throw error instanceof Error ? error : new Error(normalizedError.message);
       }
     }
 

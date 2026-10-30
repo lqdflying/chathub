@@ -593,6 +593,60 @@ describe('executeConversationGeneration', () => {
     );
   });
 
+  it('keeps the provider message when a runtime throws a plain error payload', async () => {
+    const pending = {
+      attempt: 0,
+      config: { model: 'claude-sonnet-5-5', provider: 'anthropic', title: { topicId: 'topic-1' } },
+      id: 'cgo_payload_error',
+      kind: 'topic_title',
+      lane: 'lane-1',
+      laneGeneration: 1,
+      revision: 0,
+      status: 'pending',
+      topicId: 'topic-1',
+      userId: 'user-1',
+    };
+    const processing = { ...pending, attempt: 1, status: 'processing' };
+    modelMocks.findById
+      .mockResolvedValueOnce(pending)
+      .mockResolvedValueOnce(processing)
+      .mockResolvedValueOnce(processing);
+    modelMocks.claimForProcessing.mockResolvedValue(processing);
+    modelMocks.markForRetry.mockResolvedValue({ ...processing, revision: 2, status: 'pending' });
+    aiChatMocks.getMessagesAndTopics.mockResolvedValue({
+      messages: [{ content: 'hello there', id: 'msg-user-1', role: 'user' }],
+      topics: [],
+    });
+    const providerError = {
+      endpoint: 'https://api.anthropic.com',
+      error: {
+        message: 'messages.1.content.0: Invalid `signature` in `thinking` block.',
+        type: 'invalid_request_error',
+      },
+      errorType: 'ProviderBizError',
+      provider: 'anthropic',
+    };
+    runtimeMocks.chat.mockRejectedValueOnce(providerError);
+
+    await expect(
+      executeConversationGeneration({
+        db: {} as any,
+        operationId: pending.id,
+        userId: pending.userId,
+      }),
+    ).rejects.toThrow('anthropic: messages.1.content.0: Invalid `signature` in `thinking` block.');
+
+    expect(modelMocks.markForRetry).toHaveBeenCalledWith(
+      pending.id,
+      {
+        body: providerError,
+        message: 'anthropic: messages.1.content.0: Invalid `signature` in `thinking` block.',
+        type: 'GenerationError',
+      },
+      1,
+    );
+  });
+
   it('finalizes a failure after the configured final attempt', async () => {
     const pending = {
       attempt: 7,

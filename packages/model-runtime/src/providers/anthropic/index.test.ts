@@ -3,7 +3,13 @@ import { Mock, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as anthropicHelpers from '../../core/contextBuilders/anthropic';
 import { ChatCompletionTool, ChatStreamPayload } from '../../types/chat';
+import { LobeAnthropicCompatibleAI } from '../anthropiccompatible';
 import { LobeAnthropicAI, normalizeAnthropicBaseURL } from './index';
+
+const BOUND_ADAPTIVE_THINKING = {
+  block_binding: { prefix_mismatch_behavior: 'drop_block' },
+  type: 'adaptive',
+};
 
 const provider = 'anthropic';
 
@@ -1197,7 +1203,7 @@ describe('LobeAnthropicAI', () => {
           thinking: { type: 'disabled' },
         });
 
-        expect(result.thinking).toEqual({ type: 'adaptive' });
+        expect(result.thinking).toEqual(BOUND_ADAPTIVE_THINKING);
         expect((result as any).output_config).toEqual({ effort: 'high' });
       });
 
@@ -1226,7 +1232,7 @@ describe('LobeAnthropicAI', () => {
             thinking,
           });
 
-          expect(result.thinking).toEqual({ type: 'adaptive' });
+          expect(result.thinking).toEqual(BOUND_ADAPTIVE_THINKING);
           expect((result as any).output_config).toEqual({ effort: defaultEffort });
           expect(result.max_tokens).toBe(128_000);
         });
@@ -1260,7 +1266,7 @@ describe('LobeAnthropicAI', () => {
           thinking: { type: 'adaptive' },
         });
 
-        expect(result.thinking).toEqual({ type: 'adaptive' });
+        expect(result.thinking).toEqual(BOUND_ADAPTIVE_THINKING);
         expect((result as any).output_config).toEqual({ effort: 'medium' });
         expect(result.max_tokens).toBe(128_000);
       });
@@ -1272,7 +1278,7 @@ describe('LobeAnthropicAI', () => {
           thinking: { budget_tokens: 1024, type: 'enabled' },
         });
 
-        expect(result.thinking).toEqual({ type: 'adaptive' });
+        expect(result.thinking).toEqual(BOUND_ADAPTIVE_THINKING);
         expect((result as any).output_config).toEqual({ effort: 'medium' });
       });
 
@@ -1323,11 +1329,91 @@ describe('LobeAnthropicAI', () => {
             thinking: { effort: 'low', type: 'adaptive' },
           });
 
-          expect(result.thinking).toEqual({ type: 'adaptive' });
+          expect(result.thinking).toEqual(BOUND_ADAPTIVE_THINKING);
           expect((result as any).output_config).toEqual({ effort: 'low' });
           expect(result.max_tokens).toBe(2448);
         },
       );
+
+      describe('thinking block prefix check', () => {
+        const historyWithThinking = [
+          { content: 'Run the script', role: 'user' },
+          {
+            content: [
+              { signature: 'sig-1', thinking: '', type: 'thinking' },
+              { text: 'Running it now.', type: 'text' },
+            ],
+            role: 'assistant',
+          },
+          { content: 'Again', role: 'user' },
+        ] as any;
+
+        const assistantBlockTypes = (result: any) =>
+          result.messages
+            .find((message: any) => message.role === 'assistant')
+            .content.map((block: any) => block.type);
+
+        it('keeps thinking blocks and drops mismatched ones on native Sonnet 5.5', async () => {
+          const result = await instance['buildAnthropicPayload']({
+            messages: historyWithThinking,
+            model: 'claude-sonnet-5-5',
+          });
+
+          expect(result.thinking).toEqual(BOUND_ADAPTIVE_THINKING);
+          expect(assistantBlockTypes(result)).toEqual(['thinking', 'text']);
+        });
+
+        it('strips earlier thinking blocks when Haiku 5.5 thinking is off', async () => {
+          const result = await instance['buildAnthropicPayload']({
+            messages: historyWithThinking,
+            model: 'claude-haiku-5-5',
+            thinking: { type: 'disabled' },
+          });
+
+          expect(result.thinking).toEqual({ type: 'disabled' });
+          expect(assistantBlockTypes(result)).toEqual(['text']);
+        });
+
+        it('leaves models without the prefix check unchanged', async () => {
+          const result = await instance['buildAnthropicPayload']({
+            messages: historyWithThinking,
+            model: 'claude-opus-5',
+            thinking: { type: 'adaptive' },
+          });
+
+          expect(result.thinking).toEqual({ type: 'adaptive' });
+          expect(assistantBlockTypes(result)).toEqual(['thinking', 'text']);
+        });
+
+        it('strips earlier thinking blocks on Anthropic Compatible instead of the beta', async () => {
+          const compatible = new LobeAnthropicCompatibleAI({ apiKey: 'test_api_key' });
+          const result = await compatible['buildAnthropicPayload']({
+            messages: historyWithThinking,
+            model: 'claude-sonnet-5-5',
+          });
+
+          expect(result.thinking).toEqual({ type: 'adaptive' });
+          expect(assistantBlockTypes(result)).toEqual(['text']);
+        });
+
+        it('sends the thinking-binding beta header only with block_binding', async () => {
+          vi.stubEnv('ANTHROPIC_BETA_HEADERS', 'output-300k-2026-03-24');
+          const create = instance['client'].messages.create as Mock;
+          create.mockImplementation(async () => new ReadableStream());
+
+          await instance.chat({ messages: historyWithThinking, model: 'claude-sonnet-5-5' });
+          expect(create.mock.calls.at(-1)?.[1]).toEqual({
+            headers: {
+              'anthropic-beta': 'output-300k-2026-03-24,thinking-binding-controls-2026-08-01',
+            },
+            signal: undefined,
+          });
+
+          await instance.chat({ messages: historyWithThinking, model: 'claude-opus-5' });
+          expect(create.mock.calls.at(-1)?.[1]).not.toHaveProperty('headers');
+          vi.unstubAllEnvs();
+        });
+      });
 
       it('should build adaptive payload when thinking.type is adaptive on adaptive-capable models', async () => {
         const payload: ChatStreamPayload = {
