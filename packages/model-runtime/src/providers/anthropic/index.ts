@@ -30,6 +30,7 @@ import { createAnthropicGenerateObject } from './generateObject';
 import { handleAnthropicError } from './handleAnthropicError';
 import {
   anthropicAdaptiveCapableModels,
+  anthropicNoSamplingParamsModels,
   getAnthropicDefaultEffort,
   getAnthropicRuntimeMaxOutput,
   isAnthropicAdaptiveThinkingOnlyModel,
@@ -315,8 +316,10 @@ export class LobeAnthropicAI implements LobeRuntimeAI {
       enabledSearch,
     } = payload;
 
-    const { anthropic: anthropicModels } = await import('model-bank');
-    const modelConfig = anthropicModels.find((m) => m.id === model);
+    const { anthropic: anthropicModels, findRetiredModelCard } = await import('model-bank');
+    const modelConfig =
+      anthropicModels.find((m) => m.id === model) ??
+      findRetiredModelCard(model, ModelProvider.Anthropic);
     const defaultMaxOutput = modelConfig?.maxOutput ?? getAnthropicRuntimeMaxOutput(model);
 
     // 配置优先级：用户设置 > 模型配置 > 硬编码默认值
@@ -363,6 +366,22 @@ export class LobeAnthropicAI implements LobeRuntimeAI {
     }
 
     const maxThinkingTokens = () => getMaxTokens() || 32_000; // Claude Opus 4 has minimum maxOutput
+
+    // Resolve temperature and top_p parameters based on model constraints
+    const resolveSamplingParams = () => {
+      if (anthropicNoSamplingParamsModels.has(model)) {
+        return { temperature: undefined, top_p: undefined };
+      }
+
+      return resolveParameters(
+        { temperature, top_p },
+        {
+          hasConflict: MODEL_PARAMETER_CONFLICTS.ANTHROPIC_CLAUDE_4_PLUS.has(model),
+          normalizeTemperature: true,
+          preferTemperature: true,
+        },
+      );
+    };
 
     if (
       isAnthropicAlwaysOnThinkingModel(model) &&
@@ -435,11 +454,7 @@ export class LobeAnthropicAI implements LobeRuntimeAI {
     }
 
     if (!!thinking && thinking.type === 'disabled') {
-      const hasConflict = MODEL_PARAMETER_CONFLICTS.ANTHROPIC_CLAUDE_4_PLUS.has(model);
-      const resolvedParams = resolveParameters(
-        { temperature, top_p },
-        { hasConflict, normalizeTemperature: true, preferTemperature: true },
-      );
+      const resolvedParams = resolveSamplingParams();
 
       return {
         max_tokens: getMaxTokens() || (modelsWithSmallContextWindow.has(model) ? 4096 : 8192),
@@ -453,12 +468,7 @@ export class LobeAnthropicAI implements LobeRuntimeAI {
       } as Anthropic.MessageCreateParams;
     }
 
-    // Resolve temperature and top_p parameters based on model constraints
-    const hasConflict = MODEL_PARAMETER_CONFLICTS.ANTHROPIC_CLAUDE_4_PLUS.has(model);
-    const resolvedParams = resolveParameters(
-      { temperature, top_p },
-      { hasConflict, normalizeTemperature: true, preferTemperature: true },
-    );
+    const resolvedParams = resolveSamplingParams();
 
     return {
       // claude 3 series model hax max output token of 4096, 3.x series has 8192

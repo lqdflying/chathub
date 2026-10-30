@@ -186,6 +186,14 @@ export type PricingUnit = FixedPricingUnit | TieredPricingUnit | LookupPricingUn
 
 export interface Pricing {
   currency?: ModelPriceCurrency;
+  /**
+   * Rates for the whole request when its prompt (uncached input + cache read +
+   * cache write) is over `thresholdTokens`, e.g. Claude Haiku 5.5 over 100K.
+   */
+  longPrompt?: {
+    thresholdTokens: number;
+    units: PricingUnit[];
+  };
   units: PricingUnit[];
 }
 

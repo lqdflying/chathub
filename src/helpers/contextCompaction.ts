@@ -3,6 +3,7 @@ import {
   applyUserInputTemplate,
   getSlicedMessages,
 } from '@lobechat/context-engine';
+import { isAnthropicAlwaysOnThinkingModel } from '@lobechat/model-runtime';
 import { chainSummaryHistory } from '@lobechat/prompts';
 import {
   type GPT5ReasoningEffort,
@@ -11,7 +12,7 @@ import {
   type UIChatMessage,
 } from '@lobechat/types';
 import { sha256 } from 'js-sha256';
-import { LOBE_DEFAULT_MODEL_LIST, ModelProvider } from 'model-bank';
+import { LOBE_DEFAULT_MODEL_LIST, ModelProvider, findRetiredModelCard } from 'model-bank';
 
 import { countContextTextTokens } from '@/helpers/contextTokenCount';
 import { fallbackTokenCount } from '@/utils/tokenizer';
@@ -188,7 +189,7 @@ export const COMPACTION_SUMMARIZER_INPUT_BUDGET_RATIO = 0.45;
 export interface SimpleCompletionSampling {
   max_tokens?: number;
   reasoning_effort?: GPT5ReasoningEffort;
-  thinking?: { budget_tokens: number; type: 'disabled' };
+  thinking?: { budget_tokens: number; type: 'disabled' } | { effort: 'low'; type: 'adaptive' };
 }
 
 /**
@@ -224,10 +225,10 @@ const findSimpleCompletionModelCard = (model: string, provider?: string) => {
       );
     }
 
-    return undefined;
+    return findRetiredModelCard(model, provider);
   }
 
-  return LOBE_DEFAULT_MODEL_LIST.find((item) => item.id === model);
+  return LOBE_DEFAULT_MODEL_LIST.find((item) => item.id === model) ?? findRetiredModelCard(model);
 };
 
 export const getListedModelMaxOutputTokens = (model: string, provider?: string): number | undefined => {
@@ -415,7 +416,11 @@ export const buildSimpleCompletionSampling = ({
   }
 
   if (sendThinkingDisabled) {
-    sampling.thinking = { budget_tokens: 0, type: 'disabled' };
+    // Always-on Claude models reject `disabled`; the runtime would send their
+    // default effort instead, and that thinking can use the whole summary budget.
+    sampling.thinking = isAnthropicAlwaysOnThinkingModel(model)
+      ? { effort: 'low', type: 'adaptive' }
+      : { budget_tokens: 0, type: 'disabled' };
   }
 
   return sampling;

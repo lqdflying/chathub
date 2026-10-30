@@ -11,7 +11,7 @@ export async function getModelPricing(
   model: string,
   provider?: string,
 ): Promise<Pricing | undefined> {
-  const { LOBE_DEFAULT_MODEL_LIST } = await import('model-bank');
+  const { LOBE_DEFAULT_MODEL_LIST, findRetiredModelCard } = await import('model-bank');
 
   // 1. First try to get pricing from the specified provider
   if (provider) {
@@ -31,6 +31,7 @@ export async function getModelPricing(
     return fallbackMatch.pricing;
   }
 
-  // 3. Return undefined if no pricing information is found
-  return undefined;
+  // 3. Saved ids that left the built-in picker keep their last shipped pricing
+  const retired = (provider && findRetiredModelCard(model, provider)) || findRetiredModelCard(model);
+  return retired?.pricing;
 }

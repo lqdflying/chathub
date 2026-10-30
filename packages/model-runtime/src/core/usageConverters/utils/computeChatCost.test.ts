@@ -557,6 +557,52 @@ describe('computeChatPricing', () => {
       expect(totalCredits).toBe(32_976); // 20 + 28410 + 303 + 4243 = 32976
       expect(totalCost).toBeCloseTo(0.032976, 6); // 32976 credits = $0.032976
     });
+
+    describe('Claude Haiku 5.5 prompt-length pricing', () => {
+      const haikuPricing = () =>
+        anthropicChatModels.find((model: { id: string }) => model.id === 'claude-haiku-5-5')
+          ?.pricing;
+
+      it('uses the long-prompt rates when cache read plus new input cross 100K', () => {
+        const result = computeChatCost(haikuPricing(), {
+          inputCacheMissTokens: 20_000,
+          inputCachedTokens: 90_000,
+          outputTextTokens: 1000,
+        });
+
+        expect(result?.issues).toHaveLength(0);
+        const output = result?.breakdown.find((item) => item.unit.name === 'textOutput');
+        expect(output?.credits).toBe(2500); // 1000 * 2.5
+        const cached = result?.breakdown.find((item) => item.unit.name === 'textInput_cacheRead');
+        expect(cached?.credits).toBe(4500); // 90000 * 0.05
+        expect(result?.totalCredits).toBe(17_000); // 10000 + 4500 + 2500
+      });
+
+      it('keeps the standard rates when only the output is over 100K', () => {
+        const result = computeChatCost(haikuPricing(), {
+          inputCacheMissTokens: 80_000,
+          outputTextTokens: 120_000,
+        });
+
+        const output = result?.breakdown.find((item) => item.unit.name === 'textOutput');
+        expect(output?.credits).toBe(60_000); // 120000 * 0.5
+        expect(result?.totalCredits).toBe(68_000); // 8000 + 60000
+      });
+
+      it('prices a 5-minute cache write on a long prompt at the long-prompt rate', () => {
+        const result = computeChatCost(
+          haikuPricing(),
+          { inputCacheMissTokens: 1000, inputWriteCacheTokens: 200_000, outputTextTokens: 100 },
+          { lookupParams: { ttl: '5m' } },
+        );
+
+        const cacheWrite = result?.breakdown.find(
+          (item) => item.unit.name === 'textInput_cacheWrite',
+        );
+        expect(cacheWrite?.credits).toBe(125_000); // 200000 * 0.625
+        expect(result?.totalCredits).toBe(125_750); // 500 + 250 + 125000
+      });
+    });
   });
 
   describe('Edge Cases', () => {

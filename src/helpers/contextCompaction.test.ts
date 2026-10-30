@@ -16,6 +16,7 @@ import {
   getCompactionSummarizerContextWindow,
   getCompactionSummarizerInputBudget,
   getContextCompactionWatermarks,
+  getListedModelMaxOutputTokens,
   getMessagesAfterHistorySummaryCursor,
   getSettledCompactionPrefixes,
   parseCompactionSummarizerContextWindow,
@@ -307,6 +308,39 @@ describe('buildSimpleCompletionSampling', () => {
       max_tokens: reasoningBudget,
       thinking: { budget_tokens: 0, type: 'disabled' },
     });
+  });
+
+  it.each([
+    ['claude-opus-5-5', 'anthropic'],
+    ['claude-sonnet-5-5', 'anthropic'],
+    ['claude-fable-5-1', 'anthropic'],
+    ['claude-sonnet-5-5', 'anthropiccompatible'],
+  ])('sends low-effort adaptive thinking for always-on %s on %s', (model, provider) => {
+    expect(buildSimpleCompletionSampling({ model, provider, summaryMaxTokens: summaryCap })).toEqual(
+      {
+        max_tokens: reasoningBudget,
+        thinking: { effort: 'low', type: 'adaptive' },
+      },
+    );
+  });
+
+  it('keeps thinking disabled for Haiku 5.5 summaries', () => {
+    expect(
+      buildSimpleCompletionSampling({
+        model: 'claude-haiku-5-5',
+        provider: 'anthropic',
+        summaryMaxTokens: summaryCap,
+      }),
+    ).toEqual({
+      max_tokens: reasoningBudget,
+      thinking: { budget_tokens: 0, type: 'disabled' },
+    });
+  });
+
+  it('sizes History Compress from the retired card for a saved legacy Claude id', () => {
+    expect(getCompactionSummarizerContextWindow('claude-opus-5', 'anthropic')).toBe(1_000_000);
+    expect(getCompactionSummarizerContextWindow('claude-opus-4-7', 'anthropic')).toBe(200_000);
+    expect(getListedModelMaxOutputTokens('claude-sonnet-4-6', 'anthropic')).toBe(64_000);
   });
 
   it.each([

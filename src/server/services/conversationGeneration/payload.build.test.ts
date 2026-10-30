@@ -2,6 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as usage from '@/helpers/contextUsageEstimate';
+import * as inputBudget from '@/helpers/inputBudget';
 
 import { buildConversationChatPayload } from './payload';
 
@@ -148,6 +149,32 @@ describe('buildConversationChatPayload', () => {
     expect(serialized).toContain('remember the port');
     expect(serialized).toContain('prior turns');
     expect(serialized).not.toContain('"old"');
+  });
+
+  it('keeps tools, window, and gear params for a saved retired Claude id', async () => {
+    const budgetSpy = vi.spyOn(inputBudget, 'resolveInputBudgetTokens');
+    const result = await buildConversationChatPayload({
+      config: {
+        ...baseConfig,
+        chatConfig: { ...baseConfig.chatConfig, enableReasoning: false },
+        model: 'claude-opus-5',
+        plugins: ['lobe-image-designer'],
+        provider: 'anthropic',
+      } as any,
+      db: {} as any,
+      generalInstruction: '',
+      messages: [{ content: 'Draw a cat', id: 'u1', role: 'user' } as any],
+      runtimeState,
+      sessionId: 'sess-1',
+      userId: 'user-1',
+    });
+
+    expect(result.enabledToolIds).toContain('lobe-image-designer');
+    expect(result.payload.tools?.length).toBeGreaterThan(0);
+    expect(budgetSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ contextWindowTokens: 1_000_000, maxOutput: 128_000 }),
+    );
+    expect(result.payload.thinking).toEqual({ budget_tokens: 0, type: 'disabled' });
   });
 
   it('sends a saved max_tokens cap only while that switch is on', async () => {

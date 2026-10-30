@@ -1276,15 +1276,58 @@ describe('LobeAnthropicAI', () => {
         expect((result as any).output_config).toEqual({ effort: 'medium' });
       });
 
-      it('uses hidden runtime max output for a saved Claude Opus 5 id', async () => {
+      it('uses the retired card max output and omits sampling for a saved Claude Opus 5 id', async () => {
         const result = await instance['buildAnthropicPayload']({
           messages: [{ content: 'Hello', role: 'user' }],
           model: 'claude-opus-5',
+          temperature: 0.7,
         });
 
         expect(result.max_tokens).toBe(128_000);
         expect(result).not.toHaveProperty('thinking');
+        expect(result.temperature).toBeUndefined();
       });
+
+      it('omits temperature and top_p on Haiku 5.5 thinking-off', async () => {
+        const result = await instance['buildAnthropicPayload']({
+          messages: [{ content: 'Hello', role: 'user' }],
+          model: 'claude-haiku-5-5',
+          temperature: 0.7,
+          thinking: { type: 'disabled' },
+          top_p: 0.9,
+        });
+
+        expect(result.thinking).toEqual({ type: 'disabled' });
+        expect(result.temperature).toBeUndefined();
+        expect(result.top_p).toBeUndefined();
+      });
+
+      it('still forwards temperature on Claude Opus 4.6 thinking-off', async () => {
+        const result = await instance['buildAnthropicPayload']({
+          messages: [{ content: 'Hello', role: 'user' }],
+          model: 'claude-opus-4-6',
+          temperature: 0.7,
+          thinking: { type: 'disabled' },
+        });
+
+        expect(result.temperature).toBe(0.35);
+      });
+
+      it.each(['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-fable-5-1'])(
+        'keeps a History Compress request on %s at low effort inside its cap',
+        async (model) => {
+          const result = await instance['buildAnthropicPayload']({
+            max_tokens: 2448,
+            messages: [{ content: 'Summarize', role: 'user' }],
+            model,
+            thinking: { effort: 'low', type: 'adaptive' },
+          });
+
+          expect(result.thinking).toEqual({ type: 'adaptive' });
+          expect((result as any).output_config).toEqual({ effort: 'low' });
+          expect(result.max_tokens).toBe(2448);
+        },
+      );
 
       it('should build adaptive payload when thinking.type is adaptive on adaptive-capable models', async () => {
         const payload: ChatStreamPayload = {

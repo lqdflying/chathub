@@ -28,7 +28,7 @@ import type {
 } from '@lobechat/types';
 import { MAX_ACTIVE_SKILLS } from '@lobechat/types';
 import type { LobeChatPluginManifest } from '@lobehub/chat-plugin-sdk';
-import { ModelProvider } from 'model-bank';
+import { ModelProvider, findRetiredModelCard } from 'model-bank';
 
 import { PluginModel } from '@/database/models/plugin';
 import { SkillModel } from '@/database/models/skill';
@@ -127,9 +127,10 @@ export const buildConversationChatPayload = async ({
   const skillRecords = (
     await Promise.all(skillIds.map((identifier) => new SkillModel(db, userId).findById(identifier)))
   ).filter(Boolean);
-  const modelCard = runtimeState.enabledAiModels?.find(
-    (item) => item.id === model && item.providerId === provider,
-  );
+  const modelCard =
+    runtimeState.enabledAiModels?.find(
+      (item) => item.id === model && item.providerId === provider,
+    ) ?? findRetiredModelCard(model, provider);
   const providerRuntime = runtimeState.runtimeConfig?.[provider];
   const llmConfig = getLLMConfig() as Record<string, any>;
   const searchConfig = resolveModelSearchConfig({

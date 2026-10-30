@@ -45,17 +45,28 @@ export const anthropicNoForcedToolChoiceModels = new Set([
 ]);
 
 /**
- * Hidden runtime max-output for saved/fetched Anthropic ids that are no longer
- * in the visible picker. Do not re-enable these cards in the model bank.
- * Values match the last shipped catalogue card for each id.
+ * Non-default `temperature` / `top_p` / `top_k` (or `temperature` and `top_p`
+ * together) return HTTP 400 on these, whether or not thinking is on.
+ * https://platform.claude.com/docs/en/build-with-claude/thinking
+ */
+export const anthropicNoSamplingParamsModels = new Set([
+  'claude-fable-5-1',
+  'claude-opus-5-5',
+  'claude-sonnet-5-5',
+  'claude-haiku-5-5',
+  'claude-opus-5',
+  'claude-sonnet-5',
+  'claude-opus-4-8',
+  'claude-opus-4-7',
+]);
+
+/**
+ * Hidden runtime max-output for saved/fetched pre-2026 Anthropic ids that are
+ * no longer in the visible picker. Retired 2026 cards live in model-bank
+ * (`findRetiredModelCard`). Values match the last shipped catalogue before the
+ * 2026 prune.
  */
 export const anthropicSavedModelMaxOutput: Record<string, number> = {
-  'claude-opus-5': 128_000,
-  'claude-sonnet-5': 128_000,
-  'claude-opus-4-8': 128_000,
-  'claude-opus-4-7': 128_000,
-  'claude-opus-4-6': 128_000,
-  'claude-sonnet-4-6': 64_000,
   'claude-3-7-sonnet-20250219': 64_000,
   'claude-3-7-sonnet-latest': 64_000,
   'claude-3-5-sonnet-20241022': 8192,

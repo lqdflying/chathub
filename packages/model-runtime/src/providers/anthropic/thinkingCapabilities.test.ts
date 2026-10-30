@@ -1,8 +1,9 @@
-import { anthropicChatModels } from 'model-bank';
+import { anthropicChatModels, anthropicRetiredChatModels, findRetiredModelCard } from 'model-bank';
 import { describe, expect, it } from 'vitest';
 
 import {
   anthropicNoForcedToolChoiceModels,
+  anthropicNoSamplingParamsModels,
   getAnthropicDefaultEffort,
   getAnthropicRuntimeMaxOutput,
   isAnthropicAdaptiveThinkingOnlyModel,
@@ -58,13 +59,42 @@ describe('anthropic thinking capabilities', () => {
     expect(getAnthropicRuntimeMaxOutput('claude-3-haiku-20240307')).toBe(4096);
   });
 
-  it('keeps legacy 2026 output limits for saved ids that left the picker', () => {
-    expect(getAnthropicRuntimeMaxOutput('claude-opus-5')).toBe(128_000);
-    expect(getAnthropicRuntimeMaxOutput('claude-sonnet-5')).toBe(128_000);
-    expect(getAnthropicRuntimeMaxOutput('claude-opus-4-8')).toBe(128_000);
-    expect(getAnthropicRuntimeMaxOutput('claude-opus-4-7')).toBe(128_000);
-    expect(getAnthropicRuntimeMaxOutput('claude-opus-4-6')).toBe(128_000);
-    expect(getAnthropicRuntimeMaxOutput('claude-sonnet-4-6')).toBe(64_000);
+  it('keeps legacy 2026 cards as retired metadata outside the picker', () => {
+    expect(anthropicRetiredChatModels.map((model) => model.id)).toEqual([
+      'claude-opus-5',
+      'claude-sonnet-5',
+      'claude-opus-4-8',
+      'claude-opus-4-7',
+      'claude-opus-4-6',
+      'claude-sonnet-4-6',
+    ]);
+    expect(findRetiredModelCard('claude-opus-5', 'anthropic')).toMatchObject({
+      abilities: { functionCall: true, vision: true },
+      contextWindowTokens: 1_000_000,
+      maxOutput: 128_000,
+    });
+    expect(findRetiredModelCard('claude-sonnet-4-6', 'anthropic')).toMatchObject({
+      contextWindowTokens: 200_000,
+      maxOutput: 64_000,
+    });
+    expect(findRetiredModelCard('claude-sonnet-5', 'anthropiccompatible')).toMatchObject({
+      abilities: { search: false },
+    });
+    expect(findRetiredModelCard('claude-opus-4-8', 'anthropiccompatible')).toBeUndefined();
+    expect(findRetiredModelCard('claude-opus-5-5', 'anthropic')).toBeUndefined();
+  });
+
+  it('lists the models that reject sampling params', () => {
+    expect([...anthropicNoSamplingParamsModels]).toEqual([
+      'claude-fable-5-1',
+      'claude-opus-5-5',
+      'claude-sonnet-5-5',
+      'claude-haiku-5-5',
+      'claude-opus-5',
+      'claude-sonnet-5',
+      'claude-opus-4-8',
+      'claude-opus-4-7',
+    ]);
   });
 
   it('shows only the current Claude lineup in the visible picker', () => {

@@ -1,6 +1,9 @@
-import { AiFullModelCard, LobeDefaultAiModelListItem } from '../types/aiModel';
-import { default as anthropic } from './anthropic';
-import { default as anthropiccompatible } from './anthropiccompatible';
+import { AIChatModelCard, AiFullModelCard, LobeDefaultAiModelListItem } from '../types/aiModel';
+import { default as anthropic, anthropicRetiredChatModels } from './anthropic';
+import {
+  default as anthropiccompatible,
+  anthropicCompatibleRetiredChatModels,
+} from './anthropiccompatible';
 import { default as azure } from './azure';
 import { default as azureai } from './azureai';
 import { default as deepseek } from './deepseek';
@@ -48,8 +51,35 @@ export const LOBE_DEFAULT_MODEL_LIST = buildDefaultModelList({
   zhipu,
 });
 
-export { default as anthropic, anthropicChatModels } from './anthropic';
-export { default as anthropiccompatible } from './anthropiccompatible';
+type RetiredModelCard = AIChatModelCard & { providerId: string };
+
+const RETIRED_MODEL_LIST: RetiredModelCard[] = Object.entries({
+  anthropic: anthropicRetiredChatModels,
+  anthropiccompatible: anthropicCompatibleRetiredChatModels,
+}).flatMap(([providerId, models]) => models.map((model) => ({ ...model, providerId })));
+
+/**
+ * Last shipped card for an id that left the built-in picker but still works
+ * upstream. Use it only when a saved assistant references the id and no
+ * enabled card exists; never list these as built-in models.
+ */
+export const findRetiredModelCard = (
+  id: string,
+  providerId?: string,
+): RetiredModelCard | undefined =>
+  RETIRED_MODEL_LIST.find(
+    (model) => model.id === id && (!providerId || model.providerId === providerId),
+  );
+
+export {
+  default as anthropic,
+  anthropicChatModels,
+  anthropicRetiredChatModels,
+} from './anthropic';
+export {
+  default as anthropiccompatible,
+  anthropicCompatibleRetiredChatModels,
+} from './anthropiccompatible';
 export { default as azure } from './azure';
 export { default as azureai } from './azureai';
 export { default as deepseek } from './deepseek';

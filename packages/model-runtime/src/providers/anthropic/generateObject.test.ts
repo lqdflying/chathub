@@ -410,19 +410,25 @@ describe('Anthropic generateObject', () => {
 
   describe('models that reject forced tool_choice', () => {
     const schemaPayload = (model: string) => ({
-      messages: [{ content: 'Generate a person object', role: 'user' as const }],
+      messages: [
+        { content: 'Extract people.', role: 'system' as const },
+        { content: 'Generate a person object', role: 'user' as const },
+      ],
       model,
       schema: {
         name: 'person_extractor',
         schema: {
-          properties: { name: { type: 'string' } },
+          properties: {
+            address: { properties: { city: { type: 'string' } }, type: 'object' },
+            name: { type: 'string' },
+          },
           type: 'object' as const,
         },
       },
     });
 
     it.each(['claude-fable-5-1', 'claude-opus-5-5', 'claude-sonnet-5-5'])(
-      'sends tool_choice auto for %s and still extracts the schema tool',
+      'sends a strict schema tool with tool_choice auto for %s',
       async (model) => {
         const mockClient = {
           messages: {
@@ -437,15 +443,39 @@ describe('Anthropic generateObject', () => {
 
         const result = await createAnthropicGenerateObject(mockClient as any, schemaPayload(model));
 
-        expect(mockClient.messages.create).toHaveBeenCalledWith(
-          expect.objectContaining({ model, tool_choice: { type: 'auto' } }),
-          expect.any(Object),
+        const request = mockClient.messages.create.mock.calls[0][0];
+        expect(request).toMatchObject({
+          max_tokens: 16_000,
+          model,
+          output_config: { effort: 'low' },
+          tool_choice: { type: 'auto' },
+        });
+        expect(request.system).toEqual([
+          { text: 'Extract people.', type: 'text' },
+          {
+            text: 'Respond only with tool calls to the provided tools; do not reply with plain text.',
+            type: 'text',
+          },
+        ]);
+        expect(request.tools[0]).toMatchObject({
+          input_schema: {
+            additionalProperties: false,
+            properties: {
+              address: { additionalProperties: false, properties: { city: { type: 'string' } } },
+              name: { type: 'string' },
+            },
+          },
+          name: 'person_extractor',
+          strict: true,
+        });
+        expect(request.tools[0].input_schema.properties.name).not.toHaveProperty(
+          'additionalProperties',
         );
         expect(result).toEqual({ name: 'John' });
       },
     );
 
-    it('sends tool_choice auto in tools mode for Opus 5.5', async () => {
+    it('sends tool_choice auto without strict in tools mode for Opus 5.5', async () => {
       const mockClient = {
         messages: {
           create: vi.fn().mockResolvedValue({
@@ -468,14 +498,18 @@ describe('Anthropic generateObject', () => {
         ],
       } as any);
 
-      expect(mockClient.messages.create).toHaveBeenCalledWith(
-        expect.objectContaining({ tool_choice: { type: 'auto' } }),
-        expect.any(Object),
-      );
+      const request = mockClient.messages.create.mock.calls[0][0];
+      expect(request).toMatchObject({
+        max_tokens: 16_000,
+        output_config: { effort: 'low' },
+        tool_choice: { type: 'auto' },
+      });
+      expect(request.tools[0]).not.toHaveProperty('strict');
+      expect(request.tools[0].input_schema).not.toHaveProperty('additionalProperties');
       expect(result).toEqual([{ arguments: { a: 1 }, name: 'calculate' }]);
     });
 
-    it('keeps forced tool_choice for Haiku 5.5', async () => {
+    it('keeps forced tool_choice and the plain schema for Haiku 5.5', async () => {
       const mockClient = {
         messages: {
           create: vi.fn().mockResolvedValue({
@@ -486,10 +520,15 @@ describe('Anthropic generateObject', () => {
 
       await createAnthropicGenerateObject(mockClient as any, schemaPayload('claude-haiku-5-5'));
 
-      expect(mockClient.messages.create).toHaveBeenCalledWith(
-        expect.objectContaining({ tool_choice: { name: 'person_extractor', type: 'tool' } }),
-        expect.any(Object),
-      );
+      const request = mockClient.messages.create.mock.calls[0][0];
+      expect(request).toMatchObject({
+        max_tokens: 8192,
+        tool_choice: { name: 'person_extractor', type: 'tool' },
+      });
+      expect(request).not.toHaveProperty('output_config');
+      expect(request.system).toEqual([{ text: 'Extract people.', type: 'text' }]);
+      expect(request.tools[0]).not.toHaveProperty('strict');
+      expect(request.tools[0].input_schema).not.toHaveProperty('additionalProperties');
     });
   });
 

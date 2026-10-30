@@ -206,6 +206,24 @@ describe('aiModelSelectors', () => {
         false,
       );
     });
+
+    it('falls back to the retired card for a saved legacy Claude id', () => {
+      expect(aiModelSelectors.isModelSupportToolUse('claude-sonnet-5', 'anthropic')(mockState)).toBe(
+        true,
+      );
+      expect(aiModelSelectors.isModelSupportVision('claude-sonnet-5', 'anthropic')(mockState)).toBe(
+        true,
+      );
+      expect(
+        aiModelSelectors.modelContextWindowTokens('claude-opus-4-7', 'anthropic')(mockState),
+      ).toBe(200_000);
+      expect(
+        aiModelSelectors.isModelHasExtendParams('claude-opus-5', 'anthropic')(mockState),
+      ).toBe(true);
+      expect(
+        aiModelSelectors.isModelSupportToolUse('claude-sonnet-5', 'provider1')(mockState),
+      ).toBe(false);
+    });
   });
 
   describe('context window checks', () => {

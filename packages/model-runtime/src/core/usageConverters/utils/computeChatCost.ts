@@ -228,6 +228,11 @@ const computeLookupCredits = (
   };
 };
 
+const resolvePromptTokens = (usage: ModelTokensUsage) =>
+  (UNIT_QUANTITY_RESOLVERS.textInput?.(usage) ?? 0) +
+  (usage.inputCachedTokens ?? 0) +
+  (usage.inputWriteCacheTokens ?? 0);
+
 const resolveQuantity = (unit: PricingUnit, usage: ModelTokensUsage) => {
   const resolver = UNIT_QUANTITY_RESOLVERS[unit.name as PricingUnitName];
   const quantity = resolver?.(usage);
@@ -250,7 +255,12 @@ export const computeChatCost = (
   const currency = pricing.currency || 'USD';
   const usdToCnyRate = options?.usdToCnyRate ?? USD_TO_CNY;
 
-  for (const unit of pricing.units) {
+  const units =
+    pricing.longPrompt && resolvePromptTokens(usage) > pricing.longPrompt.thresholdTokens
+      ? pricing.longPrompt.units
+      : pricing.units;
+
+  for (const unit of units) {
     const quantity = resolveQuantity(unit, usage);
     if (quantity === undefined) continue;
 
