@@ -1,5 +1,6 @@
 import {
   REASONING_BUDGET_TOKEN_ADAPTIVE,
+  getAnthropicDefaultEffort,
   isAnthropicAdaptiveThinkingOnlyModel,
   isAnthropicAlwaysOnThinkingModel,
   supportsAnthropicAdaptiveThinking,
@@ -92,7 +93,7 @@ export const buildModelExtendParams = ({
   const anthropicAdaptiveThinking = {
     effort: VALID_REASONING_EFFORTS.has(chatConfig.reasoningEffort || '')
       ? chatConfig.reasoningEffort
-      : 'high',
+      : getAnthropicDefaultEffort(model),
     type: 'adaptive' as const,
   };
 

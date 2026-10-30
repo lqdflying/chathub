@@ -65,7 +65,7 @@ describe('deprecated languageModel compatibility', () => {
   it('derives OpenAI/Google/Anthropic metadata from the 2026 model-bank', () => {
     expect(LOBE_DEFAULT_MODEL_LIST.length).toBeGreaterThan(0);
     expect(LOBE_DEFAULT_MODEL_LIST.map((model) => model.id)).toEqual(
-      expect.arrayContaining(['gpt-5.6-sol', 'claude-sonnet-5', 'gemini-3.5-flash-lite']),
+      expect.arrayContaining(['gpt-5.6-sol', 'claude-sonnet-5-5', 'gemini-3.5-flash-lite']),
     );
     expect(OpenAIProviderCard.chatModels.some((model) => model.id === 'gpt-5.6-sol')).toBe(true);
 

@@ -240,6 +240,75 @@ describe('buildModelExtendParams', () => {
     });
   });
 
+  it.each([
+    ['claude-opus-5-5', 'medium'],
+    ['claude-sonnet-5-5', 'high'],
+  ])('sends %s adaptive thinking at its API default effort when unset', (model, effort) => {
+    expect(
+      buildModelExtendParams({
+        chatConfig: { enableReasoning: false },
+        model,
+        modelExtendParams: ['disableContextCaching', 'reasoningEffort'],
+        provider: ModelProvider.Anthropic,
+      }),
+    ).toEqual({
+      thinking: { effort, type: 'adaptive' },
+    });
+  });
+
+  it.each([ModelProvider.Anthropic, ModelProvider.AnthropicCompatible])(
+    'keeps a saved Opus 5.5 effort on %s',
+    (provider) => {
+      expect(
+        buildModelExtendParams({
+          chatConfig: { reasoningEffort: 'high' },
+          model: 'claude-opus-5-5',
+          modelExtendParams: ['disableContextCaching', 'reasoningEffort'],
+          provider,
+        }),
+      ).toEqual({
+        reasoning_effort: 'high',
+        thinking: { effort: 'high', type: 'adaptive' },
+      });
+    },
+  );
+
+  it('sends Haiku 5.5 adaptive thinking at medium effort when reasoning is on and effort unset', () => {
+    expect(
+      buildModelExtendParams({
+        chatConfig: { enableReasoning: true },
+        model: 'claude-haiku-5-5',
+        modelExtendParams: [
+          'disableContextCaching',
+          'enableReasoning',
+          'reasoningEffort',
+          'reasoningBudgetToken',
+        ],
+        provider: ModelProvider.Anthropic,
+      }),
+    ).toEqual({
+      thinking: { effort: 'medium', type: 'adaptive' },
+    });
+  });
+
+  it('forwards thinking disabled when Haiku 5.5 reasoning is off', () => {
+    expect(
+      buildModelExtendParams({
+        chatConfig: { enableReasoning: false },
+        model: 'claude-haiku-5-5',
+        modelExtendParams: [
+          'disableContextCaching',
+          'enableReasoning',
+          'reasoningEffort',
+          'reasoningBudgetToken',
+        ],
+        provider: ModelProvider.Anthropic,
+      }),
+    ).toEqual({
+      thinking: { budget_tokens: 0, type: 'disabled' },
+    });
+  });
+
   it('applies provider-specific reasoning mappings', () => {
     expect(
       buildModelExtendParams({

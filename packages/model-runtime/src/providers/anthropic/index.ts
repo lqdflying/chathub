@@ -30,6 +30,7 @@ import { createAnthropicGenerateObject } from './generateObject';
 import { handleAnthropicError } from './handleAnthropicError';
 import {
   anthropicAdaptiveCapableModels,
+  getAnthropicDefaultEffort,
   getAnthropicRuntimeMaxOutput,
   isAnthropicAdaptiveThinkingOnlyModel,
   isAnthropicAlwaysOnThinkingModel,
@@ -368,7 +369,7 @@ export class LobeAnthropicAI implements LobeRuntimeAI {
       (!thinking || thinking.type === 'disabled' || thinking.type === 'enabled')
     ) {
       const maxTokens = maxThinkingTokens();
-      const effort = thinking?.effort ?? 'high';
+      const effort = thinking?.effort ?? getAnthropicDefaultEffort(model);
       return {
         max_tokens: maxTokens,
         messages: postMessages,
@@ -386,7 +387,7 @@ export class LobeAnthropicAI implements LobeRuntimeAI {
       isAnthropicAdaptiveThinkingOnlyModel(model)
     ) {
       const maxTokens = maxThinkingTokens();
-      const effort = thinking.effort ?? 'high';
+      const effort = thinking.effort ?? getAnthropicDefaultEffort(model);
       return {
         max_tokens: maxTokens,
         messages: postMessages,
@@ -400,7 +401,7 @@ export class LobeAnthropicAI implements LobeRuntimeAI {
 
     if (!!thinking && thinking.type === 'adaptive' && anthropicAdaptiveCapableModels.has(model)) {
       const maxTokens = maxThinkingTokens();
-      const effort = thinking.effort ?? 'high';
+      const effort = thinking.effort ?? getAnthropicDefaultEffort(model);
 
       return {
         max_tokens: maxTokens,

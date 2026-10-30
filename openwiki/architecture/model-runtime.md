@@ -36,7 +36,7 @@ Shipped counts (chat/image/embedding/TTS/STT/realtime as applicable):
 
 - OpenAI: GPT-6 Astra, GPT-6.1 Sol, GPT-5.6 Sol/Terra/Luna, GPT-5.5 (+ Pro), GPT-5.4 family, GPT-5.2 / Pro, `gpt-5.3-codex`, `gpt-audio-1.5`, `gpt-image-2` + `gpt-image-1.5`, `gpt-transcribe`, `gpt-realtime-1.5`/`2.1`. Default chat `gpt-5.6-sol`; check model `gpt-5.6-luna`. **Utility exceptions:** `text-embedding-3-small`/`large`, `tts-1`/`tts-1-hd`/`gpt-4o-mini-tts`.
 - OpenAI-compatible: clones `gpt-6-astra` + `gpt-6.1-sol` + `gpt-5.6-sol` + `gpt-5.5` (no Terra/Luna auto-add); `gpt-image-2`. Compatible chat cards use the 258K window.
-- Anthropic: Claude Fable 5.1, Opus 5, Sonnet 5, Opus 4.8/4.7/4.6, Sonnet 4.6. Check model `claude-sonnet-5`. Anthropic-compatible clones Sonnet 5 + Opus 5.
+- Anthropic: Anthropic's current lineup only: Claude Fable 5.1, Opus 5.5, Sonnet 5.5, Haiku 5.5. Check model `claude-sonnet-5-5`. Anthropic-compatible clones Sonnet 5.5 + Opus 5.5. Legacy Opus 5, Sonnet 5, Opus 4.8/4.7/4.6, and Sonnet 4.6 are out of the picker. Haiku 5.5 pricing is tiered at 100K tokens per unit (the cost estimator tiers each unit by its own quantity, as on Gemini).
 - Google: Gemini 3.8–3.5 Flash/Lite, 3.1 Flash Lite/Pro preview, native 3.x image ids. Check model `gemini-3.5-flash-lite`. Flash/Lite time-varying tariffs omitted.
 - Azure OpenAI / Azure AI: Foundry GPT-5.6 Sol/Terra/Luna, 5.5, 5.4 family, `gpt-image-2`. No `gpt-5.2` (Foundry version 2025-12-11). Azure pricing omitted.
 - Moonshot: `kimi-k3`, `kimi-k2.6`, `kimi-k2.7-code`, `kimi-k2.7-code-highspeed`. Check model `kimi-k2.6`. K2.5 sunset 2026-08-31.
@@ -50,7 +50,13 @@ Native OpenAI `gpt-6-astra` / `gpt-6-astra-*` and `gpt-6.1-sol` / `gpt-6.1-sol-*
 
 Azure OpenAI / Azure AI stay on Chat Completions. Microsoft requires `reasoning_effort: none` when GPT-5.6 Chat Completions includes function tools; otherwise the request is rejected. ChatHub forces `none` on those tool chats using the catalog id, not the outgoing deployment alias: the web API validates `trustedCatalogModel` server-side, and browser-direct (Browser Request) mode reuses the locally resolved catalog/deployment mapping. Tool-free effort is left unchanged. This is a documented quality tradeoff until Azure Responses is wired.
 
-Claude Opus 5, Sonnet 5, Opus 4.8, and Opus 4.7 are adaptive-only: leftover fixed budgets are sent as `thinking: { type: "adaptive" }` plus `output_config.effort`. Fable 5.1 is always-on adaptive thinking (no disable control). Opus 5 / Sonnet 5 off sends `thinking: { type: "disabled" }`. Saved pre-2026 Anthropic ids keep hidden runtime `maxOutput` values and stay out of the picker.
+Anthropic thinking rules live in `packages/model-runtime/src/providers/anthropic/thinkingCapabilities.ts` ([effort](https://platform.claude.com/docs/en/build-with-claude/effort), [release notes](https://platform.claude.com/docs/en/release-notes/overview)):
+
+- Fable 5.1, Opus 5.5, and Sonnet 5.5 are always-on adaptive thinking (no disable control). The runtime sends any `disabled` or leftover `enabled` value as `thinking: { type: "adaptive" }`, because the API rejects `disabled` on these models. Sonnet 5.5's `between_tools` mode is not exposed.
+- Haiku 5.5, Opus 5, Sonnet 5, Opus 4.8, and Opus 4.7 are adaptive-only: leftover fixed budgets become adaptive plus `output_config.effort`. Haiku 5.5 off sends `thinking: { type: "disabled" }`, which the API accepts at `high` effort or below (the slider stops at `high`).
+- Unset effort sends the model's API default (`getAnthropicDefaultEffort`): `medium` on Opus 5.5 and Haiku 5.5, `high` everywhere else. Browser and Graphile requests share this through `buildModelExtendParams`.
+- `generateObject` sends `tool_choice: { type: "auto" }` for Fable 5.1, Opus 5.5, and Sonnet 5.5 (`anthropicNoForcedToolChoiceModels`), which reject `any` and `tool`. Other models keep the forced choice. This covers group supervisors and tRPC structured output.
+- Saved ids that left the picker (pre-2026 and the legacy 2026 cards) keep hidden runtime `maxOutput` values in `anthropicSavedModelMaxOutput`. They get no gear panel, so no `thinking` field is sent.
 
 Fetched `glm-4.7*` infers Preserved Thinking only (`enableReasoning` is not injected) because the Zhipu adapter forces thinking for that family.
 

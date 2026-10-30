@@ -1211,6 +1211,81 @@ describe('LobeAnthropicAI', () => {
         expect(result.max_tokens).toBe(64_000);
       });
 
+      describe.each([
+        ['claude-opus-5-5', 'medium'],
+        ['claude-sonnet-5-5', 'high'],
+      ])('always-on thinking for %s', (model, defaultEffort) => {
+        it.each([
+          ['unset', undefined],
+          ['disabled', { type: 'disabled' as const }],
+          ['leftover enabled', { budget_tokens: 1024, type: 'enabled' as const }],
+        ])('sends adaptive thinking when thinking is %s', async (_label, thinking) => {
+          const result = await instance['buildAnthropicPayload']({
+            messages: [{ content: 'Hello', role: 'user' }],
+            model,
+            thinking,
+          });
+
+          expect(result.thinking).toEqual({ type: 'adaptive' });
+          expect((result as any).output_config).toEqual({ effort: defaultEffort });
+          expect(result.max_tokens).toBe(128_000);
+        });
+
+        it('keeps a saved effort', async () => {
+          const result = await instance['buildAnthropicPayload']({
+            messages: [{ content: 'Hello', role: 'user' }],
+            model,
+            thinking: { effort: 'low', type: 'adaptive' },
+          });
+
+          expect((result as any).output_config).toEqual({ effort: 'low' });
+        });
+      });
+
+      it('forwards thinking.type disabled for Haiku 5.5 without output_config', async () => {
+        const result = await instance['buildAnthropicPayload']({
+          messages: [{ content: 'Hello', role: 'user' }],
+          model: 'claude-haiku-5-5',
+          thinking: { type: 'disabled' },
+        });
+
+        expect(result.thinking).toEqual({ type: 'disabled' });
+        expect(result).not.toHaveProperty('output_config');
+      });
+
+      it('sends Haiku 5.5 adaptive thinking at its medium default effort', async () => {
+        const result = await instance['buildAnthropicPayload']({
+          messages: [{ content: 'Hello', role: 'user' }],
+          model: 'claude-haiku-5-5',
+          thinking: { type: 'adaptive' },
+        });
+
+        expect(result.thinking).toEqual({ type: 'adaptive' });
+        expect((result as any).output_config).toEqual({ effort: 'medium' });
+        expect(result.max_tokens).toBe(128_000);
+      });
+
+      it('coerces leftover enabled thinking on Haiku 5.5 to adaptive', async () => {
+        const result = await instance['buildAnthropicPayload']({
+          messages: [{ content: 'Hello', role: 'user' }],
+          model: 'claude-haiku-5-5',
+          thinking: { budget_tokens: 1024, type: 'enabled' },
+        });
+
+        expect(result.thinking).toEqual({ type: 'adaptive' });
+        expect((result as any).output_config).toEqual({ effort: 'medium' });
+      });
+
+      it('uses hidden runtime max output for a saved Claude Opus 5 id', async () => {
+        const result = await instance['buildAnthropicPayload']({
+          messages: [{ content: 'Hello', role: 'user' }],
+          model: 'claude-opus-5',
+        });
+
+        expect(result.max_tokens).toBe(128_000);
+        expect(result).not.toHaveProperty('thinking');
+      });
+
       it('should build adaptive payload when thinking.type is adaptive on adaptive-capable models', async () => {
         const payload: ChatStreamPayload = {
           messages: [{ content: 'Reason step by step', role: 'user' }],

@@ -408,6 +408,91 @@ describe('Anthropic generateObject', () => {
     });
   });
 
+  describe('models that reject forced tool_choice', () => {
+    const schemaPayload = (model: string) => ({
+      messages: [{ content: 'Generate a person object', role: 'user' as const }],
+      model,
+      schema: {
+        name: 'person_extractor',
+        schema: {
+          properties: { name: { type: 'string' } },
+          type: 'object' as const,
+        },
+      },
+    });
+
+    it.each(['claude-fable-5-1', 'claude-opus-5-5', 'claude-sonnet-5-5'])(
+      'sends tool_choice auto for %s and still extracts the schema tool',
+      async (model) => {
+        const mockClient = {
+          messages: {
+            create: vi.fn().mockResolvedValue({
+              content: [
+                { text: 'Here is the result.', type: 'text' },
+                { input: { name: 'John' }, name: 'person_extractor', type: 'tool_use' },
+              ],
+            }),
+          },
+        };
+
+        const result = await createAnthropicGenerateObject(mockClient as any, schemaPayload(model));
+
+        expect(mockClient.messages.create).toHaveBeenCalledWith(
+          expect.objectContaining({ model, tool_choice: { type: 'auto' } }),
+          expect.any(Object),
+        );
+        expect(result).toEqual({ name: 'John' });
+      },
+    );
+
+    it('sends tool_choice auto in tools mode for Opus 5.5', async () => {
+      const mockClient = {
+        messages: {
+          create: vi.fn().mockResolvedValue({
+            content: [{ input: { a: 1 }, name: 'calculate', type: 'tool_use' }],
+          }),
+        },
+      };
+
+      const result = await createAnthropicGenerateObject(mockClient as any, {
+        messages: [{ content: 'Add', role: 'user' as const }],
+        model: 'claude-opus-5-5',
+        tools: [
+          {
+            function: {
+              name: 'calculate',
+              parameters: { properties: { a: { type: 'number' } }, type: 'object' as const },
+            },
+            type: 'function' as const,
+          },
+        ],
+      } as any);
+
+      expect(mockClient.messages.create).toHaveBeenCalledWith(
+        expect.objectContaining({ tool_choice: { type: 'auto' } }),
+        expect.any(Object),
+      );
+      expect(result).toEqual([{ arguments: { a: 1 }, name: 'calculate' }]);
+    });
+
+    it('keeps forced tool_choice for Haiku 5.5', async () => {
+      const mockClient = {
+        messages: {
+          create: vi.fn().mockResolvedValue({
+            content: [{ input: { name: 'John' }, name: 'person_extractor', type: 'tool_use' }],
+          }),
+        },
+      };
+
+      await createAnthropicGenerateObject(mockClient as any, schemaPayload('claude-haiku-5-5'));
+
+      expect(mockClient.messages.create).toHaveBeenCalledWith(
+        expect.objectContaining({ tool_choice: { name: 'person_extractor', type: 'tool' } }),
+        expect.any(Object),
+      );
+    });
+  });
+
   it('should propagate API errors correctly', async () => {
     const apiError = new Error('API Error: Model not found');
 

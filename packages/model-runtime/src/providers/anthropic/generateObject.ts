@@ -3,6 +3,7 @@ import debug from 'debug';
 
 import { buildAnthropicMessages, buildAnthropicTools } from '../../core/contextBuilders/anthropic';
 import { GenerateObjectOptions, GenerateObjectPayload } from '../../types';
+import { anthropicNoForcedToolChoiceModels } from './thinkingCapabilities';
 
 const log = debug('lobe-model-runtime:anthropic:generate-object');
 
@@ -37,10 +38,9 @@ export const createAnthropicGenerateObject = async (
     : undefined;
 
   let finalTools;
-  let tool_choice: Anthropic.ToolChoiceAny | Anthropic.ToolChoiceTool;
+  let schemaToolName: string | undefined;
   if (tools) {
     finalTools = buildAnthropicTools(tools);
-    tool_choice = { type: 'any' };
   } else if (schema) {
     // Convert OpenAI-style schema to Anthropic tool format
     const tool: Anthropic.ToolUnion = {
@@ -52,9 +52,18 @@ export const createAnthropicGenerateObject = async (
     log('converted tool: %O', tool);
 
     finalTools = [tool];
-    tool_choice = { name: tool.name, type: 'tool' };
+    schemaToolName = tool.name;
   } else {
     throw new Error('tools or schema is required');
+  }
+
+  let tool_choice: Anthropic.ToolChoice;
+  if (anthropicNoForcedToolChoiceModels.has(model)) {
+    tool_choice = { type: 'auto' };
+  } else if (schemaToolName) {
+    tool_choice = { name: schemaToolName, type: 'tool' };
+  } else {
+    tool_choice = { type: 'any' };
   }
 
   try {
@@ -78,13 +87,13 @@ export const createAnthropicGenerateObject = async (
     log('response: %O', response);
 
     // Extract the tool use result
-    if (tool_choice.type === 'tool') {
+    if (schemaToolName) {
       const toolUseBlock = response.content.find(
-        (block) => block.type === 'tool_use' && block.name === tool_choice.name,
+        (block) => block.type === 'tool_use' && block.name === schemaToolName,
       );
 
       if (!toolUseBlock || toolUseBlock.type !== 'tool_use') {
-        log('no tool use found in response (expected tool: %s)', tool_choice.name);
+        log('no tool use found in response (expected tool: %s)', schemaToolName);
         return undefined;
       }
 
