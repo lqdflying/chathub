@@ -66,7 +66,9 @@ sessions cannot create tags or releases either.
    visible on origin.
 4. Claude watches for the tag (poll `git ls-remote --tags origin` via a background
    monitor — never foreground sleep), then tracks the workflow run with the GitHub MCP
-   Actions tools (`gh` CLI is **not** available in cloud sessions) and reports the result.
+   Actions tools (`gh` CLI is **not** available in cloud sessions) and reports the result
+   with the clickable links listed in `.cursor/rules/git-and-release.mdc` (run, tag,
+   compare, Docker image, wiki pages).
    `actions_list` responses are huge — extract fields from the saved result file instead
    of reading them raw.
 

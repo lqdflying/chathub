@@ -187,7 +187,14 @@ Hard gates:
   ```bash
   gh run list -R lqdflying/chathub --workflow=docker-release.yml --limit 3
   ```
-- The final response for a canary flow must include the pushed tag, the workflow run id/status, and the wiki publish result (pushed commit range, `already up to date`, or `unavailable`).
+- The final response for a canary flow must give **clickable markdown links**, never bare ids or names:
+  - workflow run and its status — get the URL with
+    `gh run view <run-id> -R lqdflying/chathub --json url,status -q '.url + " " + .status'`
+  - tag: `https://github.com/lqdflying/chathub/tree/<tag>`
+  - branch and its diff against `main`: `https://github.com/lqdflying/chathub/compare/main...<branch>`
+  - Docker image: `https://hub.docker.com/r/lqdflying/chathub/tags?name=<X.Y.Z-canary.N>`
+  - wiki publish result: the pushed commit range plus a link to each changed page
+    (`https://github.com/lqdflying/chathub/wiki/<Page-Name>`), or `already up to date` / `unavailable`
 
 ## Docs / rules-only commits — no tag needed
 
@@ -318,6 +325,8 @@ release bodies, dump `git log`, or write essays.
    sections. Canon: [v2.0.0](https://github.com/lqdflying/chathub/releases/tag/v2.0.0).
 
 Do **not** create the release before pushing the tag — the tag push triggers the Docker build. Create the release after the tag push. Use `gh release edit` to fix notes; do not retag.
+
+The GA final response links the release (`https://github.com/lqdflying/chathub/releases/tag/vX.Y.Z`), the workflow run, and the Docker image tag, using the same link forms as the canary flow.
 
 ### After GA: clean up merged branches (MANDATORY)
 
