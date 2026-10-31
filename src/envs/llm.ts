@@ -7,6 +7,8 @@ export const getLLMConfig = () => {
     server: {
       API_KEY_SELECT_MODE: z.string().optional(),
 
+      ENABLE_PROVIDER_USAGE_SERVER_KEYS: z.boolean(),
+
       ENABLED_OPENAI: z.boolean(),
       OPENAI_API_KEY: z.string().optional(),
 
@@ -228,6 +230,10 @@ export const getLLMConfig = () => {
     },
     runtimeEnv: {
       API_KEY_SELECT_MODE: process.env.API_KEY_SELECT_MODE,
+
+      ENABLE_PROVIDER_USAGE_SERVER_KEYS: ['1', 'true'].includes(
+        (process.env.ENABLE_PROVIDER_USAGE_SERVER_KEYS ?? '').trim().toLowerCase(),
+      ),
 
       ENABLED_OPENAI: process.env.ENABLED_OPENAI !== '0',
       OPENAI_API_KEY: process.env.OPENAI_API_KEY,

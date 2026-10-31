@@ -19,6 +19,7 @@ import { z } from 'zod';
 
 import { FormInput, FormPassword } from '@/components/FormInput';
 import { ProviderBrandCombine, ProviderBrandIcon } from '@/components/ProviderBrandIcon';
+import { isProviderUsageProvider } from '@/const/providerUsage';
 import { AES_GCM_URL } from '@/const/url';
 import { aiProviderSelectors, useAiInfraStore } from '@/store/aiInfra';
 import {
@@ -38,6 +39,7 @@ import {
 } from '@/types/aiProvider';
 
 import { KeyVaultsConfigKey, LLMProviderApiTokenKey, LLMProviderBaseUrlKey } from '../../const';
+import ProviderUsageCard, { type ProviderUsageCardRef } from '../ProviderUsage';
 import Checker, { CheckErrorRender } from './Checker';
 import EnableSwitch from './EnableSwitch';
 import ProviderRouteToggle, {
@@ -446,6 +448,8 @@ const ProviderConfig = memo<ProviderConfigProps>(
 
     // 标记是否正在进行连接测试
     const isCheckingConnection = useRef(false);
+    const usageCardRef = useRef<ProviderUsageCardRef>(null);
+    const showUsage = source === AiProviderSourceEnum.Builtin && isProviderUsageProvider(id);
 
     const handleValueChange = useCallback(
       (...params: Parameters<typeof updateAiProviderConfig>) => {
@@ -866,6 +870,8 @@ const ProviderConfig = memo<ProviderConfigProps>(
                 onAfterCheck={async () => {
                   // 重置连接测试状态，允许后续的 onValuesChange 更新
                   isCheckingConnection.current = false;
+                  // The check saved the latest key, so re-read balance with it.
+                  void usageCardRef.current?.refresh();
                 }}
                 onBeforeCheck={async () => {
                   // 设置连接测试状态，阻止 onValuesChange 的重复请求
@@ -972,6 +978,11 @@ const ProviderConfig = memo<ProviderConfigProps>(
         />
         {extra ? (
           <Flexbox style={{ maxWidth: '100%', minWidth: 0, width: '100%' }}>{extra}</Flexbox>
+        ) : null}
+        {showUsage ? (
+          <Flexbox style={{ maxWidth: '100%', minWidth: 0, width: '100%' }}>
+            <ProviderUsageCard provider={id} ref={usageCardRef} />
+          </Flexbox>
         ) : null}
       </Flexbox>
     );

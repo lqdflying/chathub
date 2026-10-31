@@ -567,6 +567,47 @@
       "tts": "TTS"
     }
   },
+  "providerUsage": {
+    "balance": "Available balance",
+    "balanceBreakdown": "Granted {{granted}} · Paid {{paid}}",
+    "insufficient": "The balance is not enough for API calls right now.",
+    "loading": "Reading balance and usage…",
+    "plan": "{{plan}} plan",
+    "reason": {
+      "notOnPlan": "This key has no active plan quota.",
+      "teamIdRequired": "Enter the xAI team ID that this management key belongs to."
+    },
+    "refresh": "Refresh",
+    "remainingOf": "{{remaining}} / {{limit}} left",
+    "remainingPercent": "{{percent}}% left",
+    "resets": "Resets {{time}}",
+    "sourceServer": "Server key {{hint}}",
+    "sourceUser": "Your key {{hint}}",
+    "spendSince": "Since {{time}}",
+    "spendTitle": "Spend this month",
+    "status": {
+      "authError": "The provider rejected the key. Check that it is valid.",
+      "error": "Could not read usage right now. Try again later.",
+      "noCredential": "Enter an API key above to see the balance.",
+      "ok": "",
+      "unavailable": "This key has no balance or plan quota to show."
+    },
+    "title": "Balance & usage",
+    "unit": {
+      "calls": "calls",
+      "tokens": "tokens"
+    },
+    "unofficial": "Unofficial",
+    "unofficialHint": "This endpoint is not in the provider's public docs and may stop working if the provider changes it.",
+    "updatedAt": "Updated {{time}}",
+    "window": {
+      "custom": "Quota",
+      "daily": "Daily quota",
+      "fiveHour": "5-hour quota",
+      "monthly": "Monthly quota",
+      "weekly": "Weekly quota"
+    }
+  },
   "sortModal": {
     "success": "Sort update successful",
     "title": "Custom Order",

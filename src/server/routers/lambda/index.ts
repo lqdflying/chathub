@@ -27,6 +27,7 @@ import { openaiCodexRouter } from './openaiCodex';
 import { xaiOAuthRouter } from './xaiOAuth';
 import { picbedRouter } from './picbed';
 import { pluginRouter } from './plugin';
+import { providerUsageRouter } from './providerUsage';
 import { ragEvalRouter } from './ragEval';
 import { ragProviderRouter } from './ragProvider';
 import { sandboxRouter } from './sandbox';
@@ -64,6 +65,7 @@ export const lambdaRouter = router({
   openaiCodex: openaiCodexRouter,
   picbed: picbedRouter,
   plugin: pluginRouter,
+  providerUsage: providerUsageRouter,
   ragEval: ragEvalRouter,
   ragProvider: ragProviderRouter,
   sandbox: sandboxRouter,
