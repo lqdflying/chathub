@@ -11,6 +11,7 @@ import {
 } from '@/tools/sandbox/const';
 
 import { listConversationSandboxInputs, persistSandboxOutputFiles } from '../conversationFiles';
+import { distinctOutputFilenames, outputRelativeName } from '../outputNames';
 import { getSandboxProvider } from '../registry';
 import { buildSandboxSessionKey, type SandboxConversationScope } from '../session';
 import {
@@ -350,7 +351,7 @@ class SandboxToolRunner {
   exportFile({ paths }: SandboxToolArgs['exportFile']) {
     return this.useWithInputs(SandboxApiName.exportFile, FILE_BUDGET_MS, async (workspace) => {
       const unique = [...new Set(await this.expandListedPaths(workspace, paths))];
-      const files: SandboxFile[] = [];
+      const loaded: Array<{ content: Uint8Array; relative: string }> = [];
       const skipped: string[] = [];
       for (const path of unique.slice(0, this.maxFileCount)) {
         const resolved = this.resolvePath(workspace, path);
@@ -360,19 +361,27 @@ class SandboxToolRunner {
             skipped.push(`${path}: the file is empty`);
             continue;
           }
-          files.push({ content, filename: posix.basename(resolved) });
+          loaded.push({ content, relative: outputRelativeName(workspace.workdir, resolved) });
         } catch (error) {
           if (!(error instanceof SandboxRequestError)) throw error;
           skipped.push(`${path}: ${error.message}`);
         }
       }
+      const filenames = distinctOutputFilenames(loaded.map((item) => item.relative));
+      const files: SandboxFile[] = loaded.map((item, index) => ({
+        content: item.content,
+        filename: filenames[index],
+      }));
       const persisted = files.length > 0 ? await this.persist(workspace, files) : [];
       if (persisted.length < files.length) {
         skipped.push(`${files.length - persisted.length} file(s) could not be stored`);
       }
       if (unique.length > this.maxFileCount) {
+        const rest = unique.slice(this.maxFileCount);
+        const shown = rest.slice(0, 50);
+        const extra = rest.length - shown.length;
         skipped.push(
-          `${unique.length - this.maxFileCount} path(s) over the ${this.maxFileCount}-file limit were not exported; call exportFile again with them`,
+          `over the ${this.maxFileCount}-file limit, not exported; call exportFile again with: ${shown.join(', ')}${extra > 0 ? `, and ${extra} more` : ''}`,
         );
       }
       return {

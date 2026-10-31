@@ -323,9 +323,12 @@ describe.runIf(serverUrl)('OpenSandbox live', () => {
         );
         await workspace.writeFile(
           `${workspace.workdir}/zh.tex`,
-          text('\\documentclass{ctexart}\n\\begin{document}\n中文排版\n\\end{document}\n'),
+          text(
+            '\\documentclass[fontset=none]{ctexart}\n\\setCJKmainfont{AR PL SungtiL GB}\n\\begin{document}\n中文排版\n\\end{document}\n',
+          ),
         );
         await workspace.writeFile(`${workspace.workdir}/in.md`, text('# Title\n\nbody\n'));
+        await workspace.writeFile(`${workspace.workdir}/zh.md`, text('# 标题\n\n你好世界，中文测试。\n'));
         return {
           browser: await step(
             'chromium --headless --no-sandbox --disable-dev-shm-usage --dump-dom file:///tmp/workspace/page.html',
@@ -337,12 +340,13 @@ describe.runIf(serverUrl)('OpenSandbox live', () => {
             'python3 -c "import docx; d = docx.Document(); d.add_paragraph(\'hello\'); d.save(\'in.docx\')" && soffice --headless --convert-to pdf --outdir out in.docx > /dev/null && head -c 5 out/in.pdf',
           ),
           pandoc: await step(
-            'pandoc in.md -o from-md.docx && python3 -c "import docx; print(docx.Document(\'from-md.docx\').paragraphs[0].text)"',
+            'pandoc in.md -o from-md.docx && python3 -c "import docx; print(docx.Document(\'from-md.docx\').paragraphs[0].text)" && pandoc in.md -o from-md.pdf --pdf-engine=xelatex && head -c 5 from-md.pdf',
           ),
-          // xdvipdfmx writes no ToUnicode map for the CID-keyed Fandol fonts, so
-          // check the embedded font instead of extracted text.
+          pandocZh: await step(
+            'pandoc zh.md -o zh-md.pdf --pdf-engine=xelatex -V CJKmainfont="AR PL SungtiL GB" && python3 -c "from pypdf import PdfReader; print(PdfReader(\'zh-md.pdf\').pages[0].extract_text())"',
+          ),
           tex: await step(
-            'xelatex -interaction=nonstopmode -halt-on-error zh.tex > /dev/null && python3 -c "from pypdf import PdfReader; print(*[f.get_object()[\'/BaseFont\'] for f in PdfReader(\'zh.pdf\').pages[0][\'/Resources\'][\'/Font\'].values()])"',
+            'xelatex -interaction=nonstopmode -halt-on-error zh.tex > /dev/null && python3 -c "from pypdf import PdfReader; print(PdfReader(\'zh.pdf\').pages[0].extract_text())"',
           ),
         };
       });
@@ -351,8 +355,12 @@ describe.runIf(serverUrl)('OpenSandbox live', () => {
       expect(result.browser.exitCode).toBe(0);
       expect(result.browser.stdout).toContain('<div id="x">rendered</div>');
       expect(result.tex.exitCode).toBe(0);
-      expect(result.tex.stdout).toContain('FandolSong-Regular');
-      expect(result.pandoc).toMatchObject({ exitCode: 0, stdout: 'Title' });
+      expect(result.tex.stdout).toContain('中文排版');
+      expect(result.pandoc.exitCode).toBe(0);
+      expect(result.pandoc.stdout).toContain('Title');
+      expect(result.pandoc.stdout).toContain('%PDF-');
+      expect(result.pandocZh.exitCode).toBe(0);
+      expect(result.pandocZh.stdout).toContain('你好世界，中文测试。');
       expect(result.media.exitCode).toBe(0);
       expect(Number(result.media.stdout)).toBeCloseTo(1, 1);
     }, 300_000);

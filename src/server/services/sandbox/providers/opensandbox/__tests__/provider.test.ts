@@ -630,6 +630,39 @@ describe('OpenSandboxProvider', () => {
     expect(result).not.toHaveProperty('hint');
   });
 
+  it('renames nested outputs only when their basenames collide', async () => {
+    const names = [
+      'x.png',
+      'out/x.png',
+      'plots/2023/summary.png',
+      'plots/2024/summary.png',
+      'out/report.txt',
+      'p/q/file.txt',
+      'p_q/file.txt',
+    ];
+    install({
+      files: {
+        [MANIFEST]: JSON.stringify({
+          files: names.map((name) => ({ name, sha256: sha(name), size: name.length })),
+          scanCapped: false,
+        }),
+        ...Object.fromEntries(names.map((name) => [`/tmp/workspace/${name}`, name])),
+      },
+    });
+
+    const result = await run();
+
+    expect(result.files.map((item) => item.filename)).toEqual([
+      'x.png',
+      'out_x.png',
+      'plots_2023_summary.png',
+      'plots_2024_summary.png',
+      'report.txt',
+      'p_q_file.txt',
+      'p_q_file.txt_2',
+    ]);
+  });
+
   it('returns no subdirectory output when they do not all fit, and lists them in hint', async () => {
     const top = Array.from({ length: 19 }, (_, index) => `t${index}.txt`);
     const calls = install({
@@ -674,7 +707,7 @@ describe('OpenSandboxProvider', () => {
     install({ files: { [MANIFEST]: JSON.stringify({ files: [], scanCapped: true }) } });
 
     expect((await run()).hint).toBe(
-      'The working directory has too many files to check its subdirectories, so files changed inside subdirectories were not returned. Share the ones the user needs with exportFile.',
+      'The working directory has too many files to check its subdirectories, so any files changed inside subdirectories were not returned. If this run wrote files there, share the ones the user needs with exportFile.',
     );
   });
 

@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 
 import { logGenerationDebugSafe } from '@/libs/logger/generationDebug';
 
+import { distinctOutputFilenames } from '../../outputNames';
 import { OutputCollector } from '../../text';
 import {
   type SandboxCommandLogs,
@@ -94,7 +95,7 @@ const outputHint = (
   maxFileCount: number,
 ) => {
   if (scanCapped) {
-    return 'The working directory has too many files to check its subdirectories, so files changed inside subdirectories were not returned. Share the ones the user needs with exportFile.';
+    return 'The working directory has too many files to check its subdirectories, so any files changed inside subdirectories were not returned. If this run wrote files there, share the ones the user needs with exportFile.';
   }
   if (!unreturned) return undefined;
   const more = unreturned.count - unreturned.paths.length;
@@ -531,7 +532,7 @@ export class OpenSandboxWorkspace implements SandboxWorkspace {
         manifest.unreturned ??
         (nestedFits ? undefined : { count: nested.length, paths: nested.map((entry) => entry.name) });
 
-      const files: SandboxFile[] = [];
+      const downloaded: Array<{ content: Uint8Array; name: string }> = [];
       for (const entry of nestedFits ? [...top, ...nested] : top) {
         const content = await this.client.downloadFile(
           this.execd,
@@ -540,8 +541,13 @@ export class OpenSandboxWorkspace implements SandboxWorkspace {
           maxFileBytes,
         );
         if (content.byteLength === 0 || content.byteLength > maxFileBytes) continue;
-        files.push({ content, filename: safeBasename(entry.name)! });
+        downloaded.push({ content, name: entry.name });
       }
+      const filenames = distinctOutputFilenames(downloaded.map((item) => item.name));
+      const files: SandboxFile[] = downloaded.map((item, index) => ({
+        content: item.content,
+        filename: filenames[index],
+      }));
       return { files, hint: outputHint(manifest.scanCapped, unreturned, maxFileCount) };
     } catch (error) {
       logGenerationDebugSafe('sandbox_collect_failed', {

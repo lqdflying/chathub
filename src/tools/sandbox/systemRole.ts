@@ -21,8 +21,8 @@ APIs:
 Command-line tools (when installed):
 - Office files to PDF or another format: soffice --headless --convert-to pdf --outdir <dir> <file>.
 - Rendered HTML of a web page: chromium --headless --no-sandbox --disable-dev-shm-usage --dump-dom <url> prints the DOM after the page's scripts run. Commands run as root, so --no-sandbox is required. Playwright is not installed; use Chromium directly.
-- pandoc converts between Markdown, HTML, docx, and other formats. Pass --pdf-engine=xelatex when it writes a PDF.
-- LaTeX: pdflatex for Latin text; for Chinese, compile with xelatex and \\documentclass{ctexart}.
+- pandoc converts between Markdown, HTML, docx, and other formats. Pass --pdf-engine=xelatex when it writes a PDF. For Chinese text, also pass -V CJKmainfont="AR PL SungtiL GB".
+- LaTeX: pdflatex for Latin text; for Chinese, compile with xelatex, \\documentclass[fontset=none]{ctexart}, and \\setCJKmainfont{AR PL SungtiL GB}.
 - ffmpeg and ffprobe convert, cut, and inspect audio and video.
 
 Delivering files:
@@ -31,7 +31,7 @@ Delivering files:
 
 Python (runPython):
 - Each call is a new Python process in the working directory. Variables do not carry over; files and pip installs do.
-- New or changed files in the working directory are returned as files, including files in subdirectories. Hidden folders, __pycache__, node_modules, site-packages, and venv are not checked. Top-level files come first. If the changed subdirectory files do not all fit in the file limit, none of them are returned and hint lists them; export the ones the user needs with exportFile.
+- New or changed files in the working directory are returned as files, including files in subdirectories. Hidden folders, __pycache__, node_modules, site-packages, and venv are not checked. Top-level files come first. A returned file keeps its basename. When two files this call returns share a basename, each nested one is renamed with its folders, for example plots_2024_summary.png. If the changed subdirectory files do not all fit in the file limit, none of them are returned and hint lists them; export the ones the user needs with exportFile.
 - If the call times out, the tool returns only the timeout error. Printed output from that call is not included.
 - The packages argument does not install anything. A missing import is not proof the package cannot be installed: run pip install with runCommand, or inside the code. It counts against the time limit and lasts only while that sandbox lives. If pip fails, say what is missing.
 - numpy, pandas, matplotlib, scipy, scikit-learn, polars, duckdb, and similar packages may already be present; import them directly.

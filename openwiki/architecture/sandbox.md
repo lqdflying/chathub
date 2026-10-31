@@ -59,8 +59,9 @@ sends an array argument as its JSON text, so `exportFile.paths` decodes a
 string that parses as a JSON array of strings; any other string is one path.
 A path that contains commas or newlines and does not exist as written
 (`fileInfo`) is split into its parts, so a real filename with a comma still
-exports. One call exports at most `SANDBOX_MAX_FILE_COUNT` files; the rest are
-named in `skipped` with a request to call again. `timeout` is
+exports. One call exports at most `SANDBOX_MAX_FILE_COUNT` files; one
+`skipped` entry lists the paths left out (up to 50 names) and asks for another
+call. `timeout` is
 seconds; `resolveTimeoutMs` clamps it to `[1s, SANDBOX_MAX_TIMEOUT]` and an
 omitted value uses `SANDBOX_TIMEOUT`. `readFile` stops at a line boundary near
 100k characters; `stdout`/`stderr` and command logs keep their head and tail
@@ -233,8 +234,10 @@ changed) and only those files, each read in chunks and rejected once it passes
 a finite cap (`OPENSANDBOX_MANIFEST_MAX_BYTES`, or `SANDBOX_MAX_FILE_BYTES` for
 a file). A `Content-Length` above the cap cancels the body before it is read.
 `collectOutputs` accepts a name only when no segment is empty, hidden, or
-`..`, and no backslash appears; a subdirectory file is persisted under its
-basename. Top-level files come first, up to `SANDBOX_MAX_FILE_COUNT`.
+`..`, and no backslash appears. A file is persisted under its basename. When
+two files this call returns share a basename, each nested one uses its
+workdir-relative path with `/` replaced by `_` (a top-level file keeps its
+name). Top-level files come first, up to `SANDBOX_MAX_FILE_COUNT`.
 Subdirectory files follow only when all of them fit in the slots left;
 otherwise none is downloaded and the result's `hint` names them for
 `exportFile`.
@@ -401,11 +404,15 @@ zip/unzip, xz, procps, file, less, and openssh-client. From Debian trixie it
 adds ffmpeg/ffprobe 7.1, pandoc 3.1, LibreOffice 25.2 Writer, Calc, and
 Impress (`-nogui`, run as `soffice --headless`), TeX Live 2024 with pdflatex,
 xelatex, and `texlive-lang-chinese` (ctex), and Chromium for
-`--headless --dump-dom`. Playwright is not installed. ctex typesets Chinese
-with the Fandol fonts, but xdvipdfmx writes no ToUnicode map for those
-CID-keyed fonts (adding `poppler-data` does not change that), so text
-extracted or copied from such a PDF comes out as the wrong characters. The
-reportlab + `STSong.ttf` path keeps Chinese text extractable. The builtin prompt names
+`--headless --dump-dom`. Playwright is not installed. pandoc's PDF template
+needs `lmodern` and `texlive-fonts-recommended` (omitted by
+`--no-install-recommends`). The prompt's Chinese recipe is xelatex with
+`\documentclass[fontset=none]{ctexart}` and `\setCJKmainfont{AR PL SungtiL GB}`
+(`fonts-arphic-gbsn00lp`, a dependency of `texlive-lang-chinese`), and pandoc
+adds `-V CJKmainfont="AR PL SungtiL GB"`. Both embed a font with a ToUnicode
+map, so the text copies. ctex's default Fandol fonts do not: xdvipdfmx writes
+no ToUnicode map for those CID-keyed fonts, and copied text comes out as the
+wrong characters. The reportlab + `STSong.ttf` path stays extractable too. The builtin prompt names
 these tools, and the live test *has the development tools the Sandbox prompt
 promises* checks each one. The tag moved from `:1` to `:2` with these tools:
 the `chathub-runtime` label hashes the `OPENSANDBOX_IMAGE` string, not the

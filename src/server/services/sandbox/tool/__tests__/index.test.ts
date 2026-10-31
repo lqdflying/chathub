@@ -352,6 +352,16 @@ describe('invokeSandboxTool', () => {
     });
   });
 
+  it('renames exported files only when their basenames collide', async () => {
+    workspace.readFile.mockImplementation(async (path: string) => bytes(path));
+
+    const result = await call('exportFile', {
+      paths: ['x.png', 'out/x.png', 'only/notes.txt'],
+    });
+
+    expect(result.files?.map((file) => file.filename)).toEqual(['x.png', 'out_x.png', 'notes.txt']);
+  });
+
   it('reports paths over the per-call file limit instead of dropping them', async () => {
     workspace.readFile.mockImplementation(async () => bytes('data'));
 
@@ -360,7 +370,7 @@ describe('invokeSandboxTool', () => {
     expect(result.files).toHaveLength(3);
     expect(result).toMatchObject({
       skipped: [
-        '2 path(s) over the 3-file limit were not exported; call exportFile again with them',
+        'over the 3-file limit, not exported; call exportFile again with: d, e',
       ],
       success: true,
     });

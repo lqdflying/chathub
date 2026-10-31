@@ -36,11 +36,13 @@ RUN apt-get update \
         libreoffice-calc-nogui \
         libreoffice-impress-nogui \
         libreoffice-writer-nogui \
+        lmodern \
         openssh-client \
         pandoc \
         procps \
         ripgrep \
         sqlite3 \
+        texlive-fonts-recommended \
         texlive-lang-chinese \
         texlive-latex-base \
         texlive-latex-recommended \
@@ -51,8 +53,8 @@ RUN apt-get update \
         zip \
     && rm -rf /var/lib/apt/lists/* \
     && ln -s /usr/share/fonts/truetype/wqy/wqy-zenhei.ttc /usr/share/fonts/truetype/STSong.ttf \
-    && ffmpeg -version | head -1 && pandoc --version | head -1 && soffice --version \
-    && pdflatex --version | head -1 && xelatex --version | head -1 && chromium --version
+    && ffmpeg -version >/dev/null && pandoc --version >/dev/null && soffice --version \
+    && pdflatex --version >/dev/null && xelatex --version >/dev/null && chromium --version
 
 # Node.js LTS with npm and corepack from the official image; pnpm and yarn
 # are installed globally so they work without a download at first use.
