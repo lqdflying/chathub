@@ -68,9 +68,7 @@ export class ProviderUsageService {
     return loadUserProviderVault(this.db, this.userId, provider);
   }
 
-  private async resolveCredential(
-    provider: string,
-  ): Promise<ResolvedUsageCredential | undefined> {
+  private async resolveCredential(provider: string): Promise<ResolvedUsageCredential | undefined> {
     return resolveApiKeyUsageCredential(provider, await this.loadVault(provider), this.env);
   }
 

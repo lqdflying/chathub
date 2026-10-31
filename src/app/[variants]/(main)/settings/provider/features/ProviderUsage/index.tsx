@@ -247,9 +247,7 @@ const ProviderUsageCard = memo(
         {snapshot?.balances?.map((balance) => (
           <Flexbox gap={2} key={balance.currency}>
             <div className={styles.sub}>{t('providerUsage.balance')}</div>
-            <div className={styles.amount}>
-              {formatUsageMoney(balance.total, balance.currency)}
-            </div>
+            <div className={styles.amount}>{formatUsageMoney(balance.total, balance.currency)}</div>
             {(balance.granted !== undefined || balance.paid !== undefined) && (
               <div className={styles.sub}>
                 {t('providerUsage.balanceBreakdown', {

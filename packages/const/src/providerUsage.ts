@@ -3,7 +3,12 @@
  * server-side. OpenAI-compatible, Anthropic-compatible, and custom providers
  * are intentionally excluded.
  */
-export const PROVIDER_USAGE_API_KEY_PROVIDERS = ['deepseek', 'moonshot'] as const;
+export const PROVIDER_USAGE_API_KEY_PROVIDERS = [
+  'deepseek',
+  'minimax',
+  'moonshot',
+  'zhipu',
+] as const;
 
 /**
  * Providers whose inference API key cannot read billing data. They need a

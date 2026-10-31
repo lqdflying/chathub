@@ -7,7 +7,11 @@ import {
   statusFromHttp,
   stripVersionSuffix,
 } from '../parse';
-import type { ProviderUsageAdapter, ProviderUsageAdapterResult, ProviderUsageBalance } from '../types';
+import type {
+  ProviderUsageAdapter,
+  ProviderUsageAdapterResult,
+  ProviderUsageBalance,
+} from '../types';
 
 /**
  * Official: GET https://api.deepseek.com/user/balance
