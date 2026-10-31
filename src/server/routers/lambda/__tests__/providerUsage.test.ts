@@ -5,7 +5,9 @@ import { getServerDB } from '@/database/core/db-adaptor';
 import { providerUsageRouter } from '../providerUsage';
 
 const usage = vi.hoisted(() => ({
+  deleteAdminCredential: vi.fn(),
   getUsage: vi.fn(),
+  saveAdminCredential: vi.fn(),
 }));
 
 vi.mock('@/const/auth', async (importOriginal) => ({
@@ -19,7 +21,9 @@ vi.mock('@/database/core/db-adaptor', () => ({
 
 vi.mock('@/server/services/providerUsage', () => ({
   ProviderUsageService: class {
+    deleteAdminCredential = usage.deleteAdminCredential;
     getUsage = usage.getUsage;
+    saveAdminCredential = usage.saveAdminCredential;
   },
 }));
 
@@ -70,5 +74,47 @@ describe('providerUsageRouter', () => {
       provider: 'moonshot',
     });
     expect(usage.getUsage).toHaveBeenCalledWith('moonshot', { force: true });
+  });
+
+  it('saves an admin key only for admin providers and in the caller scope', async () => {
+    usage.saveAdminCredential.mockResolvedValue({ provider: 'xai', status: 'ok' });
+    const caller = createCaller('user:account-a');
+
+    await expect(
+      caller.saveAdminCredential({
+        accountScope: 'user:account-a',
+        apiKey: 'sk-12345678',
+        provider: 'deepseek' as never,
+      }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+
+    await expect(
+      createCaller('user:account-b').saveAdminCredential({
+        accountScope: 'user:account-a',
+        apiKey: 'xai-mgmt-key-123',
+        provider: 'xai',
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+
+    await caller.saveAdminCredential({
+      accountScope: 'user:account-a',
+      apiKey: '  xai-mgmt-key-123  ',
+      provider: 'xai',
+      teamId: ' team-1 ',
+    });
+    expect(usage.saveAdminCredential).toHaveBeenCalledTimes(1);
+    expect(usage.saveAdminCredential).toHaveBeenCalledWith('xai', {
+      apiKey: 'xai-mgmt-key-123',
+      teamId: 'team-1',
+    });
+  });
+
+  it('deletes a saved admin key', async () => {
+    usage.deleteAdminCredential.mockResolvedValue({ provider: 'openai', status: 'noCredential' });
+    await createCaller('user:account-a').deleteAdminCredential({
+      accountScope: 'user:account-a',
+      provider: 'openai',
+    });
+    expect(usage.deleteAdminCredential).toHaveBeenCalledWith('openai');
   });
 });

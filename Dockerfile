@@ -195,6 +195,7 @@ COPY --from=builder /app/scripts/migrateServerDB/ensureConversationGenerationOpe
 COPY --from=builder /app/scripts/migrateServerDB/ensureOpenAICodexOAuthTokens.cjs /app/ensureOpenAICodexOAuthTokens.cjs
 COPY --from=builder /app/scripts/migrateServerDB/ensureXaiOAuthTokens.cjs /app/ensureXaiOAuthTokens.cjs
 COPY --from=builder /app/scripts/migrateServerDB/ensureTokenEstimationProfiles.cjs /app/ensureTokenEstimationProfiles.cjs
+COPY --from=builder /app/scripts/migrateServerDB/ensureProviderUsageCredentials.cjs /app/ensureProviderUsageCredentials.cjs
 COPY --from=builder /app/scripts/migrateServerDB/errorHint.js /app/errorHint.js
 
 # Overlay runtime deps for docker.cjs (pg, drizzle-orm) and Graphile Worker.

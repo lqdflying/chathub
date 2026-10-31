@@ -1,7 +1,7 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
-import { isProviderUsageProvider } from '@/const/providerUsage';
+import { PROVIDER_USAGE_ADMIN_PROVIDERS, isProviderUsageProvider } from '@/const/providerUsage';
 import { authedProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase, verifiedAccountScope } from '@/libs/trpc/lambda/middleware';
 import { ProviderUsageService } from '@/server/services/providerUsage';
@@ -39,7 +39,20 @@ const providerInput = z.object({
     }),
 });
 
+const adminProviderInput = z.object({
+  accountScope: z.string().min(1),
+  provider: z.enum(PROVIDER_USAGE_ADMIN_PROVIDERS),
+});
+
 export const providerUsageRouter = router({
+  /** Removes the user's saved admin key; the snapshot then falls back to env or none. */
+  deleteAdminCredential: providerUsageProcedure
+    .input(adminProviderInput)
+    .mutation(async ({ ctx, input }) => {
+      assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
+      return (await ctx.providerUsageService.deleteAdminCredential(input.provider)) ?? null;
+    }),
+
   get: providerUsageProcedure.input(providerInput).query(async ({ ctx, input }) => {
     assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
     return (await ctx.providerUsageService.getUsage(input.provider)) ?? null;
@@ -50,4 +63,25 @@ export const providerUsageRouter = router({
     assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
     return (await ctx.providerUsageService.getUsage(input.provider, { force: true })) ?? null;
   }),
+
+  /**
+   * Saves an admin / management key encrypted server-side. The key is never
+   * returned; the response is the fresh usage snapshot with only a hint.
+   */
+  saveAdminCredential: providerUsageProcedure
+    .input(
+      adminProviderInput.extend({
+        apiKey: z.string().trim().min(8).max(1024),
+        teamId: z.string().trim().max(256).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
+      return (
+        (await ctx.providerUsageService.saveAdminCredential(input.provider, {
+          apiKey: input.apiKey,
+          teamId: input.teamId,
+        })) ?? null
+      );
+    }),
 });

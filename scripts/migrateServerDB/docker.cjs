@@ -19,6 +19,7 @@ const {
 } = require('./ensureOpenAICodexOAuthTokens.cjs');
 const { ensureXaiOAuthTokensTable } = require('./ensureXaiOAuthTokens.cjs');
 const { ensureTokenEstimationProfilesTable } = require('./ensureTokenEstimationProfiles.cjs');
+const { ensureProviderUsageCredentialsTable } = require('./ensureProviderUsageCredentials.cjs');
 
 // SAFETY NET: Every new Drizzle migration that adds a table or column MUST also
 // add a corresponding ensure* call here. This protects against journal drift —
@@ -54,6 +55,7 @@ const runMigrations = async () => {
   await ensureOpenAICodexOAuthTokensTable(client);
   await ensureXaiOAuthTokensTable(client);
   await ensureTokenEstimationProfilesTable(client);
+  await ensureProviderUsageCredentialsTable(client);
 
   console.log('✅ database migration pass.');
   console.log('-------------------------------------');

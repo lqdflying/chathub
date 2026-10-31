@@ -4,7 +4,12 @@ vi.mock('@/database/models/aiProvider', () => ({ AiProviderModel: class {} }));
 vi.mock('@/database/models/user', () => ({ UserModel: {} }));
 vi.mock('@/server/modules/KeyVaultsEncrypt', () => ({ KeyVaultsGateKeeper: {} }));
 
-const { resolveApiKeyUsageCredential } = await import('./credentials');
+const {
+  parseStoredAdminCredential,
+  resolveAdminUsageCredential,
+  resolveApiKeyUsageCredential,
+  serializeStoredAdminCredential,
+} = await import('./credentials');
 
 const env = (serverKeysEnabled: boolean, values: Record<string, string> = {}) => ({
   serverKeysEnabled,
@@ -56,5 +61,42 @@ describe('resolveApiKeyUsageCredential', () => {
 
   it('returns nothing when neither the user nor the server has a key', () => {
     expect(resolveApiKeyUsageCredential('deepseek', {}, env(true))).toBeUndefined();
+  });
+});
+
+describe('admin usage credentials', () => {
+  it('round-trips the stored JSON and rejects malformed plaintext', () => {
+    const plaintext = serializeStoredAdminCredential({ apiKey: 'xai-mgmt-key', teamId: 'team-1' });
+    expect(parseStoredAdminCredential(plaintext)).toEqual({
+      apiKey: 'xai-mgmt-key',
+      teamId: 'team-1',
+    });
+    expect(parseStoredAdminCredential('not json')).toBeUndefined();
+    expect(parseStoredAdminCredential('{"apiKey":""}')).toBeUndefined();
+  });
+
+  it('prefers the saved key over the operator env key', () => {
+    expect(
+      resolveAdminUsageCredential(
+        'openai',
+        { apiKey: 'sk-admin-user' },
+        env(true, { OPENAI_ADMIN_API_KEY: 'sk-admin-server' }),
+      ),
+    ).toEqual({ credential: { apiKey: 'sk-admin-user', teamId: undefined }, source: 'user' });
+  });
+
+  it('uses the operator admin key and team only when the switch is on', () => {
+    const values = { XAI_MANAGEMENT_API_KEY: 'xai-server', XAI_MANAGEMENT_TEAM_ID: 'team-ops' };
+    expect(resolveAdminUsageCredential('xai', undefined, env(false, values))).toBeUndefined();
+    expect(resolveAdminUsageCredential('xai', undefined, env(true, values))).toEqual({
+      credential: { apiKey: 'xai-server', teamId: 'team-ops' },
+      source: 'server',
+    });
+  });
+
+  it('ignores the chat API key env name for admin providers', () => {
+    expect(
+      resolveAdminUsageCredential('anthropic', undefined, env(true, { ANTHROPIC_API_KEY: 'x' })),
+    ).toBeUndefined();
   });
 });

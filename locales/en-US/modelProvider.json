@@ -568,6 +568,25 @@
     }
   },
   "providerUsage": {
+    "admin": {
+      "desc": {
+        "anthropic": "Anthropic billing needs an Admin API key (sk-ant-admin…); the chat API key cannot read it. Shows this month's spend.",
+        "openai": "OpenAI billing needs an Admin API key (sk-admin-…); project API keys cannot read it. Shows this month's spend.",
+        "xai": "xAI billing needs a Management API key and its team ID; the inference API key cannot read it. Shows the prepaid balance."
+      },
+      "keyLabel": {
+        "anthropic": "Anthropic Admin API key",
+        "openai": "OpenAI Admin API key",
+        "xai": "xAI Management API key"
+      },
+      "remove": "Remove",
+      "save": "Save",
+      "saveFailed": "Could not save or remove the key. Try again later.",
+      "stored": "Admin key {{hint}}",
+      "storedHint": "Stored encrypted on the server and never sent back to the browser.",
+      "team": "Team {{teamId}}",
+      "teamIdPlaceholder": "Team ID (optional for a team-scoped key)"
+    },
     "balance": "Available balance",
     "balanceBreakdown": "Granted {{granted}} · Paid {{paid}}",
     "insufficient": "The balance is not enough for API calls right now.",

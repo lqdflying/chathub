@@ -71,3 +71,57 @@ export const resolveApiKeyUsageCredential = (
   if (!serverKey) return undefined;
   return { credential: { apiKey: serverKey, baseURL }, source: 'server' };
 };
+
+/** Operator env names for admin / management keys, gated by the same switch. */
+export const ADMIN_USAGE_ENV_KEYS: Record<string, { apiKey: string; teamId?: string }> = {
+  anthropic: { apiKey: 'ANTHROPIC_ADMIN_API_KEY' },
+  openai: { apiKey: 'OPENAI_ADMIN_API_KEY' },
+  xai: { apiKey: 'XAI_MANAGEMENT_API_KEY', teamId: 'XAI_MANAGEMENT_TEAM_ID' },
+};
+
+export type StoredAdminCredential = {
+  apiKey: string;
+  teamId?: string;
+};
+
+export const serializeStoredAdminCredential = (credential: StoredAdminCredential) =>
+  JSON.stringify({
+    apiKey: credential.apiKey,
+    ...(credential.teamId ? { teamId: credential.teamId } : {}),
+  });
+
+export const parseStoredAdminCredential = (
+  plaintext: string,
+): StoredAdminCredential | undefined => {
+  try {
+    const parsed = JSON.parse(plaintext) as Record<string, unknown>;
+    const apiKey = asOptionalString(parsed.apiKey);
+    if (!apiKey) return undefined;
+    const teamId = asOptionalString(parsed.teamId);
+    return teamId ? { apiKey, teamId } : { apiKey };
+  } catch {
+    return undefined;
+  }
+};
+
+/**
+ * The user's saved admin key wins. Operator env admin keys are used only when
+ * the user saved none and ENABLE_PROVIDER_USAGE_SERVER_KEYS is on.
+ */
+export const resolveAdminUsageCredential = (
+  provider: string,
+  stored: StoredAdminCredential | undefined,
+  env: UsageEnvConfig,
+): ResolvedUsageCredential | undefined => {
+  if (stored?.apiKey) {
+    return { credential: { apiKey: stored.apiKey, teamId: stored.teamId }, source: 'user' };
+  }
+  if (!env.serverKeysEnabled) return undefined;
+
+  const names = ADMIN_USAGE_ENV_KEYS[provider];
+  if (!names) return undefined;
+  const apiKey = firstKey(env.values[names.apiKey]);
+  if (!apiKey) return undefined;
+  const teamId = names.teamId ? asOptionalString(env.values[names.teamId]) : undefined;
+  return { credential: { apiKey, ...(teamId ? { teamId } : {}) }, source: 'server' };
+};

@@ -8,10 +8,12 @@ import { forwardRef, memo, useCallback, useImperativeHandle } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
+import { isProviderUsageAdminProvider } from '@/const/providerUsage';
 import { lambdaQuery } from '@/libs/trpc/client';
 import { useUserStore } from '@/store/user';
 import { authSelectors } from '@/store/user/selectors';
 
+import AdminKeyForm from './AdminKeyForm';
 import {
   PROVIDER_USAGE_STALE_MS,
   formatUsageCount,
@@ -196,9 +198,12 @@ const ProviderUsageCard = memo(
           ? t('providerUsage.sourceUser', { hint: keyHint })
           : undefined;
 
+    const isAdmin = isProviderUsageAdminProvider(provider);
     const statusHint = (() => {
       if (!snapshot || snapshot.status === 'ok') return undefined;
       if (snapshot.reason) return t(`providerUsage.reason.${snapshot.reason}`);
+      // The admin form below explains what is missing.
+      if (isAdmin && snapshot.status === 'noCredential') return undefined;
       return t(`providerUsage.status.${snapshot.status}`);
     })();
 
@@ -320,6 +325,16 @@ const ProviderUsageCard = memo(
         {statusHint && <div className={styles.hint}>{statusHint}</div>}
         {snapshot?.status === 'ok' && !hasData && (
           <div className={styles.hint}>{t('providerUsage.status.unavailable')}</div>
+        )}
+
+        {isAdmin && snapshot && (
+          <AdminKeyForm
+            accountScope={input.accountScope}
+            disabled={!canFetch}
+            onSaved={(next) => utils.providerUsage.get.setData(input, next)}
+            provider={provider}
+            stored={snapshot.storedCredential}
+          />
         )}
 
         {snapshot?.fetchedAt && snapshot.status !== 'noCredential' && (

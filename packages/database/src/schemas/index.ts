@@ -21,5 +21,6 @@ export * from './tokenEstimation';
 export * from './topic';
 export * from './user';
 export * from './picbed';
+export * from './providerUsage';
 export * from './userMemories';
 export * from './xaiOAuth';

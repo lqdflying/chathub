@@ -2,6 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/database/models/aiProvider', () => ({ AiProviderModel: class {} }));
 vi.mock('@/database/models/user', () => ({ UserModel: {} }));
+vi.mock('@/database/models/providerUsageCredential', () => ({
+  ProviderUsageCredentialModel: class {},
+}));
 vi.mock('@/server/modules/KeyVaultsEncrypt', () => ({ KeyVaultsGateKeeper: {} }));
 vi.mock('@/envs/llm', () => ({
   getLLMConfig: () => ({ ENABLE_PROVIDER_USAGE_SERVER_KEYS: false }),
@@ -91,5 +94,96 @@ describe('ProviderUsageService', () => {
       vault: { apiKey: 'sk-user-key-abcdef' },
     }).getUsage('deepseek');
     expect(snapshot).toMatchObject({ credentialSource: 'user', status: 'error' });
+  });
+});
+
+describe('ProviderUsageService admin keys', () => {
+  beforeEach(() => clearProviderUsageCache());
+
+  const createAdminService = (fetchFn: typeof fetch, serverKeysEnabled = false) => {
+    const rows = new Map<string, { credential: string; keyHint: string }>();
+    const crypto = {
+      decrypt: async (value: string) =>
+        value.startsWith('enc:')
+          ? { plaintext: value.slice(4), wasAuthentic: true }
+          : { plaintext: '', wasAuthentic: false },
+      encrypt: async (value: string) => `enc:${value}`,
+    };
+    const service = new ProviderUsageService({} as never, 'user-1', {
+      credentialStore: {
+        delete: async (provider) => void rows.delete(provider),
+        find: async (provider) => rows.get(provider),
+        upsert: async ({ credential, keyHint, provider }) =>
+          void rows.set(provider, { credential, keyHint }),
+      },
+      crypto,
+      env: { serverKeysEnabled, values: { OPENAI_ADMIN_API_KEY: 'sk-admin-server-key-0000' } },
+      fetchFn,
+      loadVault: async () => ({ apiKey: 'sk-chat-key-must-not-be-used' }),
+      now: () => new Date('2026-10-31T00:00:00Z'),
+    });
+    return { rows, service };
+  };
+
+  const costs = () =>
+    new Response(JSON.stringify({ data: [{ results: [{ amount: { value: 3 } }] }] }), {
+      status: 200,
+    });
+
+  it('never falls back to the chat API key for an admin provider', async () => {
+    const fetchFn = vi.fn(async () => costs());
+    const { service } = createAdminService(fetchFn as never);
+    await expect(service.getUsage('openai')).resolves.toMatchObject({
+      credentialType: 'admin',
+      status: 'noCredential',
+    });
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it('encrypts a saved key, returns only its hint, and reads spend with it', async () => {
+    const fetchFn = vi.fn(async () => costs());
+    const { rows, service } = createAdminService(fetchFn as never);
+
+    const snapshot = await service.saveAdminCredential('openai', {
+      apiKey: '  sk-admin-user-key-9876  ',
+    });
+
+    expect(rows.get('openai')?.credential).toBe('enc:{"apiKey":"sk-admin-user-key-9876"}');
+    expect(JSON.stringify(snapshot)).not.toContain('sk-admin-user-key-9876');
+    expect(snapshot).toMatchObject({
+      credentialSource: 'user',
+      keyHint: '****9876',
+      spend: { amount: 3, currency: 'USD' },
+      status: 'ok',
+      storedCredential: { keyHint: '****9876' },
+    });
+    expect(fetchFn.mock.calls[0]?.[1]?.headers).toMatchObject({
+      Authorization: 'Bearer sk-admin-user-key-9876',
+    });
+  });
+
+  it('falls back to the operator admin key after the user removes theirs', async () => {
+    const fetchFn = vi.fn(async () => costs());
+    const { rows, service } = createAdminService(fetchFn as never, true);
+    await service.saveAdminCredential('openai', { apiKey: 'sk-admin-user-key-9876' });
+
+    const snapshot = await service.deleteAdminCredential('openai');
+    expect(rows.has('openai')).toBe(false);
+    expect(snapshot).toMatchObject({ credentialSource: 'server', keyHint: '****0000' });
+    expect(snapshot?.storedCredential).toBeUndefined();
+  });
+
+  it('treats an unreadable ciphertext as no saved key', async () => {
+    const fetchFn = vi.fn(async () => costs());
+    const { rows, service } = createAdminService(fetchFn as never);
+    rows.set('openai', { credential: 'tampered', keyHint: '****1111' });
+    await expect(service.getUsage('openai')).resolves.toMatchObject({ status: 'noCredential' });
+  });
+
+  it('refuses to store an admin key for an API-key provider', async () => {
+    const { service } = createAdminService(vi.fn() as never);
+    await expect(
+      service.saveAdminCredential('deepseek', { apiKey: 'sk-12345678' }),
+    ).rejects.toThrow('does not take an admin usage key');
   });
 });

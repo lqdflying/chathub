@@ -8,6 +8,10 @@ export const getLLMConfig = () => {
       API_KEY_SELECT_MODE: z.string().optional(),
 
       ENABLE_PROVIDER_USAGE_SERVER_KEYS: z.boolean(),
+      ANTHROPIC_ADMIN_API_KEY: z.string().optional(),
+      OPENAI_ADMIN_API_KEY: z.string().optional(),
+      XAI_MANAGEMENT_API_KEY: z.string().optional(),
+      XAI_MANAGEMENT_TEAM_ID: z.string().optional(),
 
       ENABLED_OPENAI: z.boolean(),
       OPENAI_API_KEY: z.string().optional(),
@@ -234,6 +238,10 @@ export const getLLMConfig = () => {
       ENABLE_PROVIDER_USAGE_SERVER_KEYS: ['1', 'true'].includes(
         (process.env.ENABLE_PROVIDER_USAGE_SERVER_KEYS ?? '').trim().toLowerCase(),
       ),
+      ANTHROPIC_ADMIN_API_KEY: process.env.ANTHROPIC_ADMIN_API_KEY,
+      OPENAI_ADMIN_API_KEY: process.env.OPENAI_ADMIN_API_KEY,
+      XAI_MANAGEMENT_API_KEY: process.env.XAI_MANAGEMENT_API_KEY,
+      XAI_MANAGEMENT_TEAM_ID: process.env.XAI_MANAGEMENT_TEAM_ID,
 
       ENABLED_OPENAI: process.env.ENABLED_OPENAI !== '0',
       OPENAI_API_KEY: process.env.OPENAI_API_KEY,

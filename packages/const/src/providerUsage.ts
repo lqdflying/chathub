@@ -14,7 +14,7 @@ export const PROVIDER_USAGE_API_KEY_PROVIDERS = [
  * Providers whose inference API key cannot read billing data. They need a
  * separate admin / management key that is stored server-side only.
  */
-export const PROVIDER_USAGE_ADMIN_PROVIDERS = [] as const;
+export const PROVIDER_USAGE_ADMIN_PROVIDERS = ['anthropic', 'openai', 'xai'] as const;
 
 export type ProviderUsageApiKeyProvider = (typeof PROVIDER_USAGE_API_KEY_PROVIDERS)[number];
 export type ProviderUsageAdminProvider = (typeof PROVIDER_USAGE_ADMIN_PROVIDERS)[number];
