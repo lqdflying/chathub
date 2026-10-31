@@ -16,6 +16,15 @@ This does **not** lift `.cursor/rules/commands.mdc`: never `bun run build`,
 image (`docker/opensandbox`) and running a local OpenSandbox server is the
 exception.
 
+## Image
+
+The sandbox image ChatHub runs is `img.aksg.net/chathub-sandbox/chathub-sandbox-python:latest`.
+`docker build -t chathub-sandbox:2 docker/opensandbox` is the repo Dockerfile
+tag. It is not that image. Name `img.aksg.net/chathub-sandbox/chathub-sandbox-python:latest`
+in live-test notes and handoffs. Package and Dockerfile defects in the running
+image are fixed by the user. Do not edit `docker/opensandbox` to chase them
+unless the user asks.
+
 ## Must
 
 1. Build the sandbox image: `docker build -t chathub-sandbox:2 docker/opensandbox`.
