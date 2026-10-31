@@ -15,8 +15,11 @@ supported on purpose. SuperGrok OAuth and Codex OAuth keep their own meters
    `ProviderUsageService.getUsage(provider)`.
 2. The service resolves one credential (below), then calls the provider's
    adapter in `src/server/services/providerUsage/adapters/`.
-3. The adapter does one `GET` with a 10 s timeout and `redirect: manual` (a 3xx
-   is `error`, not a followed redirect). A pure parser turns the body into a
+3. Each adapter makes one to three `GET`s (Zhipu retries once without `Bearer`,
+   MiniMax falls back to the legacy path after 404, OpenAI and Anthropic page
+   up to 3 times, xAI validates the key first when no team id is saved), each
+   with a 10 s timeout and `redirect: manual` (a 3xx is `error`, not a followed
+   redirect). A pure parser turns the body into a
    `ProviderUsageSnapshot` (`types.ts`): `balances[]`, `windows[]`, `spend`,
    `plan`, `status`, `reason`, `unofficial`.
 4. Vendor, network, and parse failures become a `status`

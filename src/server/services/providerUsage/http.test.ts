@@ -6,7 +6,7 @@ import { assessUsageUrl, isNonPublicAddress } from './urlPolicy';
 const host = (addresses: string[]) => async () => addresses;
 
 describe('isNonPublicAddress', () => {
-  it('rejects loopback, private, link-local, multicast, and metadata addresses', () => {
+  it('rejects loopback, private, shared, benchmark, reserved, multicast, NAT64, and metadata addresses', () => {
     for (const address of [
       '127.0.0.1',
       '10.1.2.3',
@@ -16,9 +16,13 @@ describe('isNonPublicAddress', () => {
       '100.100.100.200',
       '224.0.0.1',
       '0.0.0.0',
+      '100.64.0.1',
+      '198.18.0.1',
+      '240.0.0.1',
       '::1',
       '::',
       'fd00:ec2::254',
+      '64:ff9b::7f00:1',
       '::ffff:127.0.0.1',
     ]) {
       expect(isNonPublicAddress(address), address).toBe(true);
@@ -67,6 +71,17 @@ describe('assessUsageUrl', () => {
     await expect(
       assessUsageUrl('http://10.0.0.5:8080/user/balance', {
         allowPrivateHost: '10.0.0.5',
+        resolveHost: async () => {
+          throw new Error('should not resolve an explicit operator host');
+        },
+      }),
+    ).resolves.toBe(true);
+  });
+
+  it('still allows an operator proxy in shared address space', async () => {
+    await expect(
+      assessUsageUrl('http://100.101.102.103:8080/user/balance', {
+        allowPrivateHost: '100.101.102.103',
         resolveHost: async () => {
           throw new Error('should not resolve an explicit operator host');
         },

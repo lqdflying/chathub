@@ -15,12 +15,16 @@ NON_PUBLIC.addSubnet('127.0.0.0', 8, 'ipv4');
 NON_PUBLIC.addSubnet('169.254.0.0', 16, 'ipv4');
 NON_PUBLIC.addSubnet('172.16.0.0', 12, 'ipv4');
 NON_PUBLIC.addSubnet('192.168.0.0', 16, 'ipv4');
+NON_PUBLIC.addSubnet('100.64.0.0', 10, 'ipv4');
+NON_PUBLIC.addSubnet('198.18.0.0', 15, 'ipv4');
 NON_PUBLIC.addSubnet('224.0.0.0', 4, 'ipv4');
+NON_PUBLIC.addSubnet('240.0.0.0', 4, 'ipv4');
 NON_PUBLIC.addAddress('::', 'ipv6');
 NON_PUBLIC.addAddress('::1', 'ipv6');
 NON_PUBLIC.addSubnet('fc00::', 7, 'ipv6');
 NON_PUBLIC.addSubnet('fe80::', 10, 'ipv6');
 NON_PUBLIC.addSubnet('ff00::', 8, 'ipv6');
+NON_PUBLIC.addSubnet('64:ff9b::', 96, 'ipv6');
 
 const normalizeIp = (address: string) => address.trim().toLowerCase().replaceAll(/^\[|]$/g, '');
 
@@ -48,8 +52,8 @@ export const resolveUsageHost: UsageHostResolver = async (hostname) => {
 
 /**
  * Usage reads run on the ChatHub server. Allow http(s) only, and refuse
- * loopback, link-local, private, multicast, unspecified, and cloud-metadata
- * targets. `allowPrivateHost` is the operator proxy hostname, which may
+ * loopback, link-local, private, shared (CGNAT), benchmark, reserved,
+ * multicast, NAT64, unspecified, and cloud-metadata targets. `allowPrivateHost` is the operator proxy hostname, which may
  * itself be a private address; every other host is still checked.
  */
 export const assessUsageUrl = async (

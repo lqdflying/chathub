@@ -981,7 +981,7 @@ const ProviderConfig = memo<ProviderConfigProps>(
         ) : null}
         {showUsage ? (
           <Flexbox style={{ maxWidth: '100%', minWidth: 0, width: '100%' }}>
-            <ProviderUsageCard provider={id} ref={usageCardRef} />
+            <ProviderUsageCard key={id} provider={id} ref={usageCardRef} />
           </Flexbox>
         ) : null}
       </Flexbox>
