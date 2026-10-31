@@ -404,15 +404,13 @@ zip/unzip, xz, procps, file, less, and openssh-client. From Debian trixie it
 adds ffmpeg/ffprobe 7.1, pandoc 3.1, LibreOffice 25.2 Writer, Calc, and
 Impress (`-nogui`, run as `soffice --headless`), TeX Live 2024 with pdflatex,
 xelatex, and `texlive-lang-chinese` (ctex), and Chromium for
-`--headless --dump-dom`. Playwright is not installed. pandoc's PDF template
-needs `lmodern` and `texlive-fonts-recommended` (omitted by
-`--no-install-recommends`). The prompt's Chinese recipe is xelatex with
-`\documentclass[fontset=none]{ctexart}` and `\setCJKmainfont{AR PL SungtiL GB}`
-(`fonts-arphic-gbsn00lp`, a dependency of `texlive-lang-chinese`), and pandoc
-adds `-V CJKmainfont="AR PL SungtiL GB"`. Both embed a font with a ToUnicode
-map, so the text copies. ctex's default Fandol fonts do not: xdvipdfmx writes
-no ToUnicode map for those CID-keyed fonts, and copied text comes out as the
-wrong characters. The reportlab + `STSong.ttf` path stays extractable too. The builtin prompt names
+`--headless --dump-dom`. Playwright is not installed. The prompt's Chinese
+recipe is xelatex with `\documentclass[fontset=none]{ctexart}` and
+`\setCJKmainfont{AR PL SungtiL GB}` (`fonts-arphic-gbsn00lp`, a dependency of
+`texlive-lang-chinese`). That font has a ToUnicode map, so the text copies.
+ctex's default Fandol fonts do not: xdvipdfmx writes no ToUnicode map for
+those CID-keyed fonts, and copied text comes out as the wrong characters. The
+reportlab + `STSong.ttf` path stays extractable too. The builtin prompt names
 these tools, and the live test *has the development tools the Sandbox prompt
 promises* checks each one. The tag moved from `:1` to `:2` with these tools:
 the `chathub-runtime` label hashes the `OPENSANDBOX_IMAGE` string, not the
