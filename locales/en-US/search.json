@@ -1,6 +1,9 @@
 {
+  "assistantAll": "All assistants",
   "copyId": "Copy ID",
   "copySuccess": "Topic ID copied",
+  "dateFrom": "From",
+  "dateTo": "To",
   "empty": "No matching topics",
   "idle": "Search topic titles and message text",
   "open": "Open",

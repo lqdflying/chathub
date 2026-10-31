@@ -7,6 +7,7 @@ import {
   eq,
   gt,
   gte,
+  lte,
   ilike,
   inArray,
   isNull,
@@ -334,45 +335,75 @@ export class TopicModel {
    * Title and user/assistant message search across every topic this user owns.
    * `queryByKeyword` stays scoped to one session or group.
    */
-  searchAccountTopics = async (keyword: string): Promise<AccountTopicSearchHit[]> => {
+  searchAccountTopics = async (
+    keyword: string,
+    filters?: {
+      /** `null` is the inbox. Omit the field to search every assistant. */
+      containerId?: string | null;
+      from?: Date;
+      to?: Date;
+    },
+  ): Promise<AccountTopicSearchHit[]> => {
     const trimmed = keyword.trim();
-    if (!trimmed) return [];
+    const hasContainer = !!filters && Object.hasOwn(filters, 'containerId');
+    const hasFilter = hasContainer || !!filters?.from || !!filters?.to;
+    if (!trimmed && !hasFilter) return [];
+    if (filters?.from && filters.to && filters.from > filters.to) return [];
 
     const pattern = `%${escapeIlike(trimmed)}%`;
-    const ownedTopic = eq(topics.userId, this.userId);
-    const titleMatch = ilike(topics.title, pattern);
-    const messageMatch = and(
-      eq(messages.userId, this.userId),
-      ownedTopic,
-      inArray(messages.role, ['user', 'assistant']),
-      ilike(messages.content, pattern),
+    const scope = and(
+      eq(topics.userId, this.userId),
+      hasContainer ? this.matchContainer(filters?.containerId) : undefined,
+      filters?.from ? gte(topics.lastActivityAt, filters.from) : undefined,
+      filters?.to ? lte(topics.lastActivityAt, filters.to) : undefined,
     );
 
-    const titleHits = await this.db
-      .select({ id: topics.id, lastActivityAt: topics.lastActivityAt })
-      .from(topics)
-      .where(and(ownedTopic, titleMatch));
+    let rankedIds: string[];
+    if (!trimmed) {
+      const rows = await this.db
+        .select({ id: topics.id })
+        .from(topics)
+        .where(scope)
+        .orderBy(desc(topics.lastActivityAt))
+        .limit(ACCOUNT_TOPIC_SEARCH_LIMIT);
+      rankedIds = rows.map((row) => row.id);
+    } else {
+      const titleHits = await this.db
+        .select({ id: topics.id, lastActivityAt: topics.lastActivityAt })
+        .from(topics)
+        .where(and(scope, ilike(topics.title, pattern)));
 
-    const contentHits = await this.db
-      .select({ id: topics.id, lastActivityAt: topics.lastActivityAt })
-      .from(messages)
-      .innerJoin(topics, eq(messages.topicId, topics.id))
-      .where(messageMatch)
-      .groupBy(topics.id, topics.lastActivityAt);
+      const contentHits = await this.db
+        .select({ id: topics.id, lastActivityAt: topics.lastActivityAt })
+        .from(messages)
+        .innerJoin(topics, eq(messages.topicId, topics.id))
+        .where(
+          and(
+            eq(messages.userId, this.userId),
+            scope,
+            inArray(messages.role, ['user', 'assistant']),
+            ilike(messages.content, pattern),
+          ),
+        )
+        .groupBy(topics.id, topics.lastActivityAt);
 
-    const lastActivityById = new Map<string, Date>();
-    for (const hit of [...titleHits, ...contentHits]) {
-      const current = lastActivityById.get(hit.id);
-      if (!current || hit.lastActivityAt > current) {
-        lastActivityById.set(hit.id, hit.lastActivityAt);
+      const lastActivityById = new Map<string, Date>();
+      for (const hit of [...titleHits, ...contentHits]) {
+        const current = lastActivityById.get(hit.id);
+        if (!current || hit.lastActivityAt > current) {
+          lastActivityById.set(hit.id, hit.lastActivityAt);
+        }
       }
+
+      rankedIds = [...lastActivityById.entries()]
+        .sort(([, first], [, second]) => second.getTime() - first.getTime())
+        .slice(0, ACCOUNT_TOPIC_SEARCH_LIMIT)
+        .map(([id]) => id);
     }
 
-    const rankedIds = [...lastActivityById.entries()]
-      .sort(([, first], [, second]) => second.getTime() - first.getTime())
-      .slice(0, ACCOUNT_TOPIC_SEARCH_LIMIT)
-      .map(([id]) => id);
     if (rankedIds.length === 0) return [];
+
+    const ownedTopic = eq(topics.userId, this.userId);
 
     const details = await this.db
       .select({
@@ -390,21 +421,23 @@ export class TopicModel {
       .where(and(ownedTopic, inArray(topics.id, rankedIds)));
 
     const detailById = new Map(details.map((row) => [row.id, row]));
-    const snippetRows = await this.db
-      .selectDistinctOn([messages.topicId], {
-        content: messages.content,
-        topicId: messages.topicId,
-      })
-      .from(messages)
-      .where(
-        and(
-          eq(messages.userId, this.userId),
-          inArray(messages.topicId, rankedIds),
-          inArray(messages.role, ['user', 'assistant']),
-          ilike(messages.content, pattern),
-        ),
-      )
-      .orderBy(messages.topicId, asc(messages.messageOrder));
+    const snippetRows = trimmed
+      ? await this.db
+          .selectDistinctOn([messages.topicId], {
+            content: messages.content,
+            topicId: messages.topicId,
+          })
+          .from(messages)
+          .where(
+            and(
+              eq(messages.userId, this.userId),
+              inArray(messages.topicId, rankedIds),
+              inArray(messages.role, ['user', 'assistant']),
+              ilike(messages.content, pattern),
+            ),
+          )
+          .orderBy(messages.topicId, asc(messages.messageOrder))
+      : [];
 
     const snippetByTopicId = new Map<string, string>();
     for (const row of snippetRows) {

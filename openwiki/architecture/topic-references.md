@@ -8,6 +8,8 @@ Account search and pasted topic references. There is no built-in tool. The user 
 
 Results are capped at 30 topics, ordered by `lastActivityAt`. `%`, `_`, and `\` in the query are escaped before `ILIKE`. A hit returns a short snippet, not the message. The page is `/search` (desktop sidebar; phone **More** menu).
 
+Optional filters: one assistant or group (`assistantId`; `inbox` means both session and group are null) and an inclusive `lastActivityAt` range (`from` / `to` as ISO timestamps). With no keyword, the filters alone return the newest matching topics and no snippet.
+
 ## Parser
 
 `parseTopicReferenceIds` in `src/helpers/topicReference.ts` reads user messages only. It accepts `tpc_` plus 12 letters or digits, including that id in a `topic` query parameter. Assistant and tool text is ignored. The current topic id is ignored. Duplicates collapse. At most 3 ids are kept, in first-seen order.

@@ -41,7 +41,10 @@ export interface ITopicService {
   }): Promise<number>;
   rankTopics(limit?: number): Promise<TopicRankItem[]>;
   searchTopics(keyword: string, sessionId?: string, groupId?: string): Promise<ChatTopic[]>;
-  searchAccountTopics(keyword: string): Promise<AccountTopicSearchHit[]>;
+  searchAccountTopics(
+    keyword: string,
+    filters?: { assistantId?: string; from?: Date; to?: Date },
+  ): Promise<AccountTopicSearchHit[]>;
   resolveTopicReferences(params: {
     excludeTopicId?: string | null;
     ids: string[];

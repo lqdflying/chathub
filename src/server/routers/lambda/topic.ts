@@ -1,3 +1,4 @@
+import { INBOX_SESSION_ID } from '@lobechat/const';
 import { ChatTopicMetadataSchema } from '@lobechat/types';
 import { z } from 'zod';
 
@@ -248,9 +249,26 @@ export const topicRouter = router({
     }),
 
   searchAccountTopics: topicProcedure
-    .input(z.object({ keywords: z.string() }))
+    .input(
+      z.object({
+        assistantId: z.string().optional(),
+        from: z.string().datetime().optional(),
+        keywords: z.string().default(''),
+        to: z.string().datetime().optional(),
+      }),
+    )
     .query(async ({ input, ctx }) => {
-      return ctx.topicModel.searchAccountTopics(input.keywords);
+      const from = input.from ? new Date(input.from) : undefined;
+      const to = input.to ? new Date(input.to) : undefined;
+      return ctx.topicModel.searchAccountTopics(input.keywords, {
+        ...(input.assistantId === undefined
+          ? {}
+          : {
+              containerId: input.assistantId === INBOX_SESSION_ID ? null : input.assistantId,
+            }),
+        from,
+        to,
+      });
     }),
 
   resolveTopicReferences: topicProcedure

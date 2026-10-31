@@ -1,6 +1,9 @@
 {
+  "assistantAll": "全部助理",
   "copyId": "复制 ID",
   "copySuccess": "已复制话题 ID",
+  "dateFrom": "开始日期",
+  "dateTo": "结束日期",
   "empty": "没有匹配的话题",
   "idle": "搜索全部话题的标题和内容",
   "open": "打开",

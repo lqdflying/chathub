@@ -2,22 +2,36 @@
 
 import { ActionIcon, Text, copyToClipboard } from '@lobehub/ui';
 import { useDebounce } from 'ahooks';
-import { App, Button, Empty, Input, Skeleton } from 'antd';
+import { App, Button, DatePicker, Empty, Input, Select, Skeleton } from 'antd';
 import { createStyles } from 'antd-style';
+import type { Dayjs } from 'dayjs';
 import { Copy, Search } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { memo, useEffect, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
 import { INBOX_SESSION_ID } from '@/const/session';
 import type { AccountTopicSearchHit } from '@/database/models/topic';
+import { useFetchSessions } from '@/hooks/useFetchSessions';
 import { topicService } from '@/services/topic';
 import { useGlobalStore } from '@/store/global';
 import { globalGeneralSelectors } from '@/store/global/selectors';
+import { useSessionStore } from '@/store/session';
 import { formatTopicActivityTime } from '@/utils/client/topic';
 
+const { RangePicker } = DatePicker;
+
 const useStyles = createStyles(({ css, token }) => ({
+  filters: css`
+    flex-wrap: wrap;
+
+    .ant-select,
+    .ant-picker {
+      flex: 1 1 220px;
+      min-width: 0;
+    }
+  `,
   hit: css`
     padding: 12px 16px;
     border: 1px solid ${token.colorBorderSecondary};
@@ -61,18 +75,45 @@ const topicHref = (hit: AccountTopicSearchHit) => {
 
 const SearchWorkspace = memo(() => {
   const { t } = useTranslation('search');
+  const { t: tChat } = useTranslation('chat');
   const { styles } = useStyles();
   const { message } = App.useApp();
   const router = useRouter();
   const locale = useGlobalStore(globalGeneralSelectors.currentLanguage);
   const [keyword, setKeyword] = useState('');
+  const [assistantId, setAssistantId] = useState<string | undefined>();
+  const [range, setRange] = useState<[Dayjs | null, Dayjs | null] | null>(null);
   const [hits, setHits] = useState<AccountTopicSearchHit[]>([]);
   const [loading, setLoading] = useState(false);
   const debounced = useDebounce(keyword, { wait: 300 });
+  const sessions = useSessionStore((s) => s.sessions);
+  useFetchSessions();
+
+  const assistantOptions = useMemo(() => {
+    const options = sessions.map((session) => ({
+      label:
+        session.id === INBOX_SESSION_ID
+          ? tChat('inbox.title')
+          : session.meta.title || session.id,
+      value: session.id,
+    }));
+    if (!options.some((option) => option.value === INBOX_SESSION_ID)) {
+      options.unshift({ label: tChat('inbox.title'), value: INBOX_SESSION_ID });
+    }
+    const inbox = options.find((option) => option.value === INBOX_SESSION_ID);
+    const rest = options
+      .filter((option) => option.value !== INBOX_SESSION_ID)
+      .sort((first, second) => first.label.localeCompare(second.label));
+    return inbox ? [inbox, ...rest] : rest;
+  }, [sessions, tChat]);
+
+  const fromTime = range?.[0]?.startOf('day').valueOf();
+  const toTime = range?.[1]?.endOf('day').valueOf();
+  const hasScope = !!assistantId || fromTime !== undefined || toTime !== undefined;
 
   useEffect(() => {
     const query = debounced.trim();
-    if (!query) {
+    if (!query && !hasScope) {
       setHits([]);
       setLoading(false);
       return;
@@ -81,7 +122,11 @@ const SearchWorkspace = memo(() => {
     let cancelled = false;
     setLoading(true);
     void topicService
-      .searchAccountTopics(query)
+      .searchAccountTopics(query, {
+        assistantId,
+        from: fromTime === undefined ? undefined : new Date(fromTime),
+        to: toTime === undefined ? undefined : new Date(toTime),
+      })
       .then((next) => {
         if (!cancelled) setHits(next);
       })
@@ -95,7 +140,7 @@ const SearchWorkspace = memo(() => {
     return () => {
       cancelled = true;
     };
-  }, [debounced]);
+  }, [assistantId, debounced, fromTime, hasScope, toTime]);
 
   const query = debounced.trim();
 
@@ -110,9 +155,25 @@ const SearchWorkspace = memo(() => {
         size={'large'}
         value={keyword}
       />
+      <Flexbox className={styles.filters} gap={8} horizontal width={'100%'}>
+        <Select
+          allowClear
+          onChange={(value) => setAssistantId(value)}
+          optionFilterProp={'label'}
+          options={assistantOptions}
+          placeholder={t('assistantAll')}
+          showSearch
+          value={assistantId}
+        />
+        <RangePicker
+          onChange={(dates) => setRange(dates)}
+          placeholder={[t('dateFrom'), t('dateTo')]}
+          value={range}
+        />
+      </Flexbox>
       {loading && <Skeleton active paragraph={{ rows: 4 }} />}
-      {!loading && query && hits.length === 0 && <Empty description={t('empty')} />}
-      {!loading && !query && <Empty description={t('idle')} />}
+      {!loading && (query || hasScope) && hits.length === 0 && <Empty description={t('empty')} />}
+      {!loading && !query && !hasScope && <Empty description={t('idle')} />}
       {!loading &&
         hits.map((hit) => {
           const activity = formatTopicActivityTime(new Date(hit.lastActivityAt).getTime(), locale);

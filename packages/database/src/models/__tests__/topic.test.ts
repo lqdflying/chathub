@@ -426,6 +426,73 @@ describe('TopicModel', () => {
         id: 'group-topic',
       });
     });
+
+    it('keeps one assistant and an inclusive activity range', async () => {
+      await serverDB.insert(sessions).values({ id: 'session-b', title: 'Writer', userId });
+      await serverDB.insert(topics).values([
+        {
+          id: 'in-range',
+          lastActivityAt: new Date('2024-03-15T12:00:00Z'),
+          sessionId: 'session-b',
+          title: 'Hello range',
+          userId,
+        },
+        {
+          id: 'out-of-range',
+          lastActivityAt: new Date('2024-01-01T00:00:00Z'),
+          sessionId: 'session-b',
+          title: 'Hello old',
+          userId,
+        },
+        {
+          id: 'other-assistant',
+          lastActivityAt: new Date('2024-03-15T12:00:00Z'),
+          sessionId,
+          title: 'Hello other',
+          userId,
+        },
+      ]);
+
+      const result = await topicModel.searchAccountTopics('hello', {
+        containerId: 'session-b',
+        from: new Date('2024-03-01T00:00:00Z'),
+        to: new Date('2024-03-31T23:59:59.999Z'),
+      });
+
+      expect(result.map((topic) => topic.id)).toEqual(['in-range']);
+    });
+
+    it('lists one assistant without a keyword', async () => {
+      await serverDB.insert(sessions).values({ id: 'session-b', title: 'Writer', userId });
+      await serverDB.insert(topics).values([
+        {
+          id: 'writer-new',
+          lastActivityAt: new Date('2024-05-02T00:00:00Z'),
+          sessionId: 'session-b',
+          title: 'Newer',
+          userId,
+        },
+        {
+          id: 'writer-old',
+          lastActivityAt: new Date('2024-05-01T00:00:00Z'),
+          sessionId: 'session-b',
+          title: 'Older',
+          userId,
+        },
+        {
+          id: 'elsewhere',
+          lastActivityAt: new Date('2024-05-03T00:00:00Z'),
+          sessionId,
+          title: 'Elsewhere',
+          userId,
+        },
+      ]);
+
+      const result = await topicModel.searchAccountTopics('', { containerId: 'session-b' });
+
+      expect(result.map((topic) => topic.id)).toEqual(['writer-new', 'writer-old']);
+      expect(result[0]?.snippet).toBeNull();
+    });
   });
 
   describe('count', () => {
