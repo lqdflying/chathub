@@ -318,6 +318,54 @@ describe('invokeSandboxTool', () => {
     expect(workspace.markSynced).toHaveBeenCalledWith(['out-0']);
   });
 
+  it('exports every file of a list sent as JSON text or as a comma list', async () => {
+    const present = new Set(['/tmp/workspace/a.png', '/tmp/workspace/out/b.png', '/tmp/workspace/x,y.txt']);
+    workspace.readFile.mockImplementation(async (path: string) => {
+      if (present.has(path)) return bytes('data');
+      throw new SandboxRequestError(`File not found: ${path}`);
+    });
+    workspace.fileInfo.mockImplementation(async (path: string) =>
+      present.has(path) ? { path, size: 4, type: 'file' as const } : undefined,
+    );
+    const exported = (result: { files?: Array<{ filename: string }> }) =>
+      result.files?.map((file) => file.filename);
+
+    const json = await call('exportFile', { paths: ' ["a.png", "out/b.png"] ' });
+    expect(json).toMatchObject({ success: true });
+    expect(exported(json)).toEqual(['a.png', 'b.png']);
+
+    const commas = await call('exportFile', { paths: 'a.png, out/b.png' });
+    expect(commas).toMatchObject({ success: true });
+    expect(exported(commas)).toEqual(['a.png', 'b.png']);
+
+    const lines = await call('exportFile', { paths: ['a.png\nout/b.png'] });
+    expect(exported(lines)).toEqual(['a.png', 'b.png']);
+
+    const literal = await call('exportFile', { paths: 'x,y.txt' });
+    expect(exported(literal)).toEqual(['x,y.txt']);
+    expect(workspace.fileInfo).toHaveBeenLastCalledWith('/tmp/workspace/x,y.txt');
+
+    const notJson = await call('exportFile', { paths: '[draft].txt' });
+    expect(notJson).toMatchObject({
+      skipped: ['[draft].txt: File not found: /tmp/workspace/[draft].txt'],
+      success: false,
+    });
+  });
+
+  it('reports paths over the per-call file limit instead of dropping them', async () => {
+    workspace.readFile.mockImplementation(async () => bytes('data'));
+
+    const result = await call('exportFile', { paths: ['a', 'b', 'c', 'd', 'e', 'a'] });
+
+    expect(result.files).toHaveLength(3);
+    expect(result).toMatchObject({
+      skipped: [
+        '2 path(s) over the 3-file limit were not exported; call exportFile again with them',
+      ],
+      success: true,
+    });
+  });
+
   it('keeps the Code Interpreter shape for runPython and the legacy python API', async () => {
     workspace.runPython.mockResolvedValueOnce({
       files: [{ content: bytes('png'), filename: 'plot_1.png' }],
@@ -347,6 +395,23 @@ describe('invokeSandboxTool', () => {
       success: false,
     });
     expect(await call('runPython', { code: '   ' })).toMatchObject({ success: false });
+  });
+
+  it('passes the runPython hint about unreturned subdirectory files to the model', async () => {
+    const hint = '3 changed file(s) in subdirectories were not returned …';
+    workspace.runPython.mockResolvedValueOnce({
+      files: [{ content: bytes('t'), filename: 'top.txt' }],
+      hint,
+      stderr: '',
+      stdout: '',
+      success: true,
+    });
+
+    expect(await call('runPython', { code: 'write()' })).toEqual({
+      files: [{ fileId: 'out-0', filename: 'top.txt', url: 'https://app.example/f/top.txt' }],
+      hint,
+      success: true,
+    });
   });
 
   it('rethrows a cancelled call and any error after the caller aborts', async () => {

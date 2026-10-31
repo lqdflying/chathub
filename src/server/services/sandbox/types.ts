@@ -37,6 +37,8 @@ export interface SandboxCommandResult {
 export interface SandboxPythonResult {
   exitCode?: number;
   files: SandboxFile[];
+  /** Changed files the run did not return, and how to share them. */
+  hint?: string;
   stderr: string;
   stdout: string;
   success: boolean;

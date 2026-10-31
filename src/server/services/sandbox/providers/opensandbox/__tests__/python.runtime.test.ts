@@ -1,7 +1,16 @@
 /** @vitest-environment node */
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readlinkSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -47,11 +56,20 @@ const run = (
   code: string,
   fontPath?: string,
   python?: { bin?: string; fakePyplot?: boolean },
+  limits: { maxFiles?: number; scanMaxFiles?: number } = {},
 ) => {
   const control = join(workdir, '.chathub');
   mkdirSync(control, { recursive: true });
   writeFileSync(join(control, 'code.py'), code);
-  writeFileSync(join(control, 'run.py'), buildRunnerScript(workdir, fontPath));
+  writeFileSync(
+    join(control, 'run.py'),
+    buildRunnerScript({
+      fontPath,
+      maxFiles: limits.maxFiles ?? 20,
+      scanMaxFiles: limits.scanMaxFiles,
+      workdir,
+    }),
+  );
   const fakePyplot = python?.fakePyplot !== false;
   const result = spawnSync(python?.bin ?? 'python3', [join(control, 'run.py')], {
     cwd: workdir,
@@ -60,14 +78,15 @@ const run = (
     timeout: 15_000,
   });
   if (result.error) throw result.error;
-  let manifest: ReturnType<typeof parseOutputManifest> | undefined;
+  let parsed: ReturnType<typeof parseOutputManifest> | undefined;
   try {
-    manifest = parseOutputManifest(readFileSync(join(control, 'manifest.json'), 'utf8'));
+    parsed = parseOutputManifest(readFileSync(join(control, 'manifest.json'), 'utf8'));
   } catch {
-    manifest = undefined;
+    parsed = undefined;
   }
   return {
-    manifest,
+    manifest: parsed?.entries,
+    parsed,
     status: result.status,
     stderr: result.stderr ?? '',
     stdout: result.stdout ?? '',
@@ -88,7 +107,7 @@ describe('OpenSandbox runner script', () => {
     rmSync(root, { force: true, recursive: true });
   });
 
-  it('runs in the workdir, echoes a trailing expression, and lists top-level outputs', () => {
+  it('runs in the workdir, echoes a trailing expression, and lists new outputs', () => {
     const { manifest, status, stdout } = run(
       [
         'import os',
@@ -110,7 +129,85 @@ describe('OpenSandbox runner script', () => {
         sha256: createHash('sha256').update('hello').digest('hex'),
         size: 5,
       },
+      {
+        changed: true,
+        name: 'nested/deep.txt',
+        sha256: createHash('sha256').update('x').digest('hex'),
+        size: 1,
+      },
     ]);
+  });
+
+  it('lists changed subdirectory files and skips hidden, cache, dependency, and linked folders', () => {
+    const elsewhere = join(root, 'elsewhere');
+    mkdirSync(join(workdir, 'out'), { recursive: true });
+    mkdirSync(elsewhere);
+    writeFileSync(join(workdir, 'out', 'old.txt'), 'old');
+    symlinkSync(elsewhere, join(workdir, 'linked'));
+
+    const { manifest, parsed, status } = run(
+      [
+        'import os',
+        'for d in ("out/deep", ".cache", "node_modules/pkg", "__pycache__", "venv/lib", "lib/site-packages/x"):',
+        '    os.makedirs(d, exist_ok=True)',
+        'open("out/report.txt", "w").write("report")',
+        'open("out/deep/data.csv", "w").write("a,b")',
+        'open("out/.env", "w").write("secret")',
+        'open(".cache/c.bin", "w").write("c")',
+        'open("node_modules/pkg/index.js", "w").write("js")',
+        'open("__pycache__/m.pyc", "w").write("pyc")',
+        'open("venv/lib/v.py", "w").write("v")',
+        'open("lib/site-packages/x/s.py", "w").write("s")',
+        'open("linked/through-link.txt", "w").write("l")',
+      ].join('\n'),
+    );
+
+    expect(status).toBe(0);
+    expect(manifest?.map((entry) => entry.name)).toEqual(['out/deep/data.csv', 'out/report.txt']);
+    expect(parsed).toMatchObject({ scanCapped: false });
+    expect(parsed?.unreturned).toBeUndefined();
+    expect(readFileSync(join(elsewhere, 'through-link.txt'), 'utf8')).toBe('l');
+  });
+
+  it('lists subdirectory paths without hashing them when more changed than the file limit', () => {
+    const { manifest, parsed, status } = run(
+      [
+        'import os',
+        'os.makedirs("data", exist_ok=True)',
+        'open("summary.txt", "w").write("s")',
+        'for i in range(3):',
+        '    open("data/part-%d.csv" % i, "w").write("x")',
+      ].join('\n'),
+      undefined,
+      undefined,
+      { maxFiles: 2 },
+    );
+
+    expect(status).toBe(0);
+    expect(manifest?.map((entry) => entry.name)).toEqual(['summary.txt']);
+    expect(parsed?.unreturned).toEqual({
+      count: 3,
+      paths: ['data/part-0.csv', 'data/part-1.csv', 'data/part-2.csv'],
+    });
+  });
+
+  it('returns no subdirectory file once the scan passes its file cap', () => {
+    mkdirSync(join(workdir, 'data'), { recursive: true });
+    for (let index = 0; index < 4; index += 1) {
+      writeFileSync(join(workdir, 'data', `old-${index}.txt`), 'x');
+    }
+
+    const { manifest, parsed, status } = run(
+      ['open("top.txt", "w").write("t")', 'open("data/new.txt", "w").write("n")'].join('\n'),
+      undefined,
+      undefined,
+      { scanMaxFiles: 3 },
+    );
+
+    expect(status).toBe(0);
+    expect(manifest?.map((entry) => entry.name)).toEqual(['top.txt']);
+    expect(parsed).toMatchObject({ scanCapped: true });
+    expect(parsed?.unreturned).toBeUndefined();
   });
 
   it('marks files a later run in the same workdir did not touch as unchanged', () => {
@@ -328,7 +425,10 @@ describe('OpenSandbox runner script', () => {
       sha256: hash('final'),
       size: 5,
     });
-    expect(nested.manifest?.some((item) => item.name.includes('sub'))).toBe(false);
+    expect(nested.manifest?.find((item) => item.name === 'sub/report.txt')).toMatchObject({
+      sha256: hash('scratch'),
+      size: 7,
+    });
 
     const back = run(
       [
@@ -554,19 +654,41 @@ describe('OpenSandbox runner script', () => {
 });
 
 describe('parseOutputManifest', () => {
+  const empty = { entries: [], scanCapped: false };
+
   it('ignores malformed and wrongly typed manifests', () => {
-    expect(parseOutputManifest('{not json')).toEqual([]);
-    expect(parseOutputManifest('{"name":"a"}')).toEqual([]);
+    expect(parseOutputManifest('{not json')).toEqual(empty);
+    expect(parseOutputManifest('{"name":"a"}')).toEqual(empty);
+    expect(parseOutputManifest('"files"')).toEqual(empty);
     expect(
-      parseOutputManifest('[{"name":"a.txt","sha256":"x","size":1},{"name":2}]'),
+      parseOutputManifest('[{"name":"a.txt","sha256":"x","size":1},{"name":2}]').entries,
     ).toEqual([{ changed: true, name: 'a.txt', sha256: 'x', size: 1 }]);
+    expect(
+      parseOutputManifest('{"files":[{"name":2}],"scanCapped":"yes","unreturned":{"count":"3","paths":[]}}'),
+    ).toEqual(empty);
+  });
+
+  it('reads the runner manifest object', () => {
+    expect(
+      parseOutputManifest(
+        JSON.stringify({
+          files: [{ changed: true, name: 'out/a.txt', sha256: 'x', size: 1 }],
+          scanCapped: true,
+          unreturned: { count: 60, paths: ['data/0.csv', 7] },
+        }),
+      ),
+    ).toEqual({
+      entries: [{ changed: true, name: 'out/a.txt', sha256: 'x', size: 1 }],
+      scanCapped: true,
+      unreturned: { count: 60, paths: ['data/0.csv'] },
+    });
   });
 
   it('treats a missing changed flag as changed', () => {
     expect(
       parseOutputManifest(
         '[{"name":"a.txt","sha256":"x","size":1,"changed":false},{"name":"b.txt","sha256":"y","size":2}]',
-      ).map(({ changed, name }) => ({ changed, name })),
+      ).entries.map(({ changed, name }) => ({ changed, name })),
     ).toEqual([
       { changed: false, name: 'a.txt' },
       { changed: true, name: 'b.txt' },

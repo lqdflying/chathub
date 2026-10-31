@@ -84,6 +84,24 @@ const safeBasename = (filename: string) => {
   return name;
 };
 
+/** A workdir-relative manifest name with no empty, hidden, or parent segment. */
+const isSafeRelativePath = (name: string) =>
+  !name.includes('\\') && name.split('/').every((segment) => !!segment && !segment.startsWith('.'));
+
+const outputHint = (
+  scanCapped: boolean,
+  unreturned: { count: number; paths: string[] } | undefined,
+  maxFileCount: number,
+) => {
+  if (scanCapped) {
+    return 'The working directory has too many files to check its subdirectories, so files changed inside subdirectories were not returned. Share the ones the user needs with exportFile.';
+  }
+  if (!unreturned) return undefined;
+  const more = unreturned.count - unreturned.paths.length;
+  const listed = unreturned.paths.join(', ') + (more > 0 ? `, and ${more} more` : '');
+  return `${unreturned.count} changed file(s) in subdirectories were not returned because they do not all fit in the ${maxFileCount}-file limit: ${listed}. Share the ones the user needs with exportFile.`;
+};
+
 const sha256Hex = (content: Uint8Array) => createHash('sha256').update(content).digest('hex');
 
 const utf8 = (value: string) => new Uint8Array(Buffer.from(value, 'utf8'));
@@ -286,7 +304,8 @@ export class OpenSandboxWorkspace implements SandboxWorkspace {
 
   /**
    * Python in a fresh process through the runner. Files the run creates or
-   * changes at the top level of the workdir come back as outputs.
+   * changes in the workdir come back as outputs: top-level files first, then
+   * subdirectory files when all of them fit in the file limit.
    */
   async runPython({
     code,
@@ -302,7 +321,10 @@ export class OpenSandboxWorkspace implements SandboxWorkspace {
     await this.client.uploadFiles(
       this.execd,
       [
-        { content: utf8(buildRunnerScript()), path: RUNNER_PATH },
+        {
+          content: utf8(buildRunnerScript({ maxFiles: this.limits.maxFileCount })),
+          path: RUNNER_PATH,
+        },
         { content: utf8(code), path: USER_CODE_PATH },
         // Drop the previous run's manifest before the process starts. An
         // abrupt exit never rewrites it, and collection must not republish
@@ -321,7 +343,7 @@ export class OpenSandboxWorkspace implements SandboxWorkspace {
     }
 
     this.phase = 'collect';
-    const files = await this.collectOutputs(prepared.hashes);
+    const { files, hint } = await this.collectOutputs(prepared.hashes);
     const killedNote = command.killed
       ? 'Process was killed before it finished (it may have run out of memory).'
       : '';
@@ -331,6 +353,7 @@ export class OpenSandboxWorkspace implements SandboxWorkspace {
     return {
       exitCode: command.exitCode,
       files,
+      ...(hint ? { hint } : {}),
       stderr: [command.stderr, killedNote].filter(Boolean).join('\n'),
       stdout: command.stdout,
       success: command.exitCode === 0,
@@ -479,39 +502,54 @@ export class OpenSandboxWorkspace implements SandboxWorkspace {
    * replaced the runner's exit path) or a failed download keeps
    * stdout/stderr and returns no files.
    */
-  private async collectOutputs(inputHashes: Map<string, string>): Promise<SandboxFile[]> {
+  private async collectOutputs(
+    inputHashes: Map<string, string>,
+  ): Promise<{ files: SandboxFile[]; hint?: string }> {
+    const { maxFileBytes, maxFileCount } = this.limits;
     try {
-      const manifest = await this.client.downloadFile(
+      const raw = await this.client.downloadFile(
         this.execd,
         MANIFEST_PATH,
         this.stepSignal(),
         OPENSANDBOX_MANIFEST_MAX_BYTES,
       );
+      const manifest = parseOutputManifest(Buffer.from(raw).toString('utf8'));
+      // Inputs sync to the top level, so only a top-level name can match one.
+      const eligible = manifest.entries.filter(
+        (entry) =>
+          entry.changed &&
+          isSafeRelativePath(entry.name) &&
+          entry.size > 0 &&
+          entry.size <= maxFileBytes &&
+          inputHashes.get(entry.name) !== entry.sha256,
+      );
+      const top = eligible.filter((entry) => !entry.name.includes('/')).slice(0, maxFileCount);
+      const nested = eligible.filter((entry) => entry.name.includes('/'));
+      // Subdirectory files come back all together or not at all.
+      const nestedFits = nested.length <= maxFileCount - top.length;
+      const unreturned =
+        manifest.unreturned ??
+        (nestedFits ? undefined : { count: nested.length, paths: nested.map((entry) => entry.name) });
+
       const files: SandboxFile[] = [];
-      for (const entry of parseOutputManifest(Buffer.from(manifest).toString('utf8'))) {
-        if (files.length >= this.limits.maxFileCount) break;
-        const name = safeBasename(entry.name);
-        if (!name || name !== entry.name) continue;
-        if (!entry.changed) continue;
-        if (entry.size <= 0 || entry.size > this.limits.maxFileBytes) continue;
-        if (inputHashes.get(name) === entry.sha256) continue;
+      for (const entry of nestedFits ? [...top, ...nested] : top) {
         const content = await this.client.downloadFile(
           this.execd,
-          `${this.workdir}/${name}`,
+          `${this.workdir}/${entry.name}`,
           this.stepSignal(),
-          this.limits.maxFileBytes,
+          maxFileBytes,
         );
-        if (content.byteLength === 0 || content.byteLength > this.limits.maxFileBytes) continue;
-        files.push({ content, filename: name });
+        if (content.byteLength === 0 || content.byteLength > maxFileBytes) continue;
+        files.push({ content, filename: safeBasename(entry.name)! });
       }
-      return files;
+      return { files, hint: outputHint(manifest.scanCapped, unreturned, maxFileCount) };
     } catch (error) {
       logGenerationDebugSafe('sandbox_collect_failed', {
         errorKind: error instanceof Error ? error.name : 'unknown',
         httpStatus: error instanceof OpenSandboxHttpError ? error.status : undefined,
         provider: 'opensandbox',
       });
-      return [];
+      return { files: [] };
     }
   }
 }

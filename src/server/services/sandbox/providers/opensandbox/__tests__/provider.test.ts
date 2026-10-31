@@ -304,10 +304,12 @@ const install = (scenario: Scenario = {}) => {
   return calls;
 };
 
+const MANIFEST = '/tmp/workspace/.chathub/manifest.json';
+
 const manifest = (
   entries: Array<{ changed?: boolean; name: string; sha256: string; size: number }>,
 ) => ({
-  '/tmp/workspace/.chathub/manifest.json': JSON.stringify(entries),
+  [MANIFEST]: JSON.stringify(entries),
 });
 
 const byteStream = (length: number, chunkSize: number, contentLength?: number) => {
@@ -586,13 +588,94 @@ describe('OpenSandboxProvider', () => {
     expect(result.files).toEqual([]);
   });
 
-  it('ignores manifest names that are not plain basenames', async () => {
+  it('ignores manifest names that leave the workdir or name a hidden path', async () => {
     const calls = install({
-      files: manifest([{ name: '../etc/passwd', sha256: 'x', size: 4 }]),
+      files: manifest(
+        ['../etc/passwd', '/etc/passwd', 'out/../../x', '.git/config', 'out/.env', 'a\\b.txt', 'out//x'].map(
+          (name) => ({ name, sha256: 'x', size: 4 }),
+        ),
+      ),
     });
 
     expect((await run()).files).toEqual([]);
     expect(calls.downloads).toHaveLength(1);
+  });
+
+  it('returns subdirectory outputs after top-level ones, named by basename', async () => {
+    const calls = install({
+      files: {
+        [MANIFEST]: JSON.stringify({
+          files: [
+            { name: 'chart.png', sha256: sha('png'), size: 3 },
+            { name: 'out/report.txt', sha256: sha('report'), size: 6 },
+            { name: 'out/deep/data.csv', sha256: sha('a,b'), size: 3 },
+          ],
+          scanCapped: false,
+        }),
+        '/tmp/workspace/chart.png': 'png',
+        '/tmp/workspace/out/deep/data.csv': 'a,b',
+        '/tmp/workspace/out/report.txt': 'report',
+      },
+    });
+
+    const result = await run();
+
+    expect(result.files.map((item) => item.filename)).toEqual(['chart.png', 'report.txt', 'data.csv']);
+    expect(Buffer.from(result.files[2].content).toString()).toBe('a,b');
+    expect(calls.downloads.slice(1)).toEqual([
+      '/tmp/workspace/chart.png',
+      '/tmp/workspace/out/report.txt',
+      '/tmp/workspace/out/deep/data.csv',
+    ]);
+    expect(result).not.toHaveProperty('hint');
+  });
+
+  it('returns no subdirectory output when they do not all fit, and lists them in hint', async () => {
+    const top = Array.from({ length: 19 }, (_, index) => `t${index}.txt`);
+    const calls = install({
+      files: {
+        [MANIFEST]: JSON.stringify({
+          files: [...top, 'out/a.txt', 'out/b.txt'].map((name) => ({ name, sha256: sha('x'), size: 1 })),
+          scanCapped: false,
+        }),
+        ...Object.fromEntries(
+          [...top, 'out/a.txt', 'out/b.txt'].map((name) => [`/tmp/workspace/${name}`, 'x']),
+        ),
+      },
+    });
+
+    const result = await run();
+
+    expect(result.files).toHaveLength(19);
+    expect(calls.downloads.some((path) => path.includes('/out/'))).toBe(false);
+    expect(result.hint).toBe(
+      '2 changed file(s) in subdirectories were not returned because they do not all fit in the 20-file limit: out/a.txt, out/b.txt. Share the ones the user needs with exportFile.',
+    );
+  });
+
+  it('explains subdirectory files the runner only listed, or a capped scan', async () => {
+    install({
+      files: {
+        [MANIFEST]: JSON.stringify({
+          files: [{ name: 'top.txt', sha256: sha('t'), size: 1 }],
+          scanCapped: false,
+          unreturned: { count: 75, paths: ['data/0.csv', 'data/1.csv'] },
+        }),
+        '/tmp/workspace/top.txt': 't',
+      },
+    });
+    const listed = await run();
+
+    expect(listed.files.map((item) => item.filename)).toEqual(['top.txt']);
+    expect(listed.hint).toBe(
+      '75 changed file(s) in subdirectories were not returned because they do not all fit in the 20-file limit: data/0.csv, data/1.csv, and 73 more. Share the ones the user needs with exportFile.',
+    );
+
+    install({ files: { [MANIFEST]: JSON.stringify({ files: [], scanCapped: true }) } });
+
+    expect((await run()).hint).toBe(
+      'The working directory has too many files to check its subdirectories, so files changed inside subdirectories were not returned. Share the ones the user needs with exportFile.',
+    );
   });
 
   it('sends a deny-by-default network policy when an allowlist is configured', async () => {

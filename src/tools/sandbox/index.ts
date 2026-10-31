@@ -64,7 +64,7 @@ export const SandboxManifest: BuiltinToolManifest = {
     },
     {
       description:
-        'Run Python code in a new process. New or changed files at the top level of the working directory are returned as downloadable files.',
+        'Run Python code in a new process. New or changed files in the working directory are returned as downloadable files: top-level files first, then files in subdirectories when they all fit in the per-call file limit.',
       name: SandboxApiName.runPython,
       parameters: {
         properties: {
@@ -136,12 +136,13 @@ export const SandboxManifest: BuiltinToolManifest = {
     },
     {
       description:
-        'Copy files from the sandbox to the chat so the user can open or download them. Returns a url for each file.',
+        'Copy one or more files from the sandbox to the chat so the user can open or download them. Pass every file in one call. Returns a url for each file.',
       name: SandboxApiName.exportFile,
       parameters: {
         properties: {
           paths: {
-            description: 'File paths, absolute or relative to the working directory.',
+            description:
+              'File paths as a JSON array, absolute or relative to the working directory, for example ["report.pdf", "out/chart.png"]. One call exports up to the operator file limit (20 unless changed); paths over it come back in skipped.',
             items: { type: 'string' },
             type: 'array',
           },

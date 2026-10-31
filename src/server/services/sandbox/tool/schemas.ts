@@ -19,6 +19,20 @@ const optionalPath = z.preprocess(
   (value) => (value === null || value === '' ? undefined : value),
   path.optional(),
 );
+// Models (Claude especially) sometimes send an array argument as its JSON text.
+const stringList = (value: unknown) => {
+  if (typeof value !== 'string') return value;
+  const trimmed = value.trim();
+  if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+    try {
+      const parsed: unknown = JSON.parse(trimmed);
+      if (Array.isArray(parsed) && parsed.every((item) => typeof item === 'string')) return parsed;
+    } catch {
+      // Not JSON: a path that happens to be bracketed.
+    }
+  }
+  return [value];
+};
 const commandId = z.string().trim().min(1).max(256);
 // The per-file byte cap is checked again after encoding.
 const fileText = z.string().max(16 * 1024 * 1024);
@@ -31,10 +45,7 @@ export const sandboxToolSchemas = {
     replaceAll: optionalBoolean,
   }),
   [SandboxApiName.exportFile]: z.object({
-    paths: z.preprocess(
-      (value) => (typeof value === 'string' ? [value] : value),
-      z.array(path).min(1).max(50),
-    ),
+    paths: z.preprocess(stringList, z.array(path).min(1).max(50)),
   }),
   [SandboxApiName.getCommandOutput]: z.object({
     commandId,

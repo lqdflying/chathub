@@ -216,6 +216,7 @@ class SandboxToolRunner {
       const persisted = await this.persist(workspace, result.files);
       return {
         files: persisted.length > 0 ? persisted : undefined,
+        ...(result.hint ? { hint: result.hint } : {}),
         output: toOutput(result.stdout, result.stderr),
         success: result.success,
       };
@@ -329,12 +330,29 @@ class SandboxToolRunner {
     });
   }
 
+  /** A path with commas or newlines that does not exist as written is a list of paths. */
+  private async expandListedPaths(workspace: SandboxWorkspace, paths: string[]) {
+    const expanded: string[] = [];
+    for (const path of paths) {
+      const parts = path
+        .split(/[\n,]/)
+        .map((part) => part.trim())
+        .filter(Boolean);
+      if (parts.length > 1 && !(await workspace.fileInfo(this.resolvePath(workspace, path)))) {
+        expanded.push(...parts);
+      } else {
+        expanded.push(path);
+      }
+    }
+    return expanded;
+  }
+
   exportFile({ paths }: SandboxToolArgs['exportFile']) {
-    const unique = [...new Set(paths)].slice(0, this.maxFileCount);
     return this.useWithInputs(SandboxApiName.exportFile, FILE_BUDGET_MS, async (workspace) => {
+      const unique = [...new Set(await this.expandListedPaths(workspace, paths))];
       const files: SandboxFile[] = [];
       const skipped: string[] = [];
-      for (const path of unique) {
+      for (const path of unique.slice(0, this.maxFileCount)) {
         const resolved = this.resolvePath(workspace, path);
         try {
           const content = await workspace.readFile(resolved, this.maxFileBytes);
@@ -351,6 +369,11 @@ class SandboxToolRunner {
       const persisted = files.length > 0 ? await this.persist(workspace, files) : [];
       if (persisted.length < files.length) {
         skipped.push(`${files.length - persisted.length} file(s) could not be stored`);
+      }
+      if (unique.length > this.maxFileCount) {
+        skipped.push(
+          `${unique.length - this.maxFileCount} path(s) over the ${this.maxFileCount}-file limit were not exported; call exportFile again with them`,
+        );
       }
       return {
         ...(persisted.length > 0 ? { files: persisted } : {}),

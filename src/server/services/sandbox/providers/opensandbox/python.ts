@@ -11,8 +11,9 @@ import { SANDBOX_CONTROL_DIR, SANDBOX_WORKDIR } from '@/tools/sandbox/const';
  * basename. It forces the Agg backend, turns
  * `plt.show()` into PNG files, echoes a trailing expression the way a
  * notebook would, and writes a sha256 manifest of only the files this run
- * created or changed. Unchanged files stay in the sandbox and are not listed,
- * so a long history cannot grow the manifest past its cap.
+ * created or changed, at the top level and in subdirectories. Unchanged files
+ * stay in the sandbox and are not listed, so a long history cannot grow the
+ * manifest past its cap.
  *
  * Jupyter is deliberately not used: execd opens a new kernel websocket per
  * cell and matches replies by message type only, and its code streams hung
@@ -41,24 +42,52 @@ export const SYNCED_PATH = `${CONTROL_DIR}/synced.json`;
 // Fixed string: user code reaches the sandbox only as an uploaded file.
 export const RUN_COMMAND = `python3 ${RUNNER_PATH}`;
 
+// The output scan walks subdirectories, minus these folders and every hidden one.
+export const OUTPUT_SCAN_PRUNED_DIRS = ['__pycache__', 'node_modules', 'site-packages', 'venv'];
+// Subdirectory files the scan stamps before it stops; a capped scan returns none.
+export const OUTPUT_SCAN_MAX_FILES = 5000;
+// Unreturned subdirectory paths the manifest names for the model.
+export const OUTPUT_UNRETURNED_LISTED = 50;
+
 export interface OutputManifestEntry {
   /** False when the file existed before this run and was not touched. */
   changed: boolean;
+  /** Workdir-relative path; a subdirectory file contains `/`. */
   name: string;
   sha256: string;
   size: number;
 }
 
-export const buildRunnerScript = (
-  workdir: string = OPENSANDBOX_WORKDIR,
-  fontPath: string = OPENSANDBOX_FONT_PATH,
-): string => {
+export interface OutputManifest {
+  entries: OutputManifestEntry[];
+  /** The subdirectory scan hit its file cap, so no subdirectory file was compared. */
+  scanCapped: boolean;
+  /** Changed subdirectory files left out because more changed than the file limit. */
+  unreturned?: { count: number; paths: string[] };
+}
+
+export const buildRunnerScript = ({
+  fontPath = OPENSANDBOX_FONT_PATH,
+  maxFiles,
+  scanMaxFiles = OUTPUT_SCAN_MAX_FILES,
+  workdir = OPENSANDBOX_WORKDIR,
+}: {
+  fontPath?: string;
+  /** Files one call may return; more changed subdirectory files are listed, not hashed. */
+  maxFiles: number;
+  scanMaxFiles?: number;
+  workdir?: string;
+}): string => {
   const controlDir = `${workdir}/.chathub`;
   return [
     'import ast, builtins, hashlib, importlib.abc, importlib.util, io, json, linecache, os, shutil, sys, traceback',
     `WORKDIR = ${JSON.stringify(workdir)}`,
     `CONTROL = ${JSON.stringify(controlDir)}`,
     `FONT = ${JSON.stringify(fontPath)}`,
+    `MAX_FILES = ${Math.max(0, Math.floor(maxFiles))}`,
+    `SCAN_MAX = ${Math.max(0, Math.floor(scanMaxFiles))}`,
+    `UNRETURNED_LISTED = ${OUTPUT_UNRETURNED_LISTED}`,
+    `PRUNED = ${JSON.stringify(OUTPUT_SCAN_PRUNED_DIRS)}`,
     'os.chdir(WORKDIR)',
     'os.makedirs(CONTROL, exist_ok=True)',
     // A previous run's manifest must not survive an abrupt exit. The real
@@ -295,15 +324,29 @@ export const buildRunnerScript = (
     '        if value is not None:',
     '            print(repr(value))',
     // Snapshot after the upload and before user code, so a reused sandbox
-    // reports only files this run created or changed.
-    'def _stamp(path):',
-    '    st = os.stat(path)',
-    '    return [st.st_size, st.st_mtime_ns]',
-    '_BEFORE = {}',
-    'for _name in os.listdir(WORKDIR):',
-    '    _path = os.path.join(WORKDIR, _name)',
-    '    if not os.path.islink(_path) and os.path.isfile(_path):',
-    '        _BEFORE[_name] = _stamp(_path)',
+    // reports only files this run created or changed. os.walk is top-down, so
+    // the top level is always complete before the subdirectory cap applies.
+    'def _listed(name):',
+    '    return not (name.startswith(".") or name.startswith("fontlist-v") or name.endswith(".matplotlib-lock"))',
+    'def _scan():',
+    '    top, sub = {}, {}',
+    '    for root, dirs, names in os.walk(WORKDIR):',
+    '        dirs[:] = [d for d in dirs if not d.startswith(".") and d not in PRUNED]',
+    '        rel = os.path.relpath(root, WORKDIR)',
+    '        prefix = "" if rel == "." else rel.replace(os.sep, "/") + "/"',
+    '        for name in names:',
+    '            path = os.path.join(root, name)',
+    '            if not _listed(name) or os.path.islink(path) or not os.path.isfile(path):',
+    '                continue',
+    '            st = os.stat(path)',
+    '            if not prefix:',
+    '                top[name] = (st.st_size, st.st_mtime_ns)',
+    '            elif len(sub) >= SCAN_MAX:',
+    '                return top, sub, True',
+    '            else:',
+    '                sub[prefix + name] = (st.st_size, st.st_mtime_ns)',
+    '    return top, sub, False',
+    '_BEFORE = _scan()',
     '_status = 0',
     'try:',
     '    _run()',
@@ -325,38 +368,32 @@ export const buildRunnerScript = (
     'except Exception:',
     '    pass',
     '_publish_captured()',
+    '_AFTER = _scan()',
+    // A capped scan on either side cannot tell new subdirectory files from old ones.
+    '_capped = _BEFORE[2] or _AFTER[2]',
+    '_top = sorted(n for n, s in _AFTER[0].items() if _BEFORE[0].get(n) != s)',
+    '_sub = [] if _capped else sorted(r for r, s in _AFTER[1].items() if _BEFORE[1].get(r) != s)',
     '_out = []',
-    'for _name in sorted(os.listdir(WORKDIR)):',
-    '    _path = os.path.join(WORKDIR, _name)',
-    '    if _name.startswith(".") or os.path.islink(_path) or not os.path.isfile(_path):',
-    '        continue',
-    '    if _name.startswith("fontlist-v") or _name.endswith(".matplotlib-lock"):',
-    '        continue',
-    '    if _BEFORE.get(_name) == _stamp(_path):',
-    '        continue',
+    'for _rel in _top + (_sub if len(_sub) <= MAX_FILES else []):',
+    '    _path = os.path.join(WORKDIR, _rel)',
     '    _hash = hashlib.sha256()',
     '    with io.open(_path, "rb") as _fh:',
     '        for _chunk in iter(lambda: _fh.read(1 << 20), b""):',
     '            _hash.update(_chunk)',
-    '    _out.append({"name": _name, "sha256": _hash.hexdigest(), "size": os.path.getsize(_path), "changed": True})',
+    '    _out.append({"name": _rel, "sha256": _hash.hexdigest(), "size": os.path.getsize(_path), "changed": True})',
+    '_manifest = {"files": _out, "scanCapped": _capped}',
+    'if len(_sub) > MAX_FILES:',
+    '    _manifest["unreturned"] = {"count": len(_sub), "paths": _sub[:UNRETURNED_LISTED]}',
     'with io.open(os.path.join(CONTROL, "manifest.json"), "w", encoding="utf-8") as _fh:',
-    '    json.dump(_out, _fh)',
+    '    json.dump(_manifest, _fh)',
     'sys.stdout.flush()',
     'sys.stderr.flush()',
     'sys.exit(_status)',
   ].join('\n');
 };
 
-export const parseOutputManifest = (text: string): OutputManifestEntry[] => {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    return [];
-  }
-  if (!Array.isArray(parsed)) return [];
-
-  return parsed.flatMap((item) => {
+const parseEntries = (items: unknown[]): OutputManifestEntry[] =>
+  items.flatMap((item) => {
     if (!item || typeof item !== 'object') return [];
     const { changed, name, sha256, size } = item as Record<string, unknown>;
     if (typeof name !== 'string' || typeof sha256 !== 'string' || typeof size !== 'number') {
@@ -364,4 +401,32 @@ export const parseOutputManifest = (text: string): OutputManifestEntry[] => {
     }
     return [{ changed: changed !== false, name, sha256, size }];
   });
+
+export const parseOutputManifest = (text: string): OutputManifest => {
+  const empty: OutputManifest = { entries: [], scanCapped: false };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return empty;
+  }
+  // The reset value ChatHub uploads before every run is a bare array.
+  if (Array.isArray(parsed)) return { entries: parseEntries(parsed), scanCapped: false };
+  if (!parsed || typeof parsed !== 'object') return empty;
+
+  const { files, scanCapped, unreturned } = parsed as Record<string, unknown>;
+  const manifest: OutputManifest = {
+    entries: Array.isArray(files) ? parseEntries(files) : [],
+    scanCapped: scanCapped === true,
+  };
+  if (unreturned && typeof unreturned === 'object') {
+    const { count, paths } = unreturned as Record<string, unknown>;
+    if (typeof count === 'number' && count > 0 && Array.isArray(paths)) {
+      manifest.unreturned = {
+        count,
+        paths: paths.filter((path): path is string => typeof path === 'string'),
+      };
+    }
+  }
+  return manifest;
 };
