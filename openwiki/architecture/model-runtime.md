@@ -342,6 +342,9 @@ Per-user SuperGrok device-code tokens and the unofficial
 `cli-chat-proxy.grok.com` overlay are documented in
 [xAI SuperGrok OAuth](xai-oauth.md).
 
+Native provider balance, plan quota, and admin-key spend shown in Settings are
+documented in [Provider balance and usage](provider-usage.md).
+
 Native xAI `/v1/responses` uses `max_output_tokens`, not Chat Completions
 `max_tokens` ([xAI comparison](https://docs.x.ai/developers/model-capabilities/text/comparison)).
 The factory remaps the generic budget the same way as native OpenAI. Sending

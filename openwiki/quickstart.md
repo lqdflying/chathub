@@ -6,6 +6,7 @@ Start here if you are new to the repo:
 
 - [Repository overview and architecture](architecture/overview.md)
 - [Runtime and provider model](architecture/model-runtime.md)
+- [Provider balance and usage](architecture/provider-usage.md)
 - [MiniMax mobile Connectivity Check (lesson)](architecture/minimax-mobile-connectivity.md)
 - [Image generation](architecture/image-generation.md)
 - [Knowledge Base and vector RAG](architecture/knowledge-base-rag.md)
@@ -56,6 +57,7 @@ This repo is a monorepo with workspaces under `packages/*` and the main app unde
 
 - [Architecture overview](architecture/overview.md)
 - [Model runtime details](architecture/model-runtime.md)
+- [Provider balance and usage](architecture/provider-usage.md)
 - [MiniMax mobile Connectivity Check (lesson)](architecture/minimax-mobile-connectivity.md)
 - [Image generation](architecture/image-generation.md)
 - [Knowledge Base and vector RAG](architecture/knowledge-base-rag.md)
