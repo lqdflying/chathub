@@ -43,6 +43,8 @@ export const config = {
     '/artifacts',
     '/tools',
     '/tools(.*)',
+    '/search',
+    '/search(.*)',
     '/knowledge',
     '/knowledge(.*)',
     '/profile(.*)',

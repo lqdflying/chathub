@@ -31,5 +31,6 @@ The block is appended to the system role, so `fixedContextOverheadText` counts i
 - Durable sends: `buildConversationChatPayload` scans the full transcript, including turns already covered by the current topic's compaction cursor. `excludeTopicId` is `operation.topicId` at each call site in `execute.ts`.
 - Deferred in-tab sends: `ChatService.createAssistantMessage` resolves the same block through `topic.resolveTopicReferences` before `contextEngineering`.
 - The token estimate hook loads the block when the open messages or the composer draft contain ids.
+- `estimateContextUsageAsync` does not load the block. When the full transcript or the pending draft contains a reference, it marks the calibration sample ineligible.
 
 Asking for a topic in plain language, without an id or URL, does not search history.

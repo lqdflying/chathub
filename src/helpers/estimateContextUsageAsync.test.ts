@@ -1251,4 +1251,31 @@ describe('estimateContextUsageAsync', () => {
     expect(skillService.resolveSkills).not.toHaveBeenCalled();
     expect(skipped.tokenEstimateEligible).toBe(false);
   });
+
+  it('does not train on a dispatch sample that omits a pasted topic reference', async () => {
+    const currentTopicId = 'tpc_currenttopic';
+    mocks.chats = [{ content: 'see tpc_abcdefghijkl', id: 'u1', role: 'user' }];
+
+    const referenced = await estimate();
+    expect(referenced.tokenEstimateEligible).toBe(false);
+
+    mocks.chats = [{ content: 'chat-text', id: 'u1', role: 'user' }];
+    const plain = await estimate();
+    expect(plain.tokenEstimateEligible).toBe(true);
+
+    mocks.chats = [{ content: 'chat-text', id: 'u1', role: 'user' }];
+    const draft = await estimateContextUsageAsync({
+      agentState: {} as any,
+      chatState: {
+        activeId: 'session-1',
+        activeTopicId: 'topic-1',
+        inputMessage: 'tpc_abcdefghijkl',
+      } as any,
+    });
+    expect(draft.tokenEstimateEligible).toBe(false);
+
+    mocks.chats = [{ content: currentTopicId, id: 'u1', role: 'user' }];
+    const self = await estimate(currentTopicId);
+    expect(self.tokenEstimateEligible).toBe(true);
+  });
 });

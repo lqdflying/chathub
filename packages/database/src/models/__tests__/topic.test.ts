@@ -319,6 +319,39 @@ describe('TopicModel', () => {
       expect(result[0]?.snippet?.length).toBeLessThan(padding.length * 2);
     });
 
+    it('uses the earliest matching message as the snippet', async () => {
+      await serverDB.insert(topics).values({
+        id: 'ordered-hit',
+        sessionId,
+        title: 'Quiet',
+        userId,
+      });
+      await serverDB.insert(messages).values([
+        {
+          content: 'earlier unique-order-needle',
+          id: 'ordered-1',
+          messageOrder: 1n,
+          role: 'user',
+          topicId: 'ordered-hit',
+          userId,
+        },
+        {
+          content: 'later unique-order-needle',
+          id: 'ordered-2',
+          messageOrder: 2n,
+          role: 'assistant',
+          topicId: 'ordered-hit',
+          userId,
+        },
+      ]);
+
+      const result = await topicModel.searchAccountTopics('unique-order-needle');
+
+      expect(result).toHaveLength(1);
+      expect(result[0]?.snippet).toContain('earlier');
+      expect(result[0]?.snippet).not.toContain('later');
+    });
+
     it('does not return another user topic', async () => {
       await serverDB.insert(users).values({ id: 'other-user' });
       await serverDB.insert(sessions).values({ id: 'other-session', userId: 'other-user' });

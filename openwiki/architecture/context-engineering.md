@@ -174,10 +174,12 @@ window. `resolveEffectiveHistoryWindow` (`src/helpers/contextCompaction.ts`) kee
 disables) message truncate while an approximate chat payload still fits under 55% of the window
 after fixed overhead. The token estimator, token popover, browser `createAssistantMessage`, and
 Graphile `payload.ts` all share `estimateFixedContextOverheadTokens` (system role, assistant
-memory, wrapped history summary, tool schemas/roles, and `formatSkillInstructionsBlock` XML).
-A pasted topic reference is appended to that system role and therefore counted in the same overhead.
-See [Topic references](topic-references.md).
-plus latest-user-anchored slicing from `packages/context-engine`. Input templates are **not** a
+memory, wrapped history summary, tool schemas/roles, and `formatSkillInstructionsBlock` XML)
+plus latest-user-anchored slicing from `packages/context-engine`. A pasted topic reference is
+appended to that system role, so the token popover, browser `createAssistantMessage`, and
+`payload.ts` count it in the same overhead; `estimateContextUsageAsync` does not load it and marks
+the sample ineligible for calibration instead. See [Topic references](topic-references.md).
+Input templates are **not** a
 one-shot overhead string: `resolveEffectiveHistoryWindow` / `serializeMessagesForContextEstimate`
 apply the same `{{text}}` expansion as `InputTemplateProcessor` to every included user row.
 The popover adds in-flight Knowledge Base tokens on top of that same overhead.

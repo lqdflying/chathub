@@ -7,6 +7,7 @@ import { selectScopedConversationMessages } from '@/helpers/conversationThreadMe
 import { countMessagesContextTokens, messageTextForTokenCount } from '@/helpers/contextMessageTokens';
 import { countContextTextTokens, warmContextTokenCache } from '@/helpers/contextTokenCount';
 import { fixedContextOverheadText } from '@/helpers/contextUsageEstimate';
+import { parseTopicReferenceIds } from '@/helpers/topicReference';
 import { requestedCompletionCap, resolveInputBudgetTokens } from '@/helpers/inputBudget';
 import { getModelContextWindowTokens } from '@/helpers/modelContextWindowTokens';
 import { scaleLocalTokens } from '@/helpers/tokenCalibration';
@@ -374,6 +375,13 @@ export const estimateContextUsageAsync = async ({
       })
     : undefined;
   const rawMessages = scopedSelection?.messages ?? chatSelectors.mainAIChats(chatState);
+  // The server still loads a reference that sits behind this topic's compaction
+  // cursor, but this estimate does not. A sample that omits that block must
+  // not train the token multiplier.
+  const topicReferencesUnresolved =
+    parseTopicReferenceIds([...rawMessages, { content: input, role: 'user' }], {
+      excludeTopicId: topicId,
+    }).length > 0;
   const afterCursor = getMessagesAfterHistorySummaryCursor(
     appendPendingUserInputForContextWindow(rawMessages, input, pendingHasFiles),
     enableHistoryCompaction ? historySummaryLastMessageId : undefined,
@@ -508,6 +516,7 @@ export const estimateContextUsageAsync = async ({
     systemRoleToken,
     tokenEstimateEligible:
       !skillsUnresolved &&
+      !topicReferencesUnresolved &&
       !wholeMessages.hasVisual &&
       messageCount.mode === 'exact' &&
       overheadCountMode === 'exact' &&

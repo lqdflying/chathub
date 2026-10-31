@@ -391,7 +391,7 @@ export class TopicModel {
 
     const detailById = new Map(details.map((row) => [row.id, row]));
     const snippetRows = await this.db
-      .select({
+      .selectDistinctOn([messages.topicId], {
         content: messages.content,
         topicId: messages.topicId,
       })
@@ -404,7 +404,7 @@ export class TopicModel {
           ilike(messages.content, pattern),
         ),
       )
-      .orderBy(asc(messages.messageOrder));
+      .orderBy(messages.topicId, asc(messages.messageOrder));
 
     const snippetByTopicId = new Map<string, string>();
     for (const row of snippetRows) {

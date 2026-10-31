@@ -116,6 +116,31 @@ describe('Middleware route matching', () => {
     );
   });
 
+  it('matches Search and rewrites it to its variant route', async () => {
+    const { config, default: middleware } = await import('./middleware');
+
+    expect(config.matcher).toEqual(expect.arrayContaining(['/search', '/search(.*)']));
+    expect(
+      unstable_doesMiddlewareMatch({
+        config,
+        url: 'https://chathub.example/search',
+      }),
+    ).toBe(true);
+
+    const request = new NextRequest('https://chathub.example/search?hl=zh-CN', {
+      headers: {
+        'accept-language': 'en-US',
+        'user-agent': 'Mozilla/5.0',
+      },
+    });
+    const response = await middleware(request, createNextFetchEvent());
+
+    expect(response).toBeInstanceOf(Response);
+    expect(response?.headers.get('x-middleware-rewrite')).toContain(
+      '/zh-CN__0__light/search?hl=zh-CN',
+    );
+  });
+
   it('matches the legacy Labs route so its redirect page is reachable', async () => {
     const { config } = await import('./middleware');
 
