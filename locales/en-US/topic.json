@@ -4,6 +4,8 @@
     "confirmRemoveAll": "You are about to delete all topics. This action cannot be undone, please proceed with caution.",
     "confirmRemoveTopic": "You are about to delete this topic. This action cannot be undone, please proceed with caution.",
     "confirmRemoveUnstarred": "You are about to delete unstarred topics. This action cannot be undone, please proceed with caution.",
+    "copyReference": "Copy reference",
+    "copyReferenceSuccess": "Topic reference copied",
     "duplicate": "Create Copy",
     "export": "Export Topics",
     "removeAll": "Delete All Topics",

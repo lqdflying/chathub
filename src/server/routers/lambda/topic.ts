@@ -8,6 +8,7 @@ import { authedProcedure, publicProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { withConversationWriteLockOrThrow } from '@/server/services/conversationWriteLock';
 import { persistMemoryCompactionIfCurrent } from '@/server/services/memoryCompactionPersist';
+import { loadTopicReferenceBlock } from '@/server/services/topicReference/load';
 import { mergeReportedInputTokenFloorWatermark } from '@/server/services/topicReportedInputTokenFloor';
 import { BatchTaskResult } from '@/types/service';
 
@@ -244,6 +245,30 @@ export const topicRouter = router({
     .input(z.object({ keywords: z.string(), sessionId: z.string().nullable().optional() }))
     .query(async ({ input, ctx }) => {
       return ctx.topicModel.queryByKeyword(input.keywords, input.sessionId);
+    }),
+
+  searchAccountTopics: topicProcedure
+    .input(z.object({ keywords: z.string() }))
+    .query(async ({ input, ctx }) => {
+      return ctx.topicModel.searchAccountTopics(input.keywords);
+    }),
+
+  resolveTopicReferences: topicProcedure
+    .input(
+      z.object({
+        excludeTopicId: z.string().optional(),
+        ids: z
+          .array(z.string().regex(/^tpc_[0-9A-Za-z]{12}$/))
+          .max(3),
+      }),
+    )
+    .query(async ({ input, ctx }) => {
+      return loadTopicReferenceBlock({
+        db: ctx.serverDB,
+        excludeTopicId: input.excludeTopicId,
+        ids: input.ids,
+        userId: ctx.userId,
+      });
     }),
 
   updateTopic: topicProcedure

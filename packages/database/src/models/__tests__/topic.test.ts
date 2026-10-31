@@ -270,6 +270,131 @@ describe('TopicModel', () => {
     });
   });
 
+  describe('searchAccountTopics', () => {
+    it('returns a title hit from another session with the container name', async () => {
+      await serverDB.insert(sessions).values({ id: 'session-b', title: 'Writer', userId });
+      await serverDB.insert(topics).values({
+        id: 'title-hit',
+        lastActivityAt: new Date('2024-02-01T00:00:00Z'),
+        sessionId: 'session-b',
+        title: 'Hello world',
+        userId,
+      });
+
+      const result = await topicModel.searchAccountTopics('hello');
+
+      expect(result).toHaveLength(1);
+      expect(result[0]).toMatchObject({
+        containerId: 'session-b',
+        containerTitle: 'Writer',
+        id: 'title-hit',
+        snippet: null,
+        title: 'Hello world',
+      });
+    });
+
+    it('returns a message hit and a snippet around the match', async () => {
+      const padding = 'x'.repeat(120);
+      await serverDB.insert(topics).values({
+        id: 'content-hit',
+        sessionId,
+        title: 'Quiet title',
+        userId,
+      });
+      await serverDB.insert(messages).values({
+        content: `${padding}unique-needle${padding}`,
+        id: 'content-message',
+        role: 'user',
+        topicId: 'content-hit',
+        userId,
+      });
+
+      const result = await topicModel.searchAccountTopics('unique-needle');
+
+      expect(result).toHaveLength(1);
+      expect(result[0]?.id).toBe('content-hit');
+      expect(result[0]?.snippet).toContain('unique-needle');
+      expect(result[0]?.snippet?.startsWith('…')).toBe(true);
+      expect(result[0]?.snippet?.endsWith('…')).toBe(true);
+      expect(result[0]?.snippet?.length).toBeLessThan(padding.length * 2);
+    });
+
+    it('does not return another user topic', async () => {
+      await serverDB.insert(users).values({ id: 'other-user' });
+      await serverDB.insert(sessions).values({ id: 'other-session', userId: 'other-user' });
+      await serverDB.insert(topics).values([
+        { id: 'mine', sessionId, title: 'Hello mine', userId },
+        {
+          id: 'theirs',
+          sessionId: 'other-session',
+          title: 'Secret hello',
+          userId: 'other-user',
+        },
+      ]);
+
+      const result = await topicModel.searchAccountTopics('hello');
+
+      expect(result.map((topic) => topic.id)).toEqual(['mine']);
+      expect(await topicModel.searchAccountTopics('Secret')).toEqual([]);
+    });
+
+    it('ignores tool messages and treats % and _ as literal characters', async () => {
+      await serverDB.insert(topics).values([
+        { id: 'literal', sessionId, title: '100%_done', userId },
+        { id: 'broad', sessionId, title: '100Xdone', userId },
+        { id: 'tool-topic', sessionId, title: 'Plain', userId },
+      ]);
+      await serverDB.insert(messages).values({
+        content: 'tool-only-needle',
+        id: 'tool-message',
+        role: 'tool',
+        topicId: 'tool-topic',
+        userId,
+      });
+
+      expect((await topicModel.searchAccountTopics('100%_done')).map((topic) => topic.id)).toEqual([
+        'literal',
+      ]);
+      expect(await topicModel.searchAccountTopics('tool-only-needle')).toEqual([]);
+    });
+
+    it('keeps the 30 most recently active matches', async () => {
+      await serverDB.insert(topics).values(
+        Array.from({ length: 31 }, (_, index) => ({
+          id: `limit-topic-${index}`,
+          lastActivityAt: new Date(Date.UTC(2024, 0, index + 1)),
+          sessionId,
+          title: `Limit match ${index}`,
+          userId,
+        })),
+      );
+
+      const result = await topicModel.searchAccountTopics('Limit match');
+
+      expect(result).toHaveLength(30);
+      expect(result[0]?.id).toBe('limit-topic-30');
+      expect(result.some((topic) => topic.id === 'limit-topic-0')).toBe(false);
+    });
+
+    it('uses the group title when the topic belongs to a group', async () => {
+      await serverDB.insert(chatGroups).values({ id: 'group-1', title: 'Review group', userId });
+      await serverDB.insert(topics).values({
+        groupId: 'group-1',
+        id: 'group-topic',
+        title: 'Group notes',
+        userId,
+      });
+
+      const result = await topicModel.searchAccountTopics('Group notes');
+
+      expect(result[0]).toMatchObject({
+        containerId: 'group-1',
+        containerTitle: 'Review group',
+        id: 'group-topic',
+      });
+    });
+  });
+
   describe('count', () => {
     it('should return total number of topics', async () => {
       // 创建测试数据

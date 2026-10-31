@@ -74,6 +74,7 @@ describe('TopActions', () => {
     renderTopActions();
 
     expect(screen.getByText('tab.chat')).toBeTruthy();
+    expect(screen.getByText('tab.search')).toBeTruthy();
     expect(screen.getByText('tab.aiImage')).toBeTruthy();
     expect(screen.getByText('tab.tools')).toBeTruthy();
     expect(screen.getByText('tab.artifacts')).toBeTruthy();

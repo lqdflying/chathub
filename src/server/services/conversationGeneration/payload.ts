@@ -40,7 +40,9 @@ import {
 } from '@/helpers/contextCompaction';
 import { resolveTokenizerHistoryWindow } from '@/helpers/contextMessageTokens';
 import { requestedCompletionCap, resolveInputBudgetTokens } from '@/helpers/inputBudget';
+import { appendTopicReferenceBlock } from '@/helpers/topicReference';
 import { FileService } from '@/server/services/file';
+import { loadTopicReferenceBlock } from '@/server/services/topicReference/load';
 import { composeSystemRole } from '@/services/chat/composeSystemRole';
 import { resolveOpenAICompatibleChatRoute } from '@/services/chat/openAICompatibleRoute';
 import { buildModelExtendParams, resolveModelSearchConfig } from '@/services/chat/requestShaping';
@@ -91,6 +93,7 @@ export const buildConversationChatPayload = async ({
   agentMemory,
   config,
   db,
+  excludeTopicId,
   generalInstruction,
   historySummary,
   messages,
@@ -106,6 +109,7 @@ export const buildConversationChatPayload = async ({
   };
   config: ConversationGenerationConfigSnapshot;
   db: LobeChatDatabase;
+  excludeTopicId?: string | null;
   generalInstruction?: string;
   historySummary?: string;
   messages: UIChatMessage[];
@@ -181,7 +185,18 @@ export const buildConversationChatPayload = async ({
     config.historySummaryLastMessageId,
   );
   const resolvedMessages = await resolveProxyImageUrls(messagesAfterSummary, fileService);
-  const systemRole = composeSystemRole(generalInstruction, config.systemRole);
+  // Scan the full transcript, including turns already covered by this topic's
+  // compaction summary, so a pasted reference still loads after those turns age out.
+  const topicReferenceBlock = await loadTopicReferenceBlock({
+    db,
+    excludeTopicId,
+    messages,
+    userId,
+  });
+  const systemRole = appendTopicReferenceBlock(
+    composeSystemRole(generalInstruction, config.systemRole),
+    topicReferenceBlock,
+  );
   const historySummaryRaw = historySummary || config.historySummary || '';
   const agentMemoryBlock =
     chatConfig?.enableAssistantMemory === false

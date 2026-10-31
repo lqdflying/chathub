@@ -1,5 +1,5 @@
 import { ActionIcon, ActionIconProps, Hotkey } from '@lobehub/ui';
-import { FolderClosed, Image as ImageIcon, Images, MessageSquare, Wrench } from 'lucide-react';
+import { FolderClosed, Image as ImageIcon, Images, MessageSquare, Search, Wrench } from 'lucide-react';
 import Link from 'next/link';
 import React, { memo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -35,6 +35,7 @@ const TopActions = memo<TopActionProps>(({ tab, isPinned }) => {
   // Check if server mode is enabled
 
   const isChatActive = tab === SidebarTabKey.Chat && !isPinned;
+  const isSearchActive = tab === SidebarTabKey.Search;
   const isFilesActive = tab === SidebarTabKey.Files;
   const isImageActive = tab === SidebarTabKey.Image;
   const isToolsActive = tab === SidebarTabKey.Tools;
@@ -66,6 +67,15 @@ const TopActions = memo<TopActionProps>(({ tab, isPinned }) => {
               <Hotkey inverseTheme keys={hotkey} />
             </Flexbox>
           }
+          tooltipProps={{ placement: 'right' }}
+        />
+      </Link>
+      <Link aria-label={t('tab.search')} href={'/search'}>
+        <ActionIcon
+          active={isSearchActive}
+          icon={Search}
+          size={ICON_SIZE}
+          title={t('tab.search')}
           tooltipProps={{ placement: 'right' }}
         />
       </Link>

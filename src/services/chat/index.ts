@@ -33,7 +33,9 @@ import { requestedCompletionCap, resolveInputBudgetTokens } from '@/helpers/inpu
 import { getSearchConfig } from '@/helpers/getSearchConfig';
 import { getModelContextWindowTokens } from '@/helpers/modelContextWindowTokens';
 import { createChatToolsEngine, createToolsEngine } from '@/helpers/toolEngineering';
+import { appendTopicReferenceBlock, parseTopicReferenceIds } from '@/helpers/topicReference';
 import { skillService } from '@/services/skill';
+import { topicService } from '@/services/topic';
 import { getAgentStoreState } from '@/store/agent';
 import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selectors';
 import { aiModelSelectors, aiProviderSelectors, getAiInfraStoreState } from '@/store/aiInfra';
@@ -243,7 +245,15 @@ class ChatService {
     const agentConfig = agentSelectors.currentAgentConfig(agentStoreState);
     const chatConfig = agentChatConfigSelectors.currentChatConfig(agentStoreState);
     const generalInstruction = userGeneralSettingsSelectors.generalInstruction(getUserStoreState());
-    const systemRole = composeSystemRole(generalInstruction, agentConfig.systemRole);
+    const excludeTopicId = sanitizedMessages.find((message) => message.topicId)?.topicId;
+    const referenceIds = parseTopicReferenceIds(sanitizedMessages, { excludeTopicId });
+    const topicReferenceBlock = referenceIds.length
+      ? await topicService.resolveTopicReferences({ excludeTopicId, ids: referenceIds })
+      : '';
+    const systemRole = appendTopicReferenceBlock(
+      composeSystemRole(generalInstruction, agentConfig.systemRole),
+      topicReferenceBlock,
+    );
 
     const enableHistoryCount = agentChatConfigSelectors.enableHistoryCount(agentStoreState);
     const configuredHistoryCount = agentChatConfigSelectors.historyCount(agentStoreState);

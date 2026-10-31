@@ -22,6 +22,7 @@ import plugin from './plugin';
 import portal from './portal';
 import providers from './providers';
 import ragEval from './ragEval';
+import search from './search';
 import setting from './setting';
 import subscription from './subscription';
 import thread from './thread';
@@ -55,6 +56,7 @@ const resources = {
   portal,
   providers,
   ragEval,
+  search,
   setting,
   subscription,
   thread,

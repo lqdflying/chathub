@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as usage from '@/helpers/contextUsageEstimate';
 import * as inputBudget from '@/helpers/inputBudget';
+import * as topicReferenceLoad from '@/server/services/topicReference/load';
 
 import { buildConversationChatPayload } from './payload';
 
@@ -348,5 +349,41 @@ describe('buildConversationChatPayload', () => {
     });
 
     expect(result.payload).not.toHaveProperty('apiMode');
+  });
+
+  it('injects a referenced topic into the system text and the overhead', async () => {
+    const block =
+      '<referenced_topics><topic id="tpc_abcdefghijkl">sandbox notes</topic></referenced_topics>';
+    const loadSpy = vi.spyOn(topicReferenceLoad, 'loadTopicReferenceBlock').mockResolvedValue(block);
+    const overheadSpy = vi.spyOn(usage, 'estimateFixedContextOverheadTokens');
+
+    try {
+      const result = await buildConversationChatPayload({
+        config: baseConfig as any,
+        db: {} as any,
+        excludeTopicId: 'tpc_currenttopic',
+        generalInstruction: 'Be concise.',
+        messages: [
+          { content: 'Background: tpc_abcdefghijkl', id: 'u1', role: 'user' },
+          { content: 'ignore tpc_zzzzzzzzzzzz', id: 'a1', role: 'assistant' },
+        ] as any,
+        runtimeState,
+        sessionId: 'sess-1',
+        userId: 'user-1',
+      });
+
+      expect(loadSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          excludeTopicId: 'tpc_currenttopic',
+          userId: 'user-1',
+        }),
+      );
+      const overhead = overheadSpy.mock.calls.at(-1)?.[0];
+      expect(overhead?.systemRole).toContain('sandbox notes');
+      expect(usage.fixedContextOverheadText(overhead!)).toContain('sandbox notes');
+      expect(JSON.stringify(result.payload.messages)).toContain('sandbox notes');
+    } finally {
+      loadSpy.mockRestore();
+    }
   });
 });

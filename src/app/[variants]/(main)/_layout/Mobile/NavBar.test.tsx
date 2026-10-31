@@ -123,7 +123,7 @@ describe('mobile NavBar', () => {
     expect(pushMock).toHaveBeenCalledWith('/artifacts');
   });
 
-  it.each(['/knowledge', '/knowledge/bases/base-id', '/tools', '/tools/apitest'])(
+  it.each(['/knowledge', '/knowledge/bases/base-id', '/search', '/tools', '/tools/apitest'])(
     'selects More on the nested route family %s',
     (pathname) => {
       navigationState.activeTabKey = pathname.split('/').find(Boolean) || '';
@@ -144,6 +144,7 @@ describe('mobile NavBar', () => {
 
     const drawer = screen.getByRole('dialog', { name: 'tab.more' });
     expect(drawer.querySelector('[role="menu"]')?.getAttribute('data-selected-keys')).toBe('tools');
+    expect(screen.getByRole('menuitem', { name: 'tab.search' })).toBeTruthy();
     expect(screen.getByRole('menuitem', { name: 'tab.knowledgeBase' })).toBeTruthy();
     expect(screen.getByRole('menuitem', { name: 'tab.tools' })).toBeTruthy();
 
@@ -154,6 +155,10 @@ describe('mobile NavBar', () => {
     fireEvent.click(screen.getByRole('button', { name: 'tab.more' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'tab.tools' }));
     expect(pushMock).toHaveBeenCalledWith('/tools');
+
+    fireEvent.click(screen.getByRole('button', { name: 'tab.more' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'tab.search' }));
+    expect(pushMock).toHaveBeenCalledWith('/search');
     expect(screen.queryByRole('dialog', { name: 'tab.more' })).toBeNull();
   });
 

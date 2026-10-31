@@ -1,5 +1,5 @@
 /* eslint-disable typescript-sort-keys/interface */
-import type { TopicMemoryRollupRow } from '@/database/models/topic';
+import type { AccountTopicSearchHit, TopicMemoryRollupRow } from '@/database/models/topic';
 
 import type { ConversationWriteOptions } from '@/services/conversationWrite';
 import { BatchTaskResult } from '@/types/service';
@@ -41,6 +41,11 @@ export interface ITopicService {
   }): Promise<number>;
   rankTopics(limit?: number): Promise<TopicRankItem[]>;
   searchTopics(keyword: string, sessionId?: string, groupId?: string): Promise<ChatTopic[]>;
+  searchAccountTopics(keyword: string): Promise<AccountTopicSearchHit[]>;
+  resolveTopicReferences(params: {
+    excludeTopicId?: string | null;
+    ids: string[];
+  }): Promise<string>;
 
   mergeReportedInputTokenFloorWatermark(
     id: string,

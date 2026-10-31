@@ -1,7 +1,21 @@
 import { DBMessageItem, TopicRankItem } from '@lobechat/types';
-import { and, asc, count, desc, eq, gt, gte, ilike, inArray, isNull, lt, or, sql } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gt,
+  gte,
+  ilike,
+  inArray,
+  isNull,
+  lt,
+  or,
+  sql,
+} from 'drizzle-orm';
 
-import { TopicItem, agentsToSessions, messages, topics } from '../schemas';
+import { TopicItem, agentsToSessions, chatGroups, messages, sessions, topics } from '../schemas';
 import { LobeChatDatabase, Transaction } from '../type';
 import { genEndDateWhere, genRangeWhere, genStartDateWhere, genWhere } from '../utils/genWhere';
 import { idGenerator } from '../utils/idGenerator';
@@ -18,6 +32,30 @@ export interface CreateTopicParams {
   messages?: string[];
   sessionId?: string | null;
   title?: string;
+}
+
+const ACCOUNT_TOPIC_SEARCH_LIMIT = 30;
+const TOPIC_SEARCH_SNIPPET_RADIUS = 80;
+
+const escapeIlike = (value: string) => value.replace(/[\\%_]/g, (char) => `\\${char}`);
+
+const buildTopicSearchSnippet = (content: string, keyword: string): string => {
+  const needle = keyword.toLowerCase();
+  const index = content.toLowerCase().indexOf(needle);
+  if (index < 0) return content.slice(0, TOPIC_SEARCH_SNIPPET_RADIUS * 2);
+
+  const start = Math.max(0, index - TOPIC_SEARCH_SNIPPET_RADIUS);
+  const end = Math.min(content.length, index + keyword.length + TOPIC_SEARCH_SNIPPET_RADIUS);
+  return `${start > 0 ? '…' : ''}${content.slice(start, end)}${end < content.length ? '…' : ''}`;
+};
+
+export interface AccountTopicSearchHit {
+  containerId: string | null;
+  containerTitle: string | null;
+  id: string;
+  lastActivityAt: Date;
+  snippet: string | null;
+  title: string | null;
 }
 
 const isPostgresUniqueViolation = (error: unknown): boolean =>
@@ -291,6 +329,107 @@ export class TopicModel {
       return secondTopic.lastActivityAt.getTime() - firstTopic.lastActivityAt.getTime();
     });
   };
+
+  /**
+   * Title and user/assistant message search across every topic this user owns.
+   * `queryByKeyword` stays scoped to one session or group.
+   */
+  searchAccountTopics = async (keyword: string): Promise<AccountTopicSearchHit[]> => {
+    const trimmed = keyword.trim();
+    if (!trimmed) return [];
+
+    const pattern = `%${escapeIlike(trimmed)}%`;
+    const ownedTopic = eq(topics.userId, this.userId);
+    const titleMatch = ilike(topics.title, pattern);
+    const messageMatch = and(
+      eq(messages.userId, this.userId),
+      ownedTopic,
+      inArray(messages.role, ['user', 'assistant']),
+      ilike(messages.content, pattern),
+    );
+
+    const titleHits = await this.db
+      .select({ id: topics.id, lastActivityAt: topics.lastActivityAt })
+      .from(topics)
+      .where(and(ownedTopic, titleMatch));
+
+    const contentHits = await this.db
+      .select({ id: topics.id, lastActivityAt: topics.lastActivityAt })
+      .from(messages)
+      .innerJoin(topics, eq(messages.topicId, topics.id))
+      .where(messageMatch)
+      .groupBy(topics.id, topics.lastActivityAt);
+
+    const lastActivityById = new Map<string, Date>();
+    for (const hit of [...titleHits, ...contentHits]) {
+      const current = lastActivityById.get(hit.id);
+      if (!current || hit.lastActivityAt > current) {
+        lastActivityById.set(hit.id, hit.lastActivityAt);
+      }
+    }
+
+    const rankedIds = [...lastActivityById.entries()]
+      .sort(([, first], [, second]) => second.getTime() - first.getTime())
+      .slice(0, ACCOUNT_TOPIC_SEARCH_LIMIT)
+      .map(([id]) => id);
+    if (rankedIds.length === 0) return [];
+
+    const details = await this.db
+      .select({
+        groupId: topics.groupId,
+        groupTitle: chatGroups.title,
+        id: topics.id,
+        lastActivityAt: topics.lastActivityAt,
+        sessionId: topics.sessionId,
+        sessionTitle: sessions.title,
+        title: topics.title,
+      })
+      .from(topics)
+      .leftJoin(sessions, eq(sessions.id, topics.sessionId))
+      .leftJoin(chatGroups, eq(chatGroups.id, topics.groupId))
+      .where(and(ownedTopic, inArray(topics.id, rankedIds)));
+
+    const detailById = new Map(details.map((row) => [row.id, row]));
+    const snippetRows = await this.db
+      .select({
+        content: messages.content,
+        topicId: messages.topicId,
+      })
+      .from(messages)
+      .where(
+        and(
+          eq(messages.userId, this.userId),
+          inArray(messages.topicId, rankedIds),
+          inArray(messages.role, ['user', 'assistant']),
+          ilike(messages.content, pattern),
+        ),
+      )
+      .orderBy(asc(messages.messageOrder));
+
+    const snippetByTopicId = new Map<string, string>();
+    for (const row of snippetRows) {
+      if (!row.topicId || !row.content || snippetByTopicId.has(row.topicId)) continue;
+      snippetByTopicId.set(row.topicId, row.content);
+    }
+
+    return rankedIds.flatMap((id) => {
+      const row = detailById.get(id);
+      if (!row) return [];
+
+      const matchedContent = snippetByTopicId.get(id);
+      return [
+        {
+          containerId: row.sessionId ?? row.groupId,
+          containerTitle: row.sessionTitle ?? row.groupTitle,
+          id: row.id,
+          lastActivityAt: row.lastActivityAt,
+          snippet: matchedContent ? buildTopicSearchSnippet(matchedContent, trimmed) : null,
+          title: row.title,
+        },
+      ];
+    });
+  };
+
   count = async (params?: {
     endDate?: string;
     range?: [string, string];

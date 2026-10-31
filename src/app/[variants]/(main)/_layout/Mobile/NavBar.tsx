@@ -10,6 +10,7 @@ import {
   Image as ImageIcon,
   Images,
   MessageSquare,
+  Search,
   User,
   Wrench,
 } from 'lucide-react';
@@ -66,7 +67,9 @@ const NavBar = memo(() => {
     pathname === '/knowledge' ||
     pathname.startsWith('/knowledge/') ||
     pathname === '/tools' ||
-    pathname.startsWith('/tools/')
+    pathname.startsWith('/tools/') ||
+    pathname === '/search' ||
+    pathname.startsWith('/search/')
       ? SidebarTabKey.More
       : routeActiveKey;
   const moreSelectedKey =
@@ -74,10 +77,17 @@ const NavBar = memo(() => {
       ? 'knowledge'
       : pathname === '/tools' || pathname.startsWith('/tools/')
         ? 'tools'
-        : undefined;
+        : pathname === '/search' || pathname.startsWith('/search/')
+          ? 'search'
+          : undefined;
   const moreItems = useMemo(
     () =>
       [
+        {
+          icon: <Icon icon={Search} />,
+          key: 'search',
+          label: t('tab.search'),
+        },
         enableKnowledgeBase && {
           icon: <Icon icon={FolderClosed} />,
           key: 'knowledge',
@@ -177,7 +187,12 @@ const NavBar = memo(() => {
           items={moreItems}
           onClick={({ key }) => {
             setMoreOpen(false);
-            router.push(key === 'knowledge' ? '/knowledge' : '/tools');
+            const routes: Record<string, string> = {
+              knowledge: '/knowledge',
+              search: '/search',
+              tools: '/tools',
+            };
+            router.push(routes[String(key)] ?? '/tools');
           }}
           selectable
           selectedKeys={moreSelectedKey ? [moreSelectedKey] : []}

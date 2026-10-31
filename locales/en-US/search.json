@@ -1,0 +1,9 @@
+{
+  "copyId": "Copy ID",
+  "copySuccess": "Topic ID copied",
+  "empty": "No matching topics",
+  "idle": "Search topic titles and message text",
+  "open": "Open",
+  "placeholder": "Search topic titles or message text",
+  "title": "Search"
+}

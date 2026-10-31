@@ -55,6 +55,15 @@ export class ServerService implements ITopicService {
       sessionId: this.toDbSessionId(sessionId),
     }) as any;
 
+  searchAccountTopics: ITopicService['searchAccountTopics'] = (keywords) =>
+    lambdaClient.topic.searchAccountTopics.query({ keywords });
+
+  resolveTopicReferences: ITopicService['resolveTopicReferences'] = ({ excludeTopicId, ids }) =>
+    lambdaClient.topic.resolveTopicReferences.query({
+      excludeTopicId: excludeTopicId || undefined,
+      ids,
+    });
+
   mergeReportedInputTokenFloorWatermark: ITopicService['mergeReportedInputTokenFloorWatermark'] = (
     id,
   ) => lambdaClient.topic.mergeReportedInputTokenFloorWatermark.mutate({ id });

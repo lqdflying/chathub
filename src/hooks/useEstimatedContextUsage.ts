@@ -43,7 +43,9 @@ import {
 } from '@/services/tokenEstimation';
 import { useModelSupportToolUse } from '@/hooks/useModelSupportToolUse';
 import { useTokenCount } from '@/hooks/useTokenCount';
+import { appendTopicReferenceBlock, parseTopicReferenceIds } from '@/helpers/topicReference';
 import { composeSystemRole } from '@/services/chat/composeSystemRole';
+import { topicService } from '@/services/topic';
 import { skillService } from '@/services/skill';
 import { useAgentStore } from '@/store/agent';
 import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selectors';
@@ -260,6 +262,48 @@ export const useEstimatedContextUsage = (
     // Test / unloaded-map fallback. Production topics always have a map entry.
     return createConversationMessageRevision(chatSelectors.mainAIChats(state));
   });
+  const activeTopicId = useChatStore((s) => s.activeTopicId);
+  const referenceIdKey = useMemo(() => {
+    const state = useChatStore.getState();
+    const chats =
+      conversationSource === 'portal'
+        ? threadSelectors.portalAIChats(state)
+        : chatSelectors.mainAIChats(state);
+    const pending = estimateInput.trim() ? [{ content: estimateInput, role: 'user' }] : [];
+    return parseTopicReferenceIds([...chats, ...pending], { excludeTopicId: activeTopicId }).join(
+      '\n',
+    );
+  }, [activeTopicId, conversationSource, estimateInput, messageRevision]);
+  const [topicReferenceBlock, setTopicReferenceBlock] = useState('');
+
+  useEffect(() => {
+    if (!referenceIdKey) {
+      setTopicReferenceBlock('');
+      return;
+    }
+
+    let cancelled = false;
+    void topicService
+      .resolveTopicReferences({
+        excludeTopicId: activeTopicId,
+        ids: referenceIdKey.split('\n'),
+      })
+      .then((block) => {
+        if (!cancelled) setTopicReferenceBlock(block);
+      })
+      .catch(() => {
+        if (!cancelled) setTopicReferenceBlock('');
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTopicId, referenceIdKey]);
+
+  const systemRoleWithReferences = appendTopicReferenceBlock(
+    composedSystemRole,
+    topicReferenceBlock,
+  );
 
   const memorySummaryRaw = useMemo(
     () =>
@@ -300,7 +344,7 @@ export const useEstimatedContextUsage = (
   );
   const memoryToken = useTokenCount(agentMemoryBlock);
   const historySummaryToken = useTokenCount(memorySummaryWrapped);
-  const systemRoleToken = useTokenCount(composedSystemRole);
+  const systemRoleToken = useTokenCount(systemRoleWithReferences);
   const skillToken = useTokenCount(skillInstructions);
   const chatInstructionToken = useTokenCount(generalInstruction?.trim());
   const roleSettingsToken = Math.max(0, systemRoleToken - chatInstructionToken);
@@ -309,7 +353,7 @@ export const useEstimatedContextUsage = (
     agentMemory: agentMemoryBlock,
     historySummaryRaw: memorySummaryRaw,
     skillInstructions,
-    systemRole: composedSystemRole,
+    systemRole: systemRoleWithReferences,
     toolsString: canUseTool ? toolsString : '',
   };
   const countWarmedText = (text: string) =>
@@ -340,7 +384,7 @@ export const useEstimatedContextUsage = (
   }, [
     agentMemoryBlock,
     canUseTool,
-    composedSystemRole,
+    systemRoleWithReferences,
     conversationSource,
     estimateHasPendingFiles,
     estimateInput,

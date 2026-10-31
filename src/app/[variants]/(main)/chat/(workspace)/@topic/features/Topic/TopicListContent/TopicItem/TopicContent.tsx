@@ -1,7 +1,8 @@
-import { ActionIcon, Dropdown, EditableText, Icon, type MenuProps, Text } from '@lobehub/ui';
+import { ActionIcon, Dropdown, EditableText, Icon, type MenuProps, Text, copyToClipboard } from '@lobehub/ui';
 import { App } from 'antd';
 import { createStyles } from 'antd-style';
 import {
+  Link2,
   LucideCopy,
   LucideLoader2,
   MoreVertical,
@@ -105,7 +106,7 @@ const TopicContent = memo<TopicContentProps>(({ id, title, fav, lastActivityAt, 
     useChatStore.setState({ topicRenamingId: visible ? id : '' });
   };
 
-  const { modal } = App.useApp();
+  const { message, modal } = App.useApp();
 
   const items = useMemo<MenuProps['items']>(
     () => [
@@ -123,6 +124,16 @@ const TopicContent = memo<TopicContentProps>(({ id, title, fav, lastActivityAt, 
         label: t('rename', { ns: 'common' }),
         onClick: () => {
           toggleEditing(true);
+        },
+      },
+      {
+        icon: <Icon icon={Link2} />,
+        key: 'copyReference',
+        label: t('actions.copyReference'),
+        onClick: () => {
+          void copyToClipboard(id).then(() => {
+            message.success(t('actions.copyReferenceSuccess'));
+          });
         },
       },
       {
