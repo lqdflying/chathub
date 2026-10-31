@@ -65,7 +65,7 @@ services:
       # Optional Sandbox tool, on an OpenSandbox server you run separately:
       # OPENSANDBOX_SERVER_URL=http://opensandbox:8090
       # OPENSANDBOX_API_KEY=<your-opensandbox-api-key>
-      # OPENSANDBOX_IMAGE=chathub-sandbox:1
+      # OPENSANDBOX_IMAGE=chathub-sandbox:2
     ports:
       - '3210:3210'
 

@@ -6,7 +6,7 @@
  *
  *   OPENSANDBOX_E2E_SERVER_URL=http://127.0.0.1:8090 \
  *   OPENSANDBOX_E2E_API_KEY=... \
- *   OPENSANDBOX_E2E_IMAGE=chathub-sandbox:1 \
+ *   OPENSANDBOX_E2E_IMAGE=chathub-sandbox:2 \
  *   npx vitest run src/server/services/sandbox/providers/opensandbox/__tests__/e2e.live.test.ts
  */
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -23,7 +23,7 @@ const provider = (session?: { sessionMaxLifetime?: number }) =>
   new OpenSandboxProvider({
     apiKey: process.env.OPENSANDBOX_E2E_API_KEY,
     baseUrl: serverUrl,
-    image: process.env.OPENSANDBOX_E2E_IMAGE ?? 'chathub-sandbox:1',
+    image: process.env.OPENSANDBOX_E2E_IMAGE ?? 'chathub-sandbox:2',
     ...session,
   });
 
@@ -178,6 +178,37 @@ describe.runIf(serverUrl)('OpenSandbox live', () => {
     expect((await run('import os\nprint(os.path.exists("/tmp/leak.txt"))')).stdout).toBe('False');
   });
 
+  it('returns subdirectory outputs, and only lists them when they do not all fit', async () => {
+    const nested = await run(
+      [
+        'import os',
+        'os.makedirs("out/deep", exist_ok=True); os.makedirs("node_modules/pkg", exist_ok=True)',
+        'open("out/report.txt", "w").write("report")',
+        'open("out/deep/data.csv", "w").write("a,b")',
+        'open("node_modules/pkg/index.js", "w").write("js")',
+      ].join('\n'),
+    );
+
+    expect(nested).toMatchObject({ success: true });
+    expect(nested.hint).toBeUndefined();
+    expect(nested.files.map((item) => item.filename)).toEqual(['data.csv', 'report.txt']);
+    expect(Buffer.from(nested.files[1].content).toString()).toBe('report');
+
+    const many = await run(
+      [
+        'import os',
+        'os.makedirs("data", exist_ok=True)',
+        'open("summary.txt", "w").write("s")',
+        'for i in range(25):',
+        '    open("data/part-%02d.csv" % i, "w").write("x")',
+      ].join('\n'),
+    );
+
+    expect(many.files.map((item) => item.filename)).toEqual(['summary.txt']);
+    expect(many.hint).toContain('25 changed file(s) in subdirectories were not returned');
+    expect(many.hint).toContain('data/part-00.csv');
+  });
+
   describe('session sandboxes', () => {
     afterAll(async () => {
       for (const key of sessionKeys) {
@@ -255,8 +286,14 @@ describe.runIf(serverUrl)('OpenSandbox live', () => {
     it('has the development tools the Sandbox prompt promises', async () => {
       const tools = await provider().withWorkspace({ budgetMs: 60_000 }, (workspace) =>
         workspace.exec({
-          command:
-            'git --version && node --version && npm --version && pnpm --version && rg --version | head -1 && curl --version | head -1 && jq --version',
+          command: [
+            'git --version && node --version && npm --version && pnpm --version',
+            'rg --version | head -1 && curl --version | head -1 && jq --version',
+            'ffmpeg -version | head -1 && ffprobe -version | head -1 && pandoc --version | head -1',
+            'soffice --version && pdflatex --version | head -1 && xelatex --version | head -1',
+            'chromium --version',
+            'python3 -c "import duckdb, polars, scipy, sklearn; print(\'python libs ok\')"',
+          ].join(' && '),
           timeoutMs: 30_000,
         }),
       );
@@ -264,7 +301,61 @@ describe.runIf(serverUrl)('OpenSandbox live', () => {
       expect(tools).toMatchObject({ exitCode: 0, timedOut: false });
       expect(tools.stdout).toMatch(/git version/);
       expect(tools.stdout).toMatch(/^v\d+\./m);
+      expect(tools.stdout).toMatch(/^ffmpeg version 7\./m);
+      expect(tools.stdout).toMatch(/^ffprobe version 7\./m);
+      expect(tools.stdout).toMatch(/^pandoc 3\./m);
+      expect(tools.stdout).toMatch(/^LibreOffice 25\./m);
+      expect(tools.stdout).toMatch(/^pdfTeX /m);
+      expect(tools.stdout).toMatch(/^XeTeX /m);
+      expect(tools.stdout).toMatch(/^Chromium \d+/m);
+      expect(tools.stdout).toContain('python libs ok');
     });
+
+    it('converts documents, renders a page, typesets Chinese, and reads media offline', async () => {
+      const result = await provider().withWorkspace({ budgetMs: 180_000 }, async (workspace) => {
+        const text = (value: string) => new Uint8Array(Buffer.from(value));
+        const step = (command: string) => workspace.exec({ command, timeoutMs: 120_000 });
+        await workspace.writeFile(
+          `${workspace.workdir}/page.html`,
+          text(
+            '<html><body><div id="x">static</div><script>document.getElementById("x").textContent = "rendered";</script></body></html>',
+          ),
+        );
+        await workspace.writeFile(
+          `${workspace.workdir}/zh.tex`,
+          text('\\documentclass{ctexart}\n\\begin{document}\n中文排版\n\\end{document}\n'),
+        );
+        await workspace.writeFile(`${workspace.workdir}/in.md`, text('# Title\n\nbody\n'));
+        return {
+          browser: await step(
+            'chromium --headless --no-sandbox --disable-dev-shm-usage --dump-dom file:///tmp/workspace/page.html',
+          ),
+          media: await step(
+            'ffmpeg -hide_banner -loglevel error -f lavfi -i sine=frequency=440:duration=1 tone.wav && ffprobe -v error -show_entries format=duration -of csv=p=0 tone.wav',
+          ),
+          office: await step(
+            'python3 -c "import docx; d = docx.Document(); d.add_paragraph(\'hello\'); d.save(\'in.docx\')" && soffice --headless --convert-to pdf --outdir out in.docx > /dev/null && head -c 5 out/in.pdf',
+          ),
+          pandoc: await step(
+            'pandoc in.md -o from-md.docx && python3 -c "import docx; print(docx.Document(\'from-md.docx\').paragraphs[0].text)"',
+          ),
+          // xdvipdfmx writes no ToUnicode map for the CID-keyed Fandol fonts, so
+          // check the embedded font instead of extracted text.
+          tex: await step(
+            'xelatex -interaction=nonstopmode -halt-on-error zh.tex > /dev/null && python3 -c "from pypdf import PdfReader; print(*[f.get_object()[\'/BaseFont\'] for f in PdfReader(\'zh.pdf\').pages[0][\'/Resources\'][\'/Font\'].values()])"',
+          ),
+        };
+      });
+
+      expect(result.office).toMatchObject({ exitCode: 0, stdout: '%PDF-' });
+      expect(result.browser.exitCode).toBe(0);
+      expect(result.browser.stdout).toContain('<div id="x">rendered</div>');
+      expect(result.tex.exitCode).toBe(0);
+      expect(result.tex.stdout).toContain('FandolSong-Regular');
+      expect(result.pandoc).toMatchObject({ exitCode: 0, stdout: 'Title' });
+      expect(result.media.exitCode).toBe(0);
+      expect(Number(result.media.stdout)).toBeCloseTo(1, 1);
+    }, 300_000);
 
     it('runs shell commands, background processes, and file operations in one sandbox', async () => {
       const sessionKey = newSessionKey();

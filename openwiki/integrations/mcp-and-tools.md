@@ -344,9 +344,11 @@ User-facing setup:
   on `runc` (the tested path); Kata is optional and untested.
 - **Conversation files** — gathered paginated, newest-first, thread-scoped,
   and synced by file id: a call uploads only files the sandbox has not
-  received, so edits in the sandbox survive. `runPython` returns top-level
-  files it created or changed; `exportFile` returns any path. Both persist
-  through the server file service.
+  received, so edits in the sandbox survive. `runPython` returns files it
+  created or changed, top level first; subdirectory files come back only when
+  all of them fit in `SANDBOX_MAX_FILE_COUNT`, otherwise its `hint` names
+  them. `exportFile` returns any paths in one call. Both persist through the
+  server file service.
 - **Thread scope** — a portal-thread call uses that thread (plus its main
   prefix). A main-topic call excludes portal-thread files.
 - **Enqueue** — the Sandbox stays off the defer list. Presence must not force

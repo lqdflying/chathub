@@ -1,9 +1,12 @@
 # General-purpose image for ChatHub's Sandbox tool on OpenSandbox.
 # OpenSandbox injects execd; ChatHub needs bash and python3 on PATH, and the
 # model expects the usual development tools: git, Node.js, build tools, and
-# common CLIs. Build it on the host that runs the OpenSandbox server, then set
-# OPENSANDBOX_IMAGE to the tag:
-#   docker build -t chathub-sandbox:1 docker/opensandbox
+# common CLIs, plus the document, media, TeX, and headless-browser tools the
+# builtin prompt names. Build it on the host that runs the OpenSandbox server,
+# then set OPENSANDBOX_IMAGE to the tag:
+#   docker build -t chathub-sandbox:2 docker/opensandbox
+# Use a new tag whenever the contents change: a parked sandbox is reused while
+# OPENSANDBOX_IMAGE stays the same string.
 # Both stages use the same Debian release, so the copied Node.js binary links
 # against the glibc it was built for.
 FROM node:24-trixie-slim AS node
@@ -14,27 +17,42 @@ FROM python:3.12-slim-trixie
 # 'ttcf' scaler (0x74746366) as a collection and embeds subfont 0
 # (pdfbase/ttfonts.py TTFontParser.ttfVersions / readTTCHeader), so this link
 # is the STSong.ttf the prompt opens. The runner also links it into the workdir.
+# The -nogui LibreOffice packages convert Office files headless (soffice);
+# texlive-lang-chinese brings ctex for xelatex. Chromium runs headless only;
+# Playwright is not installed.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         build-essential \
         ca-certificates \
+        chromium \
         curl \
+        ffmpeg \
         file \
         fonts-dejavu-core \
         fonts-wqy-zenhei \
         git \
         jq \
         less \
+        libreoffice-calc-nogui \
+        libreoffice-impress-nogui \
+        libreoffice-writer-nogui \
         openssh-client \
+        pandoc \
         procps \
         ripgrep \
         sqlite3 \
+        texlive-lang-chinese \
+        texlive-latex-base \
+        texlive-latex-recommended \
+        texlive-xetex \
         unzip \
         wget \
         xz-utils \
         zip \
     && rm -rf /var/lib/apt/lists/* \
-    && ln -s /usr/share/fonts/truetype/wqy/wqy-zenhei.ttc /usr/share/fonts/truetype/STSong.ttf
+    && ln -s /usr/share/fonts/truetype/wqy/wqy-zenhei.ttc /usr/share/fonts/truetype/STSong.ttf \
+    && ffmpeg -version | head -1 && pandoc --version | head -1 && soffice --version \
+    && pdflatex --version | head -1 && xelatex --version | head -1 && chromium --version
 
 # Node.js LTS with npm and corepack from the official image; pnpm and yarn
 # are installed globally so they work without a download at first use.

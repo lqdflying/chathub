@@ -48,13 +48,19 @@ does not persist a tool message or start the next assistant turn.
 | `writeFile` | `path`, `content` | `bytes` |
 | `editFile` | `path`, `oldString`, `newString`, `replaceAll?` | `replacements`; fails on 0 or >1 matches without `replaceAll` |
 | `listFiles` | `path?`, `depth?` (1–5, default 2) | `entries` (max 500), `truncated` |
-| `exportFile` | `paths[]` | `files[]` (`fileId`, `filename`, `url`), `skipped` |
+| `exportFile` | `paths[]` (also its JSON text, or a comma/newline list) | `files[]` (`fileId`, `filename`, `url`), `skipped` |
 
 Relative paths resolve against `/tmp/workspace`. An absolute path is used as
 given. It is a path inside the sandbox container, not on the ChatHub host.
 `runCommand` can reach the same places. Arguments are validated with
 zod (`src/server/services/sandbox/tool/schemas.ts`), which also accepts numbers
-and booleans sent as strings and `null` for omitted values. `timeout` is
+and booleans sent as strings and `null` for omitted values. Claude sometimes
+sends an array argument as its JSON text, so `exportFile.paths` decodes a
+string that parses as a JSON array of strings; any other string is one path.
+A path that contains commas or newlines and does not exist as written
+(`fileInfo`) is split into its parts, so a real filename with a comma still
+exports. One call exports at most `SANDBOX_MAX_FILE_COUNT` files; the rest are
+named in `skipped` with a request to call again. `timeout` is
 seconds; `resolveTimeoutMs` clamps it to `[1s, SANDBOX_MAX_TIMEOUT]` and an
 omitted value uses `SANDBOX_TIMEOUT`. `readFile` stops at a line boundary near
 100k characters; `stdout`/`stderr` and command logs keep their head and tail
@@ -222,10 +228,16 @@ through `runCommand` instead.
 conversation files in one multipart upload, then runs the fixed string
 `python3 /tmp/workspace/.chathub/run.py` with `timeout` = the call budget.
 User code reaches the sandbox only as a file. It then downloads the manifest
-(name, size, sha256, and whether this run created or changed each top-level
-file) and only those files, each read in chunks and rejected once it passes a
-finite cap (`OPENSANDBOX_MANIFEST_MAX_BYTES`, or `SANDBOX_MAX_FILE_BYTES` for
+(workdir-relative name, size, and sha256 of each file this run created or
+changed) and only those files, each read in chunks and rejected once it passes
+a finite cap (`OPENSANDBOX_MANIFEST_MAX_BYTES`, or `SANDBOX_MAX_FILE_BYTES` for
 a file). A `Content-Length` above the cap cancels the body before it is read.
+`collectOutputs` accepts a name only when no segment is empty, hidden, or
+`..`, and no backslash appears; a subdirectory file is persisted under its
+basename. Top-level files come first, up to `SANDBOX_MAX_FILE_COUNT`.
+Subdirectory files follow only when all of them fit in the slots left;
+otherwise none is downloaded and the result's `hint` names them for
+`exportFile`.
 Best effort: a missing manifest, an over-cap body, or a failed download keeps
 stdout/stderr and returns no files. A `runPython` timeout returns only the
 timeout error; a `runCommand` timeout returns the output so far.
@@ -267,11 +279,20 @@ sandbox again after a ChatHub restart.
   set, ChatHub never renews a sandbox past `createdAt` + the cap. A sandbox
   with less than one call budget left, or with no `createdAt`, is deleted
   instead of reused.
-- **Outputs.** The runner stamps the size and mtime of the top-level files
-  before the user code runs, and the manifest lists only files this run
-  created or changed. ChatHub uploads an empty manifest before the process
-  starts, so an abrupt exit publishes no previous files. `plot_N.png`
-  numbering continues after the plots already in the workdir.
+- **Outputs.** Before the user code runs, the runner walks the workdir
+  (`os.walk`, top-down, symlinked directories not followed) and stamps the
+  size and mtime of each file. It prunes hidden directories (including
+  `.chathub` and `.git`), `__pycache__`, `node_modules`, `site-packages`, and
+  `venv` at any depth. The top level is always stamped in full; subdirectory
+  files stop at 5000, and a capped walk before or after the run returns no
+  subdirectory file (`scanCapped`). The manifest is
+  `{ files, scanCapped, unreturned? }` and lists only files this run created
+  or changed. When more subdirectory files changed than
+  `SANDBOX_MAX_FILE_COUNT`, the runner does not hash them and lists up to 50
+  paths plus the count in `unreturned`. ChatHub uploads an empty manifest
+  (`[]`) before the process starts, so an abrupt exit publishes no previous
+  files. `plot_N.png` numbering continues after the plots already in the
+  workdir.
 - **Concurrency.** Calls with the same key take turns inside one ChatHub
   process (a per-key promise chain), so two tool calls in one turn neither
   create two sandboxes nor share the workdir mid-call.
@@ -340,9 +361,9 @@ change is newer than the workdir file's. The path is resolved with
 nested file to the workdir root. A failed open or a read does not advance
 that sequence; `write` on an already-open handle does. An equal sequence
 keeps the workdir file. A newer absolute path still replaces an untouched
-input file. A file that was removed, including tempfile probes, is not copied. The manifest still lists only top-level
-regular files, and it skips symlinks, dot names, `fontlist-v*`, and
-`*.matplotlib-lock`.
+input file. A file that was removed, including tempfile probes, is not copied. The manifest lists
+regular files at the top level and in unpruned subdirectories, and it skips
+symlinks, dot names, `fontlist-v*`, and `*.matplotlib-lock`.
 
 `STSong.ttf` in the workdir is a symlink to
 `/usr/share/fonts/truetype/STSong.ttf`. The image points that path at the
@@ -369,13 +390,27 @@ every run (~6s → ~2s locally), and works with any image that has `python3`.
 Interpreter state does not carry over either way: each run is a new process,
 and a session sandbox keeps files and installs, not variables.
 
-**Image.** `docker/opensandbox/` builds `chathub-sandbox:1` on
-`python:3.12-slim-trixie`: the pinned data/office libraries, CJK fonts and the
+**Image.** `docker/opensandbox/` builds `chathub-sandbox:2` on
+`python:3.12-slim-trixie`: the pinned data/office libraries (now also scipy,
+scikit-learn, duckdb, and polars), CJK fonts and the
 `STSong.ttf` path the runner links into the workdir, Node.js 24 LTS copied
 from `node:24-trixie-slim` (same Debian release, so the binary matches glibc)
 with npm, corepack, pnpm, and yarn, plus git (system identity
 `ChatHub Sandbox`), build-essential, curl, wget, jq, ripgrep, sqlite3,
-zip/unzip, xz, procps, file, less, and openssh-client. `WORKDIR` is
+zip/unzip, xz, procps, file, less, and openssh-client. From Debian trixie it
+adds ffmpeg/ffprobe 7.1, pandoc 3.1, LibreOffice 25.2 Writer, Calc, and
+Impress (`-nogui`, run as `soffice --headless`), TeX Live 2024 with pdflatex,
+xelatex, and `texlive-lang-chinese` (ctex), and Chromium for
+`--headless --dump-dom`. Playwright is not installed. ctex typesets Chinese
+with the Fandol fonts, but xdvipdfmx writes no ToUnicode map for those
+CID-keyed fonts (adding `poppler-data` does not change that), so text
+extracted or copied from such a PDF comes out as the wrong characters. The
+reportlab + `STSong.ttf` path keeps Chinese text extractable. The builtin prompt names
+these tools, and the live test *has the development tools the Sandbox prompt
+promises* checks each one. The tag moved from `:1` to `:2` with these tools:
+the `chathub-runtime` label hashes the `OPENSANDBOX_IMAGE` string, not the
+image digest, so a rebuilt `:1` would keep serving parked sandboxes without
+them. Bump the tag whenever the contents change. `WORKDIR` is
 `/tmp/workspace`. The official `opensandbox/code-interpreter` image has no
 numpy, pandas, or matplotlib, and its Pythons are only on `PATH` via its
 entrypoint.
@@ -445,7 +480,7 @@ mirror access.
 | --- | --- | --- |
 | `OPENSANDBOX_SERVER_URL` | — | Lifecycle server base URL. Required. |
 | `OPENSANDBOX_API_KEY` | — | Sent as `OPEN-SANDBOX-API-KEY`; the proxy strips it before execd. |
-| `OPENSANDBOX_IMAGE` | — | Sandbox image (`chathub-sandbox:1`). Required. |
+| `OPENSANDBOX_IMAGE` | — | Sandbox image (`chathub-sandbox:2`). Required. |
 | `OPENSANDBOX_CPU` / `OPENSANDBOX_MEMORY` | `1` / `2Gi` | Per-sandbox caps. |
 | `OPENSANDBOX_READY_TIMEOUT` | 60000 | Create + execd ready budget (ms). |
 | `OPENSANDBOX_EGRESS_ALLOW` | — | Deny-by-default domain allowlist. |
@@ -454,7 +489,7 @@ mirror access.
 | `SANDBOX_TIMEOUT` | 60000 | Default per-call time limit (ms). Legacy `CODE_INTERPRETER_TIMEOUT`. |
 | `SANDBOX_MAX_TIMEOUT` | 600000 | Largest `timeout` the model may request (ms). |
 | `SANDBOX_MAX_FILE_BYTES` | 10 MiB | Per-file cap for inputs, reads, writes, exports. Legacy `CODE_INTERPRETER_MAX_FILE_BYTES`. |
-| `SANDBOX_MAX_FILE_COUNT` | 20 | Conversation files per sync and files per export. Legacy `CODE_INTERPRETER_MAX_FILE_COUNT`. |
+| `SANDBOX_MAX_FILE_COUNT` | 20 | Conversation files per sync, and files per `exportFile` or `runPython` call. Legacy `CODE_INTERPRETER_MAX_FILE_COUNT`. |
 | `SANDBOX_MAX_OUTPUT_CHARS` | 30000 | stdout / stderr / log characters per call, head + tail. Legacy `CODE_INTERPRETER_MAX_STDOUT_CHARS`. |
 
 `src/envs/sandbox.ts` reads each `SANDBOX_*` name first and the legacy

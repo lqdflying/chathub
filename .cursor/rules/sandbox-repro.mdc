@@ -18,7 +18,7 @@ exception.
 
 ## Must
 
-1. Build the sandbox image: `docker build -t chathub-sandbox:1 docker/opensandbox`.
+1. Build the sandbox image: `docker build -t chathub-sandbox:2 docker/opensandbox`.
 2. Run `opensandbox/server` with the Docker runtime, its port bound to
    `127.0.0.1`, `[docker] network_mode = "bridge"`, sandboxes on a dedicated
    bridge, and an `api_key`.
