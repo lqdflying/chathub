@@ -432,9 +432,16 @@ describe('TopicModel', () => {
       await serverDB.insert(topics).values([
         {
           id: 'in-range',
-          lastActivityAt: new Date('2024-03-15T12:00:00Z'),
+          lastActivityAt: new Date('2024-03-01T00:00:00Z'),
           sessionId: 'session-b',
           title: 'Hello range',
+          userId,
+        },
+        {
+          id: 'on-end',
+          lastActivityAt: new Date('2024-03-31T23:59:59.999Z'),
+          sessionId: 'session-b',
+          title: 'Hello end',
           userId,
         },
         {
@@ -459,7 +466,37 @@ describe('TopicModel', () => {
         to: new Date('2024-03-31T23:59:59.999Z'),
       });
 
-      expect(result.map((topic) => topic.id)).toEqual(['in-range']);
+      expect(result.map((topic) => topic.id)).toEqual(['on-end', 'in-range']);
+    });
+
+    it('returns only inbox topics when the container is null', async () => {
+      await serverDB.insert(chatGroups).values({ id: 'group-inbox-filter', title: 'Group', userId });
+      await serverDB.insert(topics).values([
+        {
+          id: 'inbox-topic',
+          lastActivityAt: new Date('2024-06-01T00:00:00Z'),
+          title: 'Inbox notes',
+          userId,
+        },
+        {
+          id: 'session-topic',
+          lastActivityAt: new Date('2024-06-02T00:00:00Z'),
+          sessionId,
+          title: 'Session notes',
+          userId,
+        },
+        {
+          groupId: 'group-inbox-filter',
+          id: 'group-topic-filter',
+          lastActivityAt: new Date('2024-06-03T00:00:00Z'),
+          title: 'Group notes',
+          userId,
+        },
+      ]);
+
+      const result = await topicModel.searchAccountTopics('', { containerId: null });
+
+      expect(result.map((topic) => topic.id)).toEqual(['inbox-topic']);
     });
 
     it('lists one assistant without a keyword', async () => {

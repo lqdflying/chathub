@@ -166,6 +166,7 @@ const SearchWorkspace = memo(() => {
           value={assistantId}
         />
         <RangePicker
+          allowEmpty={[true, true]}
           onChange={(dates) => setRange(dates)}
           placeholder={[t('dateFrom'), t('dateTo')]}
           value={range}
