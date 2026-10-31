@@ -6,6 +6,7 @@ import { getLLMConfig } from '@/envs/llm';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
 
 import { getProviderUsageAdapter } from './adapters';
+import { discoverXaiTeamId } from './adapters/xai';
 import {
   type ResolvedUsageCredential,
   type StoredAdminCredential,
@@ -77,6 +78,7 @@ export type ProviderUsageServiceOptions = {
   fetchFn?: typeof fetch;
   loadVault?: (provider: string) => Promise<Record<string, unknown>>;
   now?: () => Date;
+  resolveHost?: (hostname: string) => Promise<string[]>;
 };
 
 export class ProviderUsageAdminProviderError extends Error {
@@ -196,9 +198,11 @@ export class ProviderUsageService {
     let result: ProviderUsageAdapterResult;
     try {
       result = await adapter.fetchUsage({
+        allowPrivateHost: resolved.allowPrivateHost,
         credential: resolved.credential,
         fetchFn: this.fetchFn,
         now,
+        resolveHost: this.options.resolveHost,
         timeoutMs: PROVIDER_USAGE_TIMEOUT_MS,
       });
     } catch {
@@ -213,8 +217,36 @@ export class ProviderUsageService {
     };
 
     pruneCache(nowMs);
-    usageCache.set(cacheKey, { expiresAt: nowMs + PROVIDER_USAGE_CACHE_TTL_MS, snapshot });
+    if (snapshot.status !== 'error') {
+      usageCache.set(cacheKey, { expiresAt: nowMs + PROVIDER_USAGE_CACHE_TTL_MS, snapshot });
+    }
     return snapshot;
+  }
+
+  /** xAI will not keep a management key that still has no team id. */
+  private async resolveXaiTeamId(apiKey: string): Promise<string | ProviderUsageSnapshot> {
+    const now = this.now();
+    const base = {
+      credentialType: 'admin' as const,
+      fetchedAt: now.toISOString(),
+      provider: 'xai',
+    };
+    try {
+      const discovered = await discoverXaiTeamId(
+        {
+          credential: { apiKey },
+          fetchFn: this.fetchFn,
+          now,
+          resolveHost: this.options.resolveHost,
+          timeoutMs: PROVIDER_USAGE_TIMEOUT_MS,
+        },
+        apiKey,
+      );
+      if ('teamId' in discovered) return discovered.teamId;
+      return { ...base, ...discovered };
+    } catch {
+      return { ...base, status: 'error' };
+    }
   }
 
   private assertAdminProvider(provider: string) {
@@ -227,7 +259,12 @@ export class ProviderUsageService {
   async saveAdminCredential(provider: string, input: { apiKey: string; teamId?: string }) {
     this.assertAdminProvider(provider);
     const apiKey = input.apiKey.trim();
-    const teamId = input.teamId?.trim() || undefined;
+    let teamId = input.teamId?.trim() || undefined;
+    if (provider === 'xai' && !teamId) {
+      const resolvedTeamId = await this.resolveXaiTeamId(apiKey);
+      if (typeof resolvedTeamId !== 'string') return resolvedTeamId;
+      teamId = resolvedTeamId;
+    }
     const crypto = await this.getCrypto();
     await this.credentialStore.upsert({
       credential: await crypto.encrypt(serializeStoredAdminCredential({ apiKey, teamId })),

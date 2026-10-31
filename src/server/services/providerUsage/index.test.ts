@@ -38,6 +38,7 @@ const createService = (
     fetchFn: options.fetchFn ?? (vi.fn(async () => balanceResponse()) as never),
     loadVault: async () => options.vault ?? {},
     now: options.now ?? (() => new Date('2026-10-31T00:00:00Z')),
+    resolveHost: async () => ['1.1.1.1'],
   });
 
 describe('ProviderUsageService', () => {
@@ -95,6 +96,21 @@ describe('ProviderUsageService', () => {
     }).getUsage('deepseek');
     expect(snapshot).toMatchObject({ credentialSource: 'user', status: 'error' });
   });
+
+  it('does not reuse an error snapshot for the next read', async () => {
+    const fetchFn = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError('fetch failed'))
+      .mockImplementationOnce(async () => balanceResponse());
+    const service = createService({
+      fetchFn: fetchFn as never,
+      vault: { apiKey: 'sk-user-key-abcdef' },
+    });
+
+    await expect(service.getUsage('deepseek')).resolves.toMatchObject({ status: 'error' });
+    await expect(service.getUsage('deepseek')).resolves.toMatchObject({ status: 'ok' });
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('ProviderUsageService admin keys', () => {
@@ -121,6 +137,7 @@ describe('ProviderUsageService admin keys', () => {
       fetchFn,
       loadVault: async () => ({ apiKey: 'sk-chat-key-must-not-be-used' }),
       now: () => new Date('2026-10-31T00:00:00Z'),
+      resolveHost: async () => ['1.1.1.1'],
     });
     return { rows, service };
   };
@@ -185,5 +202,63 @@ describe('ProviderUsageService admin keys', () => {
     await expect(
       service.saveAdminCredential('deepseek', { apiKey: 'sk-12345678' }),
     ).rejects.toThrow('does not take an admin usage key');
+  });
+
+  it('does not store an xAI key until a team id is known', async () => {
+    const fetchFn = vi.fn(async () =>
+      new Response(JSON.stringify({ scope: 'SCOPE_ORGANIZATION', scopeId: 'org-1' }), {
+        status: 200,
+      }),
+    );
+    const { rows, service } = createAdminService(fetchFn as never);
+    const snapshot = await service.saveAdminCredential('xai', { apiKey: 'xai-mgmt-key-1234' });
+
+    expect(rows.has('xai')).toBe(false);
+    expect(snapshot).toMatchObject({ reason: 'teamIdRequired', status: 'error' });
+    expect(snapshot?.storedCredential).toBeUndefined();
+    expect(JSON.stringify(snapshot)).not.toContain('xai-mgmt-key-1234');
+  });
+
+  it('does not store an xAI key when validation fails for a reason other than auth', async () => {
+    const fetchFn = vi.fn(async () => new Response('unavailable', { status: 500 }));
+    const { rows, service } = createAdminService(fetchFn as never);
+    const snapshot = await service.saveAdminCredential('xai', { apiKey: 'xai-mgmt-key-1234' });
+
+    expect(rows.has('xai')).toBe(false);
+    expect(snapshot).toMatchObject({ status: 'error' });
+    expect(snapshot?.reason).toBeUndefined();
+  });
+
+  it('stores the team id discovered from an xAI management key', async () => {
+    const fetchFn = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ teamId: 'team-z' }), { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ total: { val: '-100' } }), { status: 200 }),
+      );
+    const { rows, service } = createAdminService(fetchFn as never);
+    const snapshot = await service.saveAdminCredential('xai', { apiKey: 'xai-mgmt-key-1234' });
+
+    expect(rows.get('xai')?.credential).toBe('enc:{"apiKey":"xai-mgmt-key-1234","teamId":"team-z"}');
+    expect(snapshot).toMatchObject({
+      status: 'ok',
+      storedCredential: { keyHint: '****1234', teamId: 'team-z' },
+    });
+    expect(String(fetchFn.mock.calls[1]?.[0])).toContain('/teams/team-z/');
+  });
+
+  it('stores a typed xAI team id without calling key validation', async () => {
+    const fetchFn = vi.fn(
+      async () => new Response(JSON.stringify({ total: { val: '-100' } }), { status: 200 }),
+    );
+    const { rows, service } = createAdminService(fetchFn as never);
+    await service.saveAdminCredential('xai', {
+      apiKey: 'xai-mgmt-key-1234',
+      teamId: 'team-typed',
+    });
+
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(String(fetchFn.mock.calls[0]?.[0])).toContain('/teams/team-typed/');
+    expect(rows.get('xai')?.credential).toContain('"teamId":"team-typed"');
   });
 });

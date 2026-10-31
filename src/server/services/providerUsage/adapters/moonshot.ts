@@ -26,6 +26,8 @@ import type {
  */
 export const MOONSHOT_DEFAULT_BASE_URL = 'https://api.moonshot.cn/v1';
 const KIMI_CODE_HOST = 'api.kimi.com';
+/** Platform base in kimi-cli is `https://api.kimi.com/coding/v1`; usage is `{base}/usages`. */
+export const KIMI_CODE_USAGES_URL = 'https://api.kimi.com/coding/v1/usages';
 
 export const isKimiCodeBaseURL = (baseURL?: string) => safeHostname(baseURL) === KIMI_CODE_HOST;
 
@@ -36,8 +38,11 @@ export const resolveMoonshotCurrency = (baseURL?: string) =>
 export const resolveMoonshotBalanceUrl = (baseURL?: string) =>
   `${stripVersionSuffix(baseURL || MOONSHOT_DEFAULT_BASE_URL)}/v1/users/me/balance`;
 
-export const resolveKimiCodeUsagesUrl = (baseURL: string) =>
-  `${stripVersionSuffix(baseURL)}/v1/usages`;
+/** Saved path is ignored. Kimi Code usage is always the coding API. */
+export const resolveKimiCodeUsagesUrl = (baseURL?: string) => {
+  void baseURL;
+  return KIMI_CODE_USAGES_URL;
+};
 
 export const parseMoonshotBalance = (
   payload: unknown,

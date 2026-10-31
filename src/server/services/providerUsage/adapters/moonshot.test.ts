@@ -13,6 +13,7 @@ const context = (fetchFn: typeof fetch, baseURL?: string) => ({
   credential: { apiKey: 'sk-test-moonshot-key', baseURL },
   fetchFn,
   now: new Date('2026-10-31T00:00:00Z'),
+  resolveHost: async () => ['1.1.1.1'],
   timeoutMs: 1000,
 });
 
@@ -35,6 +36,12 @@ describe('moonshot URL and currency resolution', () => {
       'https://api.kimi.com/coding/v1/usages',
     );
     expect(resolveKimiCodeUsagesUrl('https://api.kimi.com/coding/')).toBe(
+      'https://api.kimi.com/coding/v1/usages',
+    );
+    expect(resolveKimiCodeUsagesUrl('https://api.kimi.com')).toBe(
+      'https://api.kimi.com/coding/v1/usages',
+    );
+    expect(resolveKimiCodeUsagesUrl('https://api.kimi.com/v1')).toBe(
       'https://api.kimi.com/coding/v1/usages',
     );
   });

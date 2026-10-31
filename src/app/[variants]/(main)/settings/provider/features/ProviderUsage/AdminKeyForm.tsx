@@ -83,8 +83,10 @@ const AdminKeyForm = memo<AdminKeyFormProps>(
           provider,
           ...(needsTeamId && teamId.trim() ? { teamId: teamId.trim() } : {}),
         });
-        setApiKey('');
-        setTeamId('');
+        if (next?.storedCredential) {
+          setApiKey('');
+          setTeamId('');
+        }
         onSaved(next);
       } catch {
         setFailed(true);

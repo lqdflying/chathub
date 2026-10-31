@@ -22,6 +22,7 @@ const context = (fetchFn: typeof fetch, teamId?: string) => ({
   credential: { apiKey: 'admin-test-key', teamId },
   fetchFn,
   now: NOW,
+  resolveHost: async () => ['1.1.1.1'],
   timeoutMs: 1000,
 });
 
@@ -76,6 +77,18 @@ describe('xAI management balance', () => {
     const orgScoped = vi.fn(async () => json({ scope: 'SCOPE_ORGANIZATION', scopeId: 'org-1' }));
     await expect(xaiUsageAdapter.fetchUsage(context(orgScoped as never))).resolves.toEqual({
       reason: 'teamIdRequired',
+      status: 'error',
+    });
+  });
+
+  it('reports authError for a rejected key and error when validation is down', async () => {
+    const denied = vi.fn(async () => new Response('', { status: 401 }));
+    await expect(xaiUsageAdapter.fetchUsage(context(denied as never))).resolves.toEqual({
+      status: 'authError',
+    });
+
+    const outage = vi.fn(async () => new Response('', { status: 500 }));
+    await expect(xaiUsageAdapter.fetchUsage(context(outage as never))).resolves.toEqual({
       status: 'error',
     });
   });

@@ -6,6 +6,7 @@ const context = (fetchFn: typeof fetch, baseURL?: string) => ({
   credential: { apiKey: 'minimax-test-key', baseURL },
   fetchFn,
   now: new Date('2026-10-31T00:00:00Z'),
+  resolveHost: async () => ['1.1.1.1'],
   timeoutMs: 1000,
 });
 
@@ -42,6 +43,9 @@ describe('resolveMinimaxRemainsUrls', () => {
   it('picks the China site for minimaxi.com and the global site otherwise', () => {
     expect(resolveMinimaxRemainsUrls('https://api.minimaxi.com/v1')[0]).toBe(
       'https://www.minimaxi.com/v1/token_plan/remains',
+    );
+    expect(resolveMinimaxRemainsUrls('https://evilminimaxi.com/v1')[0]).toBe(
+      'https://www.minimax.io/v1/token_plan/remains',
     );
     expect(resolveMinimaxRemainsUrls()).toEqual([
       'https://www.minimax.io/v1/token_plan/remains',

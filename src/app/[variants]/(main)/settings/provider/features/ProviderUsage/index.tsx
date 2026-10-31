@@ -4,7 +4,7 @@ import { ActionIcon, Tooltip } from '@lobehub/ui';
 import { Progress, Tag } from 'antd';
 import { createStyles } from 'antd-style';
 import { RefreshCwIcon } from 'lucide-react';
-import { forwardRef, memo, useCallback, useImperativeHandle } from 'react';
+import { forwardRef, memo, useCallback, useImperativeHandle, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
@@ -172,14 +172,16 @@ const ProviderUsageCard = memo(
       staleTime: PROVIDER_USAGE_STALE_MS,
     });
     const refreshMutation = lambdaQuery.providerUsage.refresh.useMutation();
+    const [refreshFailed, setRefreshFailed] = useState(false);
 
     const refresh = useCallback(async () => {
       if (!canFetch) return;
       try {
         const next = await refreshMutation.mutateAsync(input);
         utils.providerUsage.get.setData(input, next);
+        setRefreshFailed(false);
       } catch {
-        // The card already renders the last snapshot; a failed refresh is silent.
+        setRefreshFailed(true);
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [canFetch, provider, userStateScope]);
@@ -189,6 +191,7 @@ const ProviderUsageCard = memo(
     const snapshot = usageQuery.data;
     const loading = usageQuery.isLoading && canFetch;
     const refreshing = refreshMutation.isPending;
+    const queryFailed = usageQuery.isError;
 
     const keyHint = snapshot?.keyHint;
     const sourceText =
@@ -248,6 +251,9 @@ const ProviderUsageCard = memo(
         )}
 
         {loading && <div className={styles.hint}>{t('providerUsage.loading')}</div>}
+        {(queryFailed || refreshFailed) && !snapshot && (
+          <div className={styles.hint}>{t('providerUsage.status.error')}</div>
+        )}
 
         {snapshot?.balances?.map((balance) => (
           <Flexbox gap={2} key={balance.currency}>
@@ -327,13 +333,13 @@ const ProviderUsageCard = memo(
           <div className={styles.hint}>{t('providerUsage.status.unavailable')}</div>
         )}
 
-        {isAdmin && snapshot && (
+        {isAdmin && (snapshot || queryFailed || refreshFailed) && (
           <AdminKeyForm
             accountScope={input.accountScope}
             disabled={!canFetch}
             onSaved={(next) => utils.providerUsage.get.setData(input, next)}
             provider={provider}
-            stored={snapshot.storedCredential}
+            stored={snapshot?.storedCredential}
           />
         )}
 

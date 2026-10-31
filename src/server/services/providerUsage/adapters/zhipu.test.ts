@@ -11,6 +11,7 @@ const context = (fetchFn: typeof fetch, baseURL?: string) => ({
   credential: { apiKey: 'zhipu-test-key', baseURL },
   fetchFn,
   now: new Date('2026-10-31T00:00:00Z'),
+  resolveHost: async () => ['1.1.1.1'],
   timeoutMs: 1000,
 });
 

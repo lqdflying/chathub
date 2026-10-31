@@ -25,6 +25,7 @@ describe('resolveApiKeyUsageCredential', () => {
         env(true, { DEEPSEEK_API_KEY: 'sk-server' }),
       ),
     ).toEqual({
+      allowPrivateHost: undefined,
       credential: { apiKey: 'sk-user-a', baseURL: 'https://user.example.com/v1' },
       source: 'user',
     });
@@ -38,6 +39,7 @@ describe('resolveApiKeyUsageCredential', () => {
         env(false, { MOONSHOT_PROXY_URL: 'https://api.moonshot.ai/v1' }),
       ),
     ).toEqual({
+      allowPrivateHost: 'api.moonshot.ai',
       credential: { apiKey: 'sk-user', baseURL: 'https://api.moonshot.ai/v1' },
       source: 'user',
     });
@@ -56,7 +58,28 @@ describe('resolveApiKeyUsageCredential', () => {
         { apiKey: '' },
         env(true, { DEEPSEEK_API_KEY: 'sk-server-a,sk-server-b' }),
       ),
-    ).toEqual({ credential: { apiKey: 'sk-server-a', baseURL: undefined }, source: 'server' });
+    ).toEqual({
+      allowPrivateHost: undefined,
+      credential: { apiKey: 'sk-server-a', baseURL: undefined },
+      source: 'server',
+    });
+  });
+
+  it('does not send the server key to a user endpoint', () => {
+    expect(
+      resolveApiKeyUsageCredential(
+        'deepseek',
+        { baseURL: 'https://user.example/v1' },
+        env(true, {
+          DEEPSEEK_API_KEY: 'sk-server',
+          DEEPSEEK_PROXY_URL: 'https://proxy.example/v1',
+        }),
+      ),
+    ).toEqual({
+      allowPrivateHost: 'proxy.example',
+      credential: { apiKey: 'sk-server', baseURL: 'https://proxy.example/v1' },
+      source: 'server',
+    });
   });
 
   it('returns nothing when neither the user nor the server has a key', () => {

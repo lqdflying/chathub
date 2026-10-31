@@ -72,9 +72,15 @@ export type ProviderUsageCredential = {
 };
 
 export type ProviderUsageFetchContext = {
+  /**
+   * Operator proxy hostname that may be a private address. Other hosts on the
+   * same read are still refused when they are not public.
+   */
+  allowPrivateHost?: string;
   credential: ProviderUsageCredential;
   fetchFn: typeof fetch;
   now: Date;
+  resolveHost?: (hostname: string) => Promise<string[]>;
   timeoutMs: number;
 };
 

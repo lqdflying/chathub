@@ -1,4 +1,5 @@
 import type { ProviderUsageFetchContext } from './types';
+import { assessUsageUrl, resolveUsageHost } from './urlPolicy';
 
 export type UsageHttpResponse = {
   body: unknown;
@@ -16,11 +17,22 @@ export const requestUsageJson = async (
   url: string,
   headers: Record<string, string>,
 ): Promise<UsageHttpResponse> => {
+  const allowed = await assessUsageUrl(url, {
+    allowPrivateHost: context.allowPrivateHost,
+    resolveHost: context.resolveHost ?? resolveUsageHost,
+  });
+  if (!allowed) return { body: undefined, ok: false, status: 0 };
+
   const response = await context.fetchFn(url, {
     headers: { Accept: 'application/json', ...headers },
     method: 'GET',
+    redirect: 'manual',
     signal: AbortSignal.timeout(context.timeoutMs),
   });
+  if (response.status >= 300 && response.status < 400) {
+    await response.body?.cancel()?.catch(() => undefined);
+    return { body: undefined, ok: false, status: response.status };
+  }
   const text = await response.text();
   let body: unknown;
   try {

@@ -31,8 +31,11 @@ const TOKEN_PLAN_PATH = '/v1/token_plan/remains';
 const LEGACY_CODING_PLAN_PATH = '/v1/api/openplatform/coding_plan/remains';
 const MINIMAX_AUTH_ERROR_CODE = 1004;
 
+const isMinimaxiHost = (hostname: string) =>
+  hostname === 'minimaxi.com' || hostname.endsWith('.minimaxi.com');
+
 export const resolveMinimaxSite = (baseURL?: string) =>
-  (safeHostname(baseURL) ?? '').endsWith('minimaxi.com') ? MINIMAX_CN_SITE : MINIMAX_GLOBAL_SITE;
+  isMinimaxiHost(safeHostname(baseURL) ?? '') ? MINIMAX_CN_SITE : MINIMAX_GLOBAL_SITE;
 
 export const resolveMinimaxRemainsUrls = (baseURL?: string) => {
   const site = resolveMinimaxSite(baseURL);

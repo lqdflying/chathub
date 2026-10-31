@@ -4,10 +4,15 @@ import { AiProviderModel } from '@/database/models/aiProvider';
 import { UserModel } from '@/database/models/user';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
 
-import { asOptionalString, firstKey } from './parse';
+import { asOptionalString, firstKey, safeHostname } from './parse';
 import type { ProviderUsageCredential, ProviderUsageCredentialSource } from './types';
 
 export type ResolvedUsageCredential = {
+  /**
+   * Set only when the base URL is the operator `{PROVIDER}_PROXY_URL`.
+   * A user-entered endpoint never receives this exception.
+   */
+  allowPrivateHost?: string;
   credential: ProviderUsageCredential;
   source: ProviderUsageCredentialSource;
 };
@@ -50,8 +55,9 @@ export const loadUserProviderVault = async (
 
 /**
  * A key the user entered always wins. The server's `{PROVIDER}_API_KEY` is
- * used only when the user has none and the operator switch is on. The base
- * URL follows chat: the user's endpoint, else `{PROVIDER}_PROXY_URL`.
+ * used only when the user has none and the operator switch is on.
+ * A user endpoint is sent only with that user's key. A server key uses
+ * `{PROVIDER}_PROXY_URL` and never the endpoint saved on the provider.
  */
 export const resolveApiKeyUsageCredential = (
   provider: string,
@@ -61,15 +67,25 @@ export const resolveApiKeyUsageCredential = (
   const upper = provider.toUpperCase();
   const envBaseURL = asOptionalString(env.values[`${upper}_PROXY_URL`]);
   const userBaseURL = asOptionalString(vault.baseURL) || asOptionalString(vault.endpoint);
-  const baseURL = userBaseURL || envBaseURL;
+  const operatorHost = envBaseURL ? safeHostname(envBaseURL) : undefined;
 
   const userKey = firstKey(vault.apiKey);
-  if (userKey) return { credential: { apiKey: userKey, baseURL }, source: 'user' };
+  if (userKey) {
+    return {
+      allowPrivateHost: userBaseURL ? undefined : operatorHost,
+      credential: { apiKey: userKey, baseURL: userBaseURL || envBaseURL },
+      source: 'user',
+    };
+  }
 
   if (!env.serverKeysEnabled) return undefined;
   const serverKey = firstKey(env.values[`${upper}_API_KEY`]);
   if (!serverKey) return undefined;
-  return { credential: { apiKey: serverKey, baseURL }, source: 'server' };
+  return {
+    allowPrivateHost: operatorHost,
+    credential: { apiKey: serverKey, baseURL: envBaseURL },
+    source: 'server',
+  };
 };
 
 /** Operator env names for admin / management keys, gated by the same switch. */

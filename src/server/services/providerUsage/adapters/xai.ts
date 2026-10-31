@@ -1,6 +1,6 @@
 import { bearer, requestUsageJson } from '../http';
 import { asFiniteNumber, asOptionalString, asRecord, statusFromHttp } from '../parse';
-import type { ProviderUsageAdapter, ProviderUsageAdapterResult } from '../types';
+import type { ProviderUsageAdapter, ProviderUsageAdapterResult, ProviderUsageFetchContext } from '../types';
 
 /**
  * xAI Management API (management key, not the inference key).
@@ -38,6 +38,22 @@ export const parseXaiPrepaidBalance = (payload: unknown): ProviderUsageAdapterRe
   };
 };
 
+export const discoverXaiTeamId = async (
+  context: ProviderUsageFetchContext,
+  apiKey: string,
+): Promise<{ teamId: string } | ProviderUsageAdapterResult> => {
+  const validation = await requestUsageJson(
+    context,
+    XAI_MANAGEMENT_KEY_VALIDATION_URL,
+    bearer(apiKey),
+  );
+  if (validation.status === 401 || validation.status === 403) return { status: 'authError' };
+  if (!validation.ok) return { status: 'error' };
+  const teamId = parseXaiManagementTeamId(validation.body);
+  if (!teamId) return { reason: 'teamIdRequired', status: 'error' };
+  return { teamId };
+};
+
 export const xaiUsageAdapter: ProviderUsageAdapter = {
   credentialType: 'admin',
   fetchUsage: async (context) => {
@@ -45,10 +61,9 @@ export const xaiUsageAdapter: ProviderUsageAdapter = {
     let teamId = asOptionalString(context.credential.teamId);
 
     if (!teamId) {
-      const validation = await requestUsageJson(context, XAI_MANAGEMENT_KEY_VALIDATION_URL, auth);
-      if (validation.status === 401 || validation.status === 403) return { status: 'authError' };
-      teamId = validation.ok ? parseXaiManagementTeamId(validation.body) : undefined;
-      if (!teamId) return { reason: 'teamIdRequired', status: 'error' };
+      const discovered = await discoverXaiTeamId(context, context.credential.apiKey);
+      if (!('teamId' in discovered)) return discovered;
+      teamId = discovered.teamId;
     }
 
     const response = await requestUsageJson(context, resolveXaiPrepaidBalanceUrl(teamId), auth);

@@ -7,6 +7,8 @@ vi.stubGlobal('React', React);
 
 const mocks = vi.hoisted(() => ({
   data: undefined as Record<string, unknown> | null | undefined,
+  isError: false,
+  refresh: vi.fn(),
   remove: vi.fn(),
   save: vi.fn(),
   setData: vi.fn(),
@@ -73,8 +75,10 @@ vi.mock('@/libs/trpc/client', () => ({
       deleteAdminCredential: {
         useMutation: () => ({ isPending: false, mutateAsync: mocks.remove }),
       },
-      get: { useQuery: () => ({ data: mocks.data, isLoading: false }) },
-      refresh: { useMutation: () => ({ isPending: false, mutateAsync: vi.fn() }) },
+      get: {
+        useQuery: () => ({ data: mocks.data, isError: mocks.isError, isLoading: false }),
+      },
+      refresh: { useMutation: () => ({ isPending: false, mutateAsync: mocks.refresh }) },
       saveAdminCredential: { useMutation: () => ({ isPending: false, mutateAsync: mocks.save }) },
     },
     useUtils: () => ({ providerUsage: { get: { setData: mocks.setData } } }),
@@ -86,6 +90,7 @@ const { default: ProviderUsageCard } = await import('./index');
 describe('ProviderUsageCard', () => {
   beforeEach(() => {
     mocks.data = undefined;
+    mocks.isError = false;
     vi.clearAllMocks();
   });
   afterEach(() => cleanup());
@@ -193,5 +198,46 @@ describe('ProviderUsageCard', () => {
       fireEvent.click(screen.getByText('providerUsage.admin.remove'));
     });
     expect(mocks.remove).toHaveBeenCalledWith({ accountScope: 'user:u1', provider: 'openai' });
+  });
+
+  it('shows the admin key form when the usage query fails', () => {
+    mocks.isError = true;
+    render(<ProviderUsageCard provider="openai" />);
+    expect(screen.getByPlaceholderText('providerUsage.admin.keyLabel.openai')).toBeTruthy();
+    expect(screen.getByText('providerUsage.status.error')).toBeTruthy();
+  });
+
+  it('does not show an admin form for an API-key provider when the query fails', () => {
+    mocks.isError = true;
+    render(<ProviderUsageCard provider="deepseek" />);
+    expect(screen.queryByPlaceholderText('providerUsage.admin.keyLabel.deepseek')).toBeNull();
+    expect(screen.getByText('providerUsage.status.error')).toBeTruthy();
+  });
+
+  it('keeps the typed xAI key when the save still needs a team id', async () => {
+    mocks.data = {
+      credentialType: 'admin',
+      fetchedAt: '2026-10-31T00:00:00.000Z',
+      provider: 'xai',
+      status: 'noCredential',
+    };
+    mocks.save.mockResolvedValue({
+      credentialType: 'admin',
+      provider: 'xai',
+      reason: 'teamIdRequired',
+      status: 'error',
+    });
+    render(<ProviderUsageCard provider="xai" />);
+    fireEvent.change(screen.getByPlaceholderText('providerUsage.admin.keyLabel.xai'), {
+      target: { value: 'xai-mgmt-key-123' },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByText('providerUsage.admin.save'));
+    });
+    expect(screen.getByPlaceholderText('providerUsage.admin.keyLabel.xai')).toHaveProperty(
+      'value',
+      'xai-mgmt-key-123',
+    );
+    expect(screen.getByPlaceholderText('providerUsage.admin.teamIdPlaceholder')).toBeTruthy();
   });
 });
