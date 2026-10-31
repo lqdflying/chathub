@@ -659,7 +659,7 @@ describe('OpenSandboxProvider', () => {
       'plots_2024_summary.png',
       'report.txt',
       'p_q_file.txt',
-      'p_q_file.txt_2',
+      'p_q_file_2.txt',
     ]);
   });
 

@@ -21,7 +21,7 @@ APIs:
 Command-line tools (when installed):
 - Office files to PDF or another format: soffice --headless --convert-to pdf --outdir <dir> <file>.
 - Rendered HTML of a web page: chromium --headless --no-sandbox --disable-dev-shm-usage --dump-dom <url> prints the DOM after the page's scripts run. Commands run as root, so --no-sandbox is required. Playwright is not installed; use Chromium directly.
-- pandoc converts between Markdown, HTML, docx, and other formats. Pass --pdf-engine=xelatex when it writes a PDF.
+- pandoc converts between Markdown, HTML, docx, and other formats. Pass --pdf-engine=xelatex when it writes a PDF. For Chinese text, also pass -V CJKmainfont="AR PL SungtiL GB".
 - LaTeX: pdflatex for Latin text; for Chinese, compile with xelatex, \\documentclass[fontset=none]{ctexart}, and \\setCJKmainfont{AR PL SungtiL GB}.
 - ffmpeg and ffprobe convert, cut, and inspect audio and video.
 
