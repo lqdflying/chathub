@@ -448,6 +448,13 @@
       "when": 1788320000000,
       "tag": "0063_provider_usage_credentials",
       "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1788330000000,
+      "tag": "0064_user_sandbox_profiles",
+      "breakpoints": true
     }
   ],
   "version": "6"
