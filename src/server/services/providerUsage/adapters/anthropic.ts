@@ -25,23 +25,45 @@ const MAX_PAGES = 3;
 /** RFC 3339 UTC without fractional seconds, matching the Admin API examples. */
 const toAnthropicTimestamp = (date: Date) => date.toISOString().replace(/\.\d{3}Z$/, 'Z');
 
-export const buildAnthropicCostReportUrl = (since: Date, page?: string) => {
+const DAY_MS = 86_400_000;
+
+/**
+ * Anthropic rejects a range that starts on the current UTC day: a future
+ * `ending_at` is snapped back to today 00:00, which is then not after
+ * `starting_at`. On the 1st, query the previous day so the key is still
+ * checked, and keep `since` as the month start for the sum.
+ */
+export const anthropicCostWindow = (now: Date) => {
+  const since = utcMonthStart(now);
+  const startOfToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const queryEnd = new Date(startOfToday.getTime() + DAY_MS);
+  const queryStart =
+    since.getTime() < startOfToday.getTime() ? since : new Date(startOfToday.getTime() - DAY_MS);
+  return { queryEnd, queryStart, since };
+};
+
+export const buildAnthropicCostReportUrl = (start: Date, end: Date, page?: string) => {
   const params = new URLSearchParams({
     bucket_width: '1d',
+    ending_at: toAnthropicTimestamp(end),
     limit: '31',
-    starting_at: toAnthropicTimestamp(since),
+    starting_at: toAnthropicTimestamp(start),
   });
   if (page) params.set('page', page);
   return `${ANTHROPIC_COST_REPORT_URL}?${params.toString()}`;
 };
 
-export const sumAnthropicCostCents = (payload: unknown) => {
+export const sumAnthropicCostCents = (payload: unknown, sinceMs?: number) => {
   const root = asRecord(payload);
   let cents = 0;
   let currency: string | undefined;
 
   for (const rawBucket of asArray(root.data)) {
-    for (const rawResult of asArray(asRecord(rawBucket).results)) {
+    const bucket = asRecord(rawBucket);
+    const bucketStart = Date.parse(asOptionalString(bucket.starting_at) ?? '');
+    if (sinceMs !== undefined && Number.isFinite(bucketStart) && bucketStart < sinceMs) continue;
+
+    for (const rawResult of asArray(bucket.results)) {
       const result = asRecord(rawResult);
       const amount = asFiniteNumber(result.amount);
       if (amount === undefined) continue;
@@ -61,7 +83,7 @@ export const sumAnthropicCostCents = (payload: unknown) => {
 export const anthropicUsageAdapter: ProviderUsageAdapter = {
   credentialType: 'admin',
   fetchUsage: async (context) => {
-    const since = utcMonthStart(context.now);
+    const { queryEnd, queryStart, since } = anthropicCostWindow(context.now);
     const headers = {
       Authorization: `Bearer ${context.credential.apiKey}`,
       'anthropic-version': ANTHROPIC_ADMIN_API_VERSION,
@@ -74,12 +96,12 @@ export const anthropicUsageAdapter: ProviderUsageAdapter = {
     for (let index = 0; index < MAX_PAGES; index += 1) {
       const response = await requestUsageJson(
         context,
-        buildAnthropicCostReportUrl(since, page),
+        buildAnthropicCostReportUrl(queryStart, queryEnd, page),
         headers,
       );
       if (!response.ok) return { status: statusFromHttp(response.status) };
 
-      const sum = sumAnthropicCostCents(response.body);
+      const sum = sumAnthropicCostCents(response.body, since.getTime());
       if (!sum.found) return { status: 'error' };
       totalCents += sum.cents;
       currency = sum.currency;

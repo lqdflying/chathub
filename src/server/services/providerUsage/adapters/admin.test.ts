@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   ANTHROPIC_ADMIN_API_VERSION,
+  anthropicCostWindow,
   anthropicUsageAdapter,
   buildAnthropicCostReportUrl,
   sumAnthropicCostCents,
@@ -149,10 +150,32 @@ describe('OpenAI costs', () => {
 });
 
 describe('Anthropic cost report', () => {
-  it('requests daily buckets from the UTC month start', () => {
-    const url = new URL(buildAnthropicCostReportUrl(MONTH_START));
-    expect(url.searchParams.get('starting_at')).toBe('2026-10-01T00:00:00Z');
-    expect(url.searchParams.get('bucket_width')).toBe('1d');
+  it('requests closed days and skips a range that starts today', () => {
+    const midMonth = anthropicCostWindow(new Date('2026-10-31T12:00:00Z'));
+    const midUrl = new URL(buildAnthropicCostReportUrl(midMonth.queryStart, midMonth.queryEnd));
+    expect(midUrl.searchParams.get('starting_at')).toBe('2026-10-01T00:00:00Z');
+    expect(midUrl.searchParams.get('ending_at')).toBe('2026-11-01T00:00:00Z');
+
+    const firstDay = anthropicCostWindow(new Date('2026-11-01T02:33:00Z'));
+    const firstUrl = new URL(buildAnthropicCostReportUrl(firstDay.queryStart, firstDay.queryEnd));
+    expect(firstUrl.searchParams.get('starting_at')).toBe('2026-10-31T00:00:00Z');
+    expect(firstUrl.searchParams.get('ending_at')).toBe('2026-11-02T00:00:00Z');
+    expect(firstDay.since.toISOString()).toBe('2026-11-01T00:00:00.000Z');
+  });
+
+  it('ignores buckets from before this month', () => {
+    expect(
+      sumAnthropicCostCents(
+        {
+          data: [
+            { results: [{ amount: '50', currency: 'USD' }], starting_at: '2026-10-31T00:00:00Z' },
+            { results: [{ amount: '25', currency: 'USD' }], starting_at: '2026-11-01T00:00:00Z' },
+          ],
+          has_more: false,
+        },
+        Date.parse('2026-11-01T00:00:00Z'),
+      ),
+    ).toMatchObject({ cents: 25, found: true });
   });
 
   it('sums decimal-string cents across buckets', () => {

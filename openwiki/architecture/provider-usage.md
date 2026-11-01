@@ -87,6 +87,10 @@ endpoint), and pay-as-you-go balances for Zhipu and MiniMax.
 
 ### Parsing traps
 
+- Anthropic `starting_at` cannot be the current UTC day. A future `ending_at` is
+  snapped back to today 00:00, and the call returns 400 when that is not after
+  the start. On the 1st the query starts the previous day and buckets before
+  this month are dropped, so the card shows $0.00.
 - xAI `total.val` is an inverted cents ledger: a $10 top-up is `"-1000"`.
 - MiniMax `current_weekly_status: 0` means "no weekly limit"; the weekly row is
   skipped so it never reads as 0 % left. Interval length (5 h vs 24 h) comes
