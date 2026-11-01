@@ -18,13 +18,20 @@ export const getSandboxConfig = () =>
       OPENSANDBOX_SERVER_URL: process.env.OPENSANDBOX_SERVER_URL,
       OPENSANDBOX_SESSION_IDLE_TIMEOUT: process.env.OPENSANDBOX_SESSION_IDLE_TIMEOUT,
       OPENSANDBOX_SESSION_MAX_LIFETIME: process.env.OPENSANDBOX_SESSION_MAX_LIFETIME,
-      SANDBOX_MAX_FILE_BYTES: withLegacy('SANDBOX_MAX_FILE_BYTES', 'CODE_INTERPRETER_MAX_FILE_BYTES'),
-      SANDBOX_MAX_FILE_COUNT: withLegacy('SANDBOX_MAX_FILE_COUNT', 'CODE_INTERPRETER_MAX_FILE_COUNT'),
+      SANDBOX_MAX_FILE_BYTES: withLegacy(
+        'SANDBOX_MAX_FILE_BYTES',
+        'CODE_INTERPRETER_MAX_FILE_BYTES',
+      ),
+      SANDBOX_MAX_FILE_COUNT: withLegacy(
+        'SANDBOX_MAX_FILE_COUNT',
+        'CODE_INTERPRETER_MAX_FILE_COUNT',
+      ),
       SANDBOX_MAX_OUTPUT_CHARS: withLegacy(
         'SANDBOX_MAX_OUTPUT_CHARS',
         'CODE_INTERPRETER_MAX_STDOUT_CHARS',
       ),
       SANDBOX_MAX_TIMEOUT: process.env.SANDBOX_MAX_TIMEOUT,
+      SANDBOX_PROFILES_FILE: process.env.SANDBOX_PROFILES_FILE,
       SANDBOX_TIMEOUT: withLegacy('SANDBOX_TIMEOUT', 'CODE_INTERPRETER_TIMEOUT'),
     },
     server: {
@@ -67,6 +74,9 @@ export const getSandboxConfig = () =>
       SANDBOX_MAX_OUTPUT_CHARS: z.coerce.number().int().positive().default(30_000),
       // Upper bound for the per-call timeout the model may request. Milliseconds.
       SANDBOX_MAX_TIMEOUT: z.coerce.number().int().positive().default(600_000),
+      // Sandbox Hub profiles file (YAML or JSON). Unset = one "general" profile
+      // built from the OPENSANDBOX_* values above, exactly as before.
+      SANDBOX_PROFILES_FILE: z.string().optional(),
       // Default per-call time limit in milliseconds.
       SANDBOX_TIMEOUT: z.coerce.number().int().positive().default(60_000),
     },

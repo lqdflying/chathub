@@ -54,3 +54,9 @@ Python (runPython):
   - You MUST prioritize generating text content using reportlab.platypus rather than canvas
   - If you are generating text in Chinese, you MUST use STSong. To use the font, you must call pdfmetrics.registerFont(TTFont('STSong', 'STSong.ttf')) and apply the style to all text elements
 `;
+
+/**
+ * The instruction of the default `general` Sandbox profile. Other profiles
+ * build on it unless their config opts out (`instruction.base: none`).
+ */
+export const DEFAULT_SANDBOX_INSTRUCTION = systemRole;
