@@ -102,8 +102,18 @@ const ProfileCard = memo<ProfileCardProps>(({ health, onToggle, profile }) => {
   const [failed, setFailed] = useState(false);
   const [showInstruction, setShowInstruction] = useState(false);
 
-  const idle = formatDuration(profile.sessionIdleTimeoutMs);
-  const maxLifetime = formatDuration(profile.sessionMaxLifetimeMs);
+  const timeLabel = (ms: number) => {
+    const parts = formatDuration(ms);
+    if (!parts) return undefined;
+    return [
+      parts.hours ? t('profile.duration.hours', { count: parts.hours }) : '',
+      parts.minutes ? t('profile.duration.minutes', { count: parts.minutes }) : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
+  };
+  const idle = timeLabel(profile.sessionIdleTimeoutMs);
+  const maxLifetime = timeLabel(profile.sessionMaxLifetimeMs);
   const egressTargets =
     profile.egress.mode === 'allowlist' ? profile.egress.targets.join(', ') : undefined;
 
@@ -132,7 +142,7 @@ const ProfileCard = memo<ProfileCardProps>(({ health, onToggle, profile }) => {
         <Switch
           aria-label={t('profile.toggle', { name: profile.name })}
           checked={profile.enabled}
-          disabled={!profile.available}
+          disabled={!profile.available && !profile.enabled}
           loading={pending}
           onChange={(checked) => void toggle(checked)}
         />

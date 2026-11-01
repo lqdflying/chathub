@@ -42,6 +42,8 @@ export interface SandboxHubAction {
 }
 
 const inflight = new Map<string, Promise<void>>();
+/** Bumped when a toggle starts, so an older profile list cannot overwrite it. */
+let sandboxProfilesRevision = 0;
 
 export const createSandboxHubSlice: StateCreator<
   ToolStore,
@@ -75,9 +77,13 @@ export const createSandboxHubSlice: StateCreator<
   loadSandboxProfiles: (scope) => {
     const running = inflight.get(scope);
     if (running) return running;
+    const revision = sandboxProfilesRevision;
     const task = sandboxHubService
       .listProfiles(scope)
-      .then((profiles) => get().applySandboxProfiles(scope, profiles))
+      .then((profiles) => {
+        if (revision !== sandboxProfilesRevision) return;
+        get().applySandboxProfiles(scope, profiles);
+      })
       .finally(() => inflight.delete(scope));
     inflight.set(scope, task);
     return task;
@@ -86,7 +92,9 @@ export const createSandboxHubSlice: StateCreator<
   setSandboxProfileEnabled: async (profileId, enabled) => {
     const scope = currentScope();
     if (!scope) return;
+    const revision = ++sandboxProfilesRevision;
     const profiles = await sandboxHubService.setProfileEnabled(scope, profileId, enabled);
+    if (revision !== sandboxProfilesRevision) return;
     get().applySandboxProfiles(scope, profiles);
   },
 

@@ -17,6 +17,14 @@ const n = setNamespace('sandbox');
 
 const SWR_FETCH_SANDBOX_FILE_KEY = 'FetchSandboxFileItem';
 
+/** Conversation the in-tab call started in, when the tool row is no longer on the active map. */
+export interface SandboxInvocationScope {
+  groupId?: string | null;
+  sessionId?: string | null;
+  threadId?: string | null;
+  topicId?: string | null;
+}
+
 export interface ChatSandboxAction {
   /** Runs one Sandbox tool API on the server and stores its result on the tool message. */
   invokeSandboxTool: (
@@ -25,6 +33,8 @@ export interface ChatSandboxAction {
     params: Record<string, unknown>,
     /** Sandbox Hub profile tool identifier; omitted means `lobe-sandbox`. */
     identifier?: string,
+    /** Used when the tool message is not in the active topic map. */
+    scope?: SandboxInvocationScope,
   ) => Promise<{
     data: unknown;
     outcome: 'cancelled' | 'completed' | 'failed';
@@ -40,7 +50,7 @@ export const sandboxSlice: StateCreator<
   [],
   ChatSandboxAction
 > = (set, get) => ({
-  invokeSandboxTool: async (id, apiName, params, identifier) => {
+  invokeSandboxTool: async (id, apiName, params, identifier, scope) => {
     const invocationGeneration = get().conversationClearGeneration;
     const invocationIsCurrent = () => get().conversationClearGeneration === invocationGeneration;
 
@@ -52,14 +62,35 @@ export const sandboxSlice: StateCreator<
         return { data: undefined, outcome: 'cancelled', shouldContinue: false };
       }
 
+      const conversation = message
+        ? {
+            groupId: message.groupId,
+            sessionId: message.sessionId ?? get().activeId,
+            threadId: message.threadId ?? get().activeThreadId,
+            topicId: message.topicId ?? get().activeTopicId,
+          }
+        : scope
+          ? {
+              groupId: scope.groupId,
+              sessionId: scope.sessionId,
+              threadId: scope.threadId,
+              topicId: scope.topicId,
+            }
+          : {
+              groupId: undefined,
+              sessionId: get().activeId,
+              threadId: get().activeThreadId,
+              topicId: get().activeTopicId,
+            };
+
       const result = await lambdaClient.sandbox.invoke.mutate({
         apiName,
         arguments: params,
-        groupId: message?.groupId,
+        groupId: conversation.groupId,
         ...(identifier ? { identifier } : {}),
-        sessionId: message?.sessionId ?? get().activeId,
-        threadId: message?.threadId ?? get().activeThreadId,
-        topicId: message?.topicId ?? get().activeTopicId,
+        sessionId: conversation.sessionId,
+        threadId: conversation.threadId,
+        topicId: conversation.topicId,
       });
       if (!invocationIsCurrent()) {
         return { data: undefined, outcome: 'cancelled', shouldContinue: false };

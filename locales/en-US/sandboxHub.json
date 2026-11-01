@@ -10,6 +10,10 @@
   "loadFailed": "Could not load the sandboxes. Try again later.",
   "loading": "Loading sandboxes…",
   "profile": {
+    "duration": {
+      "hours": "{{count}} h",
+      "minutes": "{{count}} min"
+    },
     "egress": {
       "allowlist": "Network: {{count}} allowed targets",
       "none": "Network: off",

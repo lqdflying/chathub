@@ -40,9 +40,10 @@ calls and the Sandbox Hub health check.
    `SANDBOX_PROFILES_FILE` to its path, plus the key variable each server's
    `apiKeyEnv` names. Restart ChatHub, open **Sandbox Hub**, and check the
    server badge says Online.
-6. If the badge is Online but calls fail to reach execd, the server returns
-   an internal host for the proxy route: set `proxyEndpoint: baseUrl` on
-   that server entry so ChatHub sends execd calls to the configured URL.
+6. The example sets `proxyEndpoint: baseUrl` so execd calls use the configured
+   HTTPS URL and pass through Caddy. Leave it set. Switch a server back to
+   `proxyEndpoint: server` only when that server returns a host ChatHub can
+   use directly.
 
 ## Things one server cannot vary
 

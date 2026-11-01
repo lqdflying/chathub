@@ -332,8 +332,9 @@ User-facing setup:
   arguments per API and runs one `withWorkspace` task. The browser routes
   every Sandbox API to that one action by identifier, not by API name.
 - **OpenSandbox** — `OPENSANDBOX_SERVER_URL` / `OPENSANDBOX_API_KEY` /
-  `OPENSANDBOX_IMAGE`. One sandbox per conversation (find or create → execd
-  ping → task → park), all through the lifecycle server's proxy. Files,
+  `OPENSANDBOX_IMAGE`, or a `SANDBOX_PROFILES_FILE`. One container per enabled
+  profile (`general` keeps the pre-profile session key): find or create →
+  execd ping → task → park, all through the lifecycle server's proxy. Files,
   installs, and background processes carry over between calls; Python
   variables do not. It is removed after `OPENSANDBOX_SESSION_IDLE_TIMEOUT`
   (default 30 min) without a call, or after an infrastructure failure; a
@@ -351,10 +352,11 @@ User-facing setup:
   server file service.
 - **Thread scope** — a portal-thread call uses that thread (plus its main
   prefix). A main-topic call excludes portal-thread files.
-- **Enqueue** — the Sandbox stays off the defer list. Presence must not force
-  the whole turn onto the tab. Without `OPENSANDBOX_SERVER_URL` and
-  `OPENSANDBOX_IMAGE` a call returns a `not configured` error
-  (`shouldContinue: true`). There is no in-browser fallback.
+- **Enqueue** — the Sandbox stays off the defer list, including
+  `lobe-sandbox--<id>`. Presence must not force the whole turn onto the tab.
+  Without a usable server and image (those env vars, or a profiles file) a
+  call returns a `not configured` error (`shouldContinue: true`). There is no
+  in-browser fallback.
 - **Legacy** — old `lobe-code-interpreter` / `python` messages still render
   and dispatch; plugin lists are normalized on read and migrated by
   `0062_sandbox_tool_identifier`.

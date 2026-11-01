@@ -49,7 +49,7 @@ import {
   userGeneralSettingsSelectors,
   userProfileSelectors,
 } from '@/store/user/selectors';
-import { isSandboxToolIdentifier } from '@/tools/sandbox/const';
+import { isSandboxToolIdentifier, normalizeBuiltinToolIds } from '@/tools/sandbox/const';
 import type { ChatStreamPayload, OpenAIChatMessage } from '@/types/openai/chat';
 import { createErrorResponse } from '@/utils/errorResponse';
 import { stripLegacyProviderParams } from '@/utils/stripLegacyProviderParams';
@@ -208,7 +208,7 @@ class ChatService {
 
     // =================== 1. preprocess tools =================== //
 
-    const pluginIds = [...(enabledPlugins || [])];
+    const pluginIds = normalizeBuiltinToolIds([...(enabledPlugins || [])]);
     const messageActivatedSkillIds = collectLatestTurnSkillIds(sanitizedMessages);
     const requestedSkillIds = firstNonEmpty(
       options?.activatedSkillIds,

@@ -8,14 +8,34 @@ import { parseSandboxToolIdentifier } from '@/tools/sandbox/const';
 import { findSandboxServer, getSandboxProfileCatalog, isSandboxProfileUsable } from './load';
 import type { ResolvedSandboxProfile, ResolvedSandboxServer } from './schema';
 
+const MISSING_CHOICES_TABLE = /relation "user_sandbox_profiles" does not exist/i;
+
+/** Postgres `undefined_table`, including when Drizzle wraps the driver error. */
+const isMissingSandboxChoicesTable = (error: unknown) => {
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+  while (current && typeof current === 'object' && !seen.has(current)) {
+    seen.add(current);
+    const record = current as { cause?: unknown; code?: unknown; message?: unknown };
+    if (record.code === '42P01') return true;
+    if (typeof record.message === 'string' && MISSING_CHOICES_TABLE.test(record.message)) {
+      return true;
+    }
+    current = record.cause;
+  }
+  return false;
+};
+
 /**
- * Hub choices, or none when the table cannot be read (for example before the
- * migration ran). Profiles then fall back to their `defaultEnabled`.
+ * Hub choices. A missing table (the migration has not run) falls back to each
+ * profile's `defaultEnabled`. Any other read error is rethrown so a saved off
+ * switch is not treated as still on.
  */
 const readChoices = async (db: LobeChatDatabase, userId: string) => {
   try {
     return await new SandboxProfileModel(db, userId).list();
   } catch (error) {
+    if (!isMissingSandboxChoicesTable(error)) throw error;
     console.warn('[sandbox] could not read Sandbox Hub choices; using profile defaults', {
       errorClass: error instanceof Error ? error.name : typeof error,
     });
@@ -122,8 +142,14 @@ export const resolveSandboxProfileForUser = async ({
   let enabled = profile.defaultEnabled;
   try {
     enabled = (await new SandboxProfileModel(db, userId).find(profile.id)) ?? enabled;
-  } catch {
-    // Same fallback as the Hub list: an unreadable table means profile defaults.
+  } catch (error) {
+    if (!isMissingSandboxChoicesTable(error)) {
+      return {
+        message: `The "${profile.name}" sandbox cannot run because Sandbox Hub choices could not be read.`,
+        ok: false,
+        reason: 'not_configured',
+      };
+    }
   }
   if (!enabled) {
     return {

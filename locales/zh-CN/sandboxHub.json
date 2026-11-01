@@ -10,6 +10,10 @@
   "loadFailed": "无法读取沙盒列表，请稍后重试。",
   "loading": "正在读取沙盒…",
   "profile": {
+    "duration": {
+      "hours": "{{count}} 小时",
+      "minutes": "{{count}} 分钟"
+    },
     "egress": {
       "allowlist": "网络：仅允许 {{count}} 个地址",
       "none": "网络：已禁用",

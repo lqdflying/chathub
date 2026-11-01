@@ -11,8 +11,9 @@ servers:
     url: https://sandbox.example.com
     # Name of the ChatHub environment variable that holds this server's key.
     apiKeyEnv: REMOTE_SANDBOX_API_KEY
-    # Uncomment if the server returns an internal host for execd calls.
-    # proxyEndpoint: baseUrl
+    # The lifecycle server returns its own host for execd. Send those calls
+    # here so they pass through the reverse proxy.
+    proxyEndpoint: baseUrl
 
 profiles:
   # Keeps the lobe-sandbox tool, the built-in instruction and existing

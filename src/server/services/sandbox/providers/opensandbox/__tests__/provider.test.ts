@@ -20,6 +20,12 @@ const messageStepMocks = vi.hoisted(() => ({
   updatePluginState: vi.fn(),
 }));
 
+vi.mock('@/database/models/sandboxProfile', () => ({
+  SandboxProfileModel: class {
+    find = async () => undefined;
+    list = async () => new Map<string, boolean>();
+  },
+}));
 vi.mock('@/database/models/conversationGeneration', () => ({
   ConversationGenerationModel: class {
     claimStep = generationStepMocks.claimStep;
@@ -739,6 +745,14 @@ describe('OpenSandboxProvider', () => {
         profileId: 'data',
         ...overrides,
       });
+
+    it('does not send the default API key to a profile server that has none', async () => {
+      const calls = install();
+
+      await python(profileProvider({ apiKey: undefined }), { sessionKey: 'topic-a' });
+
+      expect(calls.headers.some((item) => 'OPEN-SANDBOX-API-KEY' in item)).toBe(false);
+    });
 
     it('creates the sandbox with the profile image, resources and profile label', async () => {
       const calls = install();

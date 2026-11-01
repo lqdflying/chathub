@@ -234,9 +234,11 @@ already aborted, including when output collection or the sync-record upload
 swallowed the abort and resolved. The worker does not store that call as a
 tool result.
 
-`getSandboxProvider()` always returns `OpenSandboxProvider`; without
-`OPENSANDBOX_SERVER_URL` and `OPENSANDBOX_IMAGE` every call fails with
-`NotConfigured` and ChatHub still boots.
+`getSandboxProvider()` always returns `OpenSandboxProvider`. With no profiles
+file, a call fails with `NotConfigured` unless `OPENSANDBOX_SERVER_URL` and
+`OPENSANDBOX_IMAGE` are set, and ChatHub still boots. A `SANDBOX_PROFILES_FILE`
+supplies the server and image per profile. Any error in that file configures
+no profiles, even when those env vars are set.
 
 ## Conversation files
 

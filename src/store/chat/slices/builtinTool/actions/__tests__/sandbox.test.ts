@@ -29,13 +29,24 @@ vi.mock('@/services/file', () => ({
   },
 }));
 
+const messageState = vi.hoisted(() => ({
+  message: {
+    sessionId: 'session-1',
+    threadId: 'thread-1',
+    topicId: 'topic-1',
+  } as
+    | {
+        groupId?: string;
+        sessionId?: string;
+        threadId?: string;
+        topicId?: string;
+      }
+    | undefined,
+}));
+
 vi.mock('@/store/chat/selectors', () => ({
   chatSelectors: {
-    getMessageById: vi.fn(() => () => ({
-      sessionId: 'session-1',
-      threadId: 'thread-1',
-      topicId: 'topic-1',
-    })),
+    getMessageById: vi.fn(() => () => messageState.message),
     getMessageByToolCallId: vi.fn(() => () => undefined),
     mainDisplayChats: vi.fn().mockReturnValue([]),
   },
@@ -44,6 +55,11 @@ vi.mock('@/store/chat/selectors', () => ({
 describe('sandbox actions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    messageState.message = {
+      sessionId: 'session-1',
+      threadId: 'thread-1',
+      topicId: 'topic-1',
+    };
     useChatStore.setState({
       activeId: 'session-1',
       activeTopicId: 'topic-1',
@@ -147,5 +163,37 @@ describe('sandbox actions', () => {
     expect(result.current.internal_updateMessageContent).not.toHaveBeenCalled();
     expect(result.current.updatePluginState).not.toHaveBeenCalled();
     expect(result.current.sandboxExecuting).toEqual({});
+  });
+
+  it('uses the captured conversation when the tool message is not on the active topic', async () => {
+    messageState.message = undefined;
+    useChatStore.setState({ activeId: 'visible-session', activeTopicId: 'visible-topic' });
+    (lambdaClient.sandbox.invoke.mutate as Mock).mockResolvedValue({ success: true });
+    const { result } = renderHook(() => useChatStore());
+
+    await act(async () => {
+      await result.current.invokeSandboxTool(
+        'tool-message',
+        'runPython',
+        { code: 'print(1)' },
+        'lobe-sandbox--data',
+        {
+          groupId: 'group-1',
+          sessionId: 'original-session',
+          threadId: 'original-thread',
+          topicId: 'original-topic',
+        },
+      );
+    });
+
+    expect(lambdaClient.sandbox.invoke.mutate).toHaveBeenCalledWith({
+      apiName: 'runPython',
+      arguments: { code: 'print(1)' },
+      groupId: 'group-1',
+      identifier: 'lobe-sandbox--data',
+      sessionId: 'original-session',
+      threadId: 'original-thread',
+      topicId: 'original-topic',
+    });
   });
 });

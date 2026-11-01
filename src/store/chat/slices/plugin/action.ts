@@ -557,7 +557,15 @@ export const chatPlugin: StateCreator<
       // key each, and legacy Code Interpreter messages still say `python`.
       const action = isSandboxToolIdentifier(payload.identifier)
         ? (messageId: string, args: Record<string, unknown>) =>
-            get().invokeSandboxTool(messageId, payload.apiName, args, payload.identifier)
+            get().invokeSandboxTool(messageId, payload.apiName, args, payload.identifier, {
+              groupId: messageResource?.message.groupId,
+              sessionId: conversationContext?.sessionId ?? messageResource?.sessionId,
+              threadId: messageResource?.message.threadId,
+              topicId:
+                conversationContext?.topicId !== undefined
+                  ? conversationContext.topicId
+                  : messageResource?.topicId,
+            })
         : // @ts-ignore
           get()[payload.apiName];
       if (!action) {

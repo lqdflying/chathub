@@ -84,6 +84,21 @@ describe('Sandbox Hub tool-store slice', () => {
     ).toBe(false);
   });
 
+  it('keeps a saved toggle when an older profile list returns later', async () => {
+    let resolveList: (profiles: SandboxProfileItem[]) => void = () => undefined;
+    service.listProfiles.mockReturnValue(
+      new Promise<SandboxProfileItem[]>((resolve) => {
+        resolveList = resolve;
+      }),
+    );
+    const loading = useToolStore.getState().loadSandboxProfiles('user:a');
+    service.setProfileEnabled.mockResolvedValue([item('general', { enabled: false })]);
+    await useToolStore.getState().setSandboxProfileEnabled('general', false);
+    resolveList([item('general', { enabled: true })]);
+    await loading;
+    expect(useToolStore.getState().sandboxProfiles).toEqual([item('general', { enabled: false })]);
+  });
+
   it('fetches from the hook only when enabled', async () => {
     service.listProfiles.mockResolvedValue([item('general')]);
     const { rerender } = renderHook(

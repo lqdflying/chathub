@@ -3,17 +3,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   choices: new Map<string, boolean>(),
-  fail: false,
+  readError: undefined as unknown,
 }));
 
 vi.mock('@/database/models/sandboxProfile', () => ({
   SandboxProfileModel: class {
     find = async (id: string) => {
-      if (mocks.fail) throw new Error('relation "user_sandbox_profiles" does not exist');
+      if (mocks.readError) throw mocks.readError;
       return mocks.choices.get(id);
     };
     list = async () => {
-      if (mocks.fail) throw new Error('relation "user_sandbox_profiles" does not exist');
+      if (mocks.readError) throw mocks.readError;
       return mocks.choices;
     };
   },
@@ -63,7 +63,7 @@ const db = {} as never;
 describe('Sandbox Hub catalog', () => {
   beforeEach(() => {
     mocks.choices = new Map();
-    mocks.fail = false;
+    mocks.readError = undefined;
   });
 
   it('merges operator profiles with the user choices and hides server details', async () => {
@@ -85,11 +85,31 @@ describe('Sandbox Hub catalog', () => {
     ]);
   });
 
-  it('falls back to defaultEnabled when the choices cannot be read', async () => {
-    mocks.fail = true;
+  it('falls back to defaultEnabled when the choices table is missing', async () => {
+    mocks.readError = new Error('relation "user_sandbox_profiles" does not exist');
     expect((await getUserEnabledSandboxProfiles(db, 'user-1')).map((item) => item.id)).toEqual([
       'general',
     ]);
+    await expect(
+      resolveSandboxProfileForUser({ db, identifier: 'lobe-sandbox', userId: 'user-1' }),
+    ).resolves.toMatchObject({ ok: true, profile: { id: 'general' } });
+
+    mocks.readError = { cause: { code: '42P01' } };
+    expect((await getUserEnabledSandboxProfiles(db, 'user-1')).map((item) => item.id)).toEqual([
+      'general',
+    ]);
+  });
+
+  it('does not run a default-on profile when the choices read fails', async () => {
+    mocks.readError = new Error('connection terminated');
+    await expect(getUserSandboxProfiles(db, 'user-1')).rejects.toThrow('connection terminated');
+    await expect(
+      resolveSandboxProfileForUser({ db, identifier: 'lobe-sandbox', userId: 'user-1' }),
+    ).resolves.toMatchObject({
+      message: 'The "general" sandbox cannot run because Sandbox Hub choices could not be read.',
+      ok: false,
+      reason: 'not_configured',
+    });
   });
 
   it('runs only profiles that are known, configured, keyed and turned on', async () => {

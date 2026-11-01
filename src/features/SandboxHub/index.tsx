@@ -31,6 +31,9 @@ const SandboxHub = memo(() => {
   const { styles } = useStyles();
   const { t } = useTranslation('sandboxHub');
   const scope = useUserStore((s) => (s.isUserStateInit ? s.userStateScope : undefined));
+  const accountFailed = useUserStore(
+    (s) => !s.isUserStateInit && !!s.userStateInitializationFailure,
+  );
   const [profiles, loadedScope, loadSandboxProfiles, setSandboxProfileEnabled] = useToolStore(
     (s) => [
       s.sandboxProfiles,
@@ -58,7 +61,7 @@ const SandboxHub = memo(() => {
     };
   }, [scope, loadSandboxProfiles]);
 
-  const loading = !!scope && loadedScope !== scope && !loadFailed;
+  const loading = !accountFailed && (!scope || (loadedScope !== scope && !loadFailed));
 
   return (
     <Flexbox gap={16} style={{ minWidth: 0 }} width={'100%'}>
@@ -68,8 +71,8 @@ const SandboxHub = memo(() => {
       </Flexbox>
 
       {loading && <div className={styles.hint}>{t('loading')}</div>}
-      {loadFailed && <div className={styles.hint}>{t('loadFailed')}</div>}
-      {!loading && !loadFailed && profiles.length === 0 && (
+      {(loadFailed || accountFailed) && <div className={styles.hint}>{t('loadFailed')}</div>}
+      {!loading && !loadFailed && !accountFailed && profiles.length === 0 && (
         <div className={styles.hint}>{t('empty')}</div>
       )}
 

@@ -141,7 +141,10 @@ export class OpenSandboxProvider implements SandboxProvider {
     sessionMaxLifetime?: number;
   }) {
     this.baseUrl = (options?.baseUrl ?? sandboxEnv.OPENSANDBOX_SERVER_URL)?.replace(/\/+$/, '');
-    this.apiKey = options?.apiKey ?? sandboxEnv.OPENSANDBOX_API_KEY;
+    // A profile server passes `apiKey` even when that server has none.
+    // Only a constructor call that omits the field inherits OPENSANDBOX_API_KEY.
+    this.apiKey =
+      options && 'apiKey' in options ? options.apiKey : sandboxEnv.OPENSANDBOX_API_KEY;
     this.image = (options?.image ?? sandboxEnv.OPENSANDBOX_IMAGE)?.trim() || undefined;
     this.cpu = options?.cpu ?? sandboxEnv.OPENSANDBOX_CPU;
     this.egressAllow =

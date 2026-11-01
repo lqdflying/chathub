@@ -7,11 +7,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.stubGlobal('React', React);
 
 const mocks = vi.hoisted(() => ({
+  initFailed: false,
   load: vi.fn(),
+  loadedScope: 'user:u1' as string | undefined,
   profiles: [] as SandboxProfileItem[],
   scope: 'user:u1' as string | undefined,
   serverStatus: vi.fn(),
   setEnabled: vi.fn(),
+  userReady: true,
 }));
 
 vi.mock('@lobehub/ui', () => ({
@@ -42,14 +45,20 @@ vi.mock('@/services/sandboxHub', () => ({
 }));
 vi.mock('@/store/user', () => ({
   useUserStore: (selector: (state: any) => unknown) =>
-    selector({ isUserStateInit: true, userStateScope: mocks.scope }),
+    selector({
+      isUserStateInit: mocks.userReady,
+      userStateInitializationFailure: mocks.initFailed
+        ? { reason: 'request-failed', scope: 'user:u1' }
+        : undefined,
+      userStateScope: mocks.scope,
+    }),
 }));
 vi.mock('@/store/tool', () => ({
   useToolStore: (selector: (state: any) => unknown) =>
     selector({
       loadSandboxProfiles: mocks.load,
       sandboxProfiles: mocks.profiles,
-      sandboxProfilesScope: mocks.profiles.length > 0 ? 'user:u1' : undefined,
+      sandboxProfilesScope: mocks.loadedScope,
       setSandboxProfileEnabled: mocks.setEnabled,
     }),
 }));
@@ -82,6 +91,9 @@ describe('SandboxHub', () => {
     mocks.serverStatus.mockResolvedValue({ remote: 'ok' });
     mocks.setEnabled.mockResolvedValue(undefined);
     mocks.scope = 'user:u1';
+    mocks.loadedScope = 'user:u1';
+    mocks.userReady = true;
+    mocks.initFailed = false;
   });
   afterEach(() => cleanup());
 
@@ -92,19 +104,47 @@ describe('SandboxHub', () => {
     });
     expect(mocks.load).toHaveBeenCalledWith('user:u1');
     expect(mocks.serverStatus).toHaveBeenCalledWith('user:u1');
+    expect(screen.getByText('empty')).toBeTruthy();
+  });
+
+  it('shows loading until the account is ready, and an error if that init failed', async () => {
+    mocks.scope = undefined;
+    mocks.userReady = false;
+    mocks.profiles = [];
+    await act(async () => {
+      render(<SandboxHub />);
+    });
+    expect(screen.getByText('loading')).toBeTruthy();
+    expect(screen.queryByText('empty')).toBeNull();
+    expect(mocks.load).not.toHaveBeenCalled();
+
+    cleanup();
+    mocks.initFailed = true;
+    await act(async () => {
+      render(<SandboxHub />);
+    });
+    expect(screen.getByText('loadFailed')).toBeTruthy();
+    expect(screen.queryByText('empty')).toBeNull();
   });
 
   it('shows each profile with its limits, network, server status and instruction', async () => {
-    mocks.profiles = [profile('data', { enabled: true }), profile('locked', { available: false })];
+    mocks.profiles = [
+      profile('data', { enabled: true }),
+      profile('locked', { available: false }),
+      profile('broken', { available: false, enabled: true }),
+    ];
     await act(async () => {
       render(<SandboxHub />);
     });
 
     expect(screen.getByText('data name')).toBeTruthy();
-    expect(screen.getAllByText('health.ok')).toHaveLength(2);
+    expect(screen.getAllByText('health.ok')).toHaveLength(3);
     expect(screen.getAllByText(/profile\.egress\.allowlist/)[0].textContent).toContain('"count":1');
-    expect(screen.getAllByText(/profile\.idle/)[0].textContent).toContain('30 min');
-    expect(screen.getByText('profile.unavailable')).toBeTruthy();
+    expect(screen.getAllByText(/profile\.idle/)[0].textContent).toContain(
+      'profile.duration.minutes',
+    );
+    expect(screen.getAllByText(/profile\.idle/)[0].textContent).toContain('30');
+    expect(screen.getAllByText('profile.unavailable')).toHaveLength(2);
 
     expect(screen.queryByText('data instruction text')).toBeNull();
     fireEvent.click(screen.getAllByText('profile.showInstruction')[0]);
@@ -112,6 +152,8 @@ describe('SandboxHub', () => {
 
     const locked = screen.getByRole('button', { name: /locked name/ }) as HTMLButtonElement;
     expect(locked.disabled).toBe(true);
+    const broken = screen.getByRole('button', { name: /broken name/ }) as HTMLButtonElement;
+    expect(broken.disabled).toBe(false);
   });
 
   it('turns a profile on or off through the store', async () => {
