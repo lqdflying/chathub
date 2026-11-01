@@ -15,15 +15,17 @@ product-level sandbox contract. It already follows this design — do not
 | Layer | Where | What belongs there |
 | --- | --- | --- |
 | Product / builtin tool | `src/tools/sandbox/systemRole.ts` (manifest in `src/tools/sandbox/index.ts`) | How the sandbox works: working directory `/tmp/workspace`, what carries over between calls, tools the image *usually* has (check with `command -v`), operator time limits (default 60s, `timeout` up to the operator maximum), when to use the file APIs and background commands, how to deliver files (`files[].url`), and the Python guidance (matplotlib Agg and `plot_N.png`, office/data libraries **when installed**, STSong). `packages` does not install. `pip`/`npm` installs are best-effort and last only while that sandbox lives. Static text only (prompt-cache prefix) |
-| Sandbox image | `docker/opensandbox/` (requirements, apt list, Node.js) | Makes `import`, CLIs, and runtimes available. Rebuild the image and point `OPENSANDBOX_IMAGE` at it |
+| Sandbox Hub profile | Operator `SANDBOX_PROFILES_FILE` → `instruction` (file or text) per profile | A purpose-built sandbox (its own image, network, limits). The profile instruction is that tool's system role, injected only while that profile's tool is on. `base: general` (default) prepends the builtin contract above; `base: none` replaces it. Composed once per process, so it stays cache-stable. The `general` profile without operator text is exactly the builtin prompt |
+| Sandbox image | `docker/opensandbox/` (requirements, apt list, Node.js) | Makes `import`, CLIs, and runtimes available. Rebuild the image and point `OPENSANDBOX_IMAGE` (or a profile's `image`) at it |
 | Assistant prompt | Agent Setting → system role | Standing specialty for **that** assistant (e.g. “`openai` is installed; use it for SDK experiments”) |
 | User general instruction | Settings | All chats for that account |
 | Topic | **No topic system-prompt field** | Title + compaction `historySummary` only. Use a dedicated assistant, a Skill, or the user message |
-| Skills | `load_skill` | Reusable task bundle without a ChatHub release |
+| Skills | Activated per conversation from the chat input Skills picker (no `load_skill` tool any more) | Reusable task bundle without a ChatHub release |
 
 ## Do not
 
 - Change the builtin prompt because one host installed extra packages or CLIs.
+  Give that host's image its own Sandbox Hub profile with its own instruction.
 - Claim the `packages` argument installs anything.
 - Inject ChatHub LLM keys or other server secrets into the sandbox
   (`OPENAI_API_KEY` on the ChatHub container is **not** in the sandbox; a

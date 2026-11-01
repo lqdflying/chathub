@@ -1,0 +1,52 @@
+---
+description: Sandbox Hub — operator sandbox profiles, per-user on/off, one tool per profile, remote OpenSandbox servers
+globs: src/server/services/sandbox/**,src/tools/sandbox/**,src/store/tool/slices/sandbox/**,src/features/SandboxHub/**,src/app/[variants]/(main)/sandbox/**,src/server/routers/lambda/sandboxHub.ts
+alwaysApply: false
+---
+
+# Sandbox Hub
+
+Several purpose-built sandboxes, defined by the **operator** in
+`SANDBOX_PROFILES_FILE`, each its own tool with its own instruction and
+container. Users only turn them on or off (`/sandbox`); agents opt in from the
+tool picker. Maintainer doc: `openwiki/architecture/sandbox.md` (Sandbox Hub
+profiles).
+
+## Invariants (keep)
+
+- **`general` is the old Sandbox.** It keeps `lobe-sandbox`, the legacy
+  alias, the built-in instruction, and the pre-profile session key. Without a
+  profiles file its manifest is byte-identical to the old static
+  `SandboxManifest` (golden test in `payload.sandbox.test.ts`).
+- **Profile ids:** `^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$`, ≤ 16 chars, never `_`.
+  Longer ids push `lobe-sandbox--<id>____<api>____builtin` past 64 chars, where
+  `ToolNameResolver` hashes names and the worker (`split('____')`) breaks.
+- **Sandbox tools are appended last** to the builtin list (worker payload and
+  tool-store slice), where the static manifest used to be. Do not reorder:
+  it changes prompt bytes for every existing agent.
+- **One gate:** every call goes through `resolveSandboxProfileForUser`. Do not
+  add a path that invokes the provider without it.
+- **Server details never reach the browser:** the Hub DTO has no URL, key, or
+  image. Keys come from `apiKeyEnv`; a literal key in the file is rejected.
+- **A broken profiles file configures nothing.** Do not "recover" by running
+  the valid half; the operator would not notice the missing profile.
+- **Instructions are static per process** (`compose.ts`). No per-user or
+  per-request text in a profile instruction.
+- Hub tRPC lives in the `sandboxHub.` namespace, which is in the client's
+  `VERIFIED_ACCOUNT_RPC_NAMESPACES`. A new scope-checked namespace must be
+  added there too, or every call fails as a mismatched user.
+
+## Remote servers
+
+ChatHub reaches execd only through the lifecycle server proxy, so a dedicated
+host exposes one HTTPS endpoint. OpenSandbox has no TLS and its single-tenant
+proxy route is not key-checked: the reverse proxy must require
+`OPEN-SANDBOX-API-KEY` on every path and allow only the ChatHub host
+(`docker/opensandbox-remote/`). Server-wide settings (runtime class, egress
+mode, `network_mode`, max timeout) need separate servers.
+
+## Verify
+
+Provider, session-key, or label changes: run `e2e.live.test.ts` 5+ times on a
+local OpenSandbox (`.cursor/rules/sandbox-repro.mdc`), including the
+two-profiles-in-one-conversation case, and confirm no containers are left.

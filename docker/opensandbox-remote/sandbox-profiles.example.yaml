@@ -1,0 +1,44 @@
+# ChatHub SANDBOX_PROFILES_FILE. Mount it into the ChatHub container and set
+# SANDBOX_PROFILES_FILE to its path. Any error configures no profiles at all
+# (see the ChatHub logs), so check the Sandbox Hub page after a change.
+version: 1
+
+servers:
+  # "default" may be omitted: it then comes from OPENSANDBOX_SERVER_URL /
+  # OPENSANDBOX_API_KEY.
+  - id: remote
+    name: Dedicated sandbox host
+    url: https://sandbox.example.com
+    # Name of the ChatHub environment variable that holds this server's key.
+    apiKeyEnv: REMOTE_SANDBOX_API_KEY
+    # Uncomment if the server returns an internal host for execd calls.
+    # proxyEndpoint: baseUrl
+
+profiles:
+  # Keeps the lobe-sandbox tool, the built-in instruction and existing
+  # agents. Omit image/cpu/memory to use OPENSANDBOX_*.
+  - id: general
+    name: Sandbox
+    description: Run commands, code, git, and Node.js in a Linux sandbox, and work with its files
+    server: remote
+    image: registry.example.com/chathub-sandbox:2
+
+  - id: data
+    name: Data science
+    description: Python with the data stack, packages from PyPI only
+    server: remote
+    image: registry.example.com/chathub-sandbox-data:1
+    cpu: '2'
+    memory: 4Gi
+    egress: [pypi.org, files.pythonhosted.org]
+    sessionIdleTimeoutMs: 3600000
+    instruction:
+      file: instructions/data.md
+
+  - id: offline
+    name: Offline
+    description: No network access; for untrusted files
+    server: remote
+    egress: none
+    instruction:
+      text: The network is off in this sandbox. Do not try to download or install anything.

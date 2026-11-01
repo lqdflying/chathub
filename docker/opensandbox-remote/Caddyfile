@@ -1,0 +1,26 @@
+# TLS in front of the OpenSandbox lifecycle server. Every request must come
+# from the ChatHub host and carry the server API key, on every path, because
+# OpenSandbox does not check the key on its sandbox proxy route in
+# single-tenant mode.
+{$SANDBOX_DOMAIN} {
+	@outsider not remote_ip {$CHATHUB_HOST_IP}
+	respond @outsider 403
+
+	@unauthenticated not header OPEN-SANDBOX-API-KEY {$OPENSANDBOX_SERVER_API_KEY}
+	respond @unauthenticated 401
+
+	# Conversation files (count x per-file cap) go through uploads.
+	request_body {
+		max_size 300MB
+	}
+
+	reverse_proxy opensandbox:8090 {
+		# Command output is streamed; do not buffer it.
+		flush_interval -1
+		transport http {
+			# At least SANDBOX_MAX_TIMEOUT (default 10 minutes).
+			read_timeout 15m
+			write_timeout 15m
+		}
+	}
+}

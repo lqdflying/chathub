@@ -91,7 +91,8 @@ conversation files.
 
 ## Legacy identifier
 
-Old tool messages keep `lobe-code-interpreter` and API `python`.
+Old tool messages keep `lobe-code-interpreter` and API `python`. They map to
+the `general` Sandbox Hub profile.
 `resolveBuiltinToolAlias`, `isSandboxToolIdentifier`, and
 `resolveSandboxApiName` (`src/tools/sandbox/const.ts`) cover them in the
 renders map, `getMetaById`, the tool inspector title, conversation-file
@@ -102,6 +103,106 @@ payload builder; it returns the same array when nothing changes, so selectors
 stay referentially stable). Migration `0062_sandbox_tool_identifier` rewrites
 `agents.plugins` and `user_settings.default_agent.config.plugins`, keeping
 order and one entry when both ids were present.
+
+## Sandbox Hub profiles
+
+The operator can offer several purpose-built sandboxes instead of one. Each
+**profile** is its own tool for the model, with its own image, limits,
+network policy, lifetimes and instruction, and its own container per
+conversation. Users turn profiles on or off in the **Sandbox Hub**
+(top-level menu, `/sandbox`); agents still opt in from the tool picker.
+
+| Piece | Where |
+| --- | --- |
+| Operator config | `SANDBOX_PROFILES_FILE` (YAML or JSON), loaded by `src/server/services/sandbox/profiles/load.ts` (zod schema in `schema.ts`) |
+| Instruction composition | `profiles/compose.ts`, once at load |
+| Per-user on/off | table `user_sandbox_profiles` (migration 0064), `SandboxProfileModel` |
+| Catalog + gate | `profiles/catalog.ts`: `getUserSandboxProfiles`, `getUserSandboxManifests`, `resolveSandboxProfileForUser` |
+| Server status | `profiles/status.ts` + `OpenSandboxClient.health` (30 s cache) |
+| Hub API | tRPC `sandboxHub.listProfiles` / `setProfileEnabled` / `serverStatus` (account-scope checked) |
+| Browser tools | tool-store slice `src/store/tool/slices/sandbox` |
+| Hub page | `src/app/[variants]/(main)/sandbox`, `src/features/SandboxHub` |
+
+**Identifiers.** The `general` profile keeps `lobe-sandbox` (and the legacy
+alias). Every other profile is `lobe-sandbox--<id>`; ids are lowercase
+letters, digits and single hyphens, at most 16 characters, so
+`<identifier>____<api>____builtin` stays under the 64-character point where
+`ToolNameResolver` hashes names (the durable worker splits names on `____`
+and cannot undo the hash). `parseSandboxToolIdentifier` /
+`sandboxToolIdentifier` live in `src/tools/sandbox/const.ts`.
+
+**Without a profiles file** one `general` profile and one `default` server
+are built from `OPENSANDBOX_*` with the built-in title, description, avatar
+and instruction. Its manifest is byte-identical to the old static
+`SandboxManifest`, and its session key is unchanged, so existing agents,
+prompts and parked sandboxes behave exactly as before.
+
+**Tools reach the model** the same way on both paths: the static builtin list
+no longer has the Sandbox; the user's enabled, runnable profiles are appended
+last (where the static manifest was), so tool order and prompt bytes for an
+existing `lobe-sandbox` agent stay identical. The worker does this in
+`conversationGeneration/payload.ts`; the browser in the tool-store slice
+(loaded in `StoreInitialization`, awaited before a browser-path send that
+lists a Sandbox tool). A profile turned off in the Hub has no manifest, so
+`ToolsEngine` drops its tool **and** its instruction for every agent without
+rewriting `agents.plugins`.
+
+**Every call is gated** by `resolveSandboxProfileForUser` (browser route and
+worker): unknown, unconfigured, key-less, or turned-off profiles fail with a
+clear message. If the choices table cannot be read, profiles fall back to
+their `defaultEnabled`.
+
+**Sandboxes per profile.** `buildSandboxSessionKey` adds the profile id for
+every profile except `general`, so each profile has its own sandbox and lock
+in a conversation and profiles never evict each other. New sandboxes carry a
+`chathub-profile` label; reuse never requires it.
+
+### Profiles file
+
+```yaml
+version: 1
+servers:                     # optional; "default" falls back to OPENSANDBOX_SERVER_URL
+  - id: remote
+    name: Dedicated sandbox host
+    url: https://sandbox.example.com
+    apiKeyEnv: REMOTE_SANDBOX_API_KEY   # the key itself stays in the environment
+profiles:                    # 1..16, in display and prompt order
+  - id: general              # keeps lobe-sandbox and the built-in instruction
+    name: Sandbox
+    description: General Linux sandbox
+  - id: data
+    name: Data science
+    description: Python with the data stack
+    server: remote
+    image: registry.example.com/chathub-sandbox-data:3
+    cpu: "2"
+    memory: 4Gi
+    egress: [pypi.org, files.pythonhosted.org]   # or open | none
+    sessionIdleTimeoutMs: 3600000
+    defaultEnabled: false    # general defaults to true, others to false
+    instruction:
+      file: instructions/data.md   # relative to the profiles file; or text:
+      base: general                # general (default) prepends the built-in contract; none = only this text
+```
+
+Rules: every omitted field falls back to `OPENSANDBOX_*`; literal API keys
+are rejected; a server whose `apiKeyEnv` is unset is `misconfigured` and its
+profiles cannot run; **any** error configures no profiles at all (logged
+once) instead of silently running the rest; instructions are capped at
+32 KiB and composed once per process (restart to apply file edits).
+Server-wide OpenSandbox settings (gVisor/Kata runtime, egress mode,
+`network_mode`, max timeout) need separate servers, so put such profiles on
+their own server entry.
+
+### Remote server
+
+ChatHub only talks to the lifecycle server (execd through
+`use_server_proxy=true`), so a dedicated host needs one HTTPS endpoint.
+OpenSandbox has no TLS of its own and, in single-tenant mode, does not check
+the API key on the proxy route: put a reverse proxy in front that requires
+`OPEN-SANDBOX-API-KEY` on **every** path and only accepts the ChatHub host.
+Examples: `docker/opensandbox-remote/`. For a private CA, set
+`NODE_EXTRA_CA_CERTS` on the ChatHub container.
 
 ## Provider interface
 
@@ -491,6 +592,7 @@ mirror access.
 | `OPENSANDBOX_EGRESS_ALLOW` | — | Deny-by-default domain allowlist. |
 | `OPENSANDBOX_SESSION_IDLE_TIMEOUT` | 1800000 | Keep a conversation's sandbox this long after its last call (ms); 0 = fresh per call. |
 | `OPENSANDBOX_SESSION_MAX_LIFETIME` | 0 | Optional age cap (ms). |
+| `SANDBOX_PROFILES_FILE` | — | Sandbox Hub profiles (YAML/JSON). Unset = one `general` profile from the values above. The `OPENSANDBOX_*` values are the defaults for every profile field. |
 | `SANDBOX_TIMEOUT` | 60000 | Default per-call time limit (ms). Legacy `CODE_INTERPRETER_TIMEOUT`. |
 | `SANDBOX_MAX_TIMEOUT` | 600000 | Largest `timeout` the model may request (ms). |
 | `SANDBOX_MAX_FILE_BYTES` | 10 MiB | Per-file cap for inputs, reads, writes, exports. Legacy `CODE_INTERPRETER_MAX_FILE_BYTES`. |
@@ -519,6 +621,7 @@ operator-specific jobs there.
 | Standing specialty | That assistant’s system prompt (Agent Setting) |
 | One-off task | User message or a Skill — topics have **no** system-prompt field |
 | ChatHub LLM API keys | Stay on the ChatHub container; they are **not** injected into the sandbox |
+| A purpose-built sandbox (different image, network, limits) | A Sandbox Hub profile. Its `instruction` (file or text) is that profile's own system role; with `base: general` it follows the built-in contract. It is injected only while that profile's tool is enabled |
 
 Agent rule: `.cursor/rules/sandbox-prompt.mdc`.
 

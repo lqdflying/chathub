@@ -1,0 +1,35 @@
+# OpenSandbox lifecycle server on a dedicated host, behind Caddy (TLS + auth).
+# Pin the server image to the release you verified; check its tags on Docker Hub.
+services:
+  opensandbox:
+    image: ${OPENSANDBOX_SERVER_IMAGE:-opensandbox/server:release-1.1.0}
+    restart: unless-stopped
+    environment:
+      OPENSANDBOX_SERVER_API_KEY: ${OPENSANDBOX_SERVER_API_KEY:?set a long random API key}
+      SANDBOX_CONFIG_PATH: /etc/opensandbox/config.toml
+    volumes:
+      - ./config.toml:/etc/opensandbox/config.toml:ro
+      # Docker runtime: root-equivalent on this host.
+      - /var/run/docker.sock:/var/run/docker.sock
+    # Only Caddy (and this host) can reach the server port.
+    ports:
+      - '127.0.0.1:8090:8090'
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - opensandbox
+    environment:
+      CHATHUB_HOST_IP: ${CHATHUB_HOST_IP:?ChatHub source IP or CIDR}
+      OPENSANDBOX_SERVER_API_KEY: ${OPENSANDBOX_SERVER_API_KEY}
+      SANDBOX_DOMAIN: ${SANDBOX_DOMAIN:?DNS name of this host}
+    ports:
+      - '443:443'
+      - '80:80'
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+
+volumes:
+  caddy_data:

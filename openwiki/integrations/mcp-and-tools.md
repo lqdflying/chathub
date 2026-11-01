@@ -358,6 +358,13 @@ User-facing setup:
 - **Legacy** — old `lobe-code-interpreter` / `python` messages still render
   and dispatch; plugin lists are normalized on read and migrated by
   `0062_sandbox_tool_identifier`.
+- **Sandbox Hub profiles** — an operator `SANDBOX_PROFILES_FILE` turns the one
+  Sandbox into several tools (`lobe-sandbox` for `general`,
+  `lobe-sandbox--<id>` for the rest), each with its own image, limits,
+  network, instruction and container. Users switch them on in the Sandbox
+  Hub (`/sandbox`); the tools are appended per user after the static
+  builtins on both paths, and `resolveSandboxProfileForUser` gates every
+  call. Details: [Sandbox](../architecture/sandbox.md#sandbox-hub-profiles).
 - **Packages** — operator-installed in the image (`docker/opensandbox/`). The
   `packages` argument does not install anything.
 - **Debug** — `sandbox_run_started` / `sandbox_run_settled` on

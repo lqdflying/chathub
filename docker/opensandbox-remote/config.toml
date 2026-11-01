@@ -1,0 +1,24 @@
+# OpenSandbox server settings that matter on a remote host. Key names follow
+# the OpenSandbox configuration reference; confirm them with
+# `opensandbox-server init-config` for the release you run.
+
+[server]
+host = "0.0.0.0"
+port = 8090
+# The API key comes from OPENSANDBOX_SERVER_API_KEY (it wins over api_key).
+# Caps only the create TTL; ChatHub renews session sandboxes itself.
+max_sandbox_timeout_seconds = 86400
+
+[runtime]
+type = "docker"
+
+[docker]
+# Egress policies need bridge networking.
+network_mode = "bridge"
+# Keep per-sandbox execd ports off public interfaces; ChatHub uses the
+# server proxy route, not direct endpoints.
+publish_host = "127.0.0.1"
+
+[egress]
+# "dns" enforces domain allowlists; "dns+nft" also enforces IP/CIDR rules.
+mode = "dns"
