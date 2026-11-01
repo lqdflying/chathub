@@ -2,6 +2,7 @@ import type { LobeChatDatabase } from '@lobechat/database';
 import type { SandboxProfileItem } from '@lobechat/types';
 
 import { SandboxProfileModel } from '@/database/models/sandboxProfile';
+import { createSandboxProfileManifest } from '@/tools/sandbox';
 import { parseSandboxToolIdentifier } from '@/tools/sandbox/const';
 
 import { findSandboxServer, getSandboxProfileCatalog, isSandboxProfileUsable } from './load';
@@ -65,6 +66,10 @@ export const getUserEnabledSandboxProfiles = async (db: LobeChatDatabase, userId
   (await getUserSandboxProfiles(db, userId)).filter(
     (profile) => profile.enabled && profile.available,
   );
+
+/** One tool manifest per profile the user turned on, in config order. */
+export const getUserSandboxManifests = async (db: LobeChatDatabase, userId: string) =>
+  (await getUserEnabledSandboxProfiles(db, userId)).map(createSandboxProfileManifest);
 
 export type SandboxProfileResolution =
   | { message: string; ok: false; reason: 'disabled' | 'not_configured' | 'unknown' }

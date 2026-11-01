@@ -42,6 +42,7 @@ import { resolveTokenizerHistoryWindow } from '@/helpers/contextMessageTokens';
 import { requestedCompletionCap, resolveInputBudgetTokens } from '@/helpers/inputBudget';
 import { appendTopicReferenceBlock } from '@/helpers/topicReference';
 import { FileService } from '@/server/services/file';
+import { getUserSandboxManifests } from '@/server/services/sandbox/profiles/catalog';
 import { loadTopicReferenceBlock } from '@/server/services/topicReference/load';
 import { composeSystemRole } from '@/services/chat/composeSystemRole';
 import { resolveOpenAICompatibleChatRoute } from '@/services/chat/openAICompatibleRoute';
@@ -49,7 +50,7 @@ import { buildModelExtendParams, resolveModelSearchConfig } from '@/services/cha
 import { trimMinimaxChatContext } from '@/services/chat/trimMinimaxContext';
 import { builtinTools } from '@/tools';
 import { MemoryManifest } from '@/tools/memory';
-import { normalizeBuiltinToolIds } from '@/tools/sandbox/const';
+import { isSandboxToolIdentifier, normalizeBuiltinToolIds } from '@/tools/sandbox/const';
 import { SkillLoaderManifest } from '@/tools/skills';
 import { WebBrowsingManifest } from '@/tools/web-browsing';
 
@@ -154,7 +155,16 @@ export const buildConversationChatPayload = async ({
   const pluginManifests = installed
     .map((item) => item.manifest)
     .filter(Boolean) as LobeChatPluginManifest[];
-  const builtinManifests = builtinTools.map((tool) => tool.manifest as LobeChatPluginManifest);
+  // Sandbox tools come from the user's Sandbox Hub profiles. They go last,
+  // where the single static Sandbox manifest used to be, so an existing
+  // lobe-sandbox agent builds the same tools and system prompt bytes.
+  const sandboxManifests = pluginIds.some((id) => isSandboxToolIdentifier(id))
+    ? await getUserSandboxManifests(db, userId)
+    : [];
+  const builtinManifests = [
+    ...builtinTools.filter((tool) => !isSandboxToolIdentifier(tool.identifier)),
+    ...sandboxManifests.map((manifest) => ({ manifest })),
+  ].map((tool) => tool.manifest as LobeChatPluginManifest);
   const defaultToolIds = [
     ...(searchConfig.useApplicationBuiltinSearchTool ? [WebBrowsingManifest.identifier] : []),
     ...(config.enableMemoryTool ? [MemoryManifest.identifier] : []),
