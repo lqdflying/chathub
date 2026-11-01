@@ -1,6 +1,8 @@
 /** @vitest-environment node */
 import { describe, expect, it, vi } from 'vitest';
 
+import { getSandboxProvider, isSandboxConfigured } from '../registry';
+
 vi.mock('@/envs/sandbox', () => ({
   sandboxEnv: {
     OPENSANDBOX_CPU: '1',
@@ -19,8 +21,6 @@ vi.mock('@/envs/sandbox', () => ({
   },
 }));
 
-import { getSandboxProvider, isSandboxConfigured } from '../registry';
-
 describe('sandbox provider registry', () => {
   it('always uses OpenSandbox', () => {
     expect(getSandboxProvider().id).toBe('opensandbox');
@@ -28,5 +28,31 @@ describe('sandbox provider registry', () => {
 
   it('is not configured without a server URL and image', () => {
     expect(isSandboxConfigured()).toBe(false);
+  });
+});
+
+describe('sandbox provider registry with a profile', () => {
+  it('builds the provider from the profile and its server', () => {
+    const provider = getSandboxProvider(
+      {
+        cpu: '2',
+        defaultEnabled: false,
+        description: 'Data',
+        egress: { mode: 'none' },
+        id: 'data',
+        identifier: 'lobe-sandbox--data',
+        image: 'registry.example/data:3',
+        instruction: 'x',
+        memory: '4Gi',
+        name: 'Data',
+        readyTimeoutMs: 30_000,
+        serverId: 'remote',
+        sessionIdleTimeoutMs: 0,
+        sessionMaxLifetimeMs: 0,
+      },
+      { apiKey: 'k', id: 'remote', name: 'Remote', status: 'ok', url: 'https://sandbox.example' },
+    );
+    expect(provider.isConfigured()).toBe(true);
+    expect(provider.keepsSessions).toBe(false);
   });
 });

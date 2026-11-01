@@ -18,7 +18,7 @@ import {
   type OpenSandboxNetworkPolicy,
 } from './client';
 import { OPENSANDBOX_LAYOUT_VERSION } from './python';
-import { combineSignals, OpenSandboxWorkspace, type WorkspacePhase } from './workspace';
+import { OpenSandboxWorkspace, type WorkspacePhase, combineSignals } from './workspace';
 
 // Keeps the container alive; execd (injected by the server) does the work.
 // `tail` exists in every Debian/Ubuntu/Alpine-based image.
@@ -43,6 +43,10 @@ export const OPEN_NETWORK_FINGERPRINT = 'open';
 // whose label differs (or is missing) is replaced, so a new image or layout
 // takes effect without waiting for old sandboxes to go idle.
 export const RUNTIME_METADATA_KEY = 'chathub-runtime';
+// Container label naming the Sandbox Hub profile that created the sandbox.
+// Informational (operator cleanup, debugging): reuse never requires it, so
+// sandboxes created before profiles existed are still reused.
+export const PROFILE_METADATA_KEY = 'chathub-profile';
 export const SANDBOX_METADATA_NAME = 'chathub-sandbox';
 // A reused sandbox that does not answer quickly is treated as gone.
 const REUSE_PING_TIMEOUT_MS = 5000;
@@ -108,27 +112,45 @@ export class OpenSandboxProvider implements SandboxProvider {
   private maxFileCount: number;
   private maxOutputChars: number;
   private memory: string;
+  private networkDisabled: boolean;
+  private profileId?: string;
   private readyTimeout: number;
   private sessionIdleTimeout: number;
   private sessionMaxLifetime: number;
 
+  /**
+   * Every option falls back to OPENSANDBOX_*, so `new OpenSandboxProvider()`
+   * is still today's single sandbox. Sandbox Hub profiles pass their own.
+   */
   constructor(options?: {
     apiKey?: string;
     baseUrl?: string;
+    cpu?: string;
+    /** Allowed egress targets; empty = no policy unless `networkDisabled`. */
+    egressAllow?: string[];
     image?: string;
+    memory?: string;
+    /** Profile `egress: none`: deny all egress unless a call opts in. */
+    networkDisabled?: boolean;
+    profileId?: string;
+    readyTimeout?: number;
     sessionIdleTimeout?: number;
     sessionMaxLifetime?: number;
   }) {
     this.baseUrl = (options?.baseUrl ?? sandboxEnv.OPENSANDBOX_SERVER_URL)?.replace(/\/+$/, '');
     this.apiKey = options?.apiKey ?? sandboxEnv.OPENSANDBOX_API_KEY;
     this.image = (options?.image ?? sandboxEnv.OPENSANDBOX_IMAGE)?.trim() || undefined;
-    this.cpu = sandboxEnv.OPENSANDBOX_CPU;
-    this.egressAllow = (sandboxEnv.OPENSANDBOX_EGRESS_ALLOW ?? '')
-      .split(',')
-      .map((item) => item.trim())
-      .filter(Boolean);
-    this.memory = sandboxEnv.OPENSANDBOX_MEMORY;
-    this.readyTimeout = sandboxEnv.OPENSANDBOX_READY_TIMEOUT;
+    this.cpu = options?.cpu ?? sandboxEnv.OPENSANDBOX_CPU;
+    this.egressAllow =
+      options?.egressAllow ??
+      (sandboxEnv.OPENSANDBOX_EGRESS_ALLOW ?? '')
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean);
+    this.memory = options?.memory ?? sandboxEnv.OPENSANDBOX_MEMORY;
+    this.networkDisabled = options?.networkDisabled ?? false;
+    this.profileId = options?.profileId;
+    this.readyTimeout = options?.readyTimeout ?? sandboxEnv.OPENSANDBOX_READY_TIMEOUT;
     this.sessionIdleTimeout =
       options?.sessionIdleTimeout ?? sandboxEnv.OPENSANDBOX_SESSION_IDLE_TIMEOUT;
     this.sessionMaxLifetime =
@@ -140,6 +162,12 @@ export class OpenSandboxProvider implements SandboxProvider {
 
   isConfigured() {
     return !!this.baseUrl && !!this.image;
+  }
+
+  /** A call's own `enableNetwork` wins; otherwise a profile with `egress: none` denies all. */
+  private networkPolicy(options: SandboxSessionOptions) {
+    const enableNetwork = options.enableNetwork ?? (this.networkDisabled ? false : undefined);
+    return buildNetworkPolicy(enableNetwork, this.egressAllow);
   }
 
   get keepsSessions() {
@@ -193,7 +221,7 @@ export class OpenSandboxProvider implements SandboxProvider {
       settle({ outcome: 'not_configured' });
       throw new SandboxError(
         'NotConfigured',
-        'Sandbox is not configured: set OPENSANDBOX_SERVER_URL and OPENSANDBOX_IMAGE. The DifySandbox backend was removed.',
+        'Sandbox is not configured: set OPENSANDBOX_SERVER_URL and OPENSANDBOX_IMAGE, or a Sandbox Hub profile with a server and image.',
       );
     }
 
@@ -212,9 +240,7 @@ export class OpenSandboxProvider implements SandboxProvider {
     try {
       const readySignal = combineSignals(AbortSignal.timeout(this.readyTimeout), options.signal);
       const fingerprints = {
-        network: networkPolicyFingerprint(
-          buildNetworkPolicy(options.enableNetwork, this.egressAllow),
-        ),
+        network: networkPolicyFingerprint(this.networkPolicy(options)),
         runtime: runtimeFingerprint(this.image),
       };
       const lookup = sessionKey
@@ -234,13 +260,11 @@ export class OpenSandboxProvider implements SandboxProvider {
             'This conversation has no running sandbox. It was removed after being idle or replaced, so its files and processes are gone.',
           );
         }
-        ({ createdAt, execd, id: sandboxId } = await this.createSandbox(
-          client,
-          options,
-          budgetMs,
-          sessionKey,
-          readySignal,
-        ));
+        ({
+          createdAt,
+          execd,
+          id: sandboxId,
+        } = await this.createSandbox(client, options, budgetMs, sessionKey, readySignal));
       }
       retireAt = this.retireAt(createdAt);
 
@@ -305,7 +329,7 @@ export class OpenSandboxProvider implements SandboxProvider {
     signal: AbortSignal,
   ) {
     const requestedAt = Date.now();
-    const networkPolicy = buildNetworkPolicy(options.enableNetwork, this.egressAllow);
+    const networkPolicy = this.networkPolicy(options);
     const created = await client.createSandbox(
       {
         entrypoint: SANDBOX_ENTRYPOINT,
@@ -313,6 +337,7 @@ export class OpenSandboxProvider implements SandboxProvider {
         metadata: {
           [NETWORK_METADATA_KEY]: networkPolicyFingerprint(networkPolicy),
           [RUNTIME_METADATA_KEY]: runtimeFingerprint(this.image!),
+          ...(this.profileId ? { [PROFILE_METADATA_KEY]: this.profileId } : {}),
           ...(sessionKey ? { [SESSION_METADATA_KEY]: sessionKey } : {}),
           name: SANDBOX_METADATA_NAME,
         },
@@ -430,11 +455,7 @@ export class OpenSandboxProvider implements SandboxProvider {
    * `Running` means the container started, not that execd listens: the
    * server proxy answers 502 until it does.
    */
-  private async waitForExecd(
-    client: OpenSandboxClient,
-    execd: ExecdEndpoint,
-    signal: AbortSignal,
-  ) {
+  private async waitForExecd(client: OpenSandboxClient, execd: ExecdEndpoint, signal: AbortSignal) {
     for (;;) {
       try {
         if (await client.pingExecd(execd, signal)) return;
