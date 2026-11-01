@@ -18,7 +18,7 @@ import {
   type OpenSandboxNetworkPolicy,
 } from './client';
 import { OPENSANDBOX_LAYOUT_VERSION } from './python';
-import { OpenSandboxWorkspace, type WorkspacePhase, combineSignals } from './workspace';
+import { combineSignals, OpenSandboxWorkspace, type WorkspacePhase } from './workspace';
 
 // Keeps the container alive; execd (injected by the server) does the work.
 // `tail` exists in every Debian/Ubuntu/Alpine-based image.
@@ -260,11 +260,13 @@ export class OpenSandboxProvider implements SandboxProvider {
             'This conversation has no running sandbox. It was removed after being idle or replaced, so its files and processes are gone.',
           );
         }
-        ({
-          createdAt,
-          execd,
-          id: sandboxId,
-        } = await this.createSandbox(client, options, budgetMs, sessionKey, readySignal));
+        ({ createdAt, execd, id: sandboxId } = await this.createSandbox(
+          client,
+          options,
+          budgetMs,
+          sessionKey,
+          readySignal,
+        ));
       }
       retireAt = this.retireAt(createdAt);
 
@@ -455,7 +457,11 @@ export class OpenSandboxProvider implements SandboxProvider {
    * `Running` means the container started, not that execd listens: the
    * server proxy answers 502 until it does.
    */
-  private async waitForExecd(client: OpenSandboxClient, execd: ExecdEndpoint, signal: AbortSignal) {
+  private async waitForExecd(
+    client: OpenSandboxClient,
+    execd: ExecdEndpoint,
+    signal: AbortSignal,
+  ) {
     for (;;) {
       try {
         if (await client.pingExecd(execd, signal)) return;

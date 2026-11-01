@@ -2,7 +2,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SandboxError, SandboxRequestError, type SandboxWorkspace } from '../../types';
-import { invokeSandboxTool } from '../index';
 
 const mocks = vi.hoisted(() => ({
   keepsSessions: true,
@@ -49,6 +48,8 @@ vi.mock('../../conversationFiles', () => ({
 vi.mock('@/server/services/conversationGeneration/inboxSession', () => ({
   toPersistedConversationSessionId: (id?: string | null) => id ?? undefined,
 }));
+
+import { invokeSandboxTool } from '../index';
 
 const WORKDIR = '/tmp/workspace';
 const bytes = (value: string) => new Uint8Array(Buffer.from(value));
@@ -174,12 +175,10 @@ describe('invokeSandboxTool', () => {
     });
 
     mocks.keepsSessions = false;
-    expect(await call('runCommand', { background: true, command: 'node server.js' })).toMatchObject(
-      {
-        error: expect.stringContaining('its idle timeout is 0'),
-        success: false,
-      },
-    );
+    expect(await call('runCommand', { background: true, command: 'node server.js' })).toMatchObject({
+      error: expect.stringContaining('its idle timeout is 0'),
+      success: false,
+    });
   });
 
   it('reads background output from the existing sandbox only', async () => {
@@ -254,9 +253,7 @@ describe('invokeSandboxTool', () => {
   it('edits one exact match and refuses ambiguous or missing ones', async () => {
     workspace.readFile.mockResolvedValue(bytes('let a = 1;\nlet b = 1;\n'));
 
-    expect(
-      await call('editFile', { newString: 'x', oldString: 'zzz', path: 'a.js' }),
-    ).toMatchObject({
+    expect(await call('editFile', { newString: 'x', oldString: 'zzz', path: 'a.js' })).toMatchObject({
       error: expect.stringContaining('was not found'),
       success: false,
     });
@@ -323,7 +320,9 @@ describe('invokeSandboxTool', () => {
     });
 
     expect(result).toEqual({
-      files: [{ fileId: 'out-0', filename: 'report.pdf', url: 'https://app.example/f/report.pdf' }],
+      files: [
+        { fileId: 'out-0', filename: 'report.pdf', url: 'https://app.example/f/report.pdf' },
+      ],
       skipped: [
         'missing.csv: File not found: /tmp/workspace/missing.csv',
         'empty.txt: the file is empty',
@@ -334,11 +333,7 @@ describe('invokeSandboxTool', () => {
   });
 
   it('exports every file of a list sent as JSON text or as a comma list', async () => {
-    const present = new Set([
-      '/tmp/workspace/a.png',
-      '/tmp/workspace/out/b.png',
-      '/tmp/workspace/x,y.txt',
-    ]);
+    const present = new Set(['/tmp/workspace/a.png', '/tmp/workspace/out/b.png', '/tmp/workspace/x,y.txt']);
     workspace.readFile.mockImplementation(async (path: string) => {
       if (present.has(path)) return bytes('data');
       throw new SandboxRequestError(`File not found: ${path}`);
@@ -388,7 +383,9 @@ describe('invokeSandboxTool', () => {
 
     expect(result.files).toHaveLength(3);
     expect(result).toMatchObject({
-      skipped: ['over the 3-file limit, not exported; call exportFile again with: d, e'],
+      skipped: [
+        'over the 3-file limit, not exported; call exportFile again with: d, e',
+      ],
       success: true,
     });
   });
@@ -488,7 +485,6 @@ describe('invokeSandboxTool', () => {
       success: false,
     });
   });
-
   it('runs a Sandbox Hub profile in its own session and refuses unusable ones', async () => {
     const withIdentifier = (identifier: string, apiName = 'runCommand') =>
       invokeSandboxTool({

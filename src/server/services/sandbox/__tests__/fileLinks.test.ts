@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 
 import { SandboxIdentifier } from '@/tools/sandbox/const';
 
-import { generatedFileLinksFromMessages, rewriteGeneratedFileLinks } from '../fileLinks';
+import {
+  generatedFileLinksFromMessages,
+  rewriteGeneratedFileLinks,
+} from '../fileLinks';
 
 const appOrigin = 'https://ai.aksg.net';
 const pdf = {

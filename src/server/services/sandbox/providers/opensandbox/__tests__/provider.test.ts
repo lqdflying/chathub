@@ -1,24 +1,12 @@
 /** @vitest-environment node */
 import { createHash } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { logGenerationDebugSafe } from '@/libs/logger/generationDebug';
 import { executeConversationToolStep } from '@/server/services/conversationGeneration/tools';
 import { invokeSandboxTool } from '@/server/services/sandbox/tool';
 import { SandboxIdentifier } from '@/tools/sandbox/const';
-
-import type { SandboxWorkspace } from '../../../types';
-import { OPENSANDBOX_MANIFEST_MAX_BYTES } from '../client';
-import {
-  NETWORK_METADATA_KEY,
-  OPEN_NETWORK_FINGERPRINT,
-  OpenSandboxProvider,
-  RUNTIME_METADATA_KEY,
-  buildNetworkPolicy,
-  networkPolicyFingerprint,
-  runtimeFingerprint,
-} from '../provider';
 
 const generationStepMocks = vi.hoisted(() => ({
   claimStep: vi.fn(),
@@ -99,6 +87,20 @@ vi.mock('@/libs/logger/generationDebug', () => ({
   hashGenerationDebugValue: (value: string) => value,
   logGenerationDebugSafe: vi.fn(),
 }));
+
+import { logGenerationDebugSafe } from '@/libs/logger/generationDebug';
+
+import type { SandboxWorkspace } from '../../../types';
+import { OPENSANDBOX_MANIFEST_MAX_BYTES } from '../client';
+import {
+  buildNetworkPolicy,
+  NETWORK_METADATA_KEY,
+  OPEN_NETWORK_FINGERPRINT,
+  OpenSandboxProvider,
+  networkPolicyFingerprint,
+  RUNTIME_METADATA_KEY,
+  runtimeFingerprint,
+} from '../provider';
 
 const SERVER = 'http://opensandbox:8090';
 const EXECD_PATH = '/proxy/44772';
@@ -328,8 +330,7 @@ const byteStream = (length: number, chunkSize: number, contentLength?: number) =
       state.sent = sent;
     },
   });
-  const headers =
-    contentLength === undefined ? undefined : { 'Content-Length': String(contentLength) };
+  const headers = contentLength === undefined ? undefined : { 'Content-Length': String(contentLength) };
   return { response: () => new Response(body, { headers }), state };
 };
 
@@ -339,11 +340,7 @@ const file = (filename: string, content: string) => ({
 });
 
 const inputsOf = (files: ReturnType<typeof file>[]) =>
-  files.map((item) => ({
-    filename: item.filename,
-    id: item.filename,
-    load: async () => item.content,
-  }));
+  files.map((item) => ({ filename: item.filename, id: item.filename, load: async () => item.content }));
 
 const runTimeout = () => Number(process.env.SANDBOX_TIMEOUT ?? 60_000);
 
@@ -594,15 +591,9 @@ describe('OpenSandboxProvider', () => {
   it('ignores manifest names that leave the workdir or name a hidden path', async () => {
     const calls = install({
       files: manifest(
-        [
-          '../etc/passwd',
-          '/etc/passwd',
-          'out/../../x',
-          '.git/config',
-          'out/.env',
-          'a\\b.txt',
-          'out//x',
-        ].map((name) => ({ name, sha256: 'x', size: 4 })),
+        ['../etc/passwd', '/etc/passwd', 'out/../../x', '.git/config', 'out/.env', 'a\\b.txt', 'out//x'].map(
+          (name) => ({ name, sha256: 'x', size: 4 }),
+        ),
       ),
     });
 
@@ -629,11 +620,7 @@ describe('OpenSandboxProvider', () => {
 
     const result = await run();
 
-    expect(result.files.map((item) => item.filename)).toEqual([
-      'chart.png',
-      'report.txt',
-      'data.csv',
-    ]);
+    expect(result.files.map((item) => item.filename)).toEqual(['chart.png', 'report.txt', 'data.csv']);
     expect(Buffer.from(result.files[2].content).toString()).toBe('a,b');
     expect(calls.downloads.slice(1)).toEqual([
       '/tmp/workspace/chart.png',
@@ -681,11 +668,7 @@ describe('OpenSandboxProvider', () => {
     const calls = install({
       files: {
         [MANIFEST]: JSON.stringify({
-          files: [...top, 'out/a.txt', 'out/b.txt'].map((name) => ({
-            name,
-            sha256: sha('x'),
-            size: 1,
-          })),
+          files: [...top, 'out/a.txt', 'out/b.txt'].map((name) => ({ name, sha256: sha('x'), size: 1 })),
           scanCapped: false,
         }),
         ...Object.fromEntries(
@@ -945,9 +928,7 @@ describe('OpenSandboxProvider', () => {
 
     it('keeps reusing an active session sandbox at any age without a max lifetime', async () => {
       const calls = install({
-        existing: [
-          { createdAt: ago(5 * MAX_LIFETIME_MS), id: 'sbx-old', metadata: session('topic-a') },
-        ],
+        existing: [{ createdAt: ago(5 * MAX_LIFETIME_MS), id: 'sbx-old', metadata: session('topic-a') }],
       });
 
       await runIn('topic-a');
@@ -1210,7 +1191,7 @@ describe('OpenSandboxProvider', () => {
       expect(calls.commandIds).toEqual(['sbx-1']);
     });
 
-    it("does not attach a previous run's files when the process exits before the manifest", async () => {
+    it('does not attach a previous run\'s files when the process exits before the manifest', async () => {
       const previous = Array.from({ length: 21 }, (_, index) => ({
         changed: true as const,
         name: `result_${index}.txt`,
@@ -1325,7 +1306,8 @@ describe('OpenSandboxProvider', () => {
     it('starts a background command and reads its status, logs, and stop', async () => {
       const seen: string[] = [];
       const calls = install({
-        command: () => stream([{ text: 'bg-7', type: 'init' }, { type: 'execution_complete' }]),
+        command: () =>
+          stream([{ text: 'bg-7', type: 'init' }, { type: 'execution_complete' }]),
         route: (rest, url, init) => {
           seen.push(`${init.method ?? 'GET'} ${rest}${url.search}`);
           if (rest === '/command/status/bg-7') return json({ id: 'bg-7', running: true });
@@ -1406,15 +1388,9 @@ describe('OpenSandboxProvider', () => {
       });
 
       const results = await useIn('topic-a', async (workspace) => {
-        const text = Buffer.from(
-          await workspace.readFile('/tmp/workspace/app.ts', 1024),
-        ).toString();
+        const text = Buffer.from(await workspace.readFile('/tmp/workspace/app.ts', 1024)).toString();
         const errors = [];
-        for (const path of [
-          '/tmp/workspace/missing',
-          '/tmp/workspace/src',
-          '/tmp/workspace/huge.log',
-        ]) {
+        for (const path of ['/tmp/workspace/missing', '/tmp/workspace/src', '/tmp/workspace/huge.log']) {
           errors.push(await workspace.readFile(path, 1024).catch((error: Error) => error.message));
         }
         return { errors, text };
@@ -1443,10 +1419,7 @@ describe('OpenSandboxProvider', () => {
 
       await useIn('topic-a', async (workspace) => {
         await workspace.writeFile('/tmp/workspace/run.sh', new Uint8Array(Buffer.from('echo')));
-        await workspace.writeFile(
-          '/tmp/workspace/new/notes.md',
-          new Uint8Array(Buffer.from('# hi')),
-        );
+        await workspace.writeFile('/tmp/workspace/new/notes.md', new Uint8Array(Buffer.from('# hi')));
       });
 
       expect(calls.uploads).toEqual([
@@ -1463,13 +1436,7 @@ describe('OpenSandboxProvider', () => {
             ? json(
                 url.searchParams.get('depth') === '2'
                   ? [
-                      {
-                        mode: 755,
-                        modified_at: '2026-10-04T00:00:00Z',
-                        path: '/w/src',
-                        size: 0,
-                        type: 'directory',
-                      },
+                      { mode: 755, modified_at: '2026-10-04T00:00:00Z', path: '/w/src', size: 0, type: 'directory' },
                       { mode: 644, path: '/w/src/a.ts', size: 12, type: 'file' },
                       { path: '/w/link', size: 0, type: 'symlink' },
                       { size: 1 },
@@ -1482,13 +1449,7 @@ describe('OpenSandboxProvider', () => {
       const entries = await useIn(undefined, (workspace) => workspace.listDirectory('/w', 2));
 
       expect(entries).toEqual([
-        {
-          mode: 755,
-          modifiedAt: '2026-10-04T00:00:00Z',
-          path: '/w/src',
-          size: 0,
-          type: 'directory',
-        },
+        { mode: 755, modifiedAt: '2026-10-04T00:00:00Z', path: '/w/src', size: 0, type: 'directory' },
         { mode: 644, modifiedAt: undefined, path: '/w/src/a.ts', size: 12, type: 'file' },
         { mode: undefined, modifiedAt: undefined, path: '/w/link', size: 0, type: 'symlink' },
       ]);
@@ -1545,10 +1506,7 @@ describe('OpenSandboxProvider', () => {
           {
             createdAt: ago(60_000),
             id: 'sbx-old',
-            metadata: {
-              ...session('topic-a'),
-              [RUNTIME_METADATA_KEY]: runtimeFingerprint('old:1'),
-            },
+            metadata: { ...session('topic-a'), [RUNTIME_METADATA_KEY]: runtimeFingerprint('old:1') },
           },
           {
             createdAt: ago(60_000),
@@ -1577,9 +1535,7 @@ describe('OpenSandboxProvider', () => {
           const encoder = new TextEncoder();
           const body = new ReadableStream<Uint8Array>({
             start(stream) {
-              stream.enqueue(
-                encoder.encode(`${JSON.stringify({ text: 'cmd-9', type: 'init' })}\n\n`),
-              );
+              stream.enqueue(encoder.encode(`${JSON.stringify({ text: 'cmd-9', type: 'init' })}\n\n`));
               init.signal?.addEventListener('abort', () => stream.error(init.signal?.reason));
               setTimeout(() => controller.abort(), 20);
             },
@@ -1596,13 +1552,9 @@ describe('OpenSandboxProvider', () => {
       });
 
       await expect(
-        useIn(
-          'topic-a',
-          (workspace) => workspace.exec({ command: 'sleep 60', timeoutMs: 60_000 }),
-          {
-            signal: controller.signal,
-          },
-        ),
+        useIn('topic-a', (workspace) => workspace.exec({ command: 'sleep 60', timeoutMs: 60_000 }), {
+          signal: controller.signal,
+        }),
       ).rejects.toMatchObject({ code: 'Cancelled' });
       expect(interrupts).toEqual(['cmd-9']);
       expect(calls.deleted).toBe(0);
@@ -1626,10 +1578,7 @@ describe('OpenSandboxProvider', () => {
     install({
       command: () => stream([{ text: 'done', type: 'stdout' }, { type: 'execution_complete' }]),
       route: (rest, url, init) => {
-        if (
-          rest === '/files/download' &&
-          url.searchParams.get('path')?.endsWith('/manifest.json')
-        ) {
+        if (rest === '/files/download' && url.searchParams.get('path')?.endsWith('/manifest.json')) {
           manifestController.abort();
           init.signal?.throwIfAborted();
           throw new Error('The workspace did not forward cancellation');
@@ -1742,10 +1691,7 @@ describe('OpenSandboxProvider', () => {
     install({
       command: () => stream([{ text: 'done', type: 'stdout' }, { type: 'execution_complete' }]),
       route: (rest, url, init) => {
-        if (
-          rest === '/files/download' &&
-          url.searchParams.get('path')?.endsWith('/manifest.json')
-        ) {
+        if (rest === '/files/download' && url.searchParams.get('path')?.endsWith('/manifest.json')) {
           controller.abort();
           init.signal?.throwIfAborted();
           throw new Error('The workspace did not forward cancellation');

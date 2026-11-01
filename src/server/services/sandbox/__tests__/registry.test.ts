@@ -1,8 +1,6 @@
 /** @vitest-environment node */
 import { describe, expect, it, vi } from 'vitest';
 
-import { getSandboxProvider, isSandboxConfigured } from '../registry';
-
 vi.mock('@/envs/sandbox', () => ({
   sandboxEnv: {
     OPENSANDBOX_CPU: '1',
@@ -20,6 +18,8 @@ vi.mock('@/envs/sandbox', () => ({
     SANDBOX_TIMEOUT: 60_000,
   },
 }));
+
+import { getSandboxProvider, isSandboxConfigured } from '../registry';
 
 describe('sandbox provider registry', () => {
   it('always uses OpenSandbox', () => {

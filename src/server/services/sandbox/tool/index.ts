@@ -1,6 +1,7 @@
+import { posix } from 'node:path';
+
 import type { LobeChatDatabase } from '@lobechat/database';
 import type { CodeInterpreterResponse, SandboxToolResult } from '@lobechat/types';
-import { posix } from 'node:path';
 
 import { sandboxEnv } from '@/envs/sandbox';
 import {
@@ -17,7 +18,7 @@ import { distinctOutputFilenames, outputRelativeName } from '../outputNames';
 import { findSandboxProfile, findSandboxServer } from '../profiles/load';
 import type { ResolvedSandboxProfile, ResolvedSandboxServer } from '../profiles/schema';
 import { getSandboxProvider } from '../registry';
-import { type SandboxConversationScope, buildSandboxSessionKey } from '../session';
+import { buildSandboxSessionKey, type SandboxConversationScope } from '../session';
 import {
   SandboxError,
   type SandboxFile,
@@ -27,7 +28,7 @@ import {
   type SandboxWorkspace,
 } from '../types';
 import { decodeText, formatNumberedLines, resolveTimeoutMs } from './format';
-import { type SandboxToolArgs, isSandboxApiName, sandboxToolSchemas } from './schemas';
+import { isSandboxApiName, sandboxToolSchemas, type SandboxToolArgs } from './schemas';
 
 // Budget for calls that only touch files or command metadata.
 const FILE_BUDGET_MS = 60_000;
@@ -78,10 +79,9 @@ const resolveSandboxTarget = (identifier = SandboxIdentifier): ResolvedTarget =>
   return { ok: true, profile, server };
 };
 
+
 const clip = (message: string) =>
-  message.length > MAX_ERROR_CHARS
-    ? `${message.slice(0, MAX_ERROR_CHARS)}\n…[error truncated]`
-    : message;
+  message.length > MAX_ERROR_CHARS ? `${message.slice(0, MAX_ERROR_CHARS)}\n…[error truncated]` : message;
 
 const failure = (message: string, extra?: Partial<SandboxToolResult>): SandboxToolResult => ({
   ...extra,
@@ -291,9 +291,7 @@ class SandboxToolRunner {
     const bytes = utf8(content);
     if (bytes.byteLength > this.maxFileBytes) {
       return Promise.resolve(
-        failure(
-          `The content is ${bytes.byteLength} bytes, over the ${this.maxFileBytes}-byte limit.`,
-        ),
+        failure(`The content is ${bytes.byteLength} bytes, over the ${this.maxFileBytes}-byte limit.`),
       );
     }
     return this.useWithInputs(SandboxApiName.writeFile, FILE_BUDGET_MS, async (workspace) => {

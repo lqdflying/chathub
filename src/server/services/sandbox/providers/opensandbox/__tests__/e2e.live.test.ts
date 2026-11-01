@@ -10,11 +10,12 @@
  *   npx vitest run src/server/services/sandbox/providers/opensandbox/__tests__/e2e.live.test.ts
  */
 import { setTimeout as sleep } from 'node:timers/promises';
+
 import { afterAll, describe, expect, it } from 'vitest';
 
-import { buildSandboxSessionKey } from '../../../session';
 import type { SandboxWorkspace } from '../../../types';
 import { OpenSandboxClient } from '../client';
+import { buildSandboxSessionKey } from '../../../session';
 import { OpenSandboxProvider, PROFILE_METADATA_KEY, SESSION_METADATA_KEY } from '../provider';
 
 const serverUrl = process.env.OPENSANDBOX_E2E_SERVER_URL;
@@ -95,171 +96,163 @@ const python = (
 const run = (code: string, files: ReturnType<typeof file>[] = [], timeoutMs?: number) =>
   python(provider(), { code, files, timeoutMs });
 
-describe.runIf(serverUrl)(
-  'OpenSandbox live',
-  () => {
-    it('runs print, a trailing expression, stderr, subprocesses, and file removal', async () => {
-      const result = await run(
-        [
-          'import os, subprocess, sys',
-          'print("hello")',
-          'os.makedirs("a/b", exist_ok=True)',
-          'os.chdir("a"); os.chdir("..")',
-          'open("tmp.txt", "w").write("x"); os.remove("tmp.txt")',
-          'print(subprocess.run(["uname", "-s"], capture_output=True, text=True).stdout.strip())',
-          'print("warn", file=sys.stderr)',
-          '6 * 7',
-        ].join('\n'),
-      );
+describe.runIf(serverUrl)('OpenSandbox live', () => {
+  it('runs print, a trailing expression, stderr, subprocesses, and file removal', async () => {
+    const result = await run(
+      [
+        'import os, subprocess, sys',
+        'print("hello")',
+        'os.makedirs("a/b", exist_ok=True)',
+        'os.chdir("a"); os.chdir("..")',
+        'open("tmp.txt", "w").write("x"); os.remove("tmp.txt")',
+        'print(subprocess.run(["uname", "-s"], capture_output=True, text=True).stdout.strip())',
+        'print("warn", file=sys.stderr)',
+        '6 * 7',
+      ].join('\n'),
+    );
 
-      expect(result).toMatchObject({
-        files: [],
-        stderr: 'warn',
-        stdout: 'hello\nLinux\n42',
-        success: true,
-      });
+    expect(result).toMatchObject({
+      files: [],
+      stderr: 'warn',
+      stdout: 'hello\nLinux\n42',
+      success: true,
     });
+  });
 
-    it('round-trips files and turns plots into PNGs', async () => {
-      const result = await run(
-        [
-          'import pandas as pd',
-          'import matplotlib.pyplot as plt',
-          'df = pd.read_csv("data.csv")',
-          'df["c"] = df["a"] + df["b"]',
-          'df.to_excel("out.xlsx", index=False)',
-          'open("notes.txt", "a").write(" edited")',
-          'plt.plot(df["a"], df["c"])',
-          'plt.show()',
-          'plt.figure(); plt.bar(["x"], [1])',
-          'print(df.shape)',
-        ].join('\n'),
-        [file('data.csv', 'a,b\n1,2\n3,4\n'), file('notes.txt', 'orig'), file('keep.txt', 'same')],
-      );
+  it('round-trips files and turns plots into PNGs', async () => {
+    const result = await run(
+      [
+        'import pandas as pd',
+        'import matplotlib.pyplot as plt',
+        'df = pd.read_csv("data.csv")',
+        'df["c"] = df["a"] + df["b"]',
+        'df.to_excel("out.xlsx", index=False)',
+        'open("notes.txt", "a").write(" edited")',
+        'plt.plot(df["a"], df["c"])',
+        'plt.show()',
+        'plt.figure(); plt.bar(["x"], [1])',
+        'print(df.shape)',
+      ].join('\n'),
+      [file('data.csv', 'a,b\n1,2\n3,4\n'), file('notes.txt', 'orig'), file('keep.txt', 'same')],
+    );
 
-      expect(result.success).toBe(true);
-      expect(result.stdout).toBe('(2, 3)');
-      expect(result.files.map((item) => item.filename).sort()).toEqual([
-        'notes.txt',
-        'out.xlsx',
-        'plot_1.png',
-        'plot_2.png',
-      ]);
-      const png = result.files.find((item) => item.filename === 'plot_1.png');
-      expect(Buffer.from(png!.content.subarray(0, 4)).toString('hex')).toBe('89504e47');
-      const notes = result.files.find((item) => item.filename === 'notes.txt');
-      expect(Buffer.from(notes!.content).toString()).toBe('orig edited');
-    });
+    expect(result.success).toBe(true);
+    expect(result.stdout).toBe('(2, 3)');
+    expect(result.files.map((item) => item.filename).sort()).toEqual([
+      'notes.txt',
+      'out.xlsx',
+      'plot_1.png',
+      'plot_2.png',
+    ]);
+    const png = result.files.find((item) => item.filename === 'plot_1.png');
+    expect(Buffer.from(png!.content.subarray(0, 4)).toString('hex')).toBe('89504e47');
+    const notes = result.files.find((item) => item.filename === 'notes.txt');
+    expect(Buffer.from(notes!.content).toString()).toBe('orig edited');
+  });
 
-    it('renders Chinese text in charts and PDFs with the image fonts', async () => {
-      const result = await run(
-        [
-          'import warnings',
-          'warnings.simplefilter("error")',
-          'import matplotlib.pyplot as plt',
-          'plt.bar(["一月", "二月"], [1, 2]); plt.title("销售额"); plt.show()',
-          'from reportlab.pdfbase import pdfmetrics',
-          'from reportlab.pdfbase.ttfonts import TTFont',
-          'from reportlab.platypus import SimpleDocTemplate, Paragraph',
-          'from reportlab.lib.styles import getSampleStyleSheet',
-          "pdfmetrics.registerFont(TTFont('STSong', 'STSong.ttf'))",
-          'style = getSampleStyleSheet()["Normal"]; style.fontName = "STSong"',
-          'SimpleDocTemplate("report.pdf").build([Paragraph("中文报告", style)])',
-        ].join('\n'),
-      );
+  it('renders Chinese text in charts and PDFs with the image fonts', async () => {
+    const result = await run(
+      [
+        'import warnings',
+        'warnings.simplefilter("error")',
+        'import matplotlib.pyplot as plt',
+        'plt.bar(["一月", "二月"], [1, 2]); plt.title("销售额"); plt.show()',
+        'from reportlab.pdfbase import pdfmetrics',
+        'from reportlab.pdfbase.ttfonts import TTFont',
+        'from reportlab.platypus import SimpleDocTemplate, Paragraph',
+        'from reportlab.lib.styles import getSampleStyleSheet',
+        "pdfmetrics.registerFont(TTFont('STSong', 'STSong.ttf'))",
+        'style = getSampleStyleSheet()["Normal"]; style.fontName = "STSong"',
+        'SimpleDocTemplate("report.pdf").build([Paragraph("中文报告", style)])',
+      ].join('\n'),
+    );
 
-      expect(result).toMatchObject({ stderr: '', success: true });
-      expect(result.files.map((item) => item.filename).sort()).toEqual([
-        'plot_1.png',
-        'report.pdf',
-      ]);
-    });
+    expect(result).toMatchObject({ stderr: '', success: true });
+    expect(result.files.map((item) => item.filename).sort()).toEqual(['plot_1.png', 'report.pdf']);
+  });
 
-    it('gives every run a fresh sandbox', async () => {
-      const first = await run('open("/tmp/leak.txt", "w").write("secret")');
+  it('gives every run a fresh sandbox', async () => {
+    const first = await run('open("/tmp/leak.txt", "w").write("secret")');
 
-      expect(first.success).toBe(true);
-      expect(first.files.map((item) => item.filename)).toContain('leak.txt');
-      expect((await run('import os\nprint(os.path.exists("/tmp/leak.txt"))')).stdout).toBe('False');
-    });
+    expect(first.success).toBe(true);
+    expect(first.files.map((item) => item.filename)).toContain('leak.txt');
+    expect((await run('import os\nprint(os.path.exists("/tmp/leak.txt"))')).stdout).toBe('False');
+  });
 
-    it('returns subdirectory outputs, and only lists them when they do not all fit', async () => {
-      const nested = await run(
-        [
-          'import os',
-          'os.makedirs("out/deep", exist_ok=True); os.makedirs("node_modules/pkg", exist_ok=True)',
-          'open("out/report.txt", "w").write("report")',
-          'open("out/deep/data.csv", "w").write("a,b")',
-          'open("node_modules/pkg/index.js", "w").write("js")',
-        ].join('\n'),
-      );
+  it('returns subdirectory outputs, and only lists them when they do not all fit', async () => {
+    const nested = await run(
+      [
+        'import os',
+        'os.makedirs("out/deep", exist_ok=True); os.makedirs("node_modules/pkg", exist_ok=True)',
+        'open("out/report.txt", "w").write("report")',
+        'open("out/deep/data.csv", "w").write("a,b")',
+        'open("node_modules/pkg/index.js", "w").write("js")',
+      ].join('\n'),
+    );
 
-      expect(nested).toMatchObject({ success: true });
-      expect(nested.hint).toBeUndefined();
-      expect(nested.files.map((item) => item.filename)).toEqual(['data.csv', 'report.txt']);
-      expect(Buffer.from(nested.files[1].content).toString()).toBe('report');
+    expect(nested).toMatchObject({ success: true });
+    expect(nested.hint).toBeUndefined();
+    expect(nested.files.map((item) => item.filename)).toEqual(['data.csv', 'report.txt']);
+    expect(Buffer.from(nested.files[1].content).toString()).toBe('report');
 
-      const many = await run(
-        [
-          'import os',
-          'os.makedirs("data", exist_ok=True)',
-          'open("summary.txt", "w").write("s")',
-          'for i in range(25):',
-          '    open("data/part-%02d.csv" % i, "w").write("x")',
-        ].join('\n'),
-      );
+    const many = await run(
+      [
+        'import os',
+        'os.makedirs("data", exist_ok=True)',
+        'open("summary.txt", "w").write("s")',
+        'for i in range(25):',
+        '    open("data/part-%02d.csv" % i, "w").write("x")',
+      ].join('\n'),
+    );
 
-      expect(many.files.map((item) => item.filename)).toEqual(['summary.txt']);
-      expect(many.hint).toContain('25 changed file(s) in subdirectories were not returned');
-      expect(many.hint).toContain('data/part-00.csv');
-    });
+    expect(many.files.map((item) => item.filename)).toEqual(['summary.txt']);
+    expect(many.hint).toContain('25 changed file(s) in subdirectories were not returned');
+    expect(many.hint).toContain('data/part-00.csv');
+  });
 
-    describe('session sandboxes', () => {
-      afterAll(async () => {
-        for (const key of sessionKeys) {
-          for (const { id } of await sessionSandboxes(key)) {
-            await client().deleteSandbox(id, AbortSignal.timeout(10_000));
-          }
+  describe('session sandboxes', () => {
+    afterAll(async () => {
+      for (const key of sessionKeys) {
+        for (const { id } of await sessionSandboxes(key)) {
+          await client().deleteSandbox(id, AbortSignal.timeout(10_000));
         }
+      }
+    });
+
+    it('keeps installs and files between runs of one session', async () => {
+      const sessionKey = newSessionKey();
+      const p = provider();
+      const first = await python(p, {
+        code: [
+          // Installs like pip does: from a child process, into site-packages.
+          'import subprocess, sys',
+          'subprocess.run([sys.executable, "-c", "import site; open(site.getsitepackages()[0] + \'/e2e_installed.py\', \'w\').write(\'VALUE = 42\')"], check=True)',
+          'open("prepared.txt", "w").write("step 1")',
+          'import matplotlib.pyplot as plt',
+          'plt.plot([1, 2]); plt.show()',
+        ].join('\n'),
+        sessionKey,
+      });
+      const [sandbox] = await sessionSandboxes(sessionKey);
+
+      const second = await python(p, {
+        code: [
+          'import e2e_installed',
+          'print(e2e_installed.VALUE, open("prepared.txt").read())',
+          'import matplotlib.pyplot as plt',
+          'plt.plot([2, 1]); plt.show()',
+        ].join('\n'),
+        sessionKey,
       });
 
-      it('keeps installs and files between runs of one session', async () => {
-        const sessionKey = newSessionKey();
-        const p = provider();
-        const first = await python(p, {
-          code: [
-            // Installs like pip does: from a child process, into site-packages.
-            'import subprocess, sys',
-            "subprocess.run([sys.executable, \"-c\", \"import site; open(site.getsitepackages()[0] + '/e2e_installed.py', 'w').write('VALUE = 42')\"], check=True)",
-            'open("prepared.txt", "w").write("step 1")',
-            'import matplotlib.pyplot as plt',
-            'plt.plot([1, 2]); plt.show()',
-          ].join('\n'),
-          sessionKey,
-        });
-        const [sandbox] = await sessionSandboxes(sessionKey);
+      expect(first.files.map((item) => item.filename).sort()).toEqual(['plot_1.png', 'prepared.txt']);
+      expect(second).toMatchObject({ stderr: '', stdout: '42 step 1', success: true });
+      expect(second.files.map((item) => item.filename)).toEqual(['plot_2.png']);
+      expect((await sessionSandboxes(sessionKey)).map((item) => item.id)).toEqual([sandbox.id]);
+      expect(sandbox.createdAt).toBeGreaterThan(Date.now() - 120_000);
+    });
 
-        const second = await python(p, {
-          code: [
-            'import e2e_installed',
-            'print(e2e_installed.VALUE, open("prepared.txt").read())',
-            'import matplotlib.pyplot as plt',
-            'plt.plot([2, 1]); plt.show()',
-          ].join('\n'),
-          sessionKey,
-        });
-
-        expect(first.files.map((item) => item.filename).sort()).toEqual([
-          'plot_1.png',
-          'prepared.txt',
-        ]);
-        expect(second).toMatchObject({ stderr: '', stdout: '42 step 1', success: true });
-        expect(second.files.map((item) => item.filename)).toEqual(['plot_2.png']);
-        expect((await sessionSandboxes(sessionKey)).map((item) => item.id)).toEqual([sandbox.id]);
-        expect(sandbox.createdAt).toBeGreaterThan(Date.now() - 120_000);
-      });
-
-      it('runs two Sandbox Hub profiles side by side in one conversation', async () => {
+    it('runs two Sandbox Hub profiles side by side in one conversation', async () => {
         const scope = { sessionId: 'e2e-agent', topicId: `e2e-${Date.now()}`, userId: 'e2e-user' };
         const generalKey = buildSandboxSessionKey(scope);
         const dataKey = buildSandboxSessionKey({ ...scope, profileId: 'data' });
@@ -295,220 +288,213 @@ describe.runIf(serverUrl)(
       });
 
       it('replaces a session sandbox once it nears an optional max lifetime', async () => {
-        const sessionKey = newSessionKey();
-        const timeoutMs = 5000;
-        // Room for one 5s run plus the 120s margin, and 15s more.
-        const sessionMaxLifetime = timeoutMs + 120_000 + 15_000;
-        const p = provider({ sessionMaxLifetime });
-        const input = { sessionKey, timeoutMs };
+      const sessionKey = newSessionKey();
+      const timeoutMs = 5000;
+      // Room for one 5s run plus the 120s margin, and 15s more.
+      const sessionMaxLifetime = timeoutMs + 120_000 + 15_000;
+      const p = provider({ sessionMaxLifetime });
+      const input = { sessionKey, timeoutMs };
 
-        await python(p, { ...input, code: 'open("/tmp/old.txt", "w").write("x")' });
-        const [old] = await sessionSandboxes(sessionKey);
-        const detail = (await (
-          await fetch(`${serverUrl}/v1/sandboxes/${old.id}`, {
-            headers: { 'OPEN-SANDBOX-API-KEY': process.env.OPENSANDBOX_E2E_API_KEY ?? '' },
-          })
-        ).json()) as { expiresAt: string };
-        // Parked until the cap, not for the 30 min idle timeout.
-        expect(
-          Math.abs(Date.parse(detail.expiresAt) - (old.createdAt! + sessionMaxLifetime)),
-        ).toBeLessThan(1000);
-        await sleep(Math.max(0, old.createdAt! + 16_000 - Date.now()));
+      await python(p, { ...input, code: 'open("/tmp/old.txt", "w").write("x")' });
+      const [old] = await sessionSandboxes(sessionKey);
+      const detail = (await (
+        await fetch(`${serverUrl}/v1/sandboxes/${old.id}`, {
+          headers: { 'OPEN-SANDBOX-API-KEY': process.env.OPENSANDBOX_E2E_API_KEY ?? '' },
+        })
+      ).json()) as { expiresAt: string };
+      // Parked until the cap, not for the 30 min idle timeout.
+      expect(Math.abs(Date.parse(detail.expiresAt) - (old.createdAt! + sessionMaxLifetime))).toBeLessThan(
+        1000,
+      );
+      await sleep(Math.max(0, old.createdAt! + 16_000 - Date.now()));
 
-        const second = await python(p, {
-          ...input,
-          code: 'import os\nprint(os.path.exists("/tmp/old.txt"))',
-        });
-
-        expect(second.stdout).toBe('False');
-        const current = await sessionSandboxes(sessionKey);
-        expect(current).toHaveLength(1);
-        expect(current[0].id).not.toBe(old.id);
+      const second = await python(p, {
+        ...input,
+        code: 'import os\nprint(os.path.exists("/tmp/old.txt"))',
       });
 
-      it('has the development tools the Sandbox prompt promises', async () => {
-        const tools = await provider().withWorkspace({ budgetMs: 60_000 }, (workspace) =>
-          workspace.exec({
-            command: [
-              'git --version && node --version && npm --version && pnpm --version',
-              'rg --version | head -1 && curl --version | head -1 && jq --version',
-              'ffmpeg -version | head -1 && ffprobe -version | head -1 && pandoc --version | head -1',
-              'soffice --version && pdflatex --version | head -1 && xelatex --version | head -1',
-              'chromium --version',
-              'python3 -c "import duckdb, polars, scipy, sklearn; print(\'python libs ok\')"',
-            ].join(' && '),
-            timeoutMs: 30_000,
-          }),
-        );
-
-        expect(tools).toMatchObject({ exitCode: 0, timedOut: false });
-        expect(tools.stdout).toMatch(/git version/);
-        expect(tools.stdout).toMatch(/^v\d+\./m);
-        expect(tools.stdout).toMatch(/^ffmpeg version 7\./m);
-        expect(tools.stdout).toMatch(/^ffprobe version 7\./m);
-        expect(tools.stdout).toMatch(/^pandoc 3\./m);
-        expect(tools.stdout).toMatch(/^LibreOffice 25\./m);
-        expect(tools.stdout).toMatch(/^pdfTeX /m);
-        expect(tools.stdout).toMatch(/^XeTeX /m);
-        expect(tools.stdout).toMatch(/^Chromium \d+/m);
-        expect(tools.stdout).toContain('python libs ok');
-      });
-
-      it('converts documents, renders a page, typesets Chinese, and reads media offline', async () => {
-        const result = await provider().withWorkspace({ budgetMs: 180_000 }, async (workspace) => {
-          const text = (value: string) => new Uint8Array(Buffer.from(value));
-          const step = (command: string) => workspace.exec({ command, timeoutMs: 120_000 });
-          await workspace.writeFile(
-            `${workspace.workdir}/page.html`,
-            text(
-              '<html><body><div id="x">static</div><script>document.getElementById("x").textContent = "rendered";</script></body></html>',
-            ),
-          );
-          await workspace.writeFile(
-            `${workspace.workdir}/zh.tex`,
-            text(
-              '\\documentclass[fontset=none]{ctexart}\n\\setCJKmainfont{AR PL SungtiL GB}\n\\begin{document}\n中文排版\n\\end{document}\n',
-            ),
-          );
-          await workspace.writeFile(`${workspace.workdir}/in.md`, text('# Title\n\nbody\n'));
-          return {
-            browser: await step(
-              'chromium --headless --no-sandbox --disable-dev-shm-usage --dump-dom file:///tmp/workspace/page.html',
-            ),
-            media: await step(
-              'ffmpeg -hide_banner -loglevel error -f lavfi -i sine=frequency=440:duration=1 tone.wav && ffprobe -v error -show_entries format=duration -of csv=p=0 tone.wav',
-            ),
-            office: await step(
-              "python3 -c \"import docx; d = docx.Document(); d.add_paragraph('hello'); d.save('in.docx')\" && soffice --headless --convert-to pdf --outdir out in.docx > /dev/null && head -c 5 out/in.pdf",
-            ),
-            pandoc: await step(
-              'pandoc in.md -o from-md.docx && python3 -c "import docx; print(docx.Document(\'from-md.docx\').paragraphs[0].text)"',
-            ),
-            tex: await step(
-              'xelatex -interaction=nonstopmode -halt-on-error zh.tex > /dev/null && python3 -c "from pypdf import PdfReader; print(PdfReader(\'zh.pdf\').pages[0].extract_text())"',
-            ),
-          };
-        });
-
-        expect(result.office).toMatchObject({ exitCode: 0, stdout: '%PDF-' });
-        expect(result.browser.exitCode).toBe(0);
-        expect(result.browser.stdout).toContain('<div id="x">rendered</div>');
-        expect(result.tex.exitCode).toBe(0);
-        expect(result.tex.stdout).toContain('中文排版');
-        expect(result.pandoc).toMatchObject({ exitCode: 0, stdout: 'Title' });
-        expect(result.media.exitCode).toBe(0);
-        expect(Number(result.media.stdout)).toBeCloseTo(1, 1);
-      }, 300_000);
-
-      it('runs shell commands, background processes, and file operations in one sandbox', async () => {
-        const sessionKey = newSessionKey();
-        const p = provider();
-        const use = <T>(task: (workspace: SandboxWorkspace) => Promise<T>) =>
-          p.withWorkspace({ budgetMs: 60_000, sessionKey }, task);
-
-        const failing = await use((workspace) =>
-          workspace.exec({ command: 'echo out; echo err >&2; exit 3', timeoutMs: 10_000 }),
-        );
-        expect(failing).toMatchObject({
-          exitCode: 3,
-          stderr: 'err',
-          stdout: 'out',
-          timedOut: false,
-        });
-
-        const slow = await use((workspace) =>
-          workspace.exec({ command: 'echo started; sleep 30', timeoutMs: 2000 }),
-        );
-        expect(slow).toMatchObject({ stdout: 'started', timedOut: true });
-
-        await use((workspace) =>
-          workspace.writeFile(
-            `${workspace.workdir}/app/server.js`,
-            new Uint8Array(
-              Buffer.from(
-                "require('http').createServer((q, s) => s.end('pong')).listen(3000, () => console.log('ready'));",
-              ),
-            ),
-          ),
-        );
-        const commandId = await use((workspace) =>
-          workspace.startBackground({ command: 'node app/server.js' }),
-        );
-        const { logs, status } = await waitFor(async () => {
-          const state = await use(async (workspace) => ({
-            logs: await workspace.commandLogs(commandId),
-            status: await workspace.commandStatus(commandId),
-          }));
-          return state.logs.output.includes('ready') || !state.status.running ? state : undefined;
-        });
-        expect(status.running).toBe(true);
-        expect(logs.output).toContain('ready');
-        expect(logs.cursor).toBeGreaterThan(0);
-        const later = await use((workspace) => workspace.commandLogs(commandId, logs.cursor));
-        expect(later.output).toBe('');
-
-        const fetched = await use((workspace) =>
-          workspace.exec({
-            command:
-              'node -e "fetch(\'http://127.0.0.1:3000\').then((r) => r.text()).then(console.log)"',
-            timeoutMs: 10_000,
-          }),
-        );
-        expect(fetched.stdout).toBe('pong');
-
-        await use((workspace) => workspace.interrupt(commandId));
-        const stopped = await waitFor(async () => {
-          const state = await use((workspace) => workspace.commandStatus(commandId));
-          return state.running ? undefined : state;
-        });
-        expect(stopped.running).toBe(false);
-        await expect(
-          use((workspace) => workspace.commandStatus('no-such-command')),
-        ).rejects.toMatchObject({ name: 'SandboxRequestError' });
-
-        const listing = await use((workspace) => workspace.listDirectory(workspace.workdir, 2));
-        expect(listing.map((entry) => entry.path)).toContain('/tmp/workspace/app/server.js');
-        const info = await use((workspace) => workspace.fileInfo('/tmp/workspace/app/server.js'));
-        expect(info).toMatchObject({ type: 'file' });
-        const read = await use((workspace) =>
-          workspace.readFile('/tmp/workspace/app/server.js', 1024 * 1024),
-        );
-        expect(Buffer.from(read).toString()).toContain('pong');
-        await expect(
-          use((workspace) => workspace.readFile('/tmp/workspace/missing.txt', 1024)),
-        ).rejects.toMatchObject({ message: 'File not found: /tmp/workspace/missing.txt' });
-
-        // Every call above reused the one sandbox; failed requests did not replace it.
-        expect(await sessionSandboxes(sessionKey)).toHaveLength(1);
-      });
+      expect(second.stdout).toBe('False');
+      const current = await sessionSandboxes(sessionKey);
+      expect(current).toHaveLength(1);
+      expect(current[0].id).not.toBe(old.id);
     });
 
-    it('reports exceptions as plain-text user tracebacks', async () => {
-      const result = await run('def f():\n    raise ValueError("boom")\nf()');
-
-      expect(result.success).toBe(false);
-      expect(result.stderr).toContain('raise ValueError("boom")');
-      expect(result.stderr).toContain('ValueError: boom');
-      expect(result.stderr).not.toContain('run.py');
-    });
-
-    it('times out on the run budget', async () => {
-      await expect(run('import time\ntime.sleep(60)', [], 3000)).rejects.toMatchObject({
-        code: 'Timeout',
-      });
-    });
-
-    it('does not wait for a background child that keeps the output pipe open', async () => {
-      const started = Date.now();
-      const result = await run(
-        'import subprocess\nsubprocess.Popen(["sleep", "30"])\nprint("done")',
-        [],
-        15_000,
+    it('has the development tools the Sandbox prompt promises', async () => {
+      const tools = await provider().withWorkspace({ budgetMs: 60_000 }, (workspace) =>
+        workspace.exec({
+          command: [
+            'git --version && node --version && npm --version && pnpm --version',
+            'rg --version | head -1 && curl --version | head -1 && jq --version',
+            'ffmpeg -version | head -1 && ffprobe -version | head -1 && pandoc --version | head -1',
+            'soffice --version && pdflatex --version | head -1 && xelatex --version | head -1',
+            'chromium --version',
+            'python3 -c "import duckdb, polars, scipy, sklearn; print(\'python libs ok\')"',
+          ].join(' && '),
+          timeoutMs: 30_000,
+        }),
       );
 
-      expect(result).toMatchObject({ stdout: 'done', success: true });
-      expect(Date.now() - started).toBeLessThan(15_000);
+      expect(tools).toMatchObject({ exitCode: 0, timedOut: false });
+      expect(tools.stdout).toMatch(/git version/);
+      expect(tools.stdout).toMatch(/^v\d+\./m);
+      expect(tools.stdout).toMatch(/^ffmpeg version 7\./m);
+      expect(tools.stdout).toMatch(/^ffprobe version 7\./m);
+      expect(tools.stdout).toMatch(/^pandoc 3\./m);
+      expect(tools.stdout).toMatch(/^LibreOffice 25\./m);
+      expect(tools.stdout).toMatch(/^pdfTeX /m);
+      expect(tools.stdout).toMatch(/^XeTeX /m);
+      expect(tools.stdout).toMatch(/^Chromium \d+/m);
+      expect(tools.stdout).toContain('python libs ok');
     });
-  },
-  120_000,
-);
+
+    it('converts documents, renders a page, typesets Chinese, and reads media offline', async () => {
+      const result = await provider().withWorkspace({ budgetMs: 180_000 }, async (workspace) => {
+        const text = (value: string) => new Uint8Array(Buffer.from(value));
+        const step = (command: string) => workspace.exec({ command, timeoutMs: 120_000 });
+        await workspace.writeFile(
+          `${workspace.workdir}/page.html`,
+          text(
+            '<html><body><div id="x">static</div><script>document.getElementById("x").textContent = "rendered";</script></body></html>',
+          ),
+        );
+        await workspace.writeFile(
+          `${workspace.workdir}/zh.tex`,
+          text(
+            '\\documentclass[fontset=none]{ctexart}\n\\setCJKmainfont{AR PL SungtiL GB}\n\\begin{document}\n中文排版\n\\end{document}\n',
+          ),
+        );
+        await workspace.writeFile(`${workspace.workdir}/in.md`, text('# Title\n\nbody\n'));
+        return {
+          browser: await step(
+            'chromium --headless --no-sandbox --disable-dev-shm-usage --dump-dom file:///tmp/workspace/page.html',
+          ),
+          media: await step(
+            'ffmpeg -hide_banner -loglevel error -f lavfi -i sine=frequency=440:duration=1 tone.wav && ffprobe -v error -show_entries format=duration -of csv=p=0 tone.wav',
+          ),
+          office: await step(
+            'python3 -c "import docx; d = docx.Document(); d.add_paragraph(\'hello\'); d.save(\'in.docx\')" && soffice --headless --convert-to pdf --outdir out in.docx > /dev/null && head -c 5 out/in.pdf',
+          ),
+          pandoc: await step(
+            'pandoc in.md -o from-md.docx && python3 -c "import docx; print(docx.Document(\'from-md.docx\').paragraphs[0].text)"',
+          ),
+          tex: await step(
+            'xelatex -interaction=nonstopmode -halt-on-error zh.tex > /dev/null && python3 -c "from pypdf import PdfReader; print(PdfReader(\'zh.pdf\').pages[0].extract_text())"',
+          ),
+        };
+      });
+
+      expect(result.office).toMatchObject({ exitCode: 0, stdout: '%PDF-' });
+      expect(result.browser.exitCode).toBe(0);
+      expect(result.browser.stdout).toContain('<div id="x">rendered</div>');
+      expect(result.tex.exitCode).toBe(0);
+      expect(result.tex.stdout).toContain('中文排版');
+      expect(result.pandoc).toMatchObject({ exitCode: 0, stdout: 'Title' });
+      expect(result.media.exitCode).toBe(0);
+      expect(Number(result.media.stdout)).toBeCloseTo(1, 1);
+    }, 300_000);
+
+    it('runs shell commands, background processes, and file operations in one sandbox', async () => {
+      const sessionKey = newSessionKey();
+      const p = provider();
+      const use = <T>(task: (workspace: SandboxWorkspace) => Promise<T>) =>
+        p.withWorkspace({ budgetMs: 60_000, sessionKey }, task);
+
+      const failing = await use((workspace) =>
+        workspace.exec({ command: 'echo out; echo err >&2; exit 3', timeoutMs: 10_000 }),
+      );
+      expect(failing).toMatchObject({ exitCode: 3, stderr: 'err', stdout: 'out', timedOut: false });
+
+      const slow = await use((workspace) =>
+        workspace.exec({ command: 'echo started; sleep 30', timeoutMs: 2000 }),
+      );
+      expect(slow).toMatchObject({ stdout: 'started', timedOut: true });
+
+      await use((workspace) =>
+        workspace.writeFile(
+          `${workspace.workdir}/app/server.js`,
+          new Uint8Array(
+            Buffer.from(
+              "require('http').createServer((q, s) => s.end('pong')).listen(3000, () => console.log('ready'));",
+            ),
+          ),
+        ),
+      );
+      const commandId = await use((workspace) =>
+        workspace.startBackground({ command: 'node app/server.js' }),
+      );
+      const { logs, status } = await waitFor(async () => {
+        const state = await use(async (workspace) => ({
+          logs: await workspace.commandLogs(commandId),
+          status: await workspace.commandStatus(commandId),
+        }));
+        return state.logs.output.includes('ready') || !state.status.running ? state : undefined;
+      });
+      expect(status.running).toBe(true);
+      expect(logs.output).toContain('ready');
+      expect(logs.cursor).toBeGreaterThan(0);
+      const later = await use((workspace) => workspace.commandLogs(commandId, logs.cursor));
+      expect(later.output).toBe('');
+
+      const fetched = await use((workspace) =>
+        workspace.exec({
+          command:
+            "node -e \"fetch('http://127.0.0.1:3000').then((r) => r.text()).then(console.log)\"",
+          timeoutMs: 10_000,
+        }),
+      );
+      expect(fetched.stdout).toBe('pong');
+
+      await use((workspace) => workspace.interrupt(commandId));
+      const stopped = await waitFor(async () => {
+        const state = await use((workspace) => workspace.commandStatus(commandId));
+        return state.running ? undefined : state;
+      });
+      expect(stopped.running).toBe(false);
+      await expect(use((workspace) => workspace.commandStatus('no-such-command'))).rejects.toMatchObject(
+        { name: 'SandboxRequestError' },
+      );
+
+      const listing = await use((workspace) => workspace.listDirectory(workspace.workdir, 2));
+      expect(listing.map((entry) => entry.path)).toContain('/tmp/workspace/app/server.js');
+      const info = await use((workspace) => workspace.fileInfo('/tmp/workspace/app/server.js'));
+      expect(info).toMatchObject({ type: 'file' });
+      const read = await use((workspace) =>
+        workspace.readFile('/tmp/workspace/app/server.js', 1024 * 1024),
+      );
+      expect(Buffer.from(read).toString()).toContain('pong');
+      await expect(
+        use((workspace) => workspace.readFile('/tmp/workspace/missing.txt', 1024)),
+      ).rejects.toMatchObject({ message: 'File not found: /tmp/workspace/missing.txt' });
+
+      // Every call above reused the one sandbox; failed requests did not replace it.
+      expect(await sessionSandboxes(sessionKey)).toHaveLength(1);
+    });
+  });
+
+  it('reports exceptions as plain-text user tracebacks', async () => {
+    const result = await run('def f():\n    raise ValueError("boom")\nf()');
+
+    expect(result.success).toBe(false);
+    expect(result.stderr).toContain('raise ValueError("boom")');
+    expect(result.stderr).toContain('ValueError: boom');
+    expect(result.stderr).not.toContain('run.py');
+  });
+
+  it('times out on the run budget', async () => {
+    await expect(run('import time\ntime.sleep(60)', [], 3000)).rejects.toMatchObject({
+      code: 'Timeout',
+    });
+  });
+
+  it('does not wait for a background child that keeps the output pipe open', async () => {
+    const started = Date.now();
+    const result = await run(
+      'import subprocess\nsubprocess.Popen(["sleep", "30"])\nprint("done")',
+      [],
+      15_000,
+    );
+
+    expect(result).toMatchObject({ stdout: 'done', success: true });
+    expect(Date.now() - started).toBeLessThan(15_000);
+  });
+}, 120_000);

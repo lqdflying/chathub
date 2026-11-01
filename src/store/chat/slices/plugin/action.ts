@@ -826,7 +826,8 @@ export const chatPlugin: StateCreator<
         ));
     if (!assistantResource || !canRunToolBatch()) {
       logToolLoopContinue('tool_loop_continue_skipped', assistantId, get(), {
-        reason: !assistantResource || invocationIsHardCancelled() ? 'not_alive' : 'batch_gated',
+        reason:
+          !assistantResource || invocationIsHardCancelled() ? 'not_alive' : 'batch_gated',
       });
       return;
     }
@@ -1298,7 +1299,12 @@ export const chatPlugin: StateCreator<
       data = '';
     } finally {
       if (abortController) {
-        internal_togglePluginApiCalling(false, id, n('fetchPlugin/end') as string, abortController);
+        internal_togglePluginApiCalling(
+          false,
+          id,
+          n('fetchPlugin/end') as string,
+          abortController,
+        );
       } else {
         internal_togglePluginApiCalling(false, id, n('fetchPlugin/end') as string);
       }

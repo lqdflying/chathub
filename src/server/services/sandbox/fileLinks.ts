@@ -26,9 +26,7 @@ type Positioned = {
 const basename = (filename: string) => filename.replaceAll('\\', '/').split('/').pop() || filename;
 
 const escapeRegExp = (value: string) =>
-  [...value]
-    .map((char) => (String.raw`\^$.*+?()[]{}|`.includes(char) ? `\\${char}` : char))
-    .join('');
+  [...value].map((char) => (String.raw`\^$.*+?()[]{}|`.includes(char) ? `\\${char}` : char)).join('');
 
 const rangeOf = (node: Positioned) => {
   const start = node.position?.start.offset;
@@ -80,7 +78,8 @@ export const generatedFileLinksFromMessages = (
     }),
   );
 
-const hasOrigin = (href: string) => href.startsWith('//') || /^[a-z][\d+.a-z-]*:/i.test(href);
+const hasOrigin = (href: string) =>
+  href.startsWith('//') || /^[a-z][\d+.a-z-]*:/i.test(href);
 
 const localFileHref = (href: string, filename: string, appOrigin?: string) => {
   const trimmed = href.trim();
@@ -315,8 +314,7 @@ export const rewriteGeneratedFileLinks = (
       current.type === 'linkReference'
     ) {
       const href = current.url ?? '';
-      const file =
-        current.type === 'linkReference' ? undefined : fileForHref(href, files, appOrigin);
+      const file = current.type === 'linkReference' ? undefined : fileForHref(href, files, appOrigin);
       if (file) {
         const source = content.slice(range.start, range.end);
         const rewritten = rewriteDestination(source, file.url, current.type);
