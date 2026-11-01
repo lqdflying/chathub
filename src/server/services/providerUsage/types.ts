@@ -38,6 +38,15 @@ export type ProviderUsageSpend = {
   since: string;
 };
 
+/** Token use over the last 7 days. */
+export type ProviderUsageTokens = {
+  /** Cache reads ÷ (cache reads + uncached input), the Claude Console's hit rate. */
+  cacheHitPercent?: number;
+  /** Estimated net saving: cached input at the base input price minus what it cost. */
+  cacheSavings?: { amount: number; currency: string };
+  total: number;
+};
+
 /** Machine-readable hint for the UI; never a vendor message. */
 export type ProviderUsageReason = 'notOnPlan' | 'teamIdRequired';
 
@@ -60,6 +69,7 @@ export type ProviderUsageSnapshot = {
   status: ProviderUsageStatus;
   /** Present for admin providers when the user saved their own admin key. */
   storedCredential?: ProviderUsageStoredCredential;
+  tokens?: ProviderUsageTokens;
   /** True when the endpoint is not part of the vendor's documented API. */
   unofficial?: boolean;
   windows?: ProviderUsageWindow[];
@@ -86,7 +96,15 @@ export type ProviderUsageFetchContext = {
 
 export type ProviderUsageAdapterResult = Pick<
   ProviderUsageSnapshot,
-  'balances' | 'isAvailable' | 'plan' | 'reason' | 'spend' | 'status' | 'unofficial' | 'windows'
+  | 'balances'
+  | 'isAvailable'
+  | 'plan'
+  | 'reason'
+  | 'spend'
+  | 'status'
+  | 'tokens'
+  | 'unofficial'
+  | 'windows'
 >;
 
 export type ProviderUsageAdapter = {

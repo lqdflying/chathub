@@ -211,7 +211,10 @@ const ProviderUsageCard = memo(
     })();
 
     const hasData =
-      !!snapshot?.balances?.length || !!snapshot?.windows?.length || !!snapshot?.spend;
+      !!snapshot?.balances?.length ||
+      !!snapshot?.windows?.length ||
+      !!snapshot?.spend ||
+      !!snapshot?.tokens;
 
     // `null` means the server has no reader for this provider.
     if (snapshot === null) return null;
@@ -283,6 +286,30 @@ const ProviderUsageCard = memo(
             <div className={styles.sub}>
               {t('providerUsage.spendSince', { time: formatUsageTime(snapshot.spend.since) })}
             </div>
+          </Flexbox>
+        )}
+
+        {snapshot?.tokens && (
+          <Flexbox gap={2}>
+            <div className={styles.sub}>{t('providerUsage.tokensTitle')}</div>
+            <div className={styles.amount}>
+              {t('providerUsage.tokensTotal', { total: formatUsageCount(snapshot.tokens.total) })}
+            </div>
+            {snapshot.tokens.cacheHitPercent !== undefined && (
+              <div className={styles.sub}>
+                {t('providerUsage.cacheHitRate', { percent: snapshot.tokens.cacheHitPercent })}
+              </div>
+            )}
+            {snapshot.tokens.cacheSavings && (
+              <div className={styles.sub}>
+                {t('providerUsage.cacheSavings', {
+                  amount: formatUsageMoney(
+                    snapshot.tokens.cacheSavings.amount,
+                    snapshot.tokens.cacheSavings.currency,
+                  ),
+                })}
+              </div>
+            )}
           </Flexbox>
         )}
 

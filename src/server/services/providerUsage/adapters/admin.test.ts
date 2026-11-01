@@ -2,10 +2,12 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   ANTHROPIC_ADMIN_API_VERSION,
+  ANTHROPIC_ANALYTICS_BETA,
   anthropicCostWindow,
   anthropicUsageAdapter,
   buildAnthropicCostReportUrl,
   sumAnthropicCostCents,
+  summarizeAnthropicTokens,
 } from './anthropic';
 import { buildOpenAICostsUrl, openaiUsageAdapter, sumOpenAICosts } from './openai';
 import {
@@ -191,19 +193,125 @@ describe('Anthropic cost report', () => {
   });
 
   it('sends x-api-key with the API version and converts cents to dollars', async () => {
-    const fetchFn = vi.fn(async () =>
-      json({ data: [{ results: [{ amount: '1050', currency: 'USD' }] }], has_more: false }),
+    const fetchFn = vi.fn(async (url: string) =>
+      url.includes('/analytics/')
+        ? json({ error: {} }, 403)
+        : json({ data: [{ results: [{ amount: '1050', currency: 'USD' }] }], has_more: false }),
     );
     const result = await anthropicUsageAdapter.fetchUsage(context(fetchFn as never));
-    expect(fetchFn.mock.calls[0]?.[1]?.headers).toMatchObject({
+    const costCall = fetchFn.mock.calls.find(([url]) => url.includes('/cost_report'));
+    expect(costCall?.[1]?.headers).toMatchObject({
       Authorization: 'Bearer admin-test-key',
       'anthropic-version': ANTHROPIC_ADMIN_API_VERSION,
       'x-api-key': 'admin-test-key',
     });
-    expect(result.spend).toEqual({
-      amount: 10.5,
-      currency: 'USD',
-      since: MONTH_START.toISOString(),
+    expect(result).toEqual({
+      spend: { amount: 10.5, currency: 'USD', since: MONTH_START.toISOString() },
+      status: 'ok',
+    });
+  });
+});
+
+/** The live 7-day Analytics API answer for an org on Opus 5.5 and Sonnet 5.5 (cents). */
+const ANALYTICS_USAGE = {
+  data: [
+    {
+      group: { model: 'claude-sonnet-5-5' },
+      usage: {
+        cache_creation: { ephemeral_1h_input_tokens: 0, ephemeral_5m_input_tokens: 705_632 },
+        cache_read_input_tokens: 3_165_039,
+        output_tokens: 28_829,
+        uncached_input_tokens: 332,
+      },
+    },
+    {
+      group: { model: 'claude-opus-5-5' },
+      usage: {
+        cache_creation: { ephemeral_1h_input_tokens: 0, ephemeral_5m_input_tokens: 250_662 },
+        cache_read_input_tokens: 926_170,
+        output_tokens: 33_036,
+        uncached_input_tokens: 37_083,
+      },
+    },
+    {
+      group: { model: 'claude-sonnet-5' },
+      usage: {
+        cache_creation: { ephemeral_1h_input_tokens: 0, ephemeral_5m_input_tokens: 0 },
+        cache_read_input_tokens: 0,
+        output_tokens: 13,
+        uncached_input_tokens: 8,
+      },
+    },
+  ],
+  has_more: false,
+};
+
+const costRow = (model: string, tokenType: string, amount: string) => ({
+  cost: { amount, currency: 'USD' },
+  group: { cost_type: 'tokens', model, token_type: tokenType },
+});
+
+const ANALYTICS_COST = {
+  data: [
+    costRow('claude-sonnet-5-5', 'uncached_input_tokens', '0.066400'),
+    costRow('claude-sonnet-5-5', 'output_tokens', '28.829000'),
+    costRow('claude-sonnet-5-5', 'cache_read_input_tokens', '31.650390'),
+    costRow('claude-sonnet-5-5', 'cache_creation.ephemeral_5m_input_tokens', '176.408000'),
+    costRow('claude-opus-5-5', 'uncached_input_tokens', '14.833200'),
+    costRow('claude-opus-5-5', 'output_tokens', '66.072000'),
+    costRow('claude-opus-5-5', 'cache_read_input_tokens', '18.523400'),
+    costRow('claude-opus-5-5', 'cache_creation.ephemeral_5m_input_tokens', '125.331000'),
+    costRow('claude-sonnet-5', 'uncached_input_tokens', '0.001600'),
+    costRow('claude-sonnet-5', 'output_tokens', '0.013000'),
+  ],
+  has_more: false,
+};
+
+describe('Anthropic 7-day tokens', () => {
+  it('sums tokens, uses the Console hit rate, and prices savings per model', () => {
+    // Savings: Sonnet 5.5 566.08¢ + Opus 5.5 326.88¢, net of the 1.25× write premium.
+    expect(summarizeAnthropicTokens(ANALYTICS_USAGE, ANALYTICS_COST)).toEqual({
+      cacheHitPercent: 99,
+      cacheSavings: { amount: 8.93, currency: 'USD' },
+      total: 5_146_804,
+    });
+  });
+
+  it('keeps the hit rate and total when the cost read failed', () => {
+    expect(summarizeAnthropicTokens(ANALYTICS_USAGE, undefined)).toEqual({
+      cacheHitPercent: 99,
+      total: 5_146_804,
+    });
+  });
+
+  it('rejects a usage payload without data', () => {
+    expect(summarizeAnthropicTokens({ error: {} })).toBeUndefined();
+  });
+
+  it('reads the last 7 days with the analytics beta header next to the spend', async () => {
+    const fetchFn = vi.fn(async (url: string) => {
+      if (url.includes('/analytics/usage')) return json(ANALYTICS_USAGE);
+      if (url.includes('/analytics/cost')) return json(ANALYTICS_COST);
+      return json({ data: [{ results: [{ amount: '1050', currency: 'USD' }] }], has_more: false });
+    });
+    const result = await anthropicUsageAdapter.fetchUsage(context(fetchFn as never));
+
+    const analyticsCalls = fetchFn.mock.calls.filter(([url]) => url.includes('/analytics/'));
+    expect(analyticsCalls).toHaveLength(2);
+    for (const [url, init] of analyticsCalls) {
+      expect(new URL(url).searchParams.get('starting_at')).toBe('2026-10-24T12:00:00Z');
+      expect(init?.headers).toMatchObject({ 'anthropic-beta': ANTHROPIC_ANALYTICS_BETA });
+    }
+    expect(
+      new URL(analyticsCalls.find(([url]) => url.includes('/cost'))![0]).searchParams.getAll(
+        'group_by[]',
+      ),
+    ).toEqual(['model', 'token_type']);
+    expect(result.spend?.amount).toBe(10.5);
+    expect(result.tokens).toEqual({
+      cacheHitPercent: 99,
+      cacheSavings: { amount: 8.93, currency: 'USD' },
+      total: 5_146_804,
     });
   });
 });

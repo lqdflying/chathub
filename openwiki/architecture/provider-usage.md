@@ -19,11 +19,12 @@ supported on purpose. SuperGrok OAuth and Codex OAuth keep their own meters
    adapter in `src/server/services/providerUsage/adapters/`.
 3. Each adapter makes one to three `GET`s (Zhipu retries once without `Bearer`,
    MiniMax falls back to the legacy path after 404, OpenAI and Anthropic page
-   up to 3 times, xAI validates the key first when no team id is saved), each
+   up to 3 times, Anthropic also makes two Analytics API reads in parallel,
+   xAI validates the key first when no team id is saved), each
    with a 10 s timeout and `redirect: manual` (a 3xx is `error`, not a followed
    redirect). A pure parser turns the body into a
    `ProviderUsageSnapshot` (`types.ts`): `balances[]`, `windows[]`, `spend`,
-   `plan`, `status`, `reason`, `unofficial`.
+   `tokens`, `plan`, `status`, `reason`, `unofficial`.
 4. Vendor, network, and parse failures become a `status`
    (`authError` / `unavailable` / `error`), never a thrown error.
 5. Snapshots are cached in memory for 60 s per user, provider, credential
@@ -81,6 +82,7 @@ ciphertext reads as "no saved key".
 | xAI | Management API `GET /v1/billing/teams/{team}/prepaid/balance`; team from the saved id or `/auth/management-keys/validation` | Official ([docs](https://docs.x.ai/developers/rest-api-reference/management/billing)) |
 | OpenAI | `GET /v1/organization/costs` (Admin key) → month-to-date spend | Official; no remaining-credit endpoint exists |
 | Anthropic | `GET /v1/organizations/cost_report` with `anthropic-version: 2026-10-21` and `Authorization: Bearer` (Admin key, cents strings, `starting_at` without fractional seconds) → month-to-date spend | Official but marked legacy in favor of the Analytics API |
+| Anthropic | `GET /v1/organizations/analytics/usage` (`group_by[]=model`) and `/analytics/cost` (`group_by[]=model&group_by[]=token_type`), last 7 days, `anthropic-beta: analytics-usage-cost-2026-08-24` → `tokens` (total, cache hit rate, cache savings) | Official, beta. Best effort: a failure leaves out `tokens` and keeps the spend status |
 
 Not supported: Google Gemini, Azure OpenAI, Azure AI, Xiaomi MiMo (no usable
 endpoint), and pay-as-you-go balances for Zhipu and MiniMax.
@@ -91,6 +93,14 @@ endpoint), and pay-as-you-go balances for Zhipu and MiniMax.
   snapped back to today 00:00, and the call returns 400 when that is not after
   the start. On the 1st the query starts the previous day and buckets before
   this month are dropped, so the card shows $0.00.
+- Anthropic Analytics API answers an Admin key with 403 "missing
+  `read:analytics`" when the beta header is absent.
+- Anthropic cache hit rate is cache reads ÷ (cache reads + uncached input),
+  which matches the Claude Console. Cache savings are net: cached tokens
+  (reads + writes) at the base input price minus what they cost. Cache-read
+  discounts differ by model, so the base price per model comes from that
+  model's uncached-input and cache-write cost (writes are 1.25× for 5 min and
+  2× for 1 h). The figure can differ from the Console's own estimate.
 - xAI `total.val` is an inverted cents ledger: a $10 top-up is `"-1000"`.
 - MiniMax `current_weekly_status: 0` means "no weekly limit"; the weekly row is
   skipped so it never reads as 0 % left. Interval length (5 h vs 24 h) comes

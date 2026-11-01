@@ -570,7 +570,7 @@
   "providerUsage": {
     "admin": {
       "desc": {
-        "anthropic": "Anthropic billing needs an Admin API key (sk-ant-admin…); the chat API key cannot read it. Shows this month's spend.",
+        "anthropic": "Anthropic billing needs an Admin API key (sk-ant-admin…); the chat API key cannot read it. Shows this month's spend and the last 7 days of token use.",
         "openai": "OpenAI billing needs an Admin API key (sk-admin-…); project API keys cannot read it. Shows this month's spend.",
         "xai": "xAI billing needs a Management API key and its team ID; the inference API key cannot read it. Shows the prepaid balance."
       },
@@ -589,6 +589,8 @@
     },
     "balance": "Available balance",
     "balanceBreakdown": "Granted {{granted}} · Paid {{paid}}",
+    "cacheHitRate": "Prompt cache hit rate {{percent}}%",
+    "cacheSavings": "Prompt caching saved about {{amount}}",
     "insufficient": "The balance is not enough for API calls right now.",
     "loading": "Reading balance and usage…",
     "plan": "{{plan}} plan",
@@ -612,6 +614,8 @@
       "unavailable": "This key has no balance or plan quota to show."
     },
     "title": "Balance & usage",
+    "tokensTitle": "Tokens, last 7 days",
+    "tokensTotal": "{{total}} tokens",
     "unit": {
       "calls": "calls",
       "tokens": "tokens"

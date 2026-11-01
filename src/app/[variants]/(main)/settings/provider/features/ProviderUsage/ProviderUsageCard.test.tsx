@@ -117,6 +117,25 @@ describe('ProviderUsageCard', () => {
     expect(screen.getByText(/providerUsage\.balanceBreakdown/)).toBeTruthy();
   });
 
+  it('shows 7-day tokens with the cache hit rate and savings', () => {
+    mocks.data = {
+      credentialType: 'admin',
+      fetchedAt: '2026-11-01T03:00:00.000Z',
+      provider: 'anthropic',
+      status: 'ok',
+      tokens: {
+        cacheHitPercent: 99,
+        cacheSavings: { amount: 8.93, currency: 'USD' },
+        total: 5_146_804,
+      },
+    };
+    render(<ProviderUsageCard provider="anthropic" />);
+    expect(screen.getByText('providerUsage.tokensTotal:{"total":"5.1M"}')).toBeTruthy();
+    expect(screen.getByText('providerUsage.cacheHitRate:{"percent":99}')).toBeTruthy();
+    expect(screen.getByText('providerUsage.cacheSavings:{"amount":"$8.93"}')).toBeTruthy();
+    expect(screen.queryByText('providerUsage.status.unavailable')).toBeNull();
+  });
+
   it('labels unofficial plan windows and draws each meter', () => {
     mocks.data = {
       credentialType: 'apiKey',

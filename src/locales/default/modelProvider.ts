@@ -555,7 +555,7 @@ export default {
     admin: {
       desc: {
         anthropic:
-          'Anthropic 计费需要 Admin API Key（sk-ant-admin…），聊天用的 API Key 无法读取。将显示本月花费。',
+          'Anthropic 计费需要 Admin API Key（sk-ant-admin…），聊天用的 API Key 无法读取。将显示本月花费和近 7 天 Token 用量。',
         openai:
           'OpenAI 计费需要 Admin API Key（sk-admin-…），项目 API Key 无法读取。将显示本月花费。',
         xai: 'xAI 计费需要 Management API Key 及其 Team ID，推理用的 API Key 无法读取。将显示预付费余额。',
@@ -575,6 +575,8 @@ export default {
     },
     balance: '可用余额',
     balanceBreakdown: '赠送 {{granted}} · 充值 {{paid}}',
+    cacheHitRate: '提示词缓存命中率 {{percent}}%',
+    cacheSavings: '提示词缓存约节省 {{amount}}',
     insufficient: '余额不足，当前无法调用 API。',
     loading: '正在读取余额与用量…',
     plan: '{{plan}} 套餐',
@@ -598,6 +600,8 @@ export default {
       unavailable: '该密钥没有可显示的余额或套餐额度。',
     },
     title: '余额与用量',
+    tokensTitle: '近 7 天 Token 用量',
+    tokensTotal: '{{total}} Token',
     unit: {
       calls: '次',
       tokens: 'Token',
