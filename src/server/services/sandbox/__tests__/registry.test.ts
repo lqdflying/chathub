@@ -50,7 +50,14 @@ describe('sandbox provider registry with a profile', () => {
         sessionIdleTimeoutMs: 0,
         sessionMaxLifetimeMs: 0,
       },
-      { apiKey: 'k', id: 'remote', name: 'Remote', status: 'ok', url: 'https://sandbox.example' },
+      {
+        apiKey: 'k',
+        id: 'remote',
+        name: 'Remote',
+        proxyEndpoint: 'server',
+        status: 'ok',
+        url: 'https://sandbox.example',
+      },
     );
     expect(provider.isConfigured()).toBe(true);
     expect(provider.keepsSessions).toBe(false);

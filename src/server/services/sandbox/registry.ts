@@ -22,6 +22,7 @@ export const getSandboxProvider = (
     networkDisabled: profile.egress.mode === 'none',
     profileId: profile.id,
     readyTimeout: profile.readyTimeoutMs,
+    rebaseExecdEndpoint: server.proxyEndpoint === 'baseUrl',
     sessionIdleTimeout: profile.sessionIdleTimeoutMs,
     sessionMaxLifetime: profile.sessionMaxLifetimeMs,
   });

@@ -75,6 +75,7 @@ const envServer = (env: SandboxProfilesEnv): ResolvedSandboxServer | undefined =
     apiKey: env.OPENSANDBOX_API_KEY || undefined,
     id: DEFAULT_SANDBOX_SERVER_ID,
     name: 'Default',
+    proxyEndpoint: 'server',
     status: 'ok',
     url: url.replace(/\/+$/, ''),
   };
@@ -144,6 +145,7 @@ export const loadSandboxProfiles = ({
       apiKey,
       id: server.id,
       name: server.name ?? server.id,
+      proxyEndpoint: server.proxyEndpoint,
       status: server.apiKeyEnv && !apiKey ? 'misconfigured' : 'ok',
       url: server.url.replace(/\/+$/, ''),
     });

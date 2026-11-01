@@ -115,6 +115,7 @@ export class OpenSandboxProvider implements SandboxProvider {
   private networkDisabled: boolean;
   private profileId?: string;
   private readyTimeout: number;
+  private rebaseExecdEndpoint: boolean;
   private sessionIdleTimeout: number;
   private sessionMaxLifetime: number;
 
@@ -134,6 +135,8 @@ export class OpenSandboxProvider implements SandboxProvider {
     networkDisabled?: boolean;
     profileId?: string;
     readyTimeout?: number;
+    /** Server `proxyEndpoint: baseUrl`: send execd calls to `baseUrl`, not the host the server returns. */
+    rebaseExecdEndpoint?: boolean;
     sessionIdleTimeout?: number;
     sessionMaxLifetime?: number;
   }) {
@@ -151,6 +154,7 @@ export class OpenSandboxProvider implements SandboxProvider {
     this.networkDisabled = options?.networkDisabled ?? false;
     this.profileId = options?.profileId;
     this.readyTimeout = options?.readyTimeout ?? sandboxEnv.OPENSANDBOX_READY_TIMEOUT;
+    this.rebaseExecdEndpoint = options?.rebaseExecdEndpoint ?? false;
     this.sessionIdleTimeout =
       options?.sessionIdleTimeout ?? sandboxEnv.OPENSANDBOX_SESSION_IDLE_TIMEOUT;
     this.sessionMaxLifetime =
@@ -225,7 +229,11 @@ export class OpenSandboxProvider implements SandboxProvider {
       );
     }
 
-    const client = new OpenSandboxClient({ apiKey: this.apiKey, baseUrl: this.baseUrl });
+    const client = new OpenSandboxClient({
+      apiKey: this.apiKey,
+      baseUrl: this.baseUrl,
+      rebaseExecdEndpoint: this.rebaseExecdEndpoint,
+    });
     // Room a session sandbox needs before its retire time to host one call.
     const runBudgetMs = budgetMs + TTL_MARGIN_SECONDS * 1000;
     let phase: WorkspacePhase = 'ready';

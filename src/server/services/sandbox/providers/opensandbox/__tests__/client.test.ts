@@ -74,3 +74,31 @@ describe('OpenSandboxClient.health', () => {
     await expect(client().health(AbortSignal.timeout(1000))).resolves.toBe('unreachable');
   });
 });
+
+describe('OpenSandboxClient.getExecdEndpoint', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const endpointResponse = (endpoint: string) =>
+    vi.fn().mockResolvedValue(new Response(JSON.stringify({ endpoint, headers: { 'x-a': '1' } })));
+
+  it('uses the returned proxy URL by default, adding the base protocol when missing', async () => {
+    vi.stubGlobal('fetch', endpointResponse('10.0.0.5:8090/v1/sandboxes/sbx/proxy/44772'));
+    const client = new OpenSandboxClient({ baseUrl: 'https://sandbox.example.com' });
+    await expect(client.getExecdEndpoint('sbx', AbortSignal.timeout(1000))).resolves.toEqual({
+      headers: { 'x-a': '1' },
+      url: 'https://10.0.0.5:8090/v1/sandboxes/sbx/proxy/44772',
+    });
+  });
+
+  it('rebases the returned path onto the configured URL when asked', async () => {
+    vi.stubGlobal('fetch', endpointResponse('http://10.0.0.5:8090/v1/sandboxes/sbx/proxy/44772/'));
+    const client = new OpenSandboxClient({
+      baseUrl: 'https://sandbox.example.com/',
+      rebaseExecdEndpoint: true,
+    });
+    await expect(client.getExecdEndpoint('sbx', AbortSignal.timeout(1000))).resolves.toMatchObject({
+      url: 'https://sandbox.example.com/v1/sandboxes/sbx/proxy/44772',
+    });
+  });
+});
+

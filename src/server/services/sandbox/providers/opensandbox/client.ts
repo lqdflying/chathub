@@ -218,11 +218,26 @@ export class OpenSandboxClient {
   private readonly apiKey?: string;
   private readonly baseUrl: string;
   private readonly protocol: string;
+  private readonly rebaseExecdEndpoint: boolean;
 
-  constructor({ apiKey, baseUrl }: { apiKey?: string; baseUrl: string }) {
+  /**
+   * `rebaseExecdEndpoint`: a server behind a reverse proxy may return its
+   * internal host for the execd proxy route. When set, ChatHub keeps only the
+   * returned path and sends it to `baseUrl` instead.
+   */
+  constructor({
+    apiKey,
+    baseUrl,
+    rebaseExecdEndpoint = false,
+  }: {
+    apiKey?: string;
+    baseUrl: string;
+    rebaseExecdEndpoint?: boolean;
+  }) {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
     this.apiKey = apiKey;
     this.protocol = new URL(this.baseUrl).protocol;
+    this.rebaseExecdEndpoint = rebaseExecdEndpoint;
   }
 
   private headers(extra?: Record<string, string>): Record<string, string> {
@@ -306,10 +321,10 @@ export class OpenSandboxClient {
         if (typeof value === 'string') headers[key] = value;
       }
     }
-    return {
-      headers,
-      url: /^https?:\/\//i.test(endpoint) ? endpoint : `${this.protocol}//${endpoint}`,
-    };
+    const absolute = /^https?:\/\//i.test(endpoint) ? endpoint : `${this.protocol}//${endpoint}`;
+    if (!this.rebaseExecdEndpoint) return { headers, url: absolute };
+    const { pathname, search } = new URL(absolute);
+    return { headers, url: `${this.baseUrl}${pathname.replace(/\/+$/, '')}${search}` };
   }
 
   /**

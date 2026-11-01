@@ -36,6 +36,7 @@ describe('loadSandboxProfiles without a profiles file', () => {
         apiKey: 'env-key',
         id: 'default',
         name: 'Default',
+        proxyEndpoint: 'server',
         status: 'ok',
         url: 'http://opensandbox:8090',
       },
@@ -120,6 +121,7 @@ profiles:
       apiKey: 'data-key',
       id: 'gvisor',
       name: 'Isolated box',
+      proxyEndpoint: 'server',
       status: 'ok',
       url: 'https://sandbox.example.com',
     });
@@ -151,6 +153,20 @@ profiles:
     });
     expect(offline.instruction).not.toContain(DEFAULT_SANDBOX_INSTRUCTION);
     expect(offline.instruction).toContain('Only use the files you are given.');
+  });
+
+  it('reads proxyEndpoint per server', () => {
+    const catalog = withFile({
+      '/etc/chathub/sandbox-profiles.yaml': `version: 1
+servers:
+  - {id: remote, url: "https://sandbox.example.com", proxyEndpoint: baseUrl}
+profiles:
+  - {id: data, name: Data, description: Data, server: remote}
+`,
+    });
+    expect(catalog.servers.find((server) => server.id === 'remote')?.proxyEndpoint).toBe(
+      'baseUrl',
+    );
   });
 
   it('reads JSON too', () => {

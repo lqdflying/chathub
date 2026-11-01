@@ -29,6 +29,11 @@ export const sandboxServerConfigSchema = z
       .max(32)
       .regex(SERVER_ID, 'server id must be lowercase letters, digits and hyphens'),
     name: z.string().min(1).max(64).optional(),
+    /**
+     * `baseUrl`: send execd proxy calls to `url` even when the server returns
+     * another host (for example behind a TLS reverse proxy). Default `server`.
+     */
+    proxyEndpoint: z.enum(['baseUrl', 'server']).default('server'),
     url: z.string().url(),
   })
   .strict();
@@ -120,6 +125,7 @@ export interface ResolvedSandboxServer {
   apiKey?: string;
   id: string;
   name: string;
+  proxyEndpoint: 'baseUrl' | 'server';
   /** `misconfigured` when `apiKeyEnv` names a variable that is not set. */
   status: 'misconfigured' | 'ok';
   url: string;
