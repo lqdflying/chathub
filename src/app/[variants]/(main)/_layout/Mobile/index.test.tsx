@@ -61,6 +61,7 @@ describe('mobile main layout', () => {
     '/knowledge',
     '/knowledge/bases',
     '/knowledge/bases/base-id',
+    '/sandbox',
     '/search',
     '/tools',
     '/tools/picbed',

@@ -1,0 +1,31 @@
+{
+  "description": "Sandboxes the operator set up on this server. Turn one on here, then add it to an assistant from the tool picker in the chat input. Turning it off removes that sandbox tool and its instructions from every assistant at once.",
+  "empty": "No sandbox is configured on this server.",
+  "health": {
+    "misconfigured": "API key missing",
+    "ok": "Online",
+    "unauthorized": "API key rejected",
+    "unreachable": "Unreachable"
+  },
+  "loadFailed": "Could not load the sandboxes. Try again later.",
+  "loading": "Loading sandboxes…",
+  "profile": {
+    "egress": {
+      "allowlist": "Network: {{count}} allowed targets",
+      "none": "Network: off",
+      "open": "Network: open"
+    },
+    "egressTargets": "Allowed: {{targets}}",
+    "hideInstruction": "Hide model instructions",
+    "idle": "Removed after {{time}} idle",
+    "idlePerCall": "Fresh sandbox for every call",
+    "maxLifetime": "max {{time}}",
+    "resources": "CPU {{cpu}} · Memory {{memory}}",
+    "server": "Server: {{name}}",
+    "showInstruction": "Show model instructions",
+    "toggle": "Turn {{name}} on or off",
+    "toggleFailed": "Could not save. Try again later.",
+    "unavailable": "This sandbox's server is missing its API key, so it cannot run until the operator fixes the configuration."
+  },
+  "title": "Sandbox Hub"
+}

@@ -233,6 +233,7 @@ export default {
     knowledgeBase: '知识库',
     me: '我',
     more: '更多',
+    sandbox: '沙盒中心',
     search: '搜索',
     setting: '设置',
     tools: 'Tools',

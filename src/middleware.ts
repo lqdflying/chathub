@@ -43,6 +43,8 @@ export const config = {
     '/artifacts',
     '/tools',
     '/tools(.*)',
+    '/sandbox',
+    '/sandbox(.*)',
     '/search',
     '/search(.*)',
     '/knowledge',

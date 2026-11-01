@@ -1,5 +1,13 @@
 import { ActionIcon, ActionIconProps, Hotkey } from '@lobehub/ui';
-import { FolderClosed, Image as ImageIcon, Images, MessageSquare, Search, Wrench } from 'lucide-react';
+import {
+  Boxes,
+  FolderClosed,
+  Image as ImageIcon,
+  Images,
+  MessageSquare,
+  Search,
+  Wrench,
+} from 'lucide-react';
 import Link from 'next/link';
 import React, { memo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -30,6 +38,7 @@ const TopActions = memo<TopActionProps>(({ tab, isPinned }) => {
   const { t } = useTranslation('common');
   const switchBackToChat = useGlobalStore((s) => s.switchBackToChat);
   const { enableKnowledgeBase, showAiImage } = useServerConfigStore(featureFlagsSelectors);
+  const enabledSandbox = useServerConfigStore((s) => !!s.serverConfig.enabledSandbox);
   const hotkey = useUserStore(settingsSelectors.getHotkeyById(HotkeyEnum.NavigateToChat));
 
   // Check if server mode is enabled
@@ -39,6 +48,7 @@ const TopActions = memo<TopActionProps>(({ tab, isPinned }) => {
   const isFilesActive = tab === SidebarTabKey.Files;
   const isImageActive = tab === SidebarTabKey.Image;
   const isToolsActive = tab === SidebarTabKey.Tools;
+  const isSandboxActive = tab === SidebarTabKey.Sandbox;
   const isArtifactsActive = tab === SidebarTabKey.Artifacts;
 
   return (
@@ -110,6 +120,17 @@ const TopActions = memo<TopActionProps>(({ tab, isPinned }) => {
           tooltipProps={{ placement: 'right' }}
         />
       </Link>
+      {enabledSandbox && (
+        <Link aria-label={t('tab.sandbox')} href={'/sandbox'}>
+          <ActionIcon
+            active={isSandboxActive}
+            icon={Boxes}
+            size={ICON_SIZE}
+            title={t('tab.sandbox')}
+            tooltipProps={{ placement: 'right' }}
+          />
+        </Link>
+      )}
       <Link aria-label={t('tab.artifacts')} href={'/artifacts'}>
         <ActionIcon
           active={isArtifactsActive}

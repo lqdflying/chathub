@@ -22,6 +22,7 @@ import plugin from './plugin';
 import portal from './portal';
 import providers from './providers';
 import ragEval from './ragEval';
+import sandboxHub from './sandboxHub';
 import search from './search';
 import setting from './setting';
 import subscription from './subscription';
@@ -56,6 +57,7 @@ const resources = {
   portal,
   providers,
   ragEval,
+  sandboxHub,
   search,
   setting,
   subscription,

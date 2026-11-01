@@ -62,14 +62,16 @@ export const getUserSandboxProfiles = async (
 };
 
 /** Profiles the user can put in front of the model: enabled in the Hub and runnable. */
-export const getUserEnabledSandboxProfiles = async (db: LobeChatDatabase, userId: string) =>
-  (await getUserSandboxProfiles(db, userId)).filter(
-    (profile) => profile.enabled && profile.available,
-  );
+export const getUserEnabledSandboxProfiles = async (db: LobeChatDatabase, userId: string) => {
+  const profiles = await getUserSandboxProfiles(db, userId);
+  return profiles.filter((profile) => profile.enabled && profile.available);
+};
 
 /** One tool manifest per profile the user turned on, in config order. */
-export const getUserSandboxManifests = async (db: LobeChatDatabase, userId: string) =>
-  (await getUserEnabledSandboxProfiles(db, userId)).map(createSandboxProfileManifest);
+export const getUserSandboxManifests = async (db: LobeChatDatabase, userId: string) => {
+  const profiles = await getUserEnabledSandboxProfiles(db, userId);
+  return profiles.map(createSandboxProfileManifest);
+};
 
 export type SandboxProfileResolution =
   | { message: string; ok: false; reason: 'disabled' | 'not_configured' | 'unknown' }

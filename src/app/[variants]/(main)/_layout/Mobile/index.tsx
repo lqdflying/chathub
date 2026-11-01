@@ -23,7 +23,7 @@ const MOBILE_NAV_ROUTES = new Set([
   '/discover/provider',
   '/me',
 ]);
-const MOBILE_NAV_ROUTE_PREFIXES = ['/knowledge', '/search', '/tools'];
+const MOBILE_NAV_ROUTE_PREFIXES = ['/knowledge', '/sandbox', '/search', '/tools'];
 
 export const isMobileNavRoute = (pathname: string) =>
   MOBILE_NAV_ROUTES.has(pathname) ||

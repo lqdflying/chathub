@@ -114,6 +114,28 @@ describe('TopActions', () => {
     expect(screen.getByText('tab.artifacts')).toBeTruthy();
   });
 
+  it('shows Sandbox Hub only when a sandbox is configured', () => {
+    renderTopActions();
+    expect(screen.queryByText('tab.sandbox')).toBeNull();
+    cleanup();
+
+    act(() => {
+      createServerConfigStore().setState((state) => ({
+        serverConfig: { ...state.serverConfig, enabledSandbox: true },
+      }));
+    });
+    renderTopActions({ tab: SidebarTabKey.Sandbox });
+
+    expect(screen.getByText('tab.sandbox')).toBeTruthy();
+    expect(screen.getByText('Mocked Link /sandbox')).toBeTruthy();
+
+    act(() => {
+      createServerConfigStore().setState((state) => ({
+        serverConfig: { ...state.serverConfig, enabledSandbox: false },
+      }));
+    });
+  });
+
   it('should switch back to previous active session', () => {
     act(() => {
       useSessionStore.setState({ activeId: '1' });

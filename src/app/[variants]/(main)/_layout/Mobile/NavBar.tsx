@@ -5,6 +5,7 @@ import { TabBar, type TabBarProps } from '@lobehub/ui/mobile';
 import { Drawer } from 'antd';
 import { createStyles } from 'antd-style';
 import {
+  Boxes,
   Ellipsis,
   FolderClosed,
   Image as ImageIcon,
@@ -63,11 +64,14 @@ const NavBar = memo(() => {
   const [moreOpen, setMoreOpen] = useState(false);
 
   const { enableKnowledgeBase, showAiImage } = useServerConfigStore(featureFlagsSelectors);
+  const enabledSandbox = useServerConfigStore((s) => !!s.serverConfig.enabledSandbox);
   const activeKey =
     pathname === '/knowledge' ||
     pathname.startsWith('/knowledge/') ||
     pathname === '/tools' ||
     pathname.startsWith('/tools/') ||
+    pathname === '/sandbox' ||
+    pathname.startsWith('/sandbox/') ||
     pathname === '/search' ||
     pathname.startsWith('/search/')
       ? SidebarTabKey.More
@@ -77,9 +81,11 @@ const NavBar = memo(() => {
       ? 'knowledge'
       : pathname === '/tools' || pathname.startsWith('/tools/')
         ? 'tools'
-        : pathname === '/search' || pathname.startsWith('/search/')
-          ? 'search'
-          : undefined;
+        : pathname === '/sandbox' || pathname.startsWith('/sandbox/')
+          ? 'sandbox'
+          : pathname === '/search' || pathname.startsWith('/search/')
+            ? 'search'
+            : undefined;
   const moreItems = useMemo(
     () =>
       [
@@ -98,8 +104,13 @@ const NavBar = memo(() => {
           key: 'tools',
           label: t('tab.tools'),
         },
+        enabledSandbox && {
+          icon: <Icon icon={Boxes} />,
+          key: 'sandbox',
+          label: t('tab.sandbox'),
+        },
       ].filter(Boolean) as MenuProps['items'],
-    [enableKnowledgeBase, t],
+    [enableKnowledgeBase, enabledSandbox, t],
   );
 
   const items: TabBarProps['items'] = useMemo(
@@ -189,6 +200,7 @@ const NavBar = memo(() => {
             setMoreOpen(false);
             const routes: Record<string, string> = {
               knowledge: '/knowledge',
+              sandbox: '/sandbox',
               search: '/search',
               tools: '/tools',
             };

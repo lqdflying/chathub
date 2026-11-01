@@ -208,4 +208,35 @@ describe('mobile NavBar', () => {
     expect(screen.queryByRole('menuitem', { name: 'tab.knowledgeBase' })).toBeNull();
     expect(screen.getByRole('menuitem', { name: 'tab.tools' })).toBeTruthy();
   });
+
+  it('offers Sandbox Hub in More only when a sandbox is configured', () => {
+    renderNavBar();
+    fireEvent.click(screen.getByRole('button', { name: 'tab.more' }));
+    expect(screen.queryByRole('menuitem', { name: 'tab.sandbox' })).toBeNull();
+    cleanup();
+
+    act(() => {
+      createServerConfigStore().setState((state) => ({
+        serverConfig: { ...state.serverConfig, enabledSandbox: true },
+      }));
+    });
+    navigationState.activeTabKey = 'sandbox';
+    navigationState.pathname = '/sandbox';
+    renderNavBar();
+    fireEvent.click(screen.getByRole('button', { name: 'tab.more' }));
+
+    const drawer = screen.getByRole('dialog', { name: 'tab.more' });
+    expect(drawer.querySelector('[role="menu"]')?.getAttribute('data-selected-keys')).toBe(
+      'sandbox',
+    );
+    fireEvent.click(screen.getByRole('menuitem', { name: 'tab.sandbox' }));
+    expect(pushMock).toHaveBeenCalledWith('/sandbox');
+
+    act(() => {
+      createServerConfigStore().setState((state) => ({
+        serverConfig: { ...state.serverConfig, enabledSandbox: false },
+      }));
+    });
+  });
 });
+
