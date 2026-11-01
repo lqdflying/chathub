@@ -27,19 +27,27 @@ vi.mock('../../registry', () => ({
     withWorkspace: mocks.withWorkspace,
   }),
 }));
-vi.mock('../../profiles/load', () => ({
-  findSandboxProfile: (id: string) =>
-    ['general', 'data'].includes(id)
-      ? {
-          id,
-          name: id === 'general' ? 'Sandbox' : 'Data',
-          serverId: id === 'data' ? 'locked' : 'default',
-        }
-      : undefined,
-  findSandboxServer: (id: string) =>
-    id === 'default'
-      ? { id, name: 'Default', status: 'ok', url: 'http://opensandbox:8090' }
-      : { id, name: 'Locked', status: 'misconfigured', url: 'https://locked.example' },
+vi.mock('../../profiles/catalog', () => ({
+  resolveSandboxProfileForUser: async ({ identifier }: { identifier: string }) => {
+    const profileId =
+      identifier === 'lobe-sandbox' || identifier === 'lobe-code-interpreter'
+        ? 'general'
+        : identifier.startsWith('lobe-sandbox--')
+          ? identifier.slice('lobe-sandbox--'.length)
+          : undefined;
+    if (!profileId) return { message: `Unknown Sandbox tool "${identifier}".`, ok: false };
+    if (profileId === 'off') {
+      return { message: 'The "Off" sandbox is turned off in Sandbox Hub.', ok: false };
+    }
+    if (profileId !== 'general' && profileId !== 'data') {
+      return { message: `The "${profileId}" sandbox is not configured on this server.`, ok: false };
+    }
+    return {
+      ok: true,
+      profile: { id: profileId, name: profileId },
+      server: { id: 'default', status: 'ok', url: 'http://opensandbox:8090' },
+    };
+  },
 }));
 vi.mock('../../conversationFiles', () => ({
   listConversationSandboxInputs: mocks.listInputs,
@@ -508,11 +516,11 @@ describe('invokeSandboxTool', () => {
       error: 'The "web" sandbox is not configured on this server.',
       success: false,
     });
-    await expect(withIdentifier('lobe-sandbox--data')).resolves.toEqual({
-      error: 'The "Data" sandbox cannot run: its server "locked" is missing its API key.',
+    await expect(withIdentifier('lobe-sandbox--off')).resolves.toEqual({
+      error: 'The "Off" sandbox is turned off in Sandbox Hub.',
       success: false,
     });
-    await expect(withIdentifier('lobe-sandbox--data', 'runPython')).resolves.toMatchObject({
+    await expect(withIdentifier('lobe-sandbox--off', 'runPython')).resolves.toMatchObject({
       output: [{ type: 'stderr' }],
       success: false,
     });
@@ -520,6 +528,9 @@ describe('invokeSandboxTool', () => {
       error: 'Unknown Sandbox tool "mcp__other".',
       success: false,
     });
-    expect(mocks.withWorkspace).toHaveBeenCalledTimes(2);
+    await withIdentifier('lobe-sandbox--data');
+    const dataKey = (mocks.withWorkspace.mock.calls[2][0] as { sessionKey: string }).sessionKey;
+    expect(dataKey).not.toBe(generalKey);
+    expect(mocks.withWorkspace).toHaveBeenCalledTimes(3);
   });
 });

@@ -31,6 +31,10 @@ vi.mock('@/envs/app', () => ({
   getAppConfig: vi.fn(),
 }));
 
+vi.mock('@/server/services/sandbox/registry', () => ({
+  isSandboxConfigured: () => true,
+}));
+
 vi.mock('@/envs/auth', () => ({
   authEnv: {
     NEXT_AUTH_SSO_PROVIDERS: 'github, credentials',
@@ -161,6 +165,7 @@ describe('getServerGlobalConfig', () => {
     expect(fileEnv.S3_SECRET_ACCESS_KEY).toBeUndefined();
     expect(imageEnv.AI_IMAGE_DEFAULT_IMAGE_NUM).toBe(1);
     expect(result.mimoTokenPlanEnv).toBe(false);
+    expect(result.enabledSandbox).toBe(true);
   });
 
   it('sets mimoTokenPlanEnv when MIMO_PROXY_URL is a Token Plan host', async () => {

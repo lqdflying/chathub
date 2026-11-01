@@ -49,3 +49,37 @@ export interface SandboxToolResult extends CodeInterpreterResponse {
 export interface SandboxToolState {
   error?: any;
 }
+
+export type SandboxProfileEgress =
+  | { mode: 'allowlist'; targets: string[] }
+  | { mode: 'none' }
+  | { mode: 'open' };
+
+/**
+ * One operator-defined Sandbox Hub profile as a user sees it. Server URLs,
+ * API keys and images never reach the browser.
+ */
+export interface SandboxProfileItem {
+  /** The profile's server has the credentials it declares. */
+  available: boolean;
+  avatar?: string;
+  cpu: string;
+  defaultEnabled: boolean;
+  description: string;
+  egress: SandboxProfileEgress;
+  /** The user's Hub choice, or `defaultEnabled` without one. */
+  enabled: boolean;
+  id: string;
+  /** Tool identifier: `lobe-sandbox` for `general`, else `lobe-sandbox--<id>`. */
+  identifier: string;
+  /** Final instruction injected while the tool is enabled. Static per server process. */
+  instruction: string;
+  memory: string;
+  name: string;
+  serverId: string;
+  serverName: string;
+  sessionIdleTimeoutMs: number;
+  sessionMaxLifetimeMs: number;
+}
+
+export type SandboxServerHealth = 'misconfigured' | 'ok' | 'unauthorized' | 'unreachable';

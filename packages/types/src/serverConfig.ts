@@ -42,6 +42,11 @@ export interface GlobalServerConfig {
    */
   enabledOAuthSSO?: boolean;
   /**
+   * At least one Sandbox Hub profile can run on this server. Without it the
+   * Hub menu is hidden and no Sandbox tool is offered.
+   */
+  enabledSandbox?: boolean;
+  /**
    * CHATHUB_GENERATION_DEBUG is active on the server, so the client emitter
    * should report send-path diagnostics through reportClientDebug.
    */

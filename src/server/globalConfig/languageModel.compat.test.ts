@@ -17,6 +17,10 @@ vi.mock('@/envs/app', () => ({
   getAppConfig: vi.fn(),
 }));
 
+vi.mock('@/server/services/sandbox/registry', () => ({
+  isSandboxConfigured: () => true,
+}));
+
 vi.mock('@/envs/auth', () => ({
   authEnv: { NEXT_AUTH_SSO_PROVIDERS: 'github, credentials' },
 }));

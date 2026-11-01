@@ -5,17 +5,15 @@ import type { CodeInterpreterResponse, SandboxToolResult } from '@lobechat/types
 
 import { sandboxEnv } from '@/envs/sandbox';
 import {
-  DEFAULT_SANDBOX_PROFILE_ID,
   SANDBOX_CONTROL_DIR,
   SandboxApiName,
   SandboxIdentifier,
-  parseSandboxToolIdentifier,
   resolveSandboxApiName,
 } from '@/tools/sandbox/const';
 
 import { listConversationSandboxInputs, persistSandboxOutputFiles } from '../conversationFiles';
 import { distinctOutputFilenames, outputRelativeName } from '../outputNames';
-import { findSandboxProfile, findSandboxServer } from '../profiles/load';
+import { resolveSandboxProfileForUser } from '../profiles/catalog';
 import type { ResolvedSandboxProfile, ResolvedSandboxServer } from '../profiles/schema';
 import { getSandboxProvider } from '../registry';
 import { buildSandboxSessionKey, type SandboxConversationScope } from '../session';
@@ -49,36 +47,6 @@ export interface InvokeSandboxToolParams extends Omit<SandboxConversationScope, 
   operationHash?: string;
   signal?: AbortSignal;
 }
-
-type ResolvedTarget =
-  | { message: string; ok: false }
-  | { ok: true; profile: ResolvedSandboxProfile; server: ResolvedSandboxServer };
-
-/** Maps the called tool to a configured profile and its server, or explains why it cannot run. */
-const resolveSandboxTarget = (identifier = SandboxIdentifier): ResolvedTarget => {
-  const parsed = parseSandboxToolIdentifier(identifier);
-  if (!parsed) return { message: `Unknown Sandbox tool "${identifier}".`, ok: false };
-
-  const profile = findSandboxProfile(parsed.profileId);
-  if (!profile) {
-    return {
-      message:
-        parsed.profileId === DEFAULT_SANDBOX_PROFILE_ID
-          ? 'Sandbox is not configured: set OPENSANDBOX_SERVER_URL and OPENSANDBOX_IMAGE, or a Sandbox Hub profile with a server and image.'
-          : `The "${parsed.profileId}" sandbox is not configured on this server.`,
-      ok: false,
-    };
-  }
-  const server = findSandboxServer(profile.serverId);
-  if (!server || server.status !== 'ok') {
-    return {
-      message: `The "${profile.name}" sandbox cannot run: its server "${profile.serverId}" is missing its API key.`,
-      ok: false,
-    };
-  }
-  return { ok: true, profile, server };
-};
-
 
 const clip = (message: string) =>
   message.length > MAX_ERROR_CHARS ? `${message.slice(0, MAX_ERROR_CHARS)}\n…[error truncated]` : message;
@@ -464,7 +432,11 @@ export const invokeSandboxTool = async (
     return isPython ? pythonFailure(message) : failure(message);
   }
 
-  const target = resolveSandboxTarget(params.identifier);
+  const target = await resolveSandboxProfileForUser({
+    db: params.db,
+    identifier: params.identifier ?? SandboxIdentifier,
+    userId: params.userId,
+  });
   if (!target.ok) return isPython ? pythonFailure(target.message) : failure(target.message);
 
   const runner = new SandboxToolRunner(params, target);

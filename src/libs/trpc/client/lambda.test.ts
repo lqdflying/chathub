@@ -112,8 +112,10 @@ describe('lambda tRPC client links', () => {
     await client.openaiCodex.logout.mutate({ accountScope: 'user:account-a' });
     await client.xaiOAuth.status.query({ accountScope: 'user:account-a' });
     await client.providerUsage.get.query({ accountScope: 'user:account-a', provider: 'deepseek' });
+    await client.sandboxHub.listProfiles.query({ accountScope: 'user:account-a' });
 
     expect(accountScopes).toEqual([
+      'user:account-a',
       'user:account-a',
       'user:account-a',
       'user:account-a',

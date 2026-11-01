@@ -36,6 +36,7 @@ const VERIFIED_ACCOUNT_RPC_NAMESPACES = [
   'openaiCodex.',
   'picbed.',
   'providerUsage.',
+  'sandboxHub.',
   'xaiOAuth.',
 ] as const;
 

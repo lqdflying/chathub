@@ -232,6 +232,25 @@ export class OpenSandboxClient {
     };
   }
 
+  /**
+   * Sandbox Hub status: `/health` (public) proves the server answers, then
+   * an authenticated list call proves the API key. Never throws.
+   */
+  async health(signal: AbortSignal): Promise<'ok' | 'unauthorized' | 'unreachable'> {
+    try {
+      const health = await fetch(`${this.baseUrl}/health`, { headers: this.headers(), signal });
+      await health.body?.cancel().catch(() => undefined);
+      if (!health.ok) return 'unreachable';
+      await this.findRunningSandboxes({ 'chathub-session': 'health-probe' }, signal);
+      return 'ok';
+    } catch (error) {
+      if (error instanceof OpenSandboxHttpError && (error.status === 401 || error.status === 403)) {
+        return 'unauthorized';
+      }
+      return 'unreachable';
+    }
+  }
+
   async createSandbox(body: CreateSandboxRequest, signal: AbortSignal) {
     const response = await fetch(`${this.baseUrl}/v1/sandboxes`, {
       body: JSON.stringify(body),

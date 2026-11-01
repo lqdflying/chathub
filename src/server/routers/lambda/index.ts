@@ -31,6 +31,7 @@ import { providerUsageRouter } from './providerUsage';
 import { ragEvalRouter } from './ragEval';
 import { ragProviderRouter } from './ragProvider';
 import { sandboxRouter } from './sandbox';
+import { sandboxHubRouter } from './sandboxHub';
 import { sessionRouter } from './session';
 import { sessionGroupRouter } from './sessionGroup';
 import { skillRouter } from './skill';
@@ -69,6 +70,7 @@ export const lambdaRouter = router({
   ragEval: ragEvalRouter,
   ragProvider: ragProviderRouter,
   sandbox: sandboxRouter,
+  sandboxHub: sandboxHubRouter,
   session: sessionRouter,
   sessionGroup: sessionGroupRouter,
   skill: skillRouter,

@@ -12,6 +12,7 @@ import { isCompactionDebugEnabled } from '@/libs/logger/compactionDebug';
 import { isGenerationDebugEnabled } from '@/libs/logger/generationDebug';
 import { parseAuthProviders } from '@/libs/next-auth/parseAuthProviders';
 import { parseSystemAgent } from '@/server/globalConfig/parseSystemAgent';
+import { isSandboxConfigured } from '@/server/services/sandbox/registry';
 import { GlobalServerConfig } from '@/types/serverConfig';
 import { cleanObject } from '@/utils/object';
 
@@ -48,6 +49,7 @@ export const getServerGlobalConfig = async () => {
     enabledAccessCode: ACCESS_CODES?.length > 0,
     enabledMarkItDown: !!knowledgeEnv.MARKITDOWN_SERVICE_URL,
     enabledOAuthSSO: enableNextAuth,
+    enabledSandbox: isSandboxConfigured(),
     generationDebug: isGenerationDebugEnabled(),
     image: cleanObject({
       defaultImageNum: imageEnv.AI_IMAGE_DEFAULT_IMAGE_NUM,
