@@ -55,8 +55,56 @@ export const normalizeBuiltinToolIds = (ids: readonly string[]): string[] => {
   return normalized;
 };
 
+/**
+ * Sandbox profiles (Sandbox Hub). The `general` profile keeps the original
+ * `lobe-sandbox` identifier so existing agents, tool messages and parked
+ * sandboxes stay valid; every other profile is `lobe-sandbox--<profileId>`.
+ */
+export const DEFAULT_SANDBOX_PROFILE_ID = 'general';
+
+/**
+ * Keeps `lobe-sandbox--<id>____<api>____builtin` under 64 characters, the
+ * point where ToolNameResolver hashes names. The durable worker splits tool
+ * names on `____` and cannot undo that hash.
+ */
+export const SANDBOX_PROFILE_ID_MAX_LENGTH = 16;
+
+const SANDBOX_PROFILE_SEPARATOR = '--';
+const SANDBOX_PROFILE_ID_PATTERN = /^[a-z][\da-z]*(?:-[\da-z]+)*$/;
+const SANDBOX_PROFILE_PREFIX = `${SandboxIdentifier}${SANDBOX_PROFILE_SEPARATOR}`;
+
+/** Lowercase letters, digits and single hyphens; no `_` so `____` can never appear. */
+export const isValidSandboxProfileId = (id: string) =>
+  id.length > 0 &&
+  id.length <= SANDBOX_PROFILE_ID_MAX_LENGTH &&
+  SANDBOX_PROFILE_ID_PATTERN.test(id);
+
+export const sandboxToolIdentifier = (profileId: string) =>
+  profileId === DEFAULT_SANDBOX_PROFILE_ID
+    ? SandboxIdentifier
+    : `${SANDBOX_PROFILE_PREFIX}${profileId}`;
+
+/**
+ * Syntactic parse only. Whether the profile is configured and enabled for the
+ * user is decided server-side when the tool is invoked.
+ */
+export const parseSandboxToolIdentifier = (
+  identifier?: string | null,
+): { profileId: string } | undefined => {
+  if (!identifier) return undefined;
+  if (identifier === SandboxIdentifier || identifier === LegacyCodeInterpreterIdentifier) {
+    return { profileId: DEFAULT_SANDBOX_PROFILE_ID };
+  }
+  if (!identifier.startsWith(SANDBOX_PROFILE_PREFIX)) return undefined;
+  const profileId = identifier.slice(SANDBOX_PROFILE_PREFIX.length);
+  if (profileId === DEFAULT_SANDBOX_PROFILE_ID || !isValidSandboxProfileId(profileId)) {
+    return undefined;
+  }
+  return { profileId };
+};
+
 export const isSandboxToolIdentifier = (identifier?: string | null) =>
-  identifier === SandboxIdentifier || identifier === LegacyCodeInterpreterIdentifier;
+  !!parseSandboxToolIdentifier(identifier);
 
 /** Maps the legacy `python` API to `runPython`; others pass through. */
 export const resolveSandboxApiName = (apiName: string) =>

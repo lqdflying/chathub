@@ -3,7 +3,7 @@ import { LobeBuiltinTool } from '@lobechat/types';
 import { ArtifactsManifest } from './artifacts';
 import { DalleManifest } from './dalle';
 import { MemoryManifest } from './memory';
-import { LEGACY_BUILTIN_TOOL_ALIASES, SandboxManifest } from './sandbox';
+import { LEGACY_BUILTIN_TOOL_ALIASES, SandboxManifest, isSandboxToolIdentifier } from './sandbox';
 import { SkillLoaderManifest } from './skills';
 import { WebBrowsingManifest } from './web-browsing';
 
@@ -50,3 +50,7 @@ export const builtinToolIdentifiers: ReadonlySet<string> = new Set([
   ...builtinTools.map((tool) => tool.identifier),
   ...Object.keys(LEGACY_BUILTIN_TOOL_ALIASES),
 ]);
+
+/** Builtin tools, including every Sandbox profile identifier (`lobe-sandbox--<id>`). */
+export const isBuiltinToolIdentifier = (identifier?: string | null) =>
+  !!identifier && (builtinToolIdentifiers.has(identifier) || isSandboxToolIdentifier(identifier));
