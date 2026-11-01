@@ -224,26 +224,49 @@ export const loadSandboxProfiles = ({
   };
 };
 
-let cachedCatalog: SandboxProfileCatalog | undefined;
+let cached: { catalog: SandboxProfileCatalog; signature: string } | undefined;
 
-/** Loaded once per process; the durable worker runs in the same process. Restart to apply changes. */
+const PROFILE_ENV_KEYS = [
+  'OPENSANDBOX_API_KEY',
+  'OPENSANDBOX_CPU',
+  'OPENSANDBOX_EGRESS_ALLOW',
+  'OPENSANDBOX_IMAGE',
+  'OPENSANDBOX_MEMORY',
+  'OPENSANDBOX_READY_TIMEOUT',
+  'OPENSANDBOX_SERVER_URL',
+  'OPENSANDBOX_SESSION_IDLE_TIMEOUT',
+  'OPENSANDBOX_SESSION_MAX_LIFETIME',
+  'SANDBOX_PROFILES_FILE',
+] as const satisfies readonly (keyof SandboxProfilesEnv)[];
+
+const readProfilesEnv = (): SandboxProfilesEnv =>
+  Object.fromEntries(PROFILE_ENV_KEYS.map((key) => [key, sandboxEnv[key]])) as SandboxProfilesEnv;
+
+/**
+ * Loaded once per process (the durable worker runs in the same process), and
+ * only reloaded when the OPENSANDBOX_* / SANDBOX_PROFILES_FILE values change.
+ * Edits to the profiles file itself need a restart.
+ */
 export const getSandboxProfileCatalog = (): SandboxProfileCatalog => {
-  if (cachedCatalog) return cachedCatalog;
-  cachedCatalog = loadSandboxProfiles({ env: sandboxEnv });
-  if (cachedCatalog.errors.length > 0) {
+  const env = readProfilesEnv();
+  const signature = JSON.stringify(env);
+  if (cached?.signature === signature) return cached.catalog;
+  const catalog = loadSandboxProfiles({ env });
+  cached = { catalog, signature };
+  if (catalog.errors.length > 0) {
     console.error(
       '[sandbox] SANDBOX_PROFILES_FILE is invalid; no sandbox profiles are configured',
       {
-        errors: cachedCatalog.errors,
+        errors: catalog.errors,
       },
     );
   }
-  return cachedCatalog;
+  return catalog;
 };
 
 /** Test hook. */
 export const resetSandboxProfileCatalog = () => {
-  cachedCatalog = undefined;
+  cached = undefined;
 };
 
 export const findSandboxProfile = (profileId: string) =>

@@ -1,6 +1,14 @@
 /** @vitest-environment node */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { SandboxIdentifier } from '@/tools/sandbox/const';
+
+import {
+  SANDBOX_GATHER_PAGE_SIZE,
+  listConversationSandboxInputs,
+  persistSandboxOutputFiles,
+} from '../conversationFiles';
+
 const messageMocks = vi.hoisted(() => ({ query: vi.fn() }));
 const threadMocks = vi.hoisted(() => ({ findById: vi.fn() }));
 const fileModelMocks = vi.hoisted(() => ({
@@ -60,14 +68,6 @@ vi.mock('@/envs/sandbox', () => ({
     },
   },
 }));
-
-import { SandboxIdentifier } from '@/tools/sandbox/const';
-
-import {
-  listConversationSandboxInputs,
-  persistSandboxOutputFiles,
-  SANDBOX_GATHER_PAGE_SIZE,
-} from '../conversationFiles';
 
 // Loads every ref, the way a fresh sandbox does.
 const gatherConversationSandboxFiles = async (

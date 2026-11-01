@@ -556,7 +556,7 @@ export const chatPlugin: StateCreator<
       // key each, and legacy Code Interpreter messages still say `python`.
       const action = isSandboxToolIdentifier(payload.identifier)
         ? (messageId: string, args: Record<string, unknown>) =>
-            get().invokeSandboxTool(messageId, payload.apiName, args)
+            get().invokeSandboxTool(messageId, payload.apiName, args, payload.identifier)
         : // @ts-ignore
           get()[payload.apiName];
       if (!action) {
@@ -826,8 +826,7 @@ export const chatPlugin: StateCreator<
         ));
     if (!assistantResource || !canRunToolBatch()) {
       logToolLoopContinue('tool_loop_continue_skipped', assistantId, get(), {
-        reason:
-          !assistantResource || invocationIsHardCancelled() ? 'not_alive' : 'batch_gated',
+        reason: !assistantResource || invocationIsHardCancelled() ? 'not_alive' : 'batch_gated',
       });
       return;
     }
@@ -1299,12 +1298,7 @@ export const chatPlugin: StateCreator<
       data = '';
     } finally {
       if (abortController) {
-        internal_togglePluginApiCalling(
-          false,
-          id,
-          n('fetchPlugin/end') as string,
-          abortController,
-        );
+        internal_togglePluginApiCalling(false, id, n('fetchPlugin/end') as string, abortController);
       } else {
         internal_togglePluginApiCalling(false, id, n('fetchPlugin/end') as string);
       }

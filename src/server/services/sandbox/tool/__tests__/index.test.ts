@@ -2,6 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SandboxError, SandboxRequestError, type SandboxWorkspace } from '../../types';
+import { invokeSandboxTool } from '../index';
 
 const mocks = vi.hoisted(() => ({
   keepsSessions: true,
@@ -27,6 +28,20 @@ vi.mock('../../registry', () => ({
     withWorkspace: mocks.withWorkspace,
   }),
 }));
+vi.mock('../../profiles/load', () => ({
+  findSandboxProfile: (id: string) =>
+    ['general', 'data'].includes(id)
+      ? {
+          id,
+          name: id === 'general' ? 'Sandbox' : 'Data',
+          serverId: id === 'data' ? 'locked' : 'default',
+        }
+      : undefined,
+  findSandboxServer: (id: string) =>
+    id === 'default'
+      ? { id, name: 'Default', status: 'ok', url: 'http://opensandbox:8090' }
+      : { id, name: 'Locked', status: 'misconfigured', url: 'https://locked.example' },
+}));
 vi.mock('../../conversationFiles', () => ({
   listConversationSandboxInputs: mocks.listInputs,
   persistSandboxOutputFiles: mocks.persist,
@@ -34,8 +49,6 @@ vi.mock('../../conversationFiles', () => ({
 vi.mock('@/server/services/conversationGeneration/inboxSession', () => ({
   toPersistedConversationSessionId: (id?: string | null) => id ?? undefined,
 }));
-
-import { invokeSandboxTool } from '../index';
 
 const WORKDIR = '/tmp/workspace';
 const bytes = (value: string) => new Uint8Array(Buffer.from(value));
@@ -161,10 +174,12 @@ describe('invokeSandboxTool', () => {
     });
 
     mocks.keepsSessions = false;
-    expect(await call('runCommand', { background: true, command: 'node server.js' })).toMatchObject({
-      error: expect.stringContaining('OPENSANDBOX_SESSION_IDLE_TIMEOUT=0'),
-      success: false,
-    });
+    expect(await call('runCommand', { background: true, command: 'node server.js' })).toMatchObject(
+      {
+        error: expect.stringContaining('its idle timeout is 0'),
+        success: false,
+      },
+    );
   });
 
   it('reads background output from the existing sandbox only', async () => {
@@ -239,7 +254,9 @@ describe('invokeSandboxTool', () => {
   it('edits one exact match and refuses ambiguous or missing ones', async () => {
     workspace.readFile.mockResolvedValue(bytes('let a = 1;\nlet b = 1;\n'));
 
-    expect(await call('editFile', { newString: 'x', oldString: 'zzz', path: 'a.js' })).toMatchObject({
+    expect(
+      await call('editFile', { newString: 'x', oldString: 'zzz', path: 'a.js' }),
+    ).toMatchObject({
       error: expect.stringContaining('was not found'),
       success: false,
     });
@@ -306,9 +323,7 @@ describe('invokeSandboxTool', () => {
     });
 
     expect(result).toEqual({
-      files: [
-        { fileId: 'out-0', filename: 'report.pdf', url: 'https://app.example/f/report.pdf' },
-      ],
+      files: [{ fileId: 'out-0', filename: 'report.pdf', url: 'https://app.example/f/report.pdf' }],
       skipped: [
         'missing.csv: File not found: /tmp/workspace/missing.csv',
         'empty.txt: the file is empty',
@@ -319,7 +334,11 @@ describe('invokeSandboxTool', () => {
   });
 
   it('exports every file of a list sent as JSON text or as a comma list', async () => {
-    const present = new Set(['/tmp/workspace/a.png', '/tmp/workspace/out/b.png', '/tmp/workspace/x,y.txt']);
+    const present = new Set([
+      '/tmp/workspace/a.png',
+      '/tmp/workspace/out/b.png',
+      '/tmp/workspace/x,y.txt',
+    ]);
     workspace.readFile.mockImplementation(async (path: string) => {
       if (present.has(path)) return bytes('data');
       throw new SandboxRequestError(`File not found: ${path}`);
@@ -369,9 +388,7 @@ describe('invokeSandboxTool', () => {
 
     expect(result.files).toHaveLength(3);
     expect(result).toMatchObject({
-      skipped: [
-        'over the 3-file limit, not exported; call exportFile again with: d, e',
-      ],
+      skipped: ['over the 3-file limit, not exported; call exportFile again with: d, e'],
       success: true,
     });
   });
@@ -470,5 +487,43 @@ describe('invokeSandboxTool', () => {
       error: 'OpenSandbox is down.',
       success: false,
     });
+  });
+
+  it('runs a Sandbox Hub profile in its own session and refuses unusable ones', async () => {
+    const withIdentifier = (identifier: string, apiName = 'runCommand') =>
+      invokeSandboxTool({
+        apiName,
+        args: apiName === 'runPython' ? { code: 'x' } : { command: 'true' },
+        db: {} as any,
+        identifier,
+        sessionId: 'agent-1',
+        topicId: 'topic-1',
+        userId: 'user-1',
+      });
+
+    await withIdentifier('lobe-sandbox');
+    await withIdentifier('lobe-code-interpreter');
+    const [generalKey, legacyKey] = mocks.withWorkspace.mock.calls.map(
+      ([options]) => (options as { sessionKey: string }).sessionKey,
+    );
+    expect(legacyKey).toBe(generalKey);
+
+    await expect(withIdentifier('lobe-sandbox--web')).resolves.toEqual({
+      error: 'The "web" sandbox is not configured on this server.',
+      success: false,
+    });
+    await expect(withIdentifier('lobe-sandbox--data')).resolves.toEqual({
+      error: 'The "Data" sandbox cannot run: its server "locked" is missing its API key.',
+      success: false,
+    });
+    await expect(withIdentifier('lobe-sandbox--data', 'runPython')).resolves.toMatchObject({
+      output: [{ type: 'stderr' }],
+      success: false,
+    });
+    await expect(withIdentifier('mcp__other')).resolves.toEqual({
+      error: 'Unknown Sandbox tool "mcp__other".',
+      success: false,
+    });
+    expect(mocks.withWorkspace).toHaveBeenCalledTimes(2);
   });
 });

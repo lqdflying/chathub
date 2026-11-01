@@ -14,6 +14,8 @@ export const sandboxRouter = router({
         apiName: z.string().min(1).max(64),
         arguments: z.record(z.unknown()),
         groupId: z.string().max(128).nullish(),
+        // Sandbox Hub profile tool (lobe-sandbox--<id>); older tabs omit it.
+        identifier: z.string().min(1).max(64).optional(),
         sessionId: z.string().max(128).nullish(),
         threadId: z.string().max(128).nullish(),
         topicId: z.string().max(128).nullish(),
@@ -25,6 +27,7 @@ export const sandboxRouter = router({
         args: input.arguments,
         db: ctx.serverDB,
         groupId: input.groupId,
+        identifier: input.identifier,
         sessionId: input.sessionId,
         threadId: input.threadId,
         topicId: input.topicId,

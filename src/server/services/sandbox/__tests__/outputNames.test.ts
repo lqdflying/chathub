@@ -17,9 +17,10 @@ describe('distinctOutputFilenames', () => {
   });
 
   it('flattens nested files that share a basename', () => {
-    expect(
-      distinctOutputFilenames(['plots/2023/summary.png', 'plots/2024/summary.png']),
-    ).toEqual(['plots_2023_summary.png', 'plots_2024_summary.png']);
+    expect(distinctOutputFilenames(['plots/2023/summary.png', 'plots/2024/summary.png'])).toEqual([
+      'plots_2023_summary.png',
+      'plots_2024_summary.png',
+    ]);
   });
 
   it('leaves different basenames unchanged', () => {

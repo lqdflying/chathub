@@ -1,13 +1,12 @@
-import { createHash } from 'node:crypto';
-
 import type { LobeChatDatabase } from '@lobechat/database';
 import type { CodeInterpreterFileItem, UIChatMessage } from '@lobechat/types';
 import mime from 'mime';
+import { createHash } from 'node:crypto';
 
 import { FileModel } from '@/database/models/file';
 import { MessageModel } from '@/database/models/message';
-import { sandboxEnv } from '@/envs/sandbox';
 import { fileEnv } from '@/envs/file';
+import { sandboxEnv } from '@/envs/sandbox';
 import { hashGenerationDebugValue, logGenerationDebugSafe } from '@/libs/logger/generationDebug';
 import { toPersistedConversationSessionId } from '@/server/services/conversationGeneration/inboxSession';
 import { loadConversationThreadMessages } from '@/server/services/conversationGeneration/threadScope';

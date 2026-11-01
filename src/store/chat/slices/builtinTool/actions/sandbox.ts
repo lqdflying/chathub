@@ -23,6 +23,8 @@ export interface ChatSandboxAction {
     id: string,
     apiName: string,
     params: Record<string, unknown>,
+    /** Sandbox Hub profile tool identifier; omitted means `lobe-sandbox`. */
+    identifier?: string,
   ) => Promise<{
     data: unknown;
     outcome: 'cancelled' | 'completed' | 'failed';
@@ -38,7 +40,7 @@ export const sandboxSlice: StateCreator<
   [],
   ChatSandboxAction
 > = (set, get) => ({
-  invokeSandboxTool: async (id, apiName, params) => {
+  invokeSandboxTool: async (id, apiName, params, identifier) => {
     const invocationGeneration = get().conversationClearGeneration;
     const invocationIsCurrent = () => get().conversationClearGeneration === invocationGeneration;
 
@@ -54,6 +56,7 @@ export const sandboxSlice: StateCreator<
         apiName,
         arguments: params,
         groupId: message?.groupId,
+        ...(identifier ? { identifier } : {}),
         sessionId: message?.sessionId ?? get().activeId,
         threadId: message?.threadId ?? get().activeThreadId,
         topicId: message?.topicId ?? get().activeTopicId,

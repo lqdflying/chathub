@@ -1,19 +1,23 @@
-import { posix } from 'node:path';
-
 import type { LobeChatDatabase } from '@lobechat/database';
 import type { CodeInterpreterResponse, SandboxToolResult } from '@lobechat/types';
+import { posix } from 'node:path';
 
 import { sandboxEnv } from '@/envs/sandbox';
 import {
+  DEFAULT_SANDBOX_PROFILE_ID,
   SANDBOX_CONTROL_DIR,
   SandboxApiName,
+  SandboxIdentifier,
+  parseSandboxToolIdentifier,
   resolveSandboxApiName,
 } from '@/tools/sandbox/const';
 
 import { listConversationSandboxInputs, persistSandboxOutputFiles } from '../conversationFiles';
 import { distinctOutputFilenames, outputRelativeName } from '../outputNames';
+import { findSandboxProfile, findSandboxServer } from '../profiles/load';
+import type { ResolvedSandboxProfile, ResolvedSandboxServer } from '../profiles/schema';
 import { getSandboxProvider } from '../registry';
-import { buildSandboxSessionKey, type SandboxConversationScope } from '../session';
+import { type SandboxConversationScope, buildSandboxSessionKey } from '../session';
 import {
   SandboxError,
   type SandboxFile,
@@ -23,7 +27,7 @@ import {
   type SandboxWorkspace,
 } from '../types';
 import { decodeText, formatNumberedLines, resolveTimeoutMs } from './format';
-import { isSandboxApiName, sandboxToolSchemas, type SandboxToolArgs } from './schemas';
+import { type SandboxToolArgs, isSandboxApiName, sandboxToolSchemas } from './schemas';
 
 // Budget for calls that only touch files or command metadata.
 const FILE_BUDGET_MS = 60_000;
@@ -33,18 +37,51 @@ const LIST_MAX_DEPTH = 5;
 const MAX_ERROR_CHARS = 100_000;
 
 const NO_SESSIONS_ERROR =
-  'Background commands need a sandbox that stays alive between calls, but this deployment starts a fresh sandbox for every call (OPENSANDBOX_SESSION_IDLE_TIMEOUT=0). Run the command in the foreground instead.';
+  'Background commands need a sandbox that stays alive between calls, but this sandbox starts fresh for every call (its idle timeout is 0). Run the command in the foreground instead.';
 
-export interface InvokeSandboxToolParams extends SandboxConversationScope {
+export interface InvokeSandboxToolParams extends Omit<SandboxConversationScope, 'profileId'> {
   apiName: string;
   args: Record<string, unknown>;
   db: LobeChatDatabase;
+  /** Tool identifier the model called; picks the Sandbox Hub profile. Defaults to `lobe-sandbox`. */
+  identifier?: string;
   operationHash?: string;
   signal?: AbortSignal;
 }
 
+type ResolvedTarget =
+  | { message: string; ok: false }
+  | { ok: true; profile: ResolvedSandboxProfile; server: ResolvedSandboxServer };
+
+/** Maps the called tool to a configured profile and its server, or explains why it cannot run. */
+const resolveSandboxTarget = (identifier = SandboxIdentifier): ResolvedTarget => {
+  const parsed = parseSandboxToolIdentifier(identifier);
+  if (!parsed) return { message: `Unknown Sandbox tool "${identifier}".`, ok: false };
+
+  const profile = findSandboxProfile(parsed.profileId);
+  if (!profile) {
+    return {
+      message:
+        parsed.profileId === DEFAULT_SANDBOX_PROFILE_ID
+          ? 'Sandbox is not configured: set OPENSANDBOX_SERVER_URL and OPENSANDBOX_IMAGE, or a Sandbox Hub profile with a server and image.'
+          : `The "${parsed.profileId}" sandbox is not configured on this server.`,
+      ok: false,
+    };
+  }
+  const server = findSandboxServer(profile.serverId);
+  if (!server || server.status !== 'ok') {
+    return {
+      message: `The "${profile.name}" sandbox cannot run: its server "${profile.serverId}" is missing its API key.`,
+      ok: false,
+    };
+  }
+  return { ok: true, profile, server };
+};
+
 const clip = (message: string) =>
-  message.length > MAX_ERROR_CHARS ? `${message.slice(0, MAX_ERROR_CHARS)}\n…[error truncated]` : message;
+  message.length > MAX_ERROR_CHARS
+    ? `${message.slice(0, MAX_ERROR_CHARS)}\n…[error truncated]`
+    : message;
 
 const failure = (message: string, extra?: Partial<SandboxToolResult>): SandboxToolResult => ({
   ...extra,
@@ -73,11 +110,15 @@ const describeIssues = (issues: { message: string; path: (number | string)[] }[]
 class SandboxToolRunner {
   private readonly maxFileBytes = sandboxEnv.SANDBOX_MAX_FILE_BYTES;
   private readonly maxFileCount = sandboxEnv.SANDBOX_MAX_FILE_COUNT;
-  private readonly provider: SandboxProvider = getSandboxProvider();
+  private readonly provider: SandboxProvider;
   private readonly sessionKey: string;
 
-  constructor(private readonly params: InvokeSandboxToolParams) {
-    this.sessionKey = buildSandboxSessionKey(params);
+  constructor(
+    private readonly params: InvokeSandboxToolParams,
+    target: { profile: ResolvedSandboxProfile; server: ResolvedSandboxServer },
+  ) {
+    this.provider = getSandboxProvider(target.profile, target.server);
+    this.sessionKey = buildSandboxSessionKey({ ...params, profileId: target.profile.id });
   }
 
   private timeoutMs(seconds: number | undefined) {
@@ -250,7 +291,9 @@ class SandboxToolRunner {
     const bytes = utf8(content);
     if (bytes.byteLength > this.maxFileBytes) {
       return Promise.resolve(
-        failure(`The content is ${bytes.byteLength} bytes, over the ${this.maxFileBytes}-byte limit.`),
+        failure(
+          `The content is ${bytes.byteLength} bytes, over the ${this.maxFileBytes}-byte limit.`,
+        ),
       );
     }
     return this.useWithInputs(SandboxApiName.writeFile, FILE_BUDGET_MS, async (workspace) => {
@@ -423,7 +466,10 @@ export const invokeSandboxTool = async (
     return isPython ? pythonFailure(message) : failure(message);
   }
 
-  const runner = new SandboxToolRunner(params);
+  const target = resolveSandboxTarget(params.identifier);
+  if (!target.ok) return isPython ? pythonFailure(target.message) : failure(target.message);
+
+  const runner = new SandboxToolRunner(params, target);
   try {
     // The schema for each API name produces that API's arguments.
     const call = runner[apiName].bind(runner) as (args: unknown) => Promise<SandboxToolResult>;

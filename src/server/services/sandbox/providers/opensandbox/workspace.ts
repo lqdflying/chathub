@@ -25,15 +25,15 @@ import {
   OpenSandboxHttpError,
 } from './client';
 import {
-  buildRunnerScript,
   CONTROL_DIR,
   MANIFEST_PATH,
   OPENSANDBOX_WORKDIR,
-  parseOutputManifest,
-  RUN_COMMAND,
   RUNNER_PATH,
+  RUN_COMMAND,
   SYNCED_PATH,
   USER_CODE_PATH,
+  buildRunnerScript,
+  parseOutputManifest,
 } from './python';
 
 /** What the workspace was doing when a step failed; drives error classification. */
@@ -205,8 +205,12 @@ export class OpenSandboxWorkspace implements SandboxWorkspace {
     this.phase = 'command';
     const output = new OutputCollector(this.limits.maxOutputChars);
     try {
-      const next = await this.client.getCommandLogs(this.execd, id, cursor, this.stepSignal(), (text) =>
-        output.append(text),
+      const next = await this.client.getCommandLogs(
+        this.execd,
+        id,
+        cursor,
+        this.stepSignal(),
+        (text) => output.append(text),
       );
       return { cursor: next.cursor, output: output.toString() };
     } catch (error) {
@@ -530,7 +534,9 @@ export class OpenSandboxWorkspace implements SandboxWorkspace {
       const nestedFits = nested.length <= maxFileCount - top.length;
       const unreturned =
         manifest.unreturned ??
-        (nestedFits ? undefined : { count: nested.length, paths: nested.map((entry) => entry.name) });
+        (nestedFits
+          ? undefined
+          : { count: nested.length, paths: nested.map((entry) => entry.name) });
 
       const downloaded: Array<{ content: Uint8Array; name: string }> = [];
       for (const entry of nestedFits ? [...top, ...nested] : top) {

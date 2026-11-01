@@ -13,7 +13,6 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { OPENSANDBOX_MANIFEST_MAX_BYTES } from '../client';
@@ -262,13 +261,21 @@ describe('OpenSandbox runner script', () => {
 
   it('turns plt.show() into numbered PNGs and flushes figures never shown', () => {
     const { manifest, stderr } = run(
-      ['import matplotlib.pyplot as plt', 'plt.figure()', 'plt.show()', 'plt.figure()', 'plt.figure()'].join(
-        '\n',
-      ),
+      [
+        'import matplotlib.pyplot as plt',
+        'plt.figure()',
+        'plt.show()',
+        'plt.figure()',
+        'plt.figure()',
+      ].join('\n'),
     );
 
     expect(stderr).toBe('');
-    expect(manifest?.map((entry) => entry.name)).toEqual(['plot_1.png', 'plot_2.png', 'plot_3.png']);
+    expect(manifest?.map((entry) => entry.name)).toEqual([
+      'plot_1.png',
+      'plot_2.png',
+      'plot_3.png',
+    ]);
   });
 
   it('numbers plots after the ones an earlier run left in the workdir', () => {
@@ -499,10 +506,7 @@ describe('OpenSandbox runner script', () => {
   });
 
   it('iterates r+ and w+ files like a normal file', () => {
-    const seed = [
-      'with open("report.txt", "w") as seed:',
-      '    seed.write("header\\nrow\\n")',
-    ];
+    const seed = ['with open("report.txt", "w") as seed:', '    seed.write("header\\nrow\\n")'];
     const nextUpdate = run(
       [
         ...seed,
@@ -567,9 +571,13 @@ describe('OpenSandbox runner script', () => {
     const gone = join(root, 'gone.txt');
     const kept = join(root, 'via-cat.txt');
     const removed = run(
-      ['import os', `p = ${JSON.stringify(gone)}`, 'open(p, "w").write("hello")', 'os.unlink(p)', 'print("exists", os.path.exists(p))'].join(
-        '\n',
-      ),
+      [
+        'import os',
+        `p = ${JSON.stringify(gone)}`,
+        'open(p, "w").write("hello")',
+        'os.unlink(p)',
+        'print("exists", os.path.exists(p))',
+      ].join('\n'),
     );
     const child = run(
       [
@@ -664,7 +672,9 @@ describe('parseOutputManifest', () => {
       parseOutputManifest('[{"name":"a.txt","sha256":"x","size":1},{"name":2}]').entries,
     ).toEqual([{ changed: true, name: 'a.txt', sha256: 'x', size: 1 }]);
     expect(
-      parseOutputManifest('{"files":[{"name":2}],"scanCapped":"yes","unreturned":{"count":"3","paths":[]}}'),
+      parseOutputManifest(
+        '{"files":[{"name":2}],"scanCapped":"yes","unreturned":{"count":"3","paths":[]}}',
+      ),
     ).toEqual(empty);
   });
 

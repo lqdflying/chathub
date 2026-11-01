@@ -171,7 +171,9 @@ const ensureOk = async (response: Response, fallback: string) => {
  * `data:` framing is accepted as well. Event order is not guaranteed
  * (`execution_complete` can precede `stdout`), so callers read to the end.
  */
-export async function* parseEventStream(response: Response): AsyncGenerator<OpenSandboxStreamEvent> {
+export async function* parseEventStream(
+  response: Response,
+): AsyncGenerator<OpenSandboxStreamEvent> {
   if (!response.body) return;
   const reader = response.body.getReader();
   const decoder = new TextDecoder('utf8');
@@ -538,10 +540,10 @@ export class OpenSandboxClient {
   }
 
   async downloadFile(execd: ExecdEndpoint, path: string, signal: AbortSignal, maxBytes: number) {
-    const response = await fetch(
-      `${execd.url}/files/download?path=${encodeURIComponent(path)}`,
-      { headers: this.headers(execd.headers), signal },
-    );
+    const response = await fetch(`${execd.url}/files/download?path=${encodeURIComponent(path)}`, {
+      headers: this.headers(execd.headers),
+      signal,
+    });
     await ensureOk(response, 'OpenSandbox could not download a file');
     return readCappedBody(response, maxBytes);
   }

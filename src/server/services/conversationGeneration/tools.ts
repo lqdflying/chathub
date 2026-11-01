@@ -15,11 +15,11 @@ import { PluginModel } from '@/database/models/plugin';
 import { SkillModel } from '@/database/models/skill';
 import { agents, agentsToSessions, messagePlugins, messages } from '@/database/schemas';
 import {
+  MEMORY_TAINT_WINDOW,
   appendFixedMemoryEntry,
   deleteFixedMemoryEntry,
   formatFixedMemoryEntries,
   isMemoryWriteTainted,
-  MEMORY_TAINT_WINDOW,
   mergeNewEntryOrigins,
   readAssistantMemory,
   readAssistantMemoryEntry,
@@ -430,6 +430,7 @@ export const invokeConversationTool = async ({
       args,
       db,
       groupId: assistantMessage.groupId,
+      identifier,
       operationHash: operationId ? hashGenerationDebugValue(operationId) : undefined,
       sessionId: assistantMessage.sessionId,
       signal,

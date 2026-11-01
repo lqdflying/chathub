@@ -1,7 +1,7 @@
 /** @vitest-environment node */
 import { describe, expect, it } from 'vitest';
 
-import { decodeText, formatNumberedLines, READ_MAX_CHARS, resolveTimeoutMs } from '../format';
+import { READ_MAX_CHARS, decodeText, formatNumberedLines, resolveTimeoutMs } from '../format';
 
 describe('decodeText', () => {
   it('decodes UTF-8 text', () => {
@@ -37,7 +37,11 @@ describe('formatNumberedLines', () => {
   });
 
   it('handles an empty file and an offset past the end', () => {
-    expect(formatNumberedLines('', {})).toMatchObject({ content: '', totalLines: 0, truncated: false });
+    expect(formatNumberedLines('', {})).toMatchObject({
+      content: '',
+      totalLines: 0,
+      truncated: false,
+    });
     expect(formatNumberedLines('a', { offset: 5 })).toMatchObject({
       content: '',
       endLine: undefined,
