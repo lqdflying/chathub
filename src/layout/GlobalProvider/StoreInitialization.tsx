@@ -15,6 +15,7 @@ import { useAiInfraStore } from '@/store/aiInfra';
 import { useGlobalStore } from '@/store/global';
 import { useServerConfigStore } from '@/store/serverConfig';
 import { serverConfigSelectors } from '@/store/serverConfig/selectors';
+import { useToolStore } from '@/store/tool';
 import { useUserStore } from '@/store/user';
 import { authSelectors } from '@/store/user/selectors';
 
@@ -99,6 +100,10 @@ const StoreInitialization = memo(() => {
 
   // init user provider key vaults
   useInitAiProviderKeyVaults(isLoginOnInit, userStateScope);
+
+  // Sandbox Hub profiles become one Sandbox tool each in the tool store
+  const useFetchSandboxProfiles = useToolStore((s) => s.useFetchSandboxProfiles);
+  useFetchSandboxProfiles(Boolean(isLoginOnInit && serverConfig.enabledSandbox));
 
   // hydrate the owner-aware image generation config globally (not only on the
   // /image page) so the built-in chat Image tool uses the user's saved model

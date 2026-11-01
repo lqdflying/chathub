@@ -4,7 +4,7 @@ import { DalleManifest } from './dalle';
 import DalleRender from './dalle/Render';
 import { MemoryManifest } from './memory';
 import MemoryRender from './memory/Render';
-import { LegacyCodeInterpreterIdentifier, SandboxManifest } from './sandbox';
+import { LegacyCodeInterpreterIdentifier, SandboxManifest, isSandboxToolIdentifier } from './sandbox';
 import SandboxRender from './sandbox/Render';
 import { SkillLoaderManifest } from './skills';
 import SkillLoaderRender from './skills/Render';
@@ -19,4 +19,13 @@ export const BuiltinToolsRenders: Record<string, BuiltinRender> = {
   [LegacyCodeInterpreterIdentifier]: SandboxRender as BuiltinRender,
   [MemoryManifest.identifier]: MemoryRender as BuiltinRender,
   [SkillLoaderManifest.identifier]: SkillLoaderRender as BuiltinRender,
+};
+
+/** Every Sandbox Hub profile (`lobe-sandbox--<id>`) shares the Sandbox render. */
+export const getBuiltinToolRender = (identifier?: string): BuiltinRender | undefined => {
+  if (!identifier) return undefined;
+  return (
+    BuiltinToolsRenders[identifier] ??
+    (isSandboxToolIdentifier(identifier) ? (SandboxRender as BuiltinRender) : undefined)
+  );
 };

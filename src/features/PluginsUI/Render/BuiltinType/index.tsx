@@ -1,6 +1,6 @@
 import { memo } from 'react';
 
-import { BuiltinToolsRenders } from '@/tools/renders';
+import { getBuiltinToolRender } from '@/tools/renders';
 import { safeParseJSON } from '@/utils/safeParseJSON';
 
 import { useParseContent } from '../useParseContent';
@@ -28,7 +28,7 @@ const BuiltinType = memo<BuiltinTypeProps>(
   }) => {
     const { data } = useParseContent(content);
 
-    const Render = BuiltinToolsRenders[identifier || ''];
+    const Render = getBuiltinToolRender(identifier);
 
     if (!Render) return;
 

@@ -240,7 +240,9 @@ const PROFILE_ENV_KEYS = [
 ] as const satisfies readonly (keyof SandboxProfilesEnv)[];
 
 const readProfilesEnv = (): SandboxProfilesEnv =>
-  Object.fromEntries(PROFILE_ENV_KEYS.map((key) => [key, sandboxEnv[key]])) as SandboxProfilesEnv;
+  Object.fromEntries(
+    PROFILE_ENV_KEYS.map((key) => [key, sandboxEnv[key]]),
+  ) as unknown as SandboxProfilesEnv;
 
 /**
  * Loaded once per process (the durable worker runs in the same process), and

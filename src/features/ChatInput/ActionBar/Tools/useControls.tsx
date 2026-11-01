@@ -12,6 +12,7 @@ import { agentSelectors } from '@/store/agent/selectors';
 import { featureFlagsSelectors, useServerConfigStore } from '@/store/serverConfig';
 import { useToolStore } from '@/store/tool';
 import { builtinToolSelectors, pluginSelectors } from '@/store/tool/selectors';
+import { isSandboxToolIdentifier } from '@/tools/sandbox/const';
 
 import ToolItem from './ToolItem';
 
@@ -34,7 +35,8 @@ export const useControls = ({
     (s) =>
       agentSelectors
         .currentAgentPlugins(s)
-        .filter((i) => !builtinList.some((b) => b.identifier === i)).length,
+        .filter((i) => !isSandboxToolIdentifier(i) && !builtinList.some((b) => b.identifier === i))
+        .length,
   );
   const plugins = useAgentStore((s) => agentSelectors.currentAgentPlugins(s));
 

@@ -31,7 +31,7 @@ import { mcpService } from '@/server/services/mcp';
 import { McpOAuthService } from '@/server/services/mcp/oauth';
 import { invokeSandboxTool } from '@/server/services/sandbox';
 import { SearchService } from '@/server/services/search';
-import { builtinToolIdentifiers, builtinTools } from '@/tools';
+import { builtinTools, isBuiltinToolIdentifier } from '@/tools';
 import { DalleManifest } from '@/tools/dalle';
 import { MemoryApiName, MemoryManifest } from '@/tools/memory';
 import { isSandboxToolIdentifier } from '@/tools/sandbox/const';
@@ -42,8 +42,6 @@ import { WebBrowsingExecutionRuntime } from '@/tools/web-browsing/ExecutionRunti
 import { toPersistedConversationMessageSessionId } from './inboxSession';
 
 const searchRuntime = new WebBrowsingExecutionRuntime({ searchService: new SearchService() });
-
-const isBuiltinToolIdentifier = (identifier: string) => builtinToolIdentifiers.has(identifier);
 
 const hashInput = (value: unknown) =>
   createHash('sha256').update(JSON.stringify(value)).digest('hex');

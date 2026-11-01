@@ -3,6 +3,7 @@ import { CustomPluginState, initialCustomPluginState } from './slices/customPlug
 import { MCPStoreState, initialMCPStoreState } from './slices/mcpStore';
 import { PluginStoreState, initialPluginStoreState } from './slices/oldStore';
 import { PluginState, initialPluginState } from './slices/plugin';
+import { SandboxHubState, initialSandboxHubState } from './slices/sandbox';
 
 export interface ToolScopeState {
   scopeGeneration: number;
@@ -13,6 +14,7 @@ export type ToolStoreState = PluginState &
   PluginStoreState &
   BuiltinToolState &
   MCPStoreState &
+  SandboxHubState &
   ToolScopeState;
 
 export const initialState: ToolStoreState = {
@@ -22,4 +24,5 @@ export const initialState: ToolStoreState = {
   ...initialPluginStoreState,
   ...initialBuiltinToolState,
   ...initialMCPStoreState,
+  ...initialSandboxHubState,
 };

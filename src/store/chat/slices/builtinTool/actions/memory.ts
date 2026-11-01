@@ -17,9 +17,7 @@ import { getAgentStoreState } from '@/store/agent/store';
 import { chatSelectors } from '@/store/chat/selectors';
 import { ChatStore } from '@/store/chat/store';
 import { findMessageInMessagesMap } from '@/store/chat/utils/messageMapKey';
-import { builtinToolIdentifiers } from '@/tools';
-
-const isBuiltinToolIdentifier = (identifier: string) => builtinToolIdentifiers.has(identifier);
+import { isBuiltinToolIdentifier } from '@/tools';
 
 export interface MemoryAction {
   deleteMemory: (

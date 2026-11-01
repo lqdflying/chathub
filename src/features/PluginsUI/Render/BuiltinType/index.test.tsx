@@ -11,13 +11,22 @@ import BuiltinType from './index';
 vi.stubGlobal('React', React);
 
 // Mock Render component and useParseContent hook
-vi.mock('@/tools/renders', () => ({
-  BuiltinToolsRenders: {
+vi.mock('@/tools/renders', () => {
+  const BuiltinToolsRenders: Record<string, any> = {
     dalle3: vi.fn(() => <div>Test Renderer</div>),
     [DalleManifest.identifier]: vi.fn(() => <div>{DalleManifest.identifier}</div>),
+    'lobe-sandbox': vi.fn(() => <div>Sandbox result</div>),
     'lobe-skill-loader': vi.fn(() => <div>Loaded skill</div>),
-  },
-}));
+  };
+  return {
+    BuiltinToolsRenders,
+    getBuiltinToolRender: (identifier?: string) =>
+      identifier
+        ? (BuiltinToolsRenders[identifier] ??
+          (identifier.startsWith('lobe-sandbox--') ? BuiltinToolsRenders['lobe-sandbox'] : undefined))
+        : undefined,
+  };
+});
 
 // Mock Loading component
 vi.mock('../Loading', () => ({

@@ -3,7 +3,7 @@ import { LobeBuiltinTool } from '@lobechat/types';
 import { ArtifactsManifest } from './artifacts';
 import { DalleManifest } from './dalle';
 import { MemoryManifest } from './memory';
-import { LEGACY_BUILTIN_TOOL_ALIASES, SandboxManifest, isSandboxToolIdentifier } from './sandbox';
+import { LEGACY_BUILTIN_TOOL_ALIASES, SandboxIdentifier, isSandboxToolIdentifier } from './sandbox';
 import { SkillLoaderManifest } from './skills';
 import { WebBrowsingManifest } from './web-browsing';
 
@@ -38,16 +38,14 @@ export const builtinTools: LobeBuiltinTool[] = [
     manifest: MemoryManifest,
     type: 'builtin',
   },
-  {
-    identifier: SandboxManifest.identifier,
-    manifest: SandboxManifest,
-    type: 'builtin',
-  },
+  // Sandbox tools are not static: one per Sandbox Hub profile the user turned
+  // on, appended after these by the tool store and the durable worker.
 ];
 
 /** Current builtin identifiers plus retired ones still found on stored messages. */
 export const builtinToolIdentifiers: ReadonlySet<string> = new Set([
   ...builtinTools.map((tool) => tool.identifier),
+  SandboxIdentifier,
   ...Object.keys(LEGACY_BUILTIN_TOOL_ALIASES),
 ]);
 

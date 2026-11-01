@@ -49,6 +49,7 @@ import {
   userGeneralSettingsSelectors,
   userProfileSelectors,
 } from '@/store/user/selectors';
+import { isSandboxToolIdentifier } from '@/tools/sandbox/const';
 import type { ChatStreamPayload, OpenAIChatMessage } from '@/types/openai/chat';
 import { createErrorResponse } from '@/utils/errorResponse';
 import { stripLegacyProviderParams } from '@/utils/stripLegacyProviderParams';
@@ -224,6 +225,12 @@ class ChatService {
     const activatedSkills = activatedSkillIds.length
       ? await skillService.resolveSkills(activatedSkillIds)
       : [];
+
+    // Sandbox tools come from the user's Sandbox Hub profiles; make sure they
+    // are loaded before the tools engine reads the builtin list.
+    if (pluginIds.some((id) => isSandboxToolIdentifier(id))) {
+      await getToolStoreState().ensureSandboxProfiles();
+    }
 
     const toolsEngine = createChatToolsEngine(
       {

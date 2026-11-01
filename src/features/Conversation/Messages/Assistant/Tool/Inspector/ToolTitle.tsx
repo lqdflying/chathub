@@ -14,7 +14,11 @@ import { pluginHelpers, useToolStore } from '@/store/tool';
 import { toolSelectors } from '@/store/tool/selectors';
 import { shinyTextStylish } from '@/styles/loading';
 import { MemoryManifest } from '@/tools/memory';
-import { LegacyCodeInterpreterIdentifier, SandboxIdentifier } from '@/tools/sandbox/const';
+import {
+  LegacyCodeInterpreterIdentifier,
+  SandboxIdentifier,
+  isSandboxToolIdentifier,
+} from '@/tools/sandbox/const';
 import { SkillLoaderManifest } from '@/tools/skills';
 import { WebBrowsingManifest } from '@/tools/web-browsing';
 
@@ -83,7 +87,17 @@ const ToolTitle = memo<ToolTitleProps>(({ identifier, messageId, index, apiName,
     [apiName, t],
   );
 
-  const builtinPluginTitle = plugins.find((item) => item.id === identifier);
+  // A Sandbox Hub profile shows its own name; a removed or turned-off one
+  // still renders as a Sandbox.
+  const builtinPluginTitle =
+    plugins.find((item) => item.id === identifier) ??
+    (isSandboxToolIdentifier(identifier)
+      ? {
+          apiName: t(`sandbox.apiName.${apiName}`, apiName),
+          id: identifier,
+          title: pluginMeta?.title || t('sandbox.title'),
+        }
+      : undefined);
 
   if (!!builtinPluginTitle) {
     return (

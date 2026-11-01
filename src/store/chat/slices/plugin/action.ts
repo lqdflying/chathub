@@ -38,7 +38,6 @@ import { messageMapKey, parseMessageMapKey } from '@/store/chat/utils/messageMap
 import { useToolStore } from '@/store/tool';
 import { pluginSelectors } from '@/store/tool/selectors';
 import { useUserStore } from '@/store/user';
-import { builtinTools } from '@/tools';
 import { isSandboxToolIdentifier } from '@/tools/sandbox/const';
 import { merge } from '@/utils/merge';
 import { safeParseJSON } from '@/utils/safeParseJSON';
@@ -508,7 +507,9 @@ export const chatPlugin: StateCreator<
         const err = error as Error;
         console.error(err);
 
-        const tool = builtinTools.find((tool) => tool.identifier === payload.identifier);
+        const tool = useToolStore
+          .getState()
+          .builtinTools.find((tool) => tool.identifier === payload.identifier);
         const schema = tool?.manifest?.api.find((api) => api.name === payload.apiName)?.parameters;
 
         await get().internal_updatePluginError(id, {
@@ -1563,7 +1564,7 @@ export const chatPlugin: StateCreator<
     }
 
     // Get all builtin tools
-    for (const tool of builtinTools) {
+    for (const tool of toolStoreState.builtinTools) {
       if (tool.manifest) {
         manifests[tool.identifier] = tool.manifest as LobeChatPluginManifest;
       }
