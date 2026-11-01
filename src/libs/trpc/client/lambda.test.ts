@@ -74,6 +74,11 @@ describe('lambda tRPC client links', () => {
     ).rejects.toMatchObject({
       message: ownershipError.message,
     });
+    await expect(
+      client.providerUsage.get.query({ accountScope: 'user:account-a', provider: 'deepseek' }),
+    ).rejects.toMatchObject({
+      message: ownershipError.message,
+    });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -106,8 +111,10 @@ describe('lambda tRPC client links', () => {
     });
     await client.openaiCodex.logout.mutate({ accountScope: 'user:account-a' });
     await client.xaiOAuth.status.query({ accountScope: 'user:account-a' });
+    await client.providerUsage.get.query({ accountScope: 'user:account-a', provider: 'deepseek' });
 
     expect(accountScopes).toEqual([
+      'user:account-a',
       'user:account-a',
       'user:account-a',
       'user:account-a',

@@ -12,7 +12,9 @@ supported on purpose. SuperGrok OAuth and Codex OAuth keep their own meters
 ## Data flow
 
 1. `lambda.providerUsage.get` / `refresh` (authed, `verifiedAccountScope`) →
-   `ProviderUsageService.getUsage(provider)`.
+   `ProviderUsageService.getUsage(provider)`. The lambda client sends
+   `X-ChatHub-Account-Scope` for `providerUsage.*` the same way it does for
+   Codex and SuperGrok. Without that header the server rejects every provider.
 2. The service resolves one credential (below), then calls the provider's
    adapter in `src/server/services/providerUsage/adapters/`.
 3. Each adapter makes one to three `GET`s (Zhipu retries once without `Bearer`,
