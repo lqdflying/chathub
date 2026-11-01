@@ -80,7 +80,7 @@ ciphertext reads as "no saved key".
 | MiniMax | `GET https://www.minimax.io` or `www.minimaxi.com` + `/v1/token_plan/remains`; China site only when the hostname is `minimaxi.com` or ends with `.minimaxi.com`; legacy `coding_plan/remains` only after 404 | Endpoint in the official FAQ; fields unofficial |
 | xAI | Management API `GET /v1/billing/teams/{team}/prepaid/balance`; team from the saved id or `/auth/management-keys/validation` | Official ([docs](https://docs.x.ai/developers/rest-api-reference/management/billing)) |
 | OpenAI | `GET /v1/organization/costs` (Admin key) → month-to-date spend | Official; no remaining-credit endpoint exists |
-| Anthropic | `GET /v1/organizations/cost_report` (Admin key, cents strings) → month-to-date spend | Official but marked legacy in favor of the Analytics API |
+| Anthropic | `GET /v1/organizations/cost_report` with `anthropic-version: 2026-10-21` and `Authorization: Bearer` (Admin key, cents strings, `starting_at` without fractional seconds) → month-to-date spend | Official but marked legacy in favor of the Analytics API |
 
 Not supported: Google Gemini, Azure OpenAI, Azure AI, Xiaomi MiMo (no usable
 endpoint), and pay-as-you-go balances for Zhipu and MiniMax.

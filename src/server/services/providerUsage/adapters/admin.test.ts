@@ -151,7 +151,7 @@ describe('OpenAI costs', () => {
 describe('Anthropic cost report', () => {
   it('requests daily buckets from the UTC month start', () => {
     const url = new URL(buildAnthropicCostReportUrl(MONTH_START));
-    expect(url.searchParams.get('starting_at')).toBe(MONTH_START.toISOString());
+    expect(url.searchParams.get('starting_at')).toBe('2026-10-01T00:00:00Z');
     expect(url.searchParams.get('bucket_width')).toBe('1d');
   });
 
@@ -173,6 +173,7 @@ describe('Anthropic cost report', () => {
     );
     const result = await anthropicUsageAdapter.fetchUsage(context(fetchFn as never));
     expect(fetchFn.mock.calls[0]?.[1]?.headers).toMatchObject({
+      Authorization: 'Bearer admin-test-key',
       'anthropic-version': ANTHROPIC_ADMIN_API_VERSION,
       'x-api-key': 'admin-test-key',
     });
