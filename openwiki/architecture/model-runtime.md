@@ -4,7 +4,7 @@ The model runtime package is the main abstraction layer for talking to LLM provi
 
 ## What it does
 
-`packages/model-runtime` exports the runtime used by the server module in `src/server/modules/ModelRuntime/index.ts`. That server entrypoint resolves credentials and base URLs from the user payload and environment, then calls `ModelRuntime.initializeWithProvider(...)`.
+`packages/model-runtime` exports the runtime used by the server module in `src/server/modules/ModelRuntime/index.ts`. That server entrypoint resolves credentials and base URLs from the user payload and environment, then calls `ModelRuntime.initializeWithProvider(...)`. A base URL from the payload is used only with the payload's own key; the server `{PROVIDER}_API_KEY` is used only when the payload has no base URL.
 
 The package itself contains the core pieces for provider execution:
 

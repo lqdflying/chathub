@@ -10,6 +10,10 @@ export * from './trace';
 
 const BUILTIN_MODEL_PROVIDERS = new Set<string>(Object.values(ModelProvider));
 
+/** A base URL the client sent is only ever called with the client's own key. */
+const serverKeyFor = (payload: ClientSecretPayload, serverKey?: string) =>
+  payload?.baseURL ? undefined : serverKey;
+
 /**
  * Retrieves the options object from environment and apikeymanager
  * based on the provider and payload.
@@ -27,7 +31,7 @@ export const getModelRuntimeParamsFromPayload = (
   switch (provider) {
     case ModelProvider.Azure: {
       const { AZURE_API_KEY, AZURE_API_VERSION, AZURE_ENDPOINT } = llmConfig;
-      const apiKey = apiKeyManager.pick(payload?.apiKey || AZURE_API_KEY);
+      const apiKey = apiKeyManager.pick(payload?.apiKey || serverKeyFor(payload, AZURE_API_KEY));
       const baseURL = payload?.baseURL || AZURE_ENDPOINT;
       const apiVersion = payload?.azureApiVersion || AZURE_API_VERSION;
       return { apiKey, apiVersion, baseURL };
@@ -35,14 +39,14 @@ export const getModelRuntimeParamsFromPayload = (
 
     case ModelProvider.AzureAI: {
       const { AZUREAI_ENDPOINT, AZUREAI_ENDPOINT_KEY } = llmConfig;
-      const apiKey = payload?.apiKey || AZUREAI_ENDPOINT_KEY;
+      const apiKey = payload?.apiKey || serverKeyFor(payload, AZUREAI_ENDPOINT_KEY);
       const baseURL = payload?.baseURL || AZUREAI_ENDPOINT;
       return { apiKey, baseURL };
     }
 
     case ModelProvider.AnthropicCompatible: {
       const apiKey = apiKeyManager.pick(
-        payload?.apiKey || llmConfig['ANTHROPICCOMPATIBLE_API_KEY'],
+        payload?.apiKey || serverKeyFor(payload, llmConfig['ANTHROPICCOMPATIBLE_API_KEY']),
       );
       const baseURL = payload?.baseURL || process.env['ANTHROPICCOMPATIBLE_PROXY_URL'];
       const authMode =
@@ -57,7 +61,9 @@ export const getModelRuntimeParamsFromPayload = (
         ? originalUpper
         : ModelProvider.OpenAI.toUpperCase();
 
-      const apiKey = apiKeyManager.pick(payload?.apiKey || llmConfig[`${keyUpper}_API_KEY`]);
+      const apiKey = apiKeyManager.pick(
+        payload?.apiKey || serverKeyFor(payload, llmConfig[`${keyUpper}_API_KEY`]),
+      );
       const baseURL =
         payload?.baseURL ||
         llmConfig[`${originalUpper}_PROXY_URL`] ||
