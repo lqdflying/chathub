@@ -279,19 +279,22 @@ timeout 0), when its `jobMaxRuntimeMs` is 0, or when the user already has
 simultaneous starts can pass the limit by one). It creates `outputDir`, starts
 the command with `startBackground` in the conversation's sandbox, saves the
 row (the command cut to 4 KiB, the deadline `min(maxRuntimeMinutes, profile
-limit)`), and queues the first watch. If the row cannot be saved, the command
+limit)`), and queues the first watch at the delay in **Watch**. If the row cannot be saved, the command
 is stopped, because nothing else would.
 
-**Watch.** About every 60 s, the watcher runs one check through the
-provider's `withWorkspace({ createIfMissing: false })` in the job's own
-sandbox (its profile and session key). That call renews the sandbox for
-another idle period, which is what keeps it alive past the idle timeout
-while the job runs. The task re-queues itself under one job key
-(`sandbox-job:<id>`; in Graphile `replace` mode, a key added from the running
-task clears the running job's key and creates the next one). A thrown error,
-such as the database being down, lets Graphile retry the run. A check that
-cannot reach the sandbox server is retried on the next poll; after 10 minutes
-without contact the job is `lost`.
+**Watch.** The watcher runs one check through the provider's
+`withWorkspace({ createIfMissing: false })` in the job's own sandbox (its
+profile and session key). That call renews the sandbox for another idle
+period, which is what keeps it alive past the idle timeout while the job
+runs. The next check is `sandboxJobWatchDelayMs`: half the profile's
+`sessionIdleTimeoutMs`, capped at 60 s. A 30 minute idle stays on a 60 s
+poll. A 10 s idle is checked after 5 s, so the renewal happens before the
+sandbox expires. Missing or non-positive idle keeps the 60 s poll. The task
+re-queues itself under one job key (`sandbox-job:<id>`; in Graphile `replace`
+mode, a key added from the running task clears the running job's key and
+creates the next one). A thrown error, such as the database being down, lets
+Graphile retry the run. A check that cannot reach the sandbox server is
+retried on the next poll; after 10 minutes without contact the job is `lost`.
 
 **End.** One check decides the ending:
 
@@ -306,9 +309,14 @@ Ending saves the command output (head and tail within
 `SANDBOX_MAX_OUTPUT_CHARS`) and copies up to `SANDBOX_MAX_FILE_COUNT` files
 from `outputDir` to chat storage with `persistSandboxOutputFiles` (the same
 loader as `exportFile`, `exportFiles.ts`). Files left out are noted in
-`error` ("Not kept: …"). `SandboxJobModel.finish` only changes a running row,
-so the watcher, `getJobResult` and `cancelJob` cannot overwrite each other's
-ending. After it ends, the sandbox follows the normal idle timeout again.
+`error` ("Not kept: …"). A 30 s execd step timeout while reading that log or
+that folder is caught inside the job check (`AbortError` / `TimeoutError`).
+The note is written on the job and the error does not leave `withWorkspace`,
+so the provider does not delete the sandbox. The job still finishes. The same
+timeout on `getCommandOutput` is unchanged and can still delete the sandbox.
+`SandboxJobModel.finish` only changes a running row, so the watcher,
+`getJobResult` and `cancelJob` cannot overwrite each other's ending. After it
+ends, the sandbox follows the normal idle timeout again.
 
 **Rules that keep jobs safe:**
 - The provider deletes a sandbox when a call fails with anything but a

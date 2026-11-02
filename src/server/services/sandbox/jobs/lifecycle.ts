@@ -99,12 +99,23 @@ export const markSandboxJobLost = async (
   );
 };
 
-const readOutput = async (workspace: SandboxWorkspace, commandId: string) => {
+/** A 30s execd step abort. Leaving this to the provider deletes the sandbox. */
+const isStepTimeout = (error: unknown) =>
+  error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError');
+
+const OUTPUT_UNREAD_NOTE = 'the command output could not be read in time';
+const FOLDER_UNREAD_NOTE = 'the output folder could not be read in time';
+
+const readOutput = async (
+  workspace: SandboxWorkspace,
+  commandId: string,
+): Promise<{ log?: string; unread?: boolean }> => {
   try {
     const logs = await workspace.commandLogs(commandId);
-    return logs.output || undefined;
+    return { log: logs.output || undefined };
   } catch (error) {
-    if (error instanceof SandboxRequestError) return undefined;
+    if (error instanceof SandboxRequestError) return {};
+    if (isStepTimeout(error)) return { unread: true };
     throw error;
   }
 };
@@ -129,8 +140,13 @@ const keepOutputFiles = async ({
   try {
     entries = await workspace.listDirectory(outputDir, OUTPUT_LIST_DEPTH);
   } catch (error) {
-    if (!(error instanceof SandboxRequestError)) throw error;
-    return { files: [], skipped: [`${outputDir}: ${error.message}`] };
+    if (error instanceof SandboxRequestError) {
+      return { files: [], skipped: [`${outputDir}: ${error.message}`] };
+    }
+    if (isStepTimeout(error)) {
+      return { files: [], skipped: [`${outputDir}: ${FOLDER_UNREAD_NOTE}`] };
+    }
+    throw error;
   }
   const paths = entries
     .filter(
@@ -143,11 +159,18 @@ const keepOutputFiles = async ({
     .sort();
   const limit = sandboxEnv.SANDBOX_MAX_FILE_COUNT;
   const picked = paths.slice(0, limit);
-  const { files, skipped } = await loadSandboxFiles(
-    workspace,
-    picked.map((path) => ({ label: posix.relative(outputDir, path) || path, resolved: path })),
-    sandboxEnv.SANDBOX_MAX_FILE_BYTES,
-  );
+  let files;
+  let skipped;
+  try {
+    ({ files, skipped } = await loadSandboxFiles(
+      workspace,
+      picked.map((path) => ({ label: posix.relative(outputDir, path) || path, resolved: path })),
+      sandboxEnv.SANDBOX_MAX_FILE_BYTES,
+    ));
+  } catch (error) {
+    if (!isStepTimeout(error)) throw error;
+    return { files: [], skipped: [`${outputDir}: ${FOLDER_UNREAD_NOTE}`] };
+  }
   if (paths.length > picked.length) {
     skipped.push(`${paths.length - picked.length} more file(s) over the ${limit}-file limit`);
   }
@@ -236,15 +259,16 @@ const observeJob = async ({
   }
 
   if (!ending) {
-    return withLog
-      ? { kind: 'running', log: await readOutput(workspace, row.commandId) }
-      : { kind: 'running' };
+    if (!withLog) return { kind: 'running' };
+    const read = await readOutput(workspace, row.commandId);
+    return { kind: 'running', ...(read.log ? { log: read.log } : {}) };
   }
-  const outputTail = await readOutput(workspace, row.commandId);
+  const read = await readOutput(workspace, row.commandId);
   const kept = row.outputDir
     ? await keepOutputFiles({ db, outputDir: row.outputDir, userId, workspace })
-    : { files: [], skipped: [] };
-  return { ...kept, ending, kind: 'ended', outputTail };
+    : { files: [], skipped: [] as string[] };
+  if (read.unread) kept.skipped.push(OUTPUT_UNREAD_NOTE);
+  return { ...kept, ending, kind: 'ended', outputTail: read.log };
 };
 
 /**

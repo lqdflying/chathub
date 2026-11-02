@@ -14,7 +14,7 @@ import {
 
 import { listConversationSandboxInputs, persistSandboxOutputFiles } from '../conversationFiles';
 import { loadSandboxFiles } from '../exportFiles';
-import { SANDBOX_JOB_COMMAND_MAX_CHARS, SANDBOX_JOB_POLL_MS } from '../jobs/constants';
+import { SANDBOX_JOB_COMMAND_MAX_CHARS, sandboxJobWatchDelayMs } from '../jobs/constants';
 import { enqueueSandboxJobWatch } from '../jobs/enqueue';
 import { toJobResult } from '../jobs/lifecycle';
 import { cancelSandboxJob, getSandboxJobResult, listSandboxJobs } from '../jobs/service';
@@ -307,7 +307,7 @@ class SandboxToolRunner {
       await enqueueSandboxJobWatch(
         db,
         { jobId: row.id, userId },
-        new Date(Date.now() + SANDBOX_JOB_POLL_MS),
+        new Date(Date.now() + sandboxJobWatchDelayMs(this.profile.sessionIdleTimeoutMs)),
       );
     } catch (error) {
       watched = false;

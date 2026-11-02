@@ -138,11 +138,9 @@ describe('Sandbox job calls', () => {
     const runtime = created.deadlineAt.getTime() - created.startedAt.getTime();
     expect(runtime).toBe(30 * 60_000);
     expect(created.startedAt.getTime()).toBeGreaterThanOrEqual(before);
-    expect(mocks.enqueue).toHaveBeenCalledWith(
-      expect.anything(),
-      { jobId: 'sjob_1', userId: 'user-1' },
-      expect.any(Date),
-    );
+    const runAt = mocks.enqueue.mock.calls[0][2] as Date;
+    expect(runAt.getTime()).toBeGreaterThanOrEqual(before + 60_000);
+    expect(runAt.getTime()).toBeLessThanOrEqual(Date.now() + 60_000);
     expect(result).toMatchObject({ jobId: 'sjob_1', jobStatus: 'running', success: true });
     expect(result.hint).toContain('up to 30 minutes');
     expect(result.hint).toContain("Files written to /tmp/workspace/out/it's are kept");

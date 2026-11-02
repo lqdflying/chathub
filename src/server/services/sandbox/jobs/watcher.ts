@@ -3,7 +3,8 @@ import type { Task } from 'graphile-worker';
 import { getServerDB } from '@/database/core/db-adaptor';
 import { SandboxJobModel } from '@/database/models/sandboxJob';
 
-import { SANDBOX_JOB_POLL_MS } from './constants';
+import { findSandboxProfile } from '../profiles/load';
+import { sandboxJobWatchDelayMs } from './constants';
 import { type SandboxJobWatchPayload, enqueueSandboxJobWatch } from './enqueue';
 import { watchSandboxJob } from './service';
 
@@ -22,6 +23,11 @@ export const handleSandboxJobWatch: Task = async (payload) => {
 
   const next = await watchSandboxJob({ db, row, userId });
   if (next.status === 'running') {
-    await enqueueSandboxJobWatch(db, { jobId, userId }, new Date(Date.now() + SANDBOX_JOB_POLL_MS));
+    const idleMs = findSandboxProfile(row.profileId)?.sessionIdleTimeoutMs;
+    await enqueueSandboxJobWatch(
+      db,
+      { jobId, userId },
+      new Date(Date.now() + sandboxJobWatchDelayMs(idleMs)),
+    );
   }
 };

@@ -8,6 +8,7 @@ type Row = Record<string, any>;
 const state = vi.hoisted(() => ({
   enqueue: vi.fn(),
   gate: undefined as any,
+  idleMs: undefined as number | undefined,
   persist: vi.fn(),
   profileExists: true,
   providerError: undefined as unknown,
@@ -59,7 +60,9 @@ vi.mock('../../profiles/catalog', () => ({
 }));
 vi.mock('../../profiles/load', () => ({
   findSandboxProfile: (id: string) =>
-    state.profileExists ? { id, serverId: 'default' } : undefined,
+    state.profileExists
+      ? { id, serverId: 'default', sessionIdleTimeoutMs: state.idleMs }
+      : undefined,
   findSandboxServer: (id: string) => ({ id, status: 'ok' }),
 }));
 vi.mock('../../registry', () => ({
@@ -74,6 +77,7 @@ vi.mock('../../registry', () => ({
 vi.mock('../../conversationFiles', () => ({ persistSandboxOutputFiles: state.persist }));
 vi.mock('../enqueue', () => ({ enqueueSandboxJobWatch: state.enqueue }));
 
+const { sandboxJobWatchDelayMs } = await import('../constants');
 const { SANDBOX_GONE_MESSAGE, checkSandboxJob, summarizeCommand } = await import('../lifecycle');
 const { cancelSandboxJob, getSandboxJobResult, listSandboxJobs, watchSandboxJob } =
   await import('../service');
@@ -131,6 +135,7 @@ describe('Sandbox background jobs', () => {
     vi.clearAllMocks();
     state.rows = new Map();
     state.gate = ok;
+    state.idleMs = undefined;
     state.profileExists = true;
     state.providerError = undefined;
     state.workspace = fakeWorkspace({ running: true });
@@ -185,6 +190,41 @@ describe('Sandbox background jobs', () => {
     ]);
     expect(row.error).toBe('Not kept: 1 more file(s) over the 2-file limit');
     expect(state.workspace.markSynced).toHaveBeenCalledWith(['file_0', 'file_1']);
+  });
+
+  it('finishes a job when reading its log times out', async () => {
+    state.workspace = fakeWorkspace({ exitCode: 0, running: false });
+    state.workspace.commandLogs.mockRejectedValue(
+      Object.assign(new Error('step timed out'), { name: 'TimeoutError' }),
+    );
+    const { row } = await checkSandboxJob({
+      apiName: 'watchJob',
+      db,
+      now: BEFORE_DEADLINE,
+      row: addJob(),
+      userId: 'user-1',
+    });
+    expect(row.status).toBe('succeeded');
+    expect(row.files).toHaveLength(2);
+    expect(row.error).toContain('the command output could not be read in time');
+  });
+
+  it('finishes a job when listing its output folder times out', async () => {
+    state.workspace = fakeWorkspace({ exitCode: 0, running: false });
+    state.workspace.listDirectory.mockRejectedValue(
+      Object.assign(new Error('step timed out'), { name: 'TimeoutError' }),
+    );
+    const { row } = await checkSandboxJob({
+      apiName: 'watchJob',
+      db,
+      now: BEFORE_DEADLINE,
+      row: addJob(),
+      userId: 'user-1',
+    });
+    expect(row).toMatchObject({ outputTail: 'epoch 3/3\n', status: 'succeeded' });
+    expect(row.files).toEqual([]);
+    expect(row.error).toContain('the output folder could not be read in time');
+    expect(state.persist).not.toHaveBeenCalled();
   });
 
   it('records a non-zero exit as failed', async () => {
@@ -385,14 +425,20 @@ describe('Sandbox background jobs', () => {
     });
   });
 
+  it('schedules the next watch inside the idle timeout', () => {
+    expect(sandboxJobWatchDelayMs(30 * 60_000)).toBe(60_000);
+    expect(sandboxJobWatchDelayMs(10_000)).toBe(5_000);
+    expect(sandboxJobWatchDelayMs(undefined)).toBe(60_000);
+  });
+
   it('queues the next watch only while the job runs', async () => {
+    state.idleMs = 10_000;
     addJob({ deadlineAt: new Date(Date.now() + 3_600_000) });
+    const before = Date.now();
     await handleSandboxJobWatch({ jobId: 'sjob_1', userId: 'user-1' }, {} as never);
-    expect(state.enqueue).toHaveBeenCalledWith(
-      expect.anything(),
-      { jobId: 'sjob_1', userId: 'user-1' },
-      expect.any(Date),
-    );
+    const runAt = state.enqueue.mock.calls[0][2] as Date;
+    expect(runAt.getTime()).toBeGreaterThanOrEqual(before + 5_000);
+    expect(runAt.getTime()).toBeLessThanOrEqual(Date.now() + 5_000);
 
     state.enqueue.mockClear();
     state.workspace = fakeWorkspace({ exitCode: 0, running: false });
