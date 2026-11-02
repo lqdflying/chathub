@@ -149,8 +149,9 @@ rewriting `agents.plugins`.
 
 **Every call is gated** by `resolveSandboxProfileForUser` (browser route and
 worker): unknown, unconfigured, key-less, or turned-off profiles fail with a
-clear message. If the choices table cannot be read, profiles fall back to
-their `defaultEnabled`.
+clear message. Only a missing `user_sandbox_profiles` table (migration not
+run) falls back to each profile's `defaultEnabled`. Any other read error
+fails closed: the Hub list does not load and Sandbox calls are refused.
 
 **Sandboxes per profile.** `buildSandboxSessionKey` adds the profile id for
 every profile except `general`, so each profile has its own sandbox and lock
@@ -185,11 +186,14 @@ profiles:                    # 1..16, in display and prompt order
       base: general                # general (default) prepends the built-in contract; none = only this text
 ```
 
-Rules: every omitted field falls back to `OPENSANDBOX_*`; literal API keys
-are rejected; a server whose `apiKeyEnv` is unset is `misconfigured` and its
-profiles cannot run; **any** error configures no profiles at all (logged
-once) instead of silently running the rest; instructions are capped at
-32 KiB and composed once per process (restart to apply file edits).
+Rules: omitted image, cpu, memory, egress, and timeout fields fall back to
+`OPENSANDBOX_*`; literal API keys are rejected; a server entry without
+`apiKeyEnv` has no key and is never sent `OPENSANDBOX_API_KEY` (only the
+implicit `default` server uses that key); a server whose `apiKeyEnv` names an
+unset variable is `misconfigured` and its profiles cannot run; **any** error
+configures no profiles at all (logged once) instead of silently running the
+rest; instructions are capped at 32 KiB and composed once per process
+(restart to apply file edits).
 Server-wide OpenSandbox settings (gVisor/Kata runtime, egress mode,
 `network_mode`, max timeout) need separate servers, so put such profiles on
 their own server entry.

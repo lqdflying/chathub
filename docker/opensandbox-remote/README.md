@@ -29,9 +29,14 @@ calls and the Sandbox Hub health check.
    (the address ChatHub connects from) in `.env`, then `docker compose up -d`.
 2. Pull or build the sandbox images the profiles use on **this** host
    (`docker/opensandbox/Dockerfile` builds the general-purpose one).
-3. Firewall: allow 443 only from the ChatHub host (or put both hosts on
-   WireGuard/Tailscale and bind Caddy to that interface). Keep the server's
-   own port on 127.0.0.1.
+3. Firewall. Keep the OpenSandbox server port on 127.0.0.1. On 443, allow
+   only the ChatHub host: the Caddyfile checks that address and the API key
+   there. Leave port 80 reachable from the internet so Caddy can answer the
+   HTTP certificate challenge. On a private network with no public 80 or 443,
+   use the DNS challenge (a Caddy build with your DNS provider module and a
+   `tls { dns ... }` block) or `tls internal`, and set `NODE_EXTRA_CA_CERTS`
+   on the ChatHub container. A `*.ts.net` name is not a public certificate:
+   Caddy takes that from the local Tailscale daemon.
 4. Network isolation for sandboxes: use a dedicated Docker bridge and drop
    traffic from the sandbox subnet to private ranges, `169.254.0.0/16` (cloud
    metadata) and the host itself (`DOCKER-USER` chain), unless a profile
