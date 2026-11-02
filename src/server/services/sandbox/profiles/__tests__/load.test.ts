@@ -56,6 +56,14 @@ describe('loadSandboxProfiles without a profiles file', () => {
     expect(general.instruction).toBe(SandboxManifest.systemRole);
   });
 
+  it('limits background jobs to 2 hours unless SANDBOX_JOB_MAX_RUNTIME says otherwise', () => {
+    expect(loadSandboxProfiles({ env: baseEnv }).profiles[0].jobMaxRuntimeMs).toBe(7_200_000);
+    expect(
+      loadSandboxProfiles({ env: { ...baseEnv, SANDBOX_JOB_MAX_RUNTIME: 0 } }).profiles[0]
+        .jobMaxRuntimeMs,
+    ).toBe(0);
+  });
+
   it('keeps OPENSANDBOX_EGRESS_ALLOW as an allowlist', () => {
     const catalog = loadSandboxProfiles({
       env: { ...baseEnv, OPENSANDBOX_EGRESS_ALLOW: 'pypi.org, files.pythonhosted.org' },
@@ -167,6 +175,23 @@ profiles:
     expect(catalog.servers.find((server) => server.id === 'remote')?.proxyEndpoint).toBe(
       'baseUrl',
     );
+  });
+
+  it('reads a per-profile job runtime limit, falling back to SANDBOX_JOB_MAX_RUNTIME', () => {
+    const catalog = withFile(
+      {
+        '/etc/chathub/sandbox-profiles.yaml': `version: 1
+profiles:
+  - {id: general, name: Sandbox, description: General}
+  - {id: train, name: Training, description: Long runs, jobMaxRuntimeMs: 21600000}
+  - {id: quick, name: Quick, description: No jobs, jobMaxRuntimeMs: 0}
+`,
+      },
+      { SANDBOX_JOB_MAX_RUNTIME: 3_600_000 },
+    );
+    expect(catalog.profiles.map((profile) => profile.jobMaxRuntimeMs)).toEqual([
+      3_600_000, 21_600_000, 0,
+    ]);
   });
 
   it('reads JSON too', () => {

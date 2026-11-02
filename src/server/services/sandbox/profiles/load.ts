@@ -30,8 +30,15 @@ export interface SandboxProfilesEnv {
   OPENSANDBOX_SERVER_URL?: string;
   OPENSANDBOX_SESSION_IDLE_TIMEOUT: number;
   OPENSANDBOX_SESSION_MAX_LIFETIME: number;
+  SANDBOX_JOB_MAX_RUNTIME?: number;
   SANDBOX_PROFILES_FILE?: string;
 }
+
+/** Background job runtime cap when SANDBOX_JOB_MAX_RUNTIME is not given (2 hours). */
+export const DEFAULT_SANDBOX_JOB_MAX_RUNTIME_MS = 7_200_000;
+
+const envJobMaxRuntime = (env: SandboxProfilesEnv) =>
+  env.SANDBOX_JOB_MAX_RUNTIME ?? DEFAULT_SANDBOX_JOB_MAX_RUNTIME_MS;
 
 export interface LoadSandboxProfilesOptions {
   env: SandboxProfilesEnv;
@@ -101,6 +108,7 @@ const synthesizeFromEnv = (env: SandboxProfilesEnv): SandboxProfileCatalog => {
     identifier: sandboxToolIdentifier(DEFAULT_SANDBOX_PROFILE_ID),
     image,
     instruction: SandboxManifest.systemRole,
+    jobMaxRuntimeMs: envJobMaxRuntime(env),
     memory: env.OPENSANDBOX_MEMORY,
     name: meta.title ?? 'Sandbox',
     readyTimeoutMs: env.OPENSANDBOX_READY_TIMEOUT,
@@ -204,6 +212,7 @@ export const loadSandboxProfiles = ({
         name: config.name,
         text,
       }),
+      jobMaxRuntimeMs: config.jobMaxRuntimeMs ?? envJobMaxRuntime(env),
       memory: config.memory ?? env.OPENSANDBOX_MEMORY,
       name: config.name,
       readyTimeoutMs: config.readyTimeoutMs ?? env.OPENSANDBOX_READY_TIMEOUT,
@@ -238,6 +247,7 @@ const PROFILE_ENV_KEYS = [
   'OPENSANDBOX_SERVER_URL',
   'OPENSANDBOX_SESSION_IDLE_TIMEOUT',
   'OPENSANDBOX_SESSION_MAX_LIFETIME',
+  'SANDBOX_JOB_MAX_RUNTIME',
   'SANDBOX_PROFILES_FILE',
 ] as const satisfies readonly (keyof SandboxProfilesEnv)[];
 
@@ -248,7 +258,8 @@ const readProfilesEnv = (): SandboxProfilesEnv =>
 
 /**
  * Loaded once per process (the durable worker runs in the same process), and
- * only reloaded when the OPENSANDBOX_* / SANDBOX_PROFILES_FILE values change.
+ * only reloaded when the OPENSANDBOX_* / SANDBOX_JOB_MAX_RUNTIME /
+ * SANDBOX_PROFILES_FILE values change.
  * Edits to the profiles file itself need a restart.
  */
 export const getSandboxProfileCatalog = (): SandboxProfileCatalog => {

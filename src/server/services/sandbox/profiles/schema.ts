@@ -74,6 +74,8 @@ export const sandboxProfileConfigSchema = z
     }),
     image: z.string().trim().min(1).max(512).optional(),
     instruction: sandboxInstructionSchema.optional(),
+    /** Longest a background job may run; 0 turns jobs off. Default SANDBOX_JOB_MAX_RUNTIME. */
+    jobMaxRuntimeMs: nonNegativeMs.optional(),
     memory: z.string().min(1).max(16).optional(),
     name: z.string().min(1).max(64),
     readyTimeoutMs: positiveMs.optional(),
@@ -143,6 +145,8 @@ export interface ResolvedSandboxProfile {
   image: string;
   /** Final instruction text injected as the tool's system role. Static per process. */
   instruction: string;
+  /** Longest a background job may keep the sandbox alive; 0 = jobs off. */
+  jobMaxRuntimeMs: number;
   memory: string;
   name: string;
   readyTimeoutMs: number;

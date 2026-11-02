@@ -6,6 +6,8 @@ import {
   ASSISTANT_MEMORY_DREAM_TASK,
   handleAssistantMemoryDreamJob,
 } from '@/server/services/assistantMemoryDream';
+import { SANDBOX_JOB_WATCH_TASK } from '@/server/services/sandbox/jobs/constants';
+import { handleSandboxJobWatch } from '@/server/services/sandbox/jobs/watcher';
 
 import {
   CONVERSATION_GENERATION_SWEEP_INTERVAL_MS,
@@ -170,6 +172,7 @@ export const startConversationGenerationWorker = async (): Promise<Runner | unde
         taskList: {
           [ASSISTANT_MEMORY_DREAM_TASK]: handleAssistantMemoryDreamJob,
           [CONVERSATION_GENERATION_TASK]: handleConversationGenerationJob,
+          [SANDBOX_JOB_WATCH_TASK]: handleSandboxJobWatch,
         },
       });
       logGenerationDebugSafe('worker_started', { concurrency: parseConcurrency() });

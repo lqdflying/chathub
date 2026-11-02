@@ -22,13 +22,22 @@ export interface SandboxToolResult extends CodeInterpreterResponse {
   commandId?: string;
   /** `readFile`: numbered lines. */
   content?: string;
+  /** Background job: ISO time it is stopped if still running. */
+  deadlineAt?: string;
   durationMs?: number;
   endLine?: number;
   entries?: SandboxFileEntry[];
   error?: string;
   exitCode?: number;
+  /** Background job: ISO time it ended. */
+  finishedAt?: string;
   /** Guidance for the model about what to do next. */
   hint?: string;
+  /** Background job id (`startJob`). */
+  jobId?: string;
+  jobStatus?: SandboxJobStatus;
+  /** `listJobs`: this conversation's jobs, newest first. */
+  jobs?: SandboxJobItem[];
   /** `getCommandOutput`: combined stdout and stderr since the cursor. */
   log?: string;
   nextCursor?: number;
@@ -39,6 +48,8 @@ export interface SandboxToolResult extends CodeInterpreterResponse {
   /** `exportFile`: paths that could not be exported, with the reason. */
   skipped?: string[];
   startLine?: number;
+  /** Background job: ISO time it started. */
+  startedAt?: string;
   stderr?: string;
   stdout?: string;
   timedOut?: boolean;

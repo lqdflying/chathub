@@ -12,7 +12,7 @@ import {
 } from '@/tools/sandbox/const';
 
 import { listConversationSandboxInputs, persistSandboxOutputFiles } from '../conversationFiles';
-import { distinctOutputFilenames, outputRelativeName } from '../outputNames';
+import { loadSandboxFiles } from '../exportFiles';
 import { resolveSandboxProfileForUser } from '../profiles/catalog';
 import type { ResolvedSandboxProfile, ResolvedSandboxServer } from '../profiles/schema';
 import { getSandboxProvider } from '../registry';
@@ -22,7 +22,6 @@ import {
   type SandboxFile,
   type SandboxInputRef,
   type SandboxProvider,
-  SandboxRequestError,
   type SandboxWorkspace,
 } from '../types';
 import { decodeText, formatNumberedLines, resolveTimeoutMs } from './format';
@@ -360,27 +359,13 @@ class SandboxToolRunner {
   exportFile({ paths }: SandboxToolArgs['exportFile']) {
     return this.useWithInputs(SandboxApiName.exportFile, FILE_BUDGET_MS, async (workspace) => {
       const unique = [...new Set(await this.expandListedPaths(workspace, paths))];
-      const loaded: Array<{ content: Uint8Array; relative: string }> = [];
-      const skipped: string[] = [];
-      for (const path of unique.slice(0, this.maxFileCount)) {
-        const resolved = this.resolvePath(workspace, path);
-        try {
-          const content = await workspace.readFile(resolved, this.maxFileBytes);
-          if (content.byteLength === 0) {
-            skipped.push(`${path}: the file is empty`);
-            continue;
-          }
-          loaded.push({ content, relative: outputRelativeName(workspace.workdir, resolved) });
-        } catch (error) {
-          if (!(error instanceof SandboxRequestError)) throw error;
-          skipped.push(`${path}: ${error.message}`);
-        }
-      }
-      const filenames = distinctOutputFilenames(loaded.map((item) => item.relative));
-      const files: SandboxFile[] = loaded.map((item, index) => ({
-        content: item.content,
-        filename: filenames[index],
-      }));
+      const { files, skipped } = await loadSandboxFiles(
+        workspace,
+        unique
+          .slice(0, this.maxFileCount)
+          .map((path) => ({ label: path, resolved: this.resolvePath(workspace, path) })),
+        this.maxFileBytes,
+      );
       const persisted = files.length > 0 ? await this.persist(workspace, files) : [];
       if (persisted.length < files.length) {
         skipped.push(`${files.length - persisted.length} file(s) could not be stored`);

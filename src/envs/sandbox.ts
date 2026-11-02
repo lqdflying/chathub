@@ -19,6 +19,8 @@ export const getSandboxConfig = () =>
       OPENSANDBOX_SESSION_IDLE_TIMEOUT: process.env.OPENSANDBOX_SESSION_IDLE_TIMEOUT,
       OPENSANDBOX_SESSION_MAX_LIFETIME: process.env.OPENSANDBOX_SESSION_MAX_LIFETIME,
       SANDBOX_HUB_ADMINS: process.env.SANDBOX_HUB_ADMINS,
+      SANDBOX_JOB_MAX_RUNNING: process.env.SANDBOX_JOB_MAX_RUNNING,
+      SANDBOX_JOB_MAX_RUNTIME: process.env.SANDBOX_JOB_MAX_RUNTIME,
       SANDBOX_MAX_FILE_BYTES: withLegacy('SANDBOX_MAX_FILE_BYTES', 'CODE_INTERPRETER_MAX_FILE_BYTES'),
       SANDBOX_MAX_FILE_COUNT: withLegacy('SANDBOX_MAX_FILE_COUNT', 'CODE_INTERPRETER_MAX_FILE_COUNT'),
       SANDBOX_MAX_OUTPUT_CHARS: withLegacy(
@@ -60,6 +62,12 @@ export const getSandboxConfig = () =>
       // Comma-separated user ids or emails allowed to edit Sandbox Hub
       // instructions for everyone. Unset = instructions are read-only.
       SANDBOX_HUB_ADMINS: z.string().optional(),
+      // Background jobs (startJob) one user may have running at once. Each
+      // keeps its sandbox's CPU and memory reserved.
+      SANDBOX_JOB_MAX_RUNNING: z.coerce.number().int().positive().default(3),
+      // Longest a background job may keep its sandbox alive, in milliseconds
+      // (default 2 hours). A profile's jobMaxRuntimeMs overrides it; 0 = off.
+      SANDBOX_JOB_MAX_RUNTIME: z.coerce.number().int().min(0).default(7_200_000),
       // Per-file cap for sandbox inputs, reads, and exported outputs (bytes).
       SANDBOX_MAX_FILE_BYTES: z.coerce
         .number()
