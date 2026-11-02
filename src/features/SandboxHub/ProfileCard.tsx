@@ -2,11 +2,14 @@
 
 import type { SandboxProfileItem, SandboxServerHealth } from '@lobechat/types';
 import { Avatar } from '@lobehub/ui';
-import { Switch, Tag } from 'antd';
+import { Button, Input, Popconfirm, Switch, Tag } from 'antd';
 import { createStyles } from 'antd-style';
+import dayjs from 'dayjs';
 import { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
+
+import { SANDBOX_INSTRUCTION_MAX_BYTES } from '@/tools/sandbox/const';
 
 import { egressSummaryKey, formatDuration } from './format';
 
@@ -24,6 +27,18 @@ const useStyles = createStyles(({ css, token }) => ({
     min-width: 0;
     overflow-wrap: anywhere;
     color: ${token.colorTextSecondary};
+    font-size: 13px;
+    line-height: 1.6;
+  `,
+  editor: css`
+    font-family: ${token.fontFamilyCode};
+    font-size: 12px;
+    line-height: 1.6;
+  `,
+  error: css`
+    min-width: 0;
+    overflow-wrap: anywhere;
+    color: ${token.colorError};
     font-size: 13px;
     line-height: 1.6;
   `,
@@ -80,7 +95,25 @@ const useStyles = createStyles(({ css, token }) => ({
   tag: css`
     margin: 0;
   `,
+  warning: css`
+    min-width: 0;
+    overflow-wrap: anywhere;
+    color: ${token.colorWarningText};
+    font-size: 13px;
+    line-height: 1.6;
+  `,
 }));
+
+/** `{{name}}` is filled in by the chat template step before the model sees it. */
+const PLACEHOLDER = /{{\s*[\w.-]+\s*}}/;
+
+const byteLength = (text: string) => new TextEncoder().encode(text).length;
+
+export interface InstructionAccess {
+  /** `SANDBOX_HUB_ADMINS` lists at least one admin. */
+  adminsConfigured: boolean;
+  canEdit: boolean;
+}
 
 const HEALTH_COLOR: Record<SandboxServerHealth, string> = {
   misconfigured: 'error',
@@ -90,17 +123,32 @@ const HEALTH_COLOR: Record<SandboxServerHealth, string> = {
 };
 
 interface ProfileCardProps {
+  /** Undefined until the Hub knows whether this user may edit instructions. */
+  access?: InstructionAccess;
   health?: SandboxServerHealth;
+  onResetInstruction: () => Promise<void>;
+  onSaveInstruction: (instruction: string) => Promise<void>;
   onToggle: (enabled: boolean) => Promise<void>;
   profile: SandboxProfileItem;
 }
 
-const ProfileCard = memo<ProfileCardProps>(({ health, onToggle, profile }) => {
+const ProfileCard = memo<ProfileCardProps>((props) => {
+  const { access, health, onResetInstruction, onSaveInstruction, onToggle, profile } = props;
   const { styles } = useStyles();
   const { t } = useTranslation('sandboxHub');
   const [pending, setPending] = useState(false);
   const [failed, setFailed] = useState(false);
   const [showInstruction, setShowInstruction] = useState(false);
+  const [draft, setDraft] = useState<string>();
+  const [saving, setSaving] = useState(false);
+  const [instructionFailed, setInstructionFailed] = useState(false);
+
+  const canEdit = !!access?.canEdit;
+  const editing = draft !== undefined;
+  const draftBytes = editing ? byteLength(draft) : 0;
+  const tooLarge = draftBytes > SANDBOX_INSTRUCTION_MAX_BYTES;
+  const canSave =
+    editing && !saving && !tooLarge && draft.trim().length > 0 && draft !== profile.instruction;
 
   const timeLabel = (ms: number) => {
     const parts = formatDuration(ms);
@@ -116,6 +164,25 @@ const ProfileCard = memo<ProfileCardProps>(({ health, onToggle, profile }) => {
   const maxLifetime = timeLabel(profile.sessionMaxLifetimeMs);
   const egressTargets =
     profile.egress.mode === 'allowlist' ? profile.egress.targets.join(', ') : undefined;
+
+  const startEdit = () => {
+    setInstructionFailed(false);
+    setShowInstruction(true);
+    setDraft(profile.instruction);
+  };
+
+  const runInstructionChange = async (change: () => Promise<void>) => {
+    setSaving(true);
+    setInstructionFailed(false);
+    try {
+      await change();
+      setDraft(undefined);
+    } catch {
+      setInstructionFailed(true);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const toggle = async (enabled: boolean) => {
     setPending(true);
@@ -176,16 +243,103 @@ const ProfileCard = memo<ProfileCardProps>(({ health, onToggle, profile }) => {
       {!profile.available && <div className={styles.description}>{t('profile.unavailable')}</div>}
       {failed && <div className={styles.description}>{t('profile.toggleFailed')}</div>}
 
-      <div>
-        <button
-          className={styles.link}
-          onClick={() => setShowInstruction((value) => !value)}
-          type="button"
-        >
-          {showInstruction ? t('profile.hideInstruction') : t('profile.showInstruction')}
-        </button>
-      </div>
-      {showInstruction && <pre className={styles.instruction}>{profile.instruction}</pre>}
+      <Flexbox align={'center'} gap={12} horizontal style={{ minWidth: 0 }} wrap={'wrap'}>
+        {!editing && (
+          <button
+            className={styles.link}
+            onClick={() => setShowInstruction((value) => !value)}
+            type="button"
+          >
+            {showInstruction ? t('profile.hideInstruction') : t('profile.showInstruction')}
+          </button>
+        )}
+        {canEdit && !editing && (
+          <button className={styles.link} onClick={startEdit} type="button">
+            {t('profile.instruction.edit')}
+          </button>
+        )}
+        {canEdit && !editing && profile.instructionCustomized && (
+          <Popconfirm
+            cancelText={t('profile.instruction.cancel')}
+            okText={t('profile.instruction.reset')}
+            onConfirm={() => runInstructionChange(onResetInstruction)}
+            title={t('profile.instruction.resetConfirm')}
+          >
+            <button className={styles.link} disabled={saving} type="button">
+              {t('profile.instruction.reset')}
+            </button>
+          </Popconfirm>
+        )}
+        {profile.instructionCustomized && (
+          <span className={styles.meta}>
+            <Tag bordered={false} className={styles.tag} color={'processing'}>
+              {t('profile.instruction.customized')}
+            </Tag>
+            {profile.instructionUpdatedAt &&
+              t('profile.instruction.updatedAt', {
+                time: dayjs(profile.instructionUpdatedAt).format('YYYY-MM-DD HH:mm'),
+              })}
+          </span>
+        )}
+      </Flexbox>
+
+      {showInstruction && !editing && (
+        <pre className={styles.instruction}>{profile.instruction}</pre>
+      )}
+
+      {editing && (
+        <Flexbox gap={8}>
+          <div className={styles.description}>{t('profile.instruction.editHint')}</div>
+          <Input.TextArea
+            aria-label={t('profile.instruction.editLabel', { name: profile.name })}
+            autoSize={{ maxRows: 24, minRows: 8 }}
+            className={styles.editor}
+            onChange={(event) => setDraft(event.target.value)}
+            value={draft}
+          />
+          <div className={styles.meta}>
+            {t('profile.instruction.size', {
+              max: SANDBOX_INSTRUCTION_MAX_BYTES / 1024,
+              size: (draftBytes / 1024).toFixed(1),
+            })}
+          </div>
+          {tooLarge && (
+            <div className={styles.error}>
+              {t('profile.instruction.tooLarge', { max: SANDBOX_INSTRUCTION_MAX_BYTES / 1024 })}
+            </div>
+          )}
+          {PLACEHOLDER.test(draft) && (
+            <div className={styles.warning}>
+              {t('profile.instruction.placeholderWarning', { example: '{{date}}' })}
+            </div>
+          )}
+          <Flexbox gap={8} horizontal justify={'flex-end'}>
+            <Button disabled={saving} onClick={() => setDraft(undefined)} size={'small'}>
+              {t('profile.instruction.cancel')}
+            </Button>
+            <Button
+              disabled={!canSave}
+              loading={saving}
+              onClick={() => runInstructionChange(() => onSaveInstruction(draft))}
+              size={'small'}
+              type={'primary'}
+            >
+              {t('profile.instruction.save')}
+            </Button>
+          </Flexbox>
+        </Flexbox>
+      )}
+
+      {instructionFailed && (
+        <div className={styles.error}>{t('profile.instruction.saveFailed')}</div>
+      )}
+      {showInstruction && access && !access.canEdit && (
+        <div className={styles.description}>
+          {access.adminsConfigured
+            ? t('profile.instruction.readOnly')
+            : t('profile.instruction.readOnlyNoAdmins')}
+        </div>
+      )}
     </Flexbox>
   );
 });

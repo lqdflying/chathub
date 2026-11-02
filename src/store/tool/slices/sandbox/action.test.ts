@@ -7,10 +7,12 @@ import { builtinTools } from '@/tools';
 import { SandboxManifest } from '@/tools/sandbox';
 
 import { useToolStore } from '../../store';
-import { composeBuiltinTools } from './action';
+import { SANDBOX_PROFILES_MAX_AGE_MS, composeBuiltinTools } from './action';
 
 const service = vi.hoisted(() => ({
   listProfiles: vi.fn(),
+  resetInstruction: vi.fn(),
+  setInstruction: vi.fn(),
   setProfileEnabled: vi.fn(),
 }));
 
@@ -40,7 +42,12 @@ const item = (id: string, extra: Partial<SandboxProfileItem> = {}): SandboxProfi
 describe('Sandbox Hub tool-store slice', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    useToolStore.setState({ builtinTools, sandboxProfiles: [], sandboxProfilesScope: undefined });
+    useToolStore.setState({
+      builtinTools,
+      sandboxProfiles: [],
+      sandboxProfilesLoadedAt: undefined,
+      sandboxProfilesScope: undefined,
+    });
     useUserStore.setState({ isUserStateInit: true, userStateScope: 'user:a' } as never);
   });
 
@@ -83,6 +90,54 @@ describe('Sandbox Hub tool-store slice', () => {
     expect(
       useToolStore.getState().builtinTools.some((tool) => tool.identifier === 'lobe-sandbox'),
     ).toBe(false);
+  });
+
+  it('reloads a stale list before a send so admin edits reach open tabs', async () => {
+    service.listProfiles.mockResolvedValue([item('general')]);
+    await useToolStore.getState().ensureSandboxProfiles();
+    useToolStore.setState({
+      sandboxProfilesLoadedAt: Date.now() - SANDBOX_PROFILES_MAX_AGE_MS - 1,
+    });
+    service.listProfiles.mockResolvedValue([
+      item('general', { instruction: 'Edited.', instructionCustomized: true }),
+    ]);
+    await useToolStore.getState().ensureSandboxProfiles();
+    expect(service.listProfiles).toHaveBeenCalledTimes(2);
+    const tool = useToolStore
+      .getState()
+      .builtinTools.find((entry) => entry.identifier === 'lobe-sandbox');
+    expect(tool?.manifest.systemRole).toBe('Edited.');
+
+    // A failed reload keeps the list the tab already has.
+    useToolStore.setState({ sandboxProfilesLoadedAt: 0 });
+    service.listProfiles.mockRejectedValue(new Error('offline'));
+    await useToolStore.getState().ensureSandboxProfiles();
+    expect(useToolStore.getState().sandboxProfiles[0].instruction).toBe('Edited.');
+  });
+
+  it('saves and resets an instruction and applies the returned list', async () => {
+    service.setInstruction.mockResolvedValue([
+      item('general', { instruction: 'Edited.', instructionCustomized: true }),
+    ]);
+    await useToolStore.getState().setSandboxProfileInstruction('general', 'Edited.');
+    expect(service.setInstruction).toHaveBeenCalledWith('user:a', 'general', 'Edited.');
+    const edited = useToolStore
+      .getState()
+      .builtinTools.find((entry) => entry.identifier === 'lobe-sandbox');
+    expect(edited?.manifest.systemRole).toBe('Edited.');
+
+    service.resetInstruction.mockResolvedValue([item('general')]);
+    await useToolStore.getState().resetSandboxProfileInstruction('general');
+    expect(service.resetInstruction).toHaveBeenCalledWith('user:a', 'general');
+    const reset = useToolStore
+      .getState()
+      .builtinTools.find((entry) => entry.identifier === 'lobe-sandbox');
+    expect(reset?.manifest).toEqual(SandboxManifest);
+
+    service.setInstruction.mockRejectedValue(new Error('FORBIDDEN'));
+    await expect(
+      useToolStore.getState().setSandboxProfileInstruction('general', 'Nope.'),
+    ).rejects.toThrow('FORBIDDEN');
   });
 
   it('keeps a saved toggle when an older profile list returns later', async () => {

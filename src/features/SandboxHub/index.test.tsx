@@ -7,13 +7,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.stubGlobal('React', React);
 
 const mocks = vi.hoisted(() => ({
+  access: vi.fn(),
   initFailed: false,
   load: vi.fn(),
   loadedScope: 'user:u1' as string | undefined,
   profiles: [] as SandboxProfileItem[],
   scope: 'user:u1' as string | undefined,
+  resetInstruction: vi.fn(),
   serverStatus: vi.fn(),
   setEnabled: vi.fn(),
+  setInstruction: vi.fn(),
   userReady: true,
 }));
 
@@ -21,6 +24,22 @@ vi.mock('@lobehub/ui', () => ({
   Avatar: () => null,
 }));
 vi.mock('antd', () => ({
+  Button: ({ children, disabled, onClick }: any) => (
+    <button disabled={disabled} onClick={onClick} type="button">
+      {children}
+    </button>
+  ),
+  Input: {
+    TextArea: ({ onChange, value, ...rest }: any) => (
+      <textarea aria-label={rest['aria-label']} onChange={onChange} value={value} />
+    ),
+  },
+  Popconfirm: ({ children, okText, onConfirm }: any) => (
+    <span>
+      {children}
+      <button onClick={onConfirm} type="button">{`confirm:${okText}`}</button>
+    </span>
+  ),
   Switch: ({ checked, disabled, onChange, ...rest }: any) => (
     <button
       aria-label={rest['aria-label']}
@@ -41,7 +60,7 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 vi.mock('@/services/sandboxHub', () => ({
-  sandboxHubService: { serverStatus: mocks.serverStatus },
+  sandboxHubService: { access: mocks.access, serverStatus: mocks.serverStatus },
 }));
 vi.mock('@/store/user', () => ({
   useUserStore: (selector: (state: any) => unknown) =>
@@ -57,9 +76,11 @@ vi.mock('@/store/tool', () => ({
   useToolStore: (selector: (state: any) => unknown) =>
     selector({
       loadSandboxProfiles: mocks.load,
+      resetSandboxProfileInstruction: mocks.resetInstruction,
       sandboxProfiles: mocks.profiles,
       sandboxProfilesScope: mocks.loadedScope,
       setSandboxProfileEnabled: mocks.setEnabled,
+      setSandboxProfileInstruction: mocks.setInstruction,
     }),
 }));
 
@@ -90,7 +111,10 @@ describe('SandboxHub', () => {
     vi.clearAllMocks();
     mocks.load.mockResolvedValue(undefined);
     mocks.serverStatus.mockResolvedValue({ remote: 'ok' });
+    mocks.access.mockResolvedValue({ adminsConfigured: true, canEditInstructions: false });
     mocks.setEnabled.mockResolvedValue(undefined);
+    mocks.setInstruction.mockResolvedValue(undefined);
+    mocks.resetInstruction.mockResolvedValue(undefined);
     mocks.scope = 'user:u1';
     mocks.loadedScope = 'user:u1';
     mocks.userReady = true;
@@ -166,5 +190,99 @@ describe('SandboxHub', () => {
       fireEvent.click(screen.getByRole('button', { name: /data name/ }));
     });
     expect(mocks.setEnabled).toHaveBeenCalledWith('data', true);
+  });
+
+  describe('instruction editing', () => {
+    const renderHub = async () => {
+      await act(async () => {
+        render(<SandboxHub />);
+      });
+    };
+
+    it('keeps instructions read-only for non-admins and says who can edit', async () => {
+      mocks.profiles = [profile('data')];
+      await renderHub();
+      expect(mocks.access).toHaveBeenCalledWith('user:u1');
+      expect(screen.queryByText('profile.instruction.edit')).toBeNull();
+      fireEvent.click(screen.getByText('profile.showInstruction'));
+      expect(screen.getByText('profile.instruction.readOnly')).toBeTruthy();
+
+      cleanup();
+      mocks.access.mockResolvedValue({ adminsConfigured: false, canEditInstructions: false });
+      await renderHub();
+      fireEvent.click(screen.getByText('profile.showInstruction'));
+      expect(screen.getByText('profile.instruction.readOnlyNoAdmins')).toBeTruthy();
+    });
+
+    it('lets an admin edit and save the instruction', async () => {
+      mocks.access.mockResolvedValue({ adminsConfigured: true, canEditInstructions: true });
+      mocks.profiles = [profile('data')];
+      await renderHub();
+
+      // Reset only appears once the text has been edited.
+      expect(screen.queryByText('profile.instruction.reset')).toBeNull();
+      fireEvent.click(screen.getByText('profile.instruction.edit'));
+      const editor = screen.getByRole('textbox') as HTMLTextAreaElement;
+      expect(editor.value).toBe('data instruction text');
+
+      const save = () => screen.getByText('profile.instruction.save') as HTMLButtonElement;
+      expect(save().disabled).toBe(true);
+      fireEvent.change(editor, { target: { value: 'Today is {{date}}.' } });
+      expect(screen.getByText(/profile\.instruction\.placeholderWarning/)).toBeTruthy();
+      expect(save().disabled).toBe(false);
+
+      await act(async () => {
+        fireEvent.click(save());
+      });
+      expect(mocks.setInstruction).toHaveBeenCalledWith('data', 'Today is {{date}}.');
+      expect(screen.queryByRole('textbox')).toBeNull();
+    });
+
+    it('keeps the draft and shows an error when saving fails', async () => {
+      mocks.access.mockResolvedValue({ adminsConfigured: true, canEditInstructions: true });
+      mocks.setInstruction.mockRejectedValue(new Error('FORBIDDEN'));
+      mocks.profiles = [profile('data')];
+      await renderHub();
+      fireEvent.click(screen.getByText('profile.instruction.edit'));
+      fireEvent.change(screen.getByRole('textbox'), { target: { value: 'New text.' } });
+      await act(async () => {
+        fireEvent.click(screen.getByText('profile.instruction.save'));
+      });
+      expect(screen.getByText('profile.instruction.saveFailed')).toBeTruthy();
+      expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('New text.');
+    });
+
+    it('blocks saving an instruction over 32 KiB', async () => {
+      mocks.access.mockResolvedValue({ adminsConfigured: true, canEditInstructions: true });
+      mocks.profiles = [profile('data')];
+      await renderHub();
+      fireEvent.click(screen.getByText('profile.instruction.edit'));
+      fireEvent.change(screen.getByRole('textbox'), {
+        target: { value: 'x'.repeat(32 * 1024 + 1) },
+      });
+      expect(screen.getByText(/profile\.instruction\.tooLarge/)).toBeTruthy();
+      expect((screen.getByText('profile.instruction.save') as HTMLButtonElement).disabled).toBe(
+        true,
+      );
+    });
+
+    it('shows when an edit was made and resets it after confirmation', async () => {
+      mocks.access.mockResolvedValue({ adminsConfigured: true, canEditInstructions: true });
+      mocks.profiles = [
+        profile('data', {
+          instruction: 'Edited.',
+          instructionCustomized: true,
+          instructionUpdatedAt: '2026-11-01T08:00:00.000Z',
+        }),
+      ];
+      await renderHub();
+      expect(screen.getByText('profile.instruction.customized')).toBeTruthy();
+      expect(screen.getByText(/profile\.instruction\.updatedAt/)).toBeTruthy();
+
+      await act(async () => {
+        fireEvent.click(screen.getByText('confirm:profile.instruction.reset'));
+      });
+      expect(mocks.resetInstruction).toHaveBeenCalledWith('data');
+    });
   });
 });

@@ -30,20 +30,47 @@ export const composeBuiltinTools = (profiles: SandboxProfileItem[]): LobeBuiltin
 
 const currentScope = () => useUserStore.getState().userStateScope ?? undefined;
 
+/**
+ * Admins edit instructions for every user, so an open tab reloads the list
+ * before a browser-path send once it is this old. Durable sends read the
+ * database on every run.
+ */
+export const SANDBOX_PROFILES_MAX_AGE_MS = 5 * 60 * 1000;
+
 export interface SandboxHubAction {
   /** Applies a profile list for `scope` unless the account changed meanwhile. */
   applySandboxProfiles: (scope: string, profiles: SandboxProfileItem[]) => void;
-  /** Loads the profiles once per account before a browser-path send that lists a Sandbox tool. */
+  /**
+   * Loads the profiles before a browser-path send that lists a Sandbox tool:
+   * once per account, and again when the list is older than 5 minutes.
+   */
   ensureSandboxProfiles: () => Promise<void>;
   loadSandboxProfiles: (scope: string) => Promise<void>;
+  /** Admin only: restores a profile's starting instruction for every user. */
+  resetSandboxProfileInstruction: (profileId: string) => Promise<void>;
   setSandboxProfileEnabled: (profileId: string, enabled: boolean) => Promise<void>;
+  /** Admin only: replaces a profile's instruction for every user. */
+  setSandboxProfileInstruction: (profileId: string, instruction: string) => Promise<void>;
   /** Loads the Hub profiles for the signed-in account once its user state is ready. */
   useFetchSandboxProfiles: (enabled: boolean) => void;
 }
 
 const inflight = new Map<string, Promise<void>>();
-/** Bumped when a toggle starts, so an older profile list cannot overwrite it. */
+/** Bumped when a change starts, so an older profile list cannot overwrite it. */
 let sandboxProfilesRevision = 0;
+
+/** Runs a Hub change and applies the list it returns, unless a newer change started. */
+const applyChange = async (
+  get: () => ToolStore,
+  change: (scope: string) => Promise<SandboxProfileItem[]>,
+) => {
+  const scope = currentScope();
+  if (!scope) return;
+  const revision = ++sandboxProfilesRevision;
+  const profiles = await change(scope);
+  if (revision !== sandboxProfilesRevision) return;
+  get().applySandboxProfiles(scope, profiles);
+};
 
 export const createSandboxHubSlice: StateCreator<
   ToolStore,
@@ -57,6 +84,7 @@ export const createSandboxHubSlice: StateCreator<
       {
         builtinTools: composeBuiltinTools(profiles),
         sandboxProfiles: profiles,
+        sandboxProfilesLoadedAt: Date.now(),
         sandboxProfilesScope: scope,
       },
       false,
@@ -66,7 +94,13 @@ export const createSandboxHubSlice: StateCreator<
 
   ensureSandboxProfiles: async () => {
     const scope = currentScope();
-    if (!scope || get().sandboxProfilesScope === scope) return;
+    if (!scope) return;
+    const { sandboxProfilesLoadedAt, sandboxProfilesScope } = get();
+    const fresh =
+      sandboxProfilesScope === scope &&
+      sandboxProfilesLoadedAt !== undefined &&
+      Date.now() - sandboxProfilesLoadedAt < SANDBOX_PROFILES_MAX_AGE_MS;
+    if (fresh) return;
     try {
       await get().loadSandboxProfiles(scope);
     } catch {
@@ -89,14 +123,14 @@ export const createSandboxHubSlice: StateCreator<
     return task;
   },
 
-  setSandboxProfileEnabled: async (profileId, enabled) => {
-    const scope = currentScope();
-    if (!scope) return;
-    const revision = ++sandboxProfilesRevision;
-    const profiles = await sandboxHubService.setProfileEnabled(scope, profileId, enabled);
-    if (revision !== sandboxProfilesRevision) return;
-    get().applySandboxProfiles(scope, profiles);
-  },
+  resetSandboxProfileInstruction: (profileId) =>
+    applyChange(get, (scope) => sandboxHubService.resetInstruction(scope, profileId)),
+
+  setSandboxProfileEnabled: (profileId, enabled) =>
+    applyChange(get, (scope) => sandboxHubService.setProfileEnabled(scope, profileId, enabled)),
+
+  setSandboxProfileInstruction: (profileId, instruction) =>
+    applyChange(get, (scope) => sandboxHubService.setInstruction(scope, profileId, instruction)),
 
   useFetchSandboxProfiles: (enabled) => {
     const scope = useUserStore((s) => (s.isUserStateInit ? s.userStateScope : undefined));

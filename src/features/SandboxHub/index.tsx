@@ -10,7 +10,7 @@ import { sandboxHubService } from '@/services/sandboxHub';
 import { useToolStore } from '@/store/tool';
 import { useUserStore } from '@/store/user';
 
-import ProfileCard from './ProfileCard';
+import ProfileCard, { type InstructionAccess } from './ProfileCard';
 
 const useStyles = createStyles(({ css, token }) => ({
   hint: css`
@@ -34,15 +34,23 @@ const SandboxHub = memo(() => {
   const accountFailed = useUserStore(
     (s) => !s.isUserStateInit && !!s.userStateInitializationFailure,
   );
-  const [profiles, loadedScope, loadSandboxProfiles, setSandboxProfileEnabled] = useToolStore(
-    (s) => [
-      s.sandboxProfiles,
-      s.sandboxProfilesScope,
-      s.loadSandboxProfiles,
-      s.setSandboxProfileEnabled,
-    ],
-  );
+  const [
+    profiles,
+    loadedScope,
+    loadSandboxProfiles,
+    setSandboxProfileEnabled,
+    setSandboxProfileInstruction,
+    resetSandboxProfileInstruction,
+  ] = useToolStore((s) => [
+    s.sandboxProfiles,
+    s.sandboxProfilesScope,
+    s.loadSandboxProfiles,
+    s.setSandboxProfileEnabled,
+    s.setSandboxProfileInstruction,
+    s.resetSandboxProfileInstruction,
+  ]);
   const [health, setHealth] = useState<Record<string, SandboxServerHealth>>({});
+  const [access, setAccess] = useState<InstructionAccess>();
   const [loadFailed, setLoadFailed] = useState(false);
 
   useEffect(() => {
@@ -50,10 +58,23 @@ const SandboxHub = memo(() => {
     setLoadFailed(false);
     loadSandboxProfiles(scope).catch(() => setLoadFailed(true));
     let cancelled = false;
+    setAccess(undefined);
     sandboxHubService
       .serverStatus(scope)
       .then((next) => {
         if (!cancelled) setHealth(next);
+      })
+      .catch(() => undefined);
+    // Without an answer the instructions stay read-only.
+    sandboxHubService
+      .access(scope)
+      .then((next) => {
+        if (!cancelled) {
+          setAccess({
+            adminsConfigured: next.adminsConfigured,
+            canEdit: next.canEditInstructions,
+          });
+        }
       })
       .catch(() => undefined);
     return () => {
@@ -78,8 +99,11 @@ const SandboxHub = memo(() => {
 
       {profiles.map((profile) => (
         <ProfileCard
+          access={access}
           health={health[profile.serverId]}
           key={profile.id}
+          onResetInstruction={() => resetSandboxProfileInstruction(profile.id)}
+          onSaveInstruction={(instruction) => setSandboxProfileInstruction(profile.id, instruction)}
           onToggle={(enabled) => setSandboxProfileEnabled(profile.id, enabled)}
           profile={profile}
         />
