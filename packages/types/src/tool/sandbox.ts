@@ -94,3 +94,34 @@ export interface SandboxHubAccess {
   adminsConfigured: boolean;
   canEditInstructions: boolean;
 }
+
+/** Lifecycle of a Sandbox background job (`startJob`). Only `running` changes later. */
+export type SandboxJobStatus =
+  | 'cancelled'
+  | 'failed'
+  | 'lost'
+  | 'running'
+  | 'succeeded'
+  | 'timed_out';
+
+/** A file a finished job left in its output folder, copied to chat storage. */
+export interface SandboxJobFile {
+  fileId?: string;
+  filename: string;
+  /** Stable open URL, as `exportFile` returns it. */
+  url?: string;
+}
+
+/** A background job as the Sandbox Hub lists it. */
+export interface SandboxJobItem {
+  /** First line of the command, shortened. */
+  command: string;
+  exitCode?: number;
+  /** ISO time the job ended. */
+  finishedAt?: string;
+  id: string;
+  profileId: string;
+  /** ISO time the job started. */
+  startedAt: string;
+  status: SandboxJobStatus;
+}

@@ -16,6 +16,7 @@ export * from './rag';
 export * from './ragEvals';
 export * from './rbac';
 export * from './relations';
+export * from './sandboxJob';
 export * from './sandboxProfile';
 export * from './session';
 export * from './tokenEstimation';

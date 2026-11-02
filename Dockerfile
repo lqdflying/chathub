@@ -198,6 +198,7 @@ COPY --from=builder /app/scripts/migrateServerDB/ensureTokenEstimationProfiles.c
 COPY --from=builder /app/scripts/migrateServerDB/ensureProviderUsageCredentials.cjs /app/ensureProviderUsageCredentials.cjs
 COPY --from=builder /app/scripts/migrateServerDB/ensureUserSandboxProfiles.cjs /app/ensureUserSandboxProfiles.cjs
 COPY --from=builder /app/scripts/migrateServerDB/ensureSandboxProfileInstructions.cjs /app/ensureSandboxProfileInstructions.cjs
+COPY --from=builder /app/scripts/migrateServerDB/ensureSandboxJobs.cjs /app/ensureSandboxJobs.cjs
 COPY --from=builder /app/scripts/migrateServerDB/errorHint.js /app/errorHint.js
 
 # Overlay runtime deps for docker.cjs (pg, drizzle-orm) and Graphile Worker.
