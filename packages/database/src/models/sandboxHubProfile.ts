@@ -156,7 +156,8 @@ export class SandboxHubProfileModel {
    * Records a Prepare image result for the image named in `ref`.
    * Returns the stored `imageCheckedAt`, or undefined when `expectedCheckedAt`
    * is set and this run is no longer the current preparing run.
-   * A missing `expectedCheckedAt` always writes (a job queued before the token).
+   * A missing `expectedCheckedAt` always writes. `startSandboxImagePreparation`
+   * uses that to start a run and get its token.
    */
   setImageStatus = async (
     id: string,
