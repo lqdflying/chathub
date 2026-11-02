@@ -34,9 +34,13 @@ calls and the Sandbox Hub health check.
    there. Leave port 80 reachable from the internet so Caddy can answer the
    HTTP certificate challenge. On a private network with no public 80 or 443,
    use the DNS challenge (a Caddy build with your DNS provider module and a
-   `tls { dns ... }` block) or `tls internal`, and set `NODE_EXTRA_CA_CERTS`
-   on the ChatHub container. A `*.ts.net` name is not a public certificate:
-   Caddy takes that from the local Tailscale daemon.
+   `tls { dns ... }` block). That certificate is publicly trusted, so ChatHub
+   needs nothing extra. Or use `tls internal` and point `NODE_EXTRA_CA_CERTS`
+   on the ChatHub container at Caddy's root certificate (`docker compose cp
+   caddy:/data/caddy/pki/authorities/local/root.crt .`). A `*.ts.net` name
+   gets a Let's Encrypt certificate from Tailscale instead: enable HTTPS for
+   the tailnet and mount the host's `/var/run/tailscale/tailscaled.sock` into
+   the Caddy container.
 4. Network isolation for sandboxes: use a dedicated Docker bridge and drop
    traffic from the sandbox subnet to private ranges, `169.254.0.0/16` (cloud
    metadata) and the host itself (`DOCKER-USER` chain), unless a profile
