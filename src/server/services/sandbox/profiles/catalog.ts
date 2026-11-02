@@ -2,6 +2,10 @@ import type { LobeChatDatabase } from '@lobechat/database';
 import type { SandboxProfileItem } from '@lobechat/types';
 
 import { SandboxProfileModel } from '@/database/models/sandboxProfile';
+import {
+  type SavedSandboxInstruction,
+  SandboxProfileInstructionModel,
+} from '@/database/models/sandboxProfileInstruction';
 import { createSandboxProfileManifest } from '@/tools/sandbox';
 import { parseSandboxToolIdentifier } from '@/tools/sandbox/const';
 
@@ -9,22 +13,26 @@ import { findSandboxServer, getSandboxProfileCatalog, isSandboxProfileUsable } f
 import type { ResolvedSandboxProfile, ResolvedSandboxServer } from './schema';
 
 const MISSING_CHOICES_TABLE = /relation "user_sandbox_profiles" does not exist/i;
+const MISSING_INSTRUCTIONS_TABLE = /relation "sandbox_profile_instructions" does not exist/i;
 
 /** Postgres `undefined_table`, including when Drizzle wraps the driver error. */
-const isMissingSandboxChoicesTable = (error: unknown) => {
+const isMissingTable = (error: unknown, pattern: RegExp) => {
   const seen = new Set<unknown>();
   let current: unknown = error;
   while (current && typeof current === 'object' && !seen.has(current)) {
     seen.add(current);
     const record = current as { cause?: unknown; code?: unknown; message?: unknown };
     if (record.code === '42P01') return true;
-    if (typeof record.message === 'string' && MISSING_CHOICES_TABLE.test(record.message)) {
+    if (typeof record.message === 'string' && pattern.test(record.message)) {
       return true;
     }
     current = record.cause;
   }
   return false;
 };
+
+const isMissingSandboxChoicesTable = (error: unknown) =>
+  isMissingTable(error, MISSING_CHOICES_TABLE);
 
 /**
  * Hub choices. A missing table (the migration has not run) falls back to each
@@ -43,9 +51,25 @@ const readChoices = async (db: LobeChatDatabase, userId: string) => {
   }
 };
 
+/**
+ * Admin-edited instructions, shared by every user. A missing table (the
+ * migration has not run) means none were edited. Any other read error is
+ * rethrown so an edited instruction is never silently swapped for the
+ * starting text.
+ */
+const readInstructions = async (db: LobeChatDatabase) => {
+  try {
+    return await new SandboxProfileInstructionModel(db).list();
+  } catch (error) {
+    if (!isMissingTable(error, MISSING_INSTRUCTIONS_TABLE)) throw error;
+    return new Map<string, SavedSandboxInstruction>();
+  }
+};
+
 export const toSandboxProfileItem = (
   profile: ResolvedSandboxProfile,
   enabled: boolean,
+  saved?: SavedSandboxInstruction,
 ): SandboxProfileItem => {
   const server = findSandboxServer(profile.serverId);
   return {
@@ -58,7 +82,9 @@ export const toSandboxProfileItem = (
     enabled,
     id: profile.id,
     identifier: profile.identifier,
-    instruction: profile.instruction,
+    instruction: saved?.instruction ?? profile.instruction,
+    instructionCustomized: !!saved,
+    ...(saved ? { instructionUpdatedAt: saved.updatedAt.toISOString() } : {}),
     memory: profile.memory,
     name: profile.name,
     serverId: profile.serverId,
@@ -75,9 +101,16 @@ export const getUserSandboxProfiles = async (
 ): Promise<SandboxProfileItem[]> => {
   const { profiles } = getSandboxProfileCatalog();
   if (profiles.length === 0) return [];
-  const choices = await readChoices(db, userId);
+  const [choices, instructions] = await Promise.all([
+    readChoices(db, userId),
+    readInstructions(db),
+  ]);
   return profiles.map((profile) =>
-    toSandboxProfileItem(profile, choices.get(profile.id) ?? profile.defaultEnabled),
+    toSandboxProfileItem(
+      profile,
+      choices.get(profile.id) ?? profile.defaultEnabled,
+      instructions.get(profile.id),
+    ),
   );
 };
 

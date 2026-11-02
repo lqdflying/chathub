@@ -75,6 +75,7 @@ const profile = (id: string, extra: Partial<SandboxProfileItem> = {}): SandboxPr
   id,
   identifier: `lobe-sandbox--${id}`,
   instruction: `${id} instruction text`,
+  instructionCustomized: false,
   memory: '4Gi',
   name: `${id} name`,
   serverId: 'remote',

@@ -18,6 +18,7 @@ export const getSandboxConfig = () =>
       OPENSANDBOX_SERVER_URL: process.env.OPENSANDBOX_SERVER_URL,
       OPENSANDBOX_SESSION_IDLE_TIMEOUT: process.env.OPENSANDBOX_SESSION_IDLE_TIMEOUT,
       OPENSANDBOX_SESSION_MAX_LIFETIME: process.env.OPENSANDBOX_SESSION_MAX_LIFETIME,
+      SANDBOX_HUB_ADMINS: process.env.SANDBOX_HUB_ADMINS,
       SANDBOX_MAX_FILE_BYTES: withLegacy('SANDBOX_MAX_FILE_BYTES', 'CODE_INTERPRETER_MAX_FILE_BYTES'),
       SANDBOX_MAX_FILE_COUNT: withLegacy('SANDBOX_MAX_FILE_COUNT', 'CODE_INTERPRETER_MAX_FILE_COUNT'),
       SANDBOX_MAX_OUTPUT_CHARS: withLegacy(
@@ -56,6 +57,9 @@ export const getSandboxConfig = () =>
       // max_sandbox_timeout_seconds limits only the create TTL, not renewals,
       // so it cannot do this. Milliseconds.
       OPENSANDBOX_SESSION_MAX_LIFETIME: z.coerce.number().int().min(0).default(0),
+      // Comma-separated user ids or emails allowed to edit Sandbox Hub
+      // instructions for everyone. Unset = instructions are read-only.
+      SANDBOX_HUB_ADMINS: z.string().optional(),
       // Per-file cap for sandbox inputs, reads, and exported outputs (bytes).
       SANDBOX_MAX_FILE_BYTES: z.coerce
         .number()

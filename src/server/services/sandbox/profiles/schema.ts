@@ -6,8 +6,9 @@ import {
   isValidSandboxProfileId,
 } from '@/tools/sandbox/const';
 
+export { SANDBOX_INSTRUCTION_MAX_BYTES } from '@/tools/sandbox/const';
+
 export const SANDBOX_PROFILES_MAX = 16;
-export const SANDBOX_INSTRUCTION_MAX_BYTES = 32 * 1024;
 export const DEFAULT_SANDBOX_SERVER_ID = 'default';
 
 const ENV_NAME = /^[A-Z_][\dA-Z_]*$/;

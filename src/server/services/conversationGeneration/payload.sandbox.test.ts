@@ -9,6 +9,7 @@ import { SandboxManifest } from '@/tools/sandbox';
 const state = vi.hoisted(() => ({
   catalog: undefined as unknown as SandboxProfileCatalog,
   choices: new Map<string, boolean>(),
+  instructions: new Map<string, { instruction: string; updatedAt: Date }>(),
 }));
 
 vi.mock('@/envs/llm', () => ({ getLLMConfig: () => ({}) }));
@@ -30,6 +31,11 @@ vi.mock('@/server/services/file', () => ({
 vi.mock('@/database/models/sandboxProfile', () => ({
   SandboxProfileModel: class {
     list = async () => state.choices;
+  },
+}));
+vi.mock('@/database/models/sandboxProfileInstruction', () => ({
+  SandboxProfileInstructionModel: class {
+    list = async () => state.instructions;
   },
 }));
 vi.mock('@/server/services/sandbox/profiles/load', async (importOriginal) => {
@@ -119,6 +125,7 @@ describe('buildConversationChatPayload with Sandbox Hub profiles', () => {
   beforeEach(() => {
     state.catalog = loadSandboxProfiles({ env });
     state.choices = new Map();
+    state.instructions = new Map();
   });
 
   it('builds the same Sandbox tools and instruction bytes as the static manifest', async () => {
@@ -127,6 +134,15 @@ describe('buildConversationChatPayload with Sandbox Hub profiles', () => {
     expect(toolNames(result)).toEqual(
       (SandboxManifest.api || []).map((api) => `lobe-sandbox____${api.name}____builtin`).sort(),
     );
+  });
+
+  it('sends an admin-edited instruction in place of the starting text', async () => {
+    state.instructions = new Map([
+      ['general', { instruction: 'Use the sandbox image v3.', updatedAt: new Date() }],
+    ]);
+    const text = systemText(await build(['lobe-sandbox']));
+    expect(text).toContain('Use the sandbox image v3.');
+    expect(text).not.toContain(SandboxManifest.systemRole);
   });
 
   it('drops the tool and its instruction when the profile is turned off in the Hub', async () => {

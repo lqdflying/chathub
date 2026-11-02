@@ -27,6 +27,7 @@ const item = (id: string, extra: Partial<SandboxProfileItem> = {}): SandboxProfi
   id,
   identifier: id === 'general' ? 'lobe-sandbox' : `lobe-sandbox--${id}`,
   instruction: id === 'general' ? SandboxManifest.systemRole : `${id} instruction`,
+  instructionCustomized: false,
   memory: '2Gi',
   name: id === 'general' ? (SandboxManifest.meta.title as string) : id,
   serverId: 'default',

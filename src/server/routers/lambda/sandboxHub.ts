@@ -2,12 +2,17 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import { SandboxProfileModel } from '@/database/models/sandboxProfile';
+import { SandboxProfileInstructionModel } from '@/database/models/sandboxProfileInstruction';
 import { authedProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase, verifiedAccountScope } from '@/libs/trpc/lambda/middleware';
+import {
+  hasSandboxHubAdmins,
+  isSandboxHubAdmin,
+} from '@/server/services/sandbox/profiles/admins';
 import { getUserSandboxProfiles } from '@/server/services/sandbox/profiles/catalog';
 import { findSandboxProfile } from '@/server/services/sandbox/profiles/load';
 import { getSandboxServerHealth } from '@/server/services/sandbox/profiles/status';
-import { isValidSandboxProfileId } from '@/tools/sandbox/const';
+import { SANDBOX_INSTRUCTION_MAX_BYTES, isValidSandboxProfileId } from '@/tools/sandbox/const';
 
 const sandboxHubProcedure = authedProcedure
   .use(verifiedAccountScope)
@@ -28,18 +33,86 @@ const assertRequestedAccountScope = (requestedScope: string, verifiedScope?: str
 
 const accountScopeInput = z.object({ accountScope: z.string().min(1) });
 
+const profileIdInput = z
+  .string()
+  .refine(isValidSandboxProfileId, { message: 'Invalid profile id' });
+
+const instructionInput = z
+  .string()
+  .refine((value) => value.trim().length > 0, { message: 'Instruction is empty' })
+  .refine((value) => Buffer.byteLength(value, 'utf8') <= SANDBOX_INSTRUCTION_MAX_BYTES, {
+    message: `Instruction is larger than ${SANDBOX_INSTRUCTION_MAX_BYTES} bytes`,
+  });
+
+const findProfileOrThrow = (profileId: string) => {
+  const profile = findSandboxProfile(profileId);
+  if (!profile) throw new TRPCError({ code: 'NOT_FOUND', message: 'Sandbox profile not found' });
+  return profile;
+};
+
+const assertSandboxHubAdmin = async (ctx: {
+  serverDB: Parameters<typeof isSandboxHubAdmin>[0];
+  userId: string;
+}) => {
+  if (!(await isSandboxHubAdmin(ctx.serverDB, ctx.userId))) {
+    throw new TRPCError({
+      code: 'FORBIDDEN',
+      message: 'Only Sandbox Hub admins (SANDBOX_HUB_ADMINS) can edit instructions',
+    });
+  }
+};
+
 export const sandboxHubRouter = router({
+  /** What this user may change in the Hub beyond their own on/off choices. */
+  access: sandboxHubProcedure.input(accountScopeInput).query(async ({ ctx, input }) => {
+    assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
+    return {
+      adminsConfigured: hasSandboxHubAdmins(),
+      canEditInstructions: await isSandboxHubAdmin(ctx.serverDB, ctx.userId),
+    };
+  }),
+
   /** Operator profiles merged with this user's Hub choices. */
   listProfiles: sandboxHubProcedure.input(accountScopeInput).query(async ({ ctx, input }) => {
     assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
     return getUserSandboxProfiles(ctx.serverDB, ctx.userId);
   }),
 
+  /** Admin only: drops the edited instruction so the starting text applies again. */
+  resetInstruction: sandboxHubProcedure
+    .input(accountScopeInput.extend({ profileId: profileIdInput }))
+    .mutation(async ({ ctx, input }) => {
+      assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
+      await assertSandboxHubAdmin(ctx);
+      findProfileOrThrow(input.profileId);
+      await new SandboxProfileInstructionModel(ctx.serverDB).delete(input.profileId);
+      return getUserSandboxProfiles(ctx.serverDB, ctx.userId);
+    }),
+
   /** Health of the servers the profiles use, keyed by server id; cached 30 s. */
   serverStatus: sandboxHubProcedure.input(accountScopeInput).query(async ({ ctx, input }) => {
     assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
     return getSandboxServerHealth();
   }),
+
+  /**
+   * Admin only: replaces a profile's instruction for every user. Saving the
+   * starting text again is the same as a reset, so it does not show as edited.
+   */
+  setInstruction: sandboxHubProcedure
+    .input(accountScopeInput.extend({ instruction: instructionInput, profileId: profileIdInput }))
+    .mutation(async ({ ctx, input }) => {
+      assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
+      await assertSandboxHubAdmin(ctx);
+      const profile = findProfileOrThrow(input.profileId);
+      const model = new SandboxProfileInstructionModel(ctx.serverDB);
+      if (input.instruction === profile.instruction) {
+        await model.delete(input.profileId);
+      } else {
+        await model.upsert(input.profileId, input.instruction, ctx.userId);
+      }
+      return getUserSandboxProfiles(ctx.serverDB, ctx.userId);
+    }),
 
   /**
    * Turns a profile on or off for this user. Off removes its tool and its
@@ -49,14 +122,12 @@ export const sandboxHubRouter = router({
     .input(
       accountScopeInput.extend({
         enabled: z.boolean(),
-        profileId: z.string().refine(isValidSandboxProfileId, { message: 'Invalid profile id' }),
+        profileId: profileIdInput,
       }),
     )
     .mutation(async ({ ctx, input }) => {
       assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
-      if (!findSandboxProfile(input.profileId)) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: 'Sandbox profile not found' });
-      }
+      findProfileOrThrow(input.profileId);
       await new SandboxProfileModel(ctx.serverDB, ctx.userId).setEnabled(
         input.profileId,
         input.enabled,

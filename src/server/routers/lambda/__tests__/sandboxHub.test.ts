@@ -5,10 +5,13 @@ import { getServerDB } from '@/database/core/db-adaptor';
 import { sandboxHubRouter } from '../sandboxHub';
 
 const mocks = vi.hoisted(() => ({
+  deleteInstruction: vi.fn(),
   findProfile: vi.fn(),
   health: vi.fn(),
+  isAdmin: vi.fn(),
   list: vi.fn(),
   setEnabled: vi.fn(),
+  upsertInstruction: vi.fn(),
 }));
 
 vi.mock('@/const/auth', async (importOriginal) => ({
@@ -20,6 +23,16 @@ vi.mock('@/database/models/sandboxProfile', () => ({
   SandboxProfileModel: class {
     setEnabled = mocks.setEnabled;
   },
+}));
+vi.mock('@/database/models/sandboxProfileInstruction', () => ({
+  SandboxProfileInstructionModel: class {
+    delete = mocks.deleteInstruction;
+    upsert = mocks.upsertInstruction;
+  },
+}));
+vi.mock('@/server/services/sandbox/profiles/admins', () => ({
+  hasSandboxHubAdmins: () => true,
+  isSandboxHubAdmin: mocks.isAdmin,
 }));
 vi.mock('@/server/services/sandbox/profiles/catalog', () => ({
   getUserSandboxProfiles: mocks.list,
@@ -44,7 +57,10 @@ describe('sandboxHubRouter', () => {
     vi.mocked(getServerDB).mockResolvedValue({} as never);
     mocks.list.mockResolvedValue([{ enabled: true, id: 'general' }]);
     mocks.health.mockResolvedValue({ default: 'ok' });
-    mocks.findProfile.mockImplementation((id: string) => (id === 'data' ? { id } : undefined));
+    mocks.findProfile.mockImplementation((id: string) =>
+      id === 'data' ? { id, instruction: 'Starting text.' } : undefined,
+    );
+    mocks.isAdmin.mockResolvedValue(false);
   });
 
   it.each([
@@ -84,5 +100,93 @@ describe('sandboxHubRouter', () => {
       api.setProfileEnabled({ accountScope: 'user:account-a', enabled: true, profileId: 'Bad_Id' }),
     ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
     expect(mocks.setEnabled).toHaveBeenCalledTimes(1);
+  });
+
+  describe('instructions', () => {
+    const scope = { accountScope: 'user:account-a' };
+
+    it('reports whether the caller may edit instructions', async () => {
+      const api = caller('user:account-a');
+      await expect(api.access(scope)).resolves.toEqual({
+        adminsConfigured: true,
+        canEditInstructions: false,
+      });
+      mocks.isAdmin.mockResolvedValue(true);
+      await expect(api.access(scope)).resolves.toMatchObject({ canEditInstructions: true });
+      expect(mocks.isAdmin).toHaveBeenCalledWith({}, 'account-a');
+    });
+
+    it('refuses edits and resets from non-admins', async () => {
+      const api = caller('user:account-a');
+      await expect(
+        api.setInstruction({ ...scope, instruction: 'New text.', profileId: 'data' }),
+      ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      await expect(api.resetInstruction({ ...scope, profileId: 'data' })).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+      });
+      expect(mocks.upsertInstruction).not.toHaveBeenCalled();
+      expect(mocks.deleteInstruction).not.toHaveBeenCalled();
+    });
+
+    it('checks the account scope before the admin list', async () => {
+      mocks.isAdmin.mockResolvedValue(true);
+      await expect(
+        caller('user:account-b').setInstruction({
+          ...scope,
+          instruction: 'New text.',
+          profileId: 'data',
+        }),
+      ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      expect(mocks.isAdmin).not.toHaveBeenCalled();
+    });
+
+    it('saves and resets an admin edit for a configured profile', async () => {
+      mocks.isAdmin.mockResolvedValue(true);
+      const api = caller('user:account-a');
+
+      await expect(
+        api.setInstruction({ ...scope, instruction: 'New text.', profileId: 'data' }),
+      ).resolves.toEqual([{ enabled: true, id: 'general' }]);
+      expect(mocks.upsertInstruction).toHaveBeenCalledWith('data', 'New text.', 'account-a');
+
+      await api.resetInstruction({ ...scope, profileId: 'data' });
+      expect(mocks.deleteInstruction).toHaveBeenCalledWith('data');
+    });
+
+    it('treats saving the starting text as a reset', async () => {
+      mocks.isAdmin.mockResolvedValue(true);
+      await caller('user:account-a').setInstruction({
+        ...scope,
+        instruction: 'Starting text.',
+        profileId: 'data',
+      });
+      expect(mocks.upsertInstruction).not.toHaveBeenCalled();
+      expect(mocks.deleteInstruction).toHaveBeenCalledWith('data');
+    });
+
+    it('rejects unknown profiles, empty text and text over 32 KiB', async () => {
+      mocks.isAdmin.mockResolvedValue(true);
+      const api = caller('user:account-a');
+
+      await expect(
+        api.setInstruction({ ...scope, instruction: 'x', profileId: 'nope' }),
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+      await expect(api.resetInstruction({ ...scope, profileId: 'nope' })).rejects.toMatchObject({
+        code: 'NOT_FOUND',
+      });
+      await expect(
+        api.setInstruction({ ...scope, instruction: '  \n ', profileId: 'data' }),
+      ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+      // 32 KiB is fine; one more byte (a multi-byte character counts by bytes) is not.
+      await api.setInstruction({ ...scope, instruction: 'x'.repeat(32 * 1024), profileId: 'data' });
+      await expect(
+        api.setInstruction({
+          ...scope,
+          instruction: `${'x'.repeat(32 * 1024 - 1)}\u00E9`,
+          profileId: 'data',
+        }),
+      ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+      expect(mocks.upsertInstruction).toHaveBeenCalledTimes(1);
+    });
   });
 });

@@ -72,8 +72,12 @@ export interface SandboxProfileItem {
   id: string;
   /** Tool identifier: `lobe-sandbox` for `general`, else `lobe-sandbox--<id>`. */
   identifier: string;
-  /** Final instruction injected while the tool is enabled. Static per server process. */
+  /** Instruction injected while the tool is enabled: an admin edit, else the starting text. */
   instruction: string;
+  /** An admin edited the instruction; reset restores the starting text. */
+  instructionCustomized: boolean;
+  /** ISO time of the last admin edit. */
+  instructionUpdatedAt?: string;
   memory: string;
   name: string;
   serverId: string;
@@ -83,3 +87,10 @@ export interface SandboxProfileItem {
 }
 
 export type SandboxServerHealth = 'misconfigured' | 'ok' | 'unauthorized' | 'unreachable';
+
+/** What the signed-in user may change in Sandbox Hub beyond their own on/off choices. */
+export interface SandboxHubAccess {
+  /** `SANDBOX_HUB_ADMINS` lists at least one admin. */
+  adminsConfigured: boolean;
+  canEditInstructions: boolean;
+}

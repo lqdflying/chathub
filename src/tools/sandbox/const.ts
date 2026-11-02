@@ -69,6 +69,9 @@ export const DEFAULT_SANDBOX_PROFILE_ID = 'general';
  */
 export const SANDBOX_PROFILE_ID_MAX_LENGTH = 16;
 
+/** Largest profile instruction, from the profiles file or an admin edit (UTF-8 bytes). */
+export const SANDBOX_INSTRUCTION_MAX_BYTES = 32 * 1024;
+
 const SANDBOX_PROFILE_SEPARATOR = '--';
 const SANDBOX_PROFILE_ID_PATTERN = /^[a-z][\da-z]*(?:-[\da-z]+)*$/;
 const SANDBOX_PROFILE_PREFIX = `${SandboxIdentifier}${SANDBOX_PROFILE_SEPARATOR}`;
