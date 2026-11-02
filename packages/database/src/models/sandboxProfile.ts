@@ -13,6 +13,11 @@ export class SandboxProfileModel {
     this.db = db;
   }
 
+  /** Every user's choice for one profile; used when an admin deletes the profile. */
+  static deleteForProfile = async (db: LobeChatDatabase, profileId: string) => {
+    await db.delete(userSandboxProfiles).where(eq(userSandboxProfiles.profileId, profileId));
+  };
+
   /** Explicit choices only; profiles without a row use their `defaultEnabled`. */
   list = async (): Promise<Map<string, boolean>> => {
     const rows = await this.db

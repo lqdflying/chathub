@@ -136,3 +136,10 @@ export interface SandboxJobItem {
   startedAt: string;
   status: SandboxJobStatus;
 }
+
+/** Whether a profile's image was pulled on its server ahead of users ("Prepare image"). */
+export type SandboxImageStatus = 'failed' | 'preparing' | 'ready' | 'unknown';
+
+/** A profile's network as stored: the profiles-file value, or null to inherit OPENSANDBOX_EGRESS_ALLOW. */
+export type SandboxProfileEgressSetting = 'none' | 'open' | string[];
+
