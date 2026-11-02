@@ -1,4 +1,83 @@
 {
+  "admin": {
+    "addProfile": "Add sandbox",
+    "delete": "Delete",
+    "deleteConfirm": "Delete \"{{name}}\"? Its instruction edit and every user's on/off choice are removed too, and its running background jobs are lost.",
+    "form": {
+      "allowlist": "Allowed addresses",
+      "avatar": "Avatar (emoji or image URL)",
+      "cancel": "Cancel",
+      "changeWarning": "Changing the image, network or server replaces this sandbox's open containers on their next call, and its running background jobs are lost.",
+      "cpu": "CPU",
+      "defaultEnabled": "On for every user by default",
+      "description": "Description",
+      "id": "ID",
+      "idHint": "Lowercase letters, digits and single hyphens, up to 16 characters. It cannot change later: it is part of the tool name.",
+      "idle": "Idle timeout (minutes)",
+      "idleHint": "How long a sandbox is kept after its last call; 0 gives every call a fresh sandbox.",
+      "image": "Image",
+      "imageHint": "The server pulls the image when it does not have it. Prefer versioned tags: a latest tag already pulled is not updated.",
+      "imageRequired": "Required: OPENSANDBOX_IMAGE is not set on the server",
+      "inherit": "Default: {{value}}",
+      "instructionBase": "Instruction base",
+      "instructionBaseOption": {
+        "general": "Added after the general Sandbox instruction",
+        "none": "Only the text below"
+      },
+      "instructionText": "Extra instruction",
+      "instructionTextHint": "What is special about this sandbox, such as the tools installed. The full instruction can be edited on the card.",
+      "invalid": {
+        "allowlist": "Add at least one address.",
+        "description": "Enter a description.",
+        "idleMinutes": "Enter minutes (0 or more), or leave it blank for the default.",
+        "jobMinutes": "Enter minutes (0 or more), or leave it blank for the default.",
+        "maxLifetimeMinutes": "Enter minutes (0 or more), or leave it blank for the default.",
+        "name": "Enter a name.",
+        "readySeconds": "Enter seconds (more than 0), or leave it blank for the default.",
+        "serverId": "Choose a server."
+      },
+      "job": "Background job limit (minutes)",
+      "jobHint": "0 turns background jobs off.",
+      "maxLifetime": "Max lifetime (minutes)",
+      "memory": "Memory",
+      "minutesZeroNone": "0 means no limit.",
+      "name": "Name",
+      "network": "Network",
+      "networkDefault": {
+        "allowlist": "{{count}} allowed addresses",
+        "none": "off",
+        "open": "open"
+      },
+      "networkOption": {
+        "allowlist": "Only these addresses",
+        "none": "No network",
+        "open": "Open"
+      },
+      "none": "none",
+      "ready": "Start-up wait (seconds)",
+      "readyHint": "How long to wait for a new sandbox. Prepare the image first when a large image is slow to pull.",
+      "save": "Save",
+      "server": "Server",
+      "serverHint": "Servers are set in SANDBOX_PROFILES_FILE.",
+      "serverMisconfigured": "{{name}} (missing API key)",
+      "titleCreate": "Add sandbox",
+      "titleEdit": "Edit \"{{name}}\""
+    },
+    "hint": "You are a Sandbox Hub admin: you can add, edit, order and delete sandboxes. Changes apply to every user.",
+    "image": {
+      "failed": "Image failed",
+      "preparing": "Preparing image",
+      "ready": "Image ready",
+      "unknown": "Image not prepared"
+    },
+    "issue": "Not offered to users: {{issue}}",
+    "moveDown": "Move down",
+    "moveUp": "Move up",
+    "notOffered": "Sandboxes not offered to users",
+    "notOfferedHint": "These sandboxes have a settings problem (such as an unknown server or no image). Fix it and they return to the list.",
+    "prepare": "Prepare image",
+    "settings": "Settings"
+  },
   "description": "Sandboxes the operator set up on this server. Turn one on here, then add it to an assistant from the tool picker in the chat input. Turning it off removes that sandbox tool and its instructions from every assistant at once.",
   "empty": "No sandbox is configured on this server.",
   "health": {

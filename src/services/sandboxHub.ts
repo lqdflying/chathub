@@ -1,5 +1,7 @@
 import type {
   SandboxHubAccess,
+  SandboxHubProfileSettingsInput,
+  SandboxHubSettings,
   SandboxJobItem,
   SandboxProfileItem,
   SandboxServerHealth,
@@ -14,11 +16,34 @@ class SandboxHubService {
   cancelJob = (accountScope: string, jobId: string): Promise<SandboxJobItem[]> =>
     lambdaClient.sandboxHub.cancelJob.mutate({ accountScope, jobId });
 
+  createProfile = (
+    accountScope: string,
+    id: string,
+    settings: SandboxHubProfileSettingsInput,
+  ): Promise<SandboxHubSettings> =>
+    lambdaClient.sandboxHub.createProfile.mutate({ accountScope, id, settings });
+
+  deleteProfile = (accountScope: string, id: string): Promise<SandboxHubSettings> =>
+    lambdaClient.sandboxHub.deleteProfile.mutate({ accountScope, id });
+
   listJobs = (accountScope: string): Promise<SandboxJobItem[]> =>
     lambdaClient.sandboxHub.listJobs.query({ accountScope });
 
   listProfiles = (accountScope: string): Promise<SandboxProfileItem[]> =>
     lambdaClient.sandboxHub.listProfiles.query({ accountScope });
+
+  moveProfile = (
+    accountScope: string,
+    id: string,
+    direction: 'down' | 'up',
+  ): Promise<SandboxHubSettings> =>
+    lambdaClient.sandboxHub.moveProfile.mutate({ accountScope, direction, id });
+
+  prepareImage = (accountScope: string, id: string): Promise<SandboxHubSettings> =>
+    lambdaClient.sandboxHub.prepareImage.mutate({ accountScope, id });
+
+  profileSettings = (accountScope: string): Promise<SandboxHubSettings> =>
+    lambdaClient.sandboxHub.profileSettings.query({ accountScope });
 
   resetInstruction = (accountScope: string, profileId: string): Promise<SandboxProfileItem[]> =>
     lambdaClient.sandboxHub.resetInstruction.mutate({ accountScope, profileId });
@@ -39,6 +64,13 @@ class SandboxHubService {
     enabled: boolean,
   ): Promise<SandboxProfileItem[]> =>
     lambdaClient.sandboxHub.setProfileEnabled.mutate({ accountScope, enabled, profileId });
+
+  updateProfile = (
+    accountScope: string,
+    id: string,
+    settings: SandboxHubProfileSettingsInput,
+  ): Promise<SandboxHubSettings> =>
+    lambdaClient.sandboxHub.updateProfile.mutate({ accountScope, id, settings });
 }
 
 export const sandboxHubService = new SandboxHubService();

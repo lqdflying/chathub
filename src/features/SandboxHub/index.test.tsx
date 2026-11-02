@@ -8,6 +8,14 @@ vi.stubGlobal('React', React);
 
 const mocks = vi.hoisted(() => ({
   access: vi.fn(),
+  admin: {
+    create: vi.fn(),
+    delete: vi.fn(),
+    move: vi.fn(),
+    prepare: vi.fn(),
+    settings: vi.fn(),
+    update: vi.fn(),
+  },
   cancelJob: vi.fn(),
   initFailed: false,
   listJobs: vi.fn(),
@@ -26,16 +34,52 @@ vi.mock('@lobehub/ui', () => ({
   Avatar: () => null,
 }));
 vi.mock('antd', () => ({
-  Button: ({ children, disabled, onClick }: any) => (
-    <button disabled={disabled} onClick={onClick} type="button">
+  Button: ({ children, disabled, onClick, ...rest }: any) => (
+    <button aria-label={rest['aria-label']} disabled={disabled} onClick={onClick} type="button">
       {children}
     </button>
   ),
-  Input: {
-    TextArea: ({ onChange, value, ...rest }: any) => (
-      <textarea aria-label={rest['aria-label']} onChange={onChange} value={value} />
+  Input: Object.assign(
+    ({ onChange, value, ...rest }: any) => (
+      <input
+        aria-label={rest['aria-label']}
+        onChange={onChange}
+        placeholder={rest.placeholder}
+        value={value}
+      />
     ),
-  },
+    {
+      TextArea: ({ onChange, value, ...rest }: any) => (
+        <textarea aria-label={rest['aria-label']} onChange={onChange} value={value} />
+      ),
+    },
+  ),
+  Modal: ({ children, okText, onCancel, onOk, open, title }: any) =>
+    open ? (
+      <div role="dialog">
+        <h3>{title}</h3>
+        {children}
+        <button onClick={onOk} type="button">
+          {okText}
+        </button>
+        <button onClick={onCancel} type="button">
+          modal:close
+        </button>
+      </div>
+    ) : null,
+  Select: ({ onChange, options, value, ...rest }: any) => (
+    <select
+      aria-label={rest['aria-label']}
+      onChange={(event) => onChange(event.target.value)}
+      value={value ?? ''}
+    >
+      {options.map((option: any) => (
+        <option key={option.value} value={option.value}>
+          {option.label}
+        </option>
+      ))}
+    </select>
+  ),
   Popconfirm: ({ children, okText, onConfirm }: any) => (
     <span>
       {children}
@@ -65,8 +109,14 @@ vi.mock('@/services/sandboxHub', () => ({
   sandboxHubService: {
     access: mocks.access,
     cancelJob: mocks.cancelJob,
+    createProfile: mocks.admin.create,
+    deleteProfile: mocks.admin.delete,
     listJobs: mocks.listJobs,
+    moveProfile: mocks.admin.move,
+    prepareImage: mocks.admin.prepare,
+    profileSettings: mocks.admin.settings,
     serverStatus: mocks.serverStatus,
+    updateProfile: mocks.admin.update,
   },
 }));
 vi.mock('@/store/user', () => ({
@@ -92,6 +142,38 @@ vi.mock('@/store/tool', () => ({
 }));
 
 const { default: SandboxHub } = await import('./index');
+
+const settingsItem = (id: string, extra: Record<string, unknown> = {}) => ({
+  defaultEnabled: false,
+  deletable: id !== 'general',
+  description: `${id} description`,
+  id,
+  imageStatus: 'unknown' as const,
+  instructionBase: 'general' as const,
+  name: `${id} name`,
+  serverId: 'remote',
+  updatedAt: '2026-11-02T08:00:00.000Z',
+  ...extra,
+});
+
+const hubSettings = (profiles = [settingsItem('data')]) => ({
+  defaults: {
+    cpu: '1',
+    egress: { mode: 'open' as const },
+    image: 'chathub-sandbox:2',
+    jobMaxRuntimeMs: 7_200_000,
+    memory: '2Gi',
+    readyTimeoutMs: 60_000,
+    sessionIdleTimeoutMs: 1_800_000,
+    sessionMaxLifetimeMs: 0,
+  },
+  maxProfiles: 16,
+  profiles,
+  servers: [
+    { id: 'remote', name: 'Remote box', status: 'ok' as const },
+    { id: 'spare', name: 'Spare', status: 'misconfigured' as const },
+  ],
+});
 
 const profile = (id: string, extra: Partial<SandboxProfileItem> = {}): SandboxProfileItem => ({
   available: true,
@@ -120,6 +202,7 @@ describe('SandboxHub', () => {
     mocks.serverStatus.mockResolvedValue({ remote: 'ok' });
     mocks.access.mockResolvedValue({ adminsConfigured: true, canEditInstructions: false });
     mocks.listJobs.mockResolvedValue([]);
+    mocks.admin.settings.mockResolvedValue(hubSettings());
     mocks.setEnabled.mockResolvedValue(undefined);
     mocks.setInstruction.mockResolvedValue(undefined);
     mocks.resetInstruction.mockResolvedValue(undefined);
@@ -359,6 +442,174 @@ describe('SandboxHub', () => {
         fireEvent.click(screen.getByText('confirm:jobs.cancel'));
       });
       expect(screen.getByText('jobs.cancelFailed')).toBeTruthy();
+    });
+  });
+
+  describe('profile administration', () => {
+    const renderAsAdmin = async () => {
+      mocks.access.mockResolvedValue({ adminsConfigured: true, canEditInstructions: true });
+      await act(async () => {
+        render(<SandboxHub />);
+      });
+    };
+
+    it('is not loaded for users who are not admins', async () => {
+      mocks.profiles = [profile('data')];
+      await act(async () => {
+        render(<SandboxHub />);
+      });
+      expect(mocks.admin.settings).not.toHaveBeenCalled();
+      expect(screen.queryByText('admin.addProfile')).toBeNull();
+      expect(screen.queryByText('admin.settings')).toBeNull();
+    });
+
+    it('shows each profile with its admin controls and the profiles users are not offered', async () => {
+      mocks.profiles = [profile('data')];
+      mocks.admin.settings.mockResolvedValue(
+        hubSettings([
+          settingsItem('data', {
+            imageStatus: 'ready',
+            imageStatusMessage: 'Ready after 3 s.',
+          }),
+          settingsItem('broken', { issue: 'image: no image and OPENSANDBOX_IMAGE is unset' }),
+        ]),
+      );
+      await renderAsAdmin();
+
+      expect(mocks.admin.settings).toHaveBeenCalledWith('user:u1');
+      expect(screen.getByText('admin.addProfile')).toBeTruthy();
+      expect(screen.getByText('admin.image.ready')).toBeTruthy();
+      expect(screen.getByText(/Ready after 3 s\./)).toBeTruthy();
+      expect(screen.getByText('admin.notOffered')).toBeTruthy();
+      expect(screen.getByText('broken name')).toBeTruthy();
+      expect(screen.getByText(/admin\.issue/).textContent).toContain('no image');
+
+      // Order follows the settings: data is first, broken last.
+      const ups = screen.getAllByRole('button', { name: 'admin.moveUp' }) as HTMLButtonElement[];
+      const downs = screen.getAllByRole('button', {
+        name: 'admin.moveDown',
+      }) as HTMLButtonElement[];
+      expect(ups.map((button) => button.disabled)).toEqual([true, false]);
+      expect(downs.map((button) => button.disabled)).toEqual([false, true]);
+    });
+
+    it('prepares, moves and deletes, then reloads everyone’s profile list', async () => {
+      mocks.profiles = [profile('general'), profile('data')];
+      mocks.admin.settings.mockResolvedValue(
+        hubSettings([settingsItem('general'), settingsItem('data')]),
+      );
+      mocks.admin.prepare.mockResolvedValue(
+        hubSettings([settingsItem('general'), settingsItem('data', { imageStatus: 'ready' })]),
+      );
+      mocks.admin.move.mockResolvedValue(
+        hubSettings([settingsItem('data'), settingsItem('general')]),
+      );
+      mocks.admin.delete.mockResolvedValue(hubSettings([settingsItem('general')]));
+      await renderAsAdmin();
+      mocks.load.mockClear();
+
+      await act(async () => {
+        fireEvent.click(screen.getAllByText('admin.prepare')[1]);
+      });
+      expect(mocks.admin.prepare).toHaveBeenCalledWith('user:u1', 'data');
+      expect(mocks.load).toHaveBeenCalledWith('user:u1');
+
+      await act(async () => {
+        fireEvent.click(screen.getAllByRole('button', { name: 'admin.moveUp' })[1]);
+      });
+      expect(mocks.admin.move).toHaveBeenCalledWith('user:u1', 'data', 'up');
+
+      // general cannot be deleted, so only data has a delete control.
+      expect(screen.getAllByText('confirm:admin.delete')).toHaveLength(1);
+      await act(async () => {
+        fireEvent.click(screen.getByText('confirm:admin.delete'));
+      });
+      expect(mocks.admin.delete).toHaveBeenCalledWith('user:u1', 'data');
+    });
+
+    it('shows why an admin change was refused', async () => {
+      mocks.profiles = [profile('data')];
+      mocks.admin.prepare.mockRejectedValue(new Error('Server "remote" is missing its API key.'));
+      await renderAsAdmin();
+      await act(async () => {
+        fireEvent.click(screen.getByText('admin.prepare'));
+      });
+      expect(screen.getByText('Server "remote" is missing its API key.')).toBeTruthy();
+    });
+
+    it('adds a profile from the form', async () => {
+      mocks.profiles = [profile('data')];
+      mocks.admin.create.mockResolvedValue(hubSettings());
+      await renderAsAdmin();
+
+      await act(async () => {
+        fireEvent.click(screen.getByText('admin.addProfile'));
+      });
+      const dialog = screen.getByRole('dialog');
+      expect(dialog.textContent).toContain('admin.form.titleCreate');
+      const field = (label: string) => screen.getByLabelText(label) as HTMLInputElement;
+      fireEvent.change(field('admin.form.id'), { target: { value: 'web' } });
+      fireEvent.change(field('admin.form.name'), { target: { value: 'Web' } });
+      fireEvent.change(field('admin.form.description'), { target: { value: 'Node tooling' } });
+      fireEvent.change(field('admin.form.idle'), { target: { value: '60' } });
+      fireEvent.change(screen.getByLabelText('admin.form.network'), {
+        target: { value: 'allowlist' },
+      });
+      fireEvent.change(field('admin.form.allowlist'), {
+        target: { value: 'registry.npmjs.org' },
+      });
+      expect(field('admin.form.cpu').placeholder).toContain('"value":"1"');
+
+      await act(async () => {
+        fireEvent.click(screen.getByText('admin.form.save'));
+      });
+      expect(mocks.admin.create).toHaveBeenCalledWith('user:u1', 'web', {
+        avatar: null,
+        cpu: null,
+        defaultEnabled: false,
+        description: 'Node tooling',
+        egress: ['registry.npmjs.org'],
+        image: null,
+        instructionBase: 'general',
+        instructionText: null,
+        jobMaxRuntimeMs: null,
+        memory: null,
+        name: 'Web',
+        readyTimeoutMs: null,
+        serverId: 'remote',
+        sessionIdleTimeoutMs: 3_600_000,
+        sessionMaxLifetimeMs: null,
+      });
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+
+    it('keeps the form open with the field or server error', async () => {
+      mocks.profiles = [profile('data')];
+      mocks.admin.update.mockRejectedValue(new Error('Server "spare" is missing its API key.'));
+      await renderAsAdmin();
+
+      await act(async () => {
+        fireEvent.click(screen.getByText('admin.settings'));
+      });
+      expect(screen.getByRole('dialog').textContent).toContain('admin.form.changeWarning');
+      fireEvent.change(screen.getByLabelText('admin.form.idle'), { target: { value: '-5' } });
+      await act(async () => {
+        fireEvent.click(screen.getByText('admin.form.save'));
+      });
+      expect(screen.getByText('admin.form.invalid.idleMinutes')).toBeTruthy();
+      expect(mocks.admin.update).not.toHaveBeenCalled();
+
+      fireEvent.change(screen.getByLabelText('admin.form.idle'), { target: { value: '' } });
+      await act(async () => {
+        fireEvent.click(screen.getByText('admin.form.save'));
+      });
+      expect(mocks.admin.update).toHaveBeenCalledWith(
+        'user:u1',
+        'data',
+        expect.objectContaining({ name: 'data name', serverId: 'remote' }),
+      );
+      expect(screen.getByText('Server "spare" is missing its API key.')).toBeTruthy();
+      expect(screen.getByRole('dialog')).toBeTruthy();
     });
   });
 });

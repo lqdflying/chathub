@@ -5,7 +5,7 @@ import { Avatar } from '@lobehub/ui';
 import { Button, Input, Popconfirm, Switch, Tag } from 'antd';
 import { createStyles } from 'antd-style';
 import dayjs from 'dayjs';
-import { memo, useState } from 'react';
+import { type ReactNode, memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
@@ -125,6 +125,8 @@ const HEALTH_COLOR: Record<SandboxServerHealth, string> = {
 interface ProfileCardProps {
   /** Undefined until the Hub knows whether this user may edit instructions. */
   access?: InstructionAccess;
+  /** Shown at the bottom of the card (Sandbox Hub admin controls). */
+  footer?: ReactNode;
   health?: SandboxServerHealth;
   onResetInstruction: () => Promise<void>;
   onSaveInstruction: (instruction: string) => Promise<void>;
@@ -133,7 +135,8 @@ interface ProfileCardProps {
 }
 
 const ProfileCard = memo<ProfileCardProps>((props) => {
-  const { access, health, onResetInstruction, onSaveInstruction, onToggle, profile } = props;
+  const { access, footer, health, onResetInstruction, onSaveInstruction, onToggle, profile } =
+    props;
   const { styles } = useStyles();
   const { t } = useTranslation('sandboxHub');
   const [pending, setPending] = useState(false);
@@ -340,6 +343,7 @@ const ProfileCard = memo<ProfileCardProps>((props) => {
             : t('profile.instruction.readOnlyNoAdmins')}
         </div>
       )}
+      {footer}
     </Flexbox>
   );
 });
