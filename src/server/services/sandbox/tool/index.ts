@@ -266,14 +266,17 @@ class SandboxToolRunner {
           });
           if (made.exitCode !== 0) {
             const reason = made.stderr.trim() || `exit code ${made.exitCode}`;
-            return { error: `Could not create the output folder ${resolvedOutput}: ${reason}` };
+            return {
+              error: `Could not create the output folder ${resolvedOutput}: ${reason}`,
+              ok: false as const,
+            };
           }
         }
         const commandId = await workspace.startBackground({ command, cwd: resolvedCwd });
-        return { commandId, cwd: resolvedCwd, outputDir: resolvedOutput };
+        return { commandId, cwd: resolvedCwd, ok: true as const, outputDir: resolvedOutput };
       },
     );
-    if ('error' in started) return failure(started.error);
+    if (!started.ok) return failure(started.error);
 
     const startedAt = new Date();
     let row;
