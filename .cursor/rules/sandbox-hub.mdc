@@ -1,5 +1,5 @@
 ---
-description: Sandbox Hub — operator sandbox profiles, per-user on/off, admin-edited instructions, one tool per profile, remote OpenSandbox servers
+description: Sandbox Hub — operator sandbox profiles, per-user on/off, admin-edited instructions, background jobs, one tool per profile, remote OpenSandbox servers
 globs: src/server/services/sandbox/**,src/tools/sandbox/**,src/store/tool/slices/sandbox/**,src/features/SandboxHub/**,src/app/[variants]/(main)/sandbox/**,src/server/routers/lambda/sandboxHub.ts
 alwaysApply: false
 ---
@@ -42,6 +42,12 @@ instruction for every user. Maintainer doc: `openwiki/architecture/sandbox.md`
 - **Fail closed on reads.** Only a missing table (`42P01`) may fall back to
   defaults (choices) or the starting text (instructions). Any other read
   error is raised, never treated as "no rows".
+- **Background jobs** (`jobs/`, `sandbox_jobs`): every job call and every
+  watcher run goes through `resolveSandboxProfileForUser`; the watcher never
+  creates a sandbox (`createIfMissing: false`); every job has a deadline;
+  only `SandboxJobModel.finish` ends a job and only while it is running.
+  Never write the database inside a `withWorkspace` task: a non-request
+  error there makes the provider delete the sandbox and kills the job.
 - Hub tRPC lives in the `sandboxHub.` namespace, which is in the client's
   `VERIFIED_ACCOUNT_RPC_NAMESPACES`. A new scope-checked namespace must be
   added there too, or every call fails as a mismatched user.

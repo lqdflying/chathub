@@ -43,6 +43,10 @@ does not persist a tool message or start the next assistant turn.
 | `runCommand` | `command`, `cwd?`, `timeout?` (s), `background?` | `stdout`, `stderr`, `exitCode`, `durationMs`, `timedOut`, `hint`; background: `commandId` |
 | `getCommandOutput` | `commandId`, `cursor?` | `running`, `exitCode`, `log` (stdout+stderr), `nextCursor` (byte offset) |
 | `stopCommand` | `commandId` | `success` |
+| `startJob` | `command`, `cwd?`, `outputDir?`, `maxRuntimeMinutes?` | `jobId`, `jobStatus: running`, `startedAt`, `deadlineAt`, `hint` (see Background jobs) |
+| `getJobResult` | `jobId` | `jobStatus`, `exitCode`, `log` (live while running, saved after), `files[]` kept from `outputDir`, `startedAt`/`finishedAt`/`durationMs`, `error` |
+| `listJobs` | — | `jobs[]` of this conversation's sandbox (id, command, status, times, exit code) |
+| `cancelJob` | `jobId` | The job result after stopping it |
 | `runPython` (legacy `python`) | `code`, `packages?`, `timeout?` | Code Interpreter shape: `output[]`, `files[]` |
 | `readFile` | `path`, `offset?`, `limit?` | `cat -n` lines, `startLine`/`endLine`/`totalLines`, `truncated`; binary: `binary`, `size` |
 | `writeFile` | `path`, `content` | `bytes` |
@@ -223,6 +227,7 @@ profiles:                    # 1..16, in display and prompt order
     memory: 4Gi
     egress: [pypi.org, files.pythonhosted.org]   # or open | none
     sessionIdleTimeoutMs: 3600000
+    jobMaxRuntimeMs: 21600000 # background jobs up to 6 h here; 0 turns startJob off
     defaultEnabled: false    # general defaults to true, others to false
     instruction:
       file: instructions/data.md   # relative to the profiles file; or text:
@@ -251,6 +256,85 @@ the API key on the proxy route: put a reverse proxy in front that requires
 `OPEN-SANDBOX-API-KEY` on **every** path and only accepts the ChatHub host.
 Examples: `docker/opensandbox-remote/`. For a private CA, set
 `NODE_EXTRA_CA_CERTS` on the ChatHub container.
+
+## Background jobs
+
+`startJob` runs a long task (a build, training, data processing) that keeps
+going after the reply, and its result is read later with `getJobResult`, even
+after the sandbox is gone. Nothing is posted to the chat when a job ends: the
+model reads the result when the user asks.
+
+| Piece | Where |
+| --- | --- |
+| Job records | table `sandbox_jobs` (migration 0066, repair `ensureSandboxJobs.cjs`), user-scoped `SandboxJobModel` |
+| Lifecycle | `src/server/services/sandbox/jobs/lifecycle.ts` (`checkSandboxJob`) |
+| Read, list, cancel, watch | `jobs/service.ts` |
+| Watcher | Graphile task `sandbox_job_watch` (`jobs/watcher.ts`), registered in `conversationGeneration/worker.ts` |
+| Model calls | `startJob` / `getJobResult` / `listJobs` / `cancelJob` in `tool/index.ts` |
+| Hub list | tRPC `sandboxHub.listJobs` / `cancelJob`, `src/features/SandboxHub/JobList.tsx` |
+
+**Start.** `startJob` refuses when the profile keeps no sessions (idle
+timeout 0), when its `jobMaxRuntimeMs` is 0, or when the user already has
+`SANDBOX_JOB_MAX_RUNNING` running jobs (counted before the insert, so two
+simultaneous starts can pass the limit by one). It creates `outputDir`, starts
+the command with `startBackground` in the conversation's sandbox, saves the
+row (the command cut to 4 KiB, the deadline `min(maxRuntimeMinutes, profile
+limit)`), and queues the first watch. If the row cannot be saved, the command
+is stopped, because nothing else would.
+
+**Watch.** About every 60 s, the watcher runs one check through the
+provider's `withWorkspace({ createIfMissing: false })` in the job's own
+sandbox (its profile and session key). That call renews the sandbox for
+another idle period, which is what keeps it alive past the idle timeout
+while the job runs. The task re-queues itself under one job key
+(`sandbox-job:<id>`; in Graphile `replace` mode, a key added from the running
+task clears the running job's key and creates the next one). A thrown error,
+such as the database being down, lets Graphile retry the run. A check that
+cannot reach the sandbox server is retried on the next poll; after 10 minutes
+without contact the job is `lost`.
+
+**End.** One check decides the ending:
+
+| Status | When |
+| --- | --- |
+| `succeeded` / `failed` | The command exited (0 / non-zero). |
+| `timed_out` | Still running at its deadline: stopped. |
+| `cancelled` | `cancelJob`, the Hub's Cancel, or its profile was turned off in the Hub: stopped. |
+| `lost` | The sandbox is gone (an image or network change, the age cap, a server-side removal), the command is unknown, the profile was removed, or the server was unreachable for 10 minutes. |
+
+Ending saves the command output (head and tail within
+`SANDBOX_MAX_OUTPUT_CHARS`) and copies up to `SANDBOX_MAX_FILE_COUNT` files
+from `outputDir` to chat storage with `persistSandboxOutputFiles` (the same
+loader as `exportFile`, `exportFiles.ts`). Files left out are noted in
+`error` ("Not kept: …"). `SandboxJobModel.finish` only changes a running row,
+so the watcher, `getJobResult` and `cancelJob` cannot overwrite each other's
+ending. After it ends, the sandbox follows the normal idle timeout again.
+
+**Rules that keep jobs safe:**
+- The provider deletes a sandbox when a call fails with anything but a
+  request error, timeout or cancel (`keepsSandbox`). So job checks write the
+  database only after the sandbox call returns, and a storage failure while
+  keeping files is noted on the job instead of thrown.
+- The watcher never creates a sandbox.
+- Only a profile turned off in the Hub stops a job. A gate failure such as a
+  settings read error does not.
+- `getJobResult` on a running job checks it live. If the command has ended it
+  saves the result itself, so results are kept even when the watcher is late.
+
+**No worker.** When no watcher can be queued (the Graphile schema does not
+exist yet), `startJob` still starts the job and tells the model it only
+lives for the idle timeout. If the schema exists but every instance sets
+`DISABLE_CONVERSATION_WORKER=1`, jobs are queued but nobody watches them: the
+sandbox expires after the idle timeout and the job ends as `lost` on the next
+`getJobResult`. The session lock is per process, but the watcher only reads
+status, renews, and stops, so running it on another instance is safe.
+
+**Prompt.** The four calls are in every Sandbox profile's tool list, and
+`systemRole.ts` has one bullet on when to use them. Adding them changed the
+Sandbox tool block once (one expected prompt-cache miss after deploy). A
+deployment whose admin edited the `general` instruction does not get that
+bullet until the admin resets or merges it; the call descriptions still
+explain the calls.
 
 ## Provider interface
 
@@ -642,6 +726,9 @@ mirror access.
 | `OPENSANDBOX_EGRESS_ALLOW` | — | Deny-by-default domain allowlist. |
 | `OPENSANDBOX_SESSION_IDLE_TIMEOUT` | 1800000 | Keep a conversation's sandbox this long after its last call (ms); 0 = fresh per call. |
 | `OPENSANDBOX_SESSION_MAX_LIFETIME` | 0 | Optional age cap (ms). |
+| `SANDBOX_HUB_ADMINS` | — | User ids or emails that may edit profile instructions for everyone. Unset = read-only. |
+| `SANDBOX_JOB_MAX_RUNTIME` | 7200000 | Longest a background job may keep its sandbox alive (ms). A profile's `jobMaxRuntimeMs` overrides it; 0 turns `startJob` off. |
+| `SANDBOX_JOB_MAX_RUNNING` | 3 | Background jobs one user may have running at once. |
 | `SANDBOX_PROFILES_FILE` | — | Sandbox Hub profiles (YAML/JSON). Unset = one `general` profile from the values above. The `OPENSANDBOX_*` values are the defaults for every profile field. |
 | `SANDBOX_TIMEOUT` | 60000 | Default per-call time limit (ms). Legacy `CODE_INTERPRETER_TIMEOUT`. |
 | `SANDBOX_MAX_TIMEOUT` | 600000 | Largest `timeout` the model may request (ms). |

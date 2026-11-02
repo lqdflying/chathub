@@ -33,6 +33,9 @@ profiles:
     memory: 4Gi
     egress: [pypi.org, files.pythonhosted.org]
     sessionIdleTimeoutMs: 3600000
+    # Background jobs (startJob) may run up to 6 hours here (default
+    # SANDBOX_JOB_MAX_RUNTIME, 2 hours); 0 turns them off for this profile.
+    jobMaxRuntimeMs: 21600000
     instruction:
       file: instructions/data.md
 
