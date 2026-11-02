@@ -27,8 +27,12 @@ calls and the Sandbox Hub health check.
 1. On the sandbox host: set `OPENSANDBOX_SERVER_API_KEY` (a long random
    string), `SANDBOX_DOMAIN` (DNS name pointing here) and `CHATHUB_HOST_IP`
    (the address ChatHub connects from) in `.env`, then `docker compose up -d`.
-2. Pull or build the sandbox images the profiles use on **this** host
-   (`docker/opensandbox/Dockerfile` builds the general-purpose one).
+2. Make the sandbox images available on **this** host. OpenSandbox pulls a
+   missing image when it first creates a sandbox (with the server's
+   `registries` login for a private registry), and Sandbox Hub admins can
+   pull one ahead of users with **Prepare image**. A tag already on the host
+   is not pulled again, so prefer versioned tags over `latest`.
+   (`docker/opensandbox/Dockerfile` builds the general-purpose image.)
 3. Firewall. Keep the OpenSandbox server port on 127.0.0.1. On 443, allow
    only the ChatHub host: the Caddyfile checks that address and the API key
    there. Leave port 80 reachable from the internet so Caddy can answer the
@@ -47,8 +51,10 @@ calls and the Sandbox Hub health check.
    needs it.
 5. On ChatHub: mount `sandbox-profiles.example.yaml` (edited) and set
    `SANDBOX_PROFILES_FILE` to its path, plus the key variable each server's
-   `apiKeyEnv` names. Restart ChatHub, open **Sandbox Hub**, and check the
-   server badge says Online.
+   `apiKeyEnv` names (and any `registries` variables). Restart ChatHub, open
+   **Sandbox Hub**, and check the server badge says Online. The file's
+   profiles are imported once; after that, add and edit profiles in the Hub
+   as an admin (`SANDBOX_HUB_ADMINS`), choosing the server from its list.
 6. The example sets `proxyEndpoint: baseUrl` so execd calls use the configured
    HTTPS URL and pass through Caddy. Leave it set. Switch a server back to
    `proxyEndpoint: server` only when that server returns a host ChatHub can

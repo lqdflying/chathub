@@ -115,16 +115,21 @@ The operator can offer several purpose-built sandboxes instead of one. Each
 network policy, lifetimes and instruction, and its own container per
 conversation. Users turn profiles on or off in the **Sandbox Hub**
 (top-level menu, `/sandbox`); agents still opt in from the tool picker.
+Admins (`SANDBOX_HUB_ADMINS`) add, edit, order and delete the profiles in
+the Hub; the profiles file only lists the sandbox **servers** (see
+Managing profiles in the Hub).
 
 | Piece | Where |
 | --- | --- |
-| Operator config | `SANDBOX_PROFILES_FILE` (YAML or JSON), loaded by `src/server/services/sandbox/profiles/load.ts` (zod schema in `schema.ts`) |
+| Servers (and the profiles imported once) | `SANDBOX_PROFILES_FILE` (YAML or JSON), loaded by `src/server/services/sandbox/profiles/load.ts` (zod schema in `schema.ts`) |
+| Profiles in use | table `sandbox_hub_profiles` (migration 0067), `SandboxHubProfileModel`; catalog and import in `profiles/hub.ts`; admin changes in `profiles/hubAdmin.ts` |
+| Prepare image | `profiles/prepare.ts` (Graphile task `sandbox_image_prepare`), `OpenSandboxProvider.prepareImage` |
 | Instruction composition | `profiles/compose.ts`, once at load (the starting text) |
 | Edited instructions | table `sandbox_profile_instructions` (migration 0065), `SandboxProfileInstructionModel`; admins from `SANDBOX_HUB_ADMINS` (`profiles/admins.ts`) |
 | Per-user on/off | table `user_sandbox_profiles` (migration 0064), `SandboxProfileModel` |
 | Catalog + gate | `profiles/catalog.ts`: `getUserSandboxProfiles`, `getUserSandboxManifests`, `resolveSandboxProfileForUser` |
 | Server status | `profiles/status.ts` + `OpenSandboxClient.health` (30 s cache) |
-| Hub API | tRPC `sandboxHub.listProfiles` / `setProfileEnabled` / `serverStatus` / `access` / `setInstruction` / `resetInstruction` (account-scope checked; the instruction writes are admin only) |
+| Hub API | tRPC `sandboxHub.listProfiles` / `setProfileEnabled` / `serverStatus` / `access` / `setInstruction` / `resetInstruction` / `profileSettings` / `createProfile` / `updateProfile` / `deleteProfile` / `moveProfile` / `prepareImage` / `listJobs` / `cancelJob` (account-scope checked; instruction and profile changes are admin only) |
 | Browser tools | tool-store slice `src/store/tool/slices/sandbox` |
 | Hub page | `src/app/[variants]/(main)/sandbox`, `src/features/SandboxHub` |
 
@@ -162,6 +167,72 @@ fails closed: the Hub list does not load and Sandbox calls are refused.
 every profile except `general`, so each profile has its own sandbox and lock
 in a conversation and profiles never evict each other. New sandboxes carry a
 `chathub-profile` label; reuse never requires it.
+
+### Managing profiles in the Hub
+
+Profiles live in `sandbox_hub_profiles`, one row per profile, with the same
+fields as a profiles-file entry. A null setting inherits its `OPENSANDBOX_*`
+default, as an omitted field does in the file.
+
+- **Import once.** While the table is empty, `getSandboxProfileCatalog(db)`
+  (`profiles/hub.ts`) copies in the profiles the file (or `OPENSANDBOX_*`)
+  defines, with unset fields kept null and an `instruction.file` read into
+  the row. Several processes importing at once insert each profile once
+  (`ON CONFLICT DO NOTHING`). After that the Hub owns the profiles: the
+  file's `profiles:` section is ignored, with one warning per process. The
+  imported `general` keeps its tool and prompt bytes.
+- **Servers stay in the file**, with their keys in env (`apiKeyEnv`), so no
+  key is stored in the database. The Hub's server dropdown lists every file
+  server. A profile whose server is no longer in the file stays listed but
+  is not usable ("its server is not configured").
+- **Reads.** Every catalog read (Hub list, tool gate, durable worker, job
+  checks) queries the rows once per request; there is no process cache, so
+  an edit applies on the next call in every process. A missing table
+  (migration not run) falls back to the file's profiles. Any other read
+  error is raised.
+- **Admin changes** (`profiles/hubAdmin.ts`, admin-only router calls) are
+  checked with the profiles-file schema (`sandboxProfileConfigSchema`), a
+  known server and a known image (the profile's, or `OPENSANDBOX_IMAGE`).
+  Ids are fixed after creation (they are part of the tool name, session key
+  and job records). At most 16 profiles. `general` cannot be deleted
+  (agents use `lobe-sandbox`), and neither can the last profile, so the
+  table never empties and re-imports the file. Deleting a profile also
+  deletes its instruction edit and every user's on/off choice.
+- **Effects of an edit.** A changed image or network replaces open
+  sandboxes of that profile on their next call (runtime and network
+  fingerprints). A changed server leaves the old server's sandboxes to
+  expire. Running background jobs of that profile end as `lost`.
+- **Admin page.** Admins get Add sandbox, Settings (one form; blank fields
+  show and inherit the defaults), move up and down (tool and prompt order),
+  Delete, and Prepare image with its status. Profiles users are not offered
+  (no image, unknown server) are listed separately with the reason.
+  `isSandboxConfigured` now means "a usable server exists", so the Hub opens
+  even before the first profile.
+
+### Images and registries
+
+OpenSandbox's Docker runtime pulls an image the host does not have when it
+creates a sandbox, with `image.auth` (username, password) for a private
+registry. An image already on the host is **not pulled again**, so a moved
+`:latest` tag does not reach the host: use versioned tags, or `docker pull`
+on the host. (Checked in OpenSandbox's `container_ops.py` and lifecycle spec
+on `main`; confirm on the release you run.)
+
+- **Registry logins.** A server entry may list `registries: [{ host,
+  usernameEnv, passwordEnv }]`. ChatHub sends the login as `image.auth` when
+  a profile image's registry host matches (`registryAuth.ts`; no registry
+  part means `docker.io`). Credentials stay in env. An unset variable is
+  logged and that registry is skipped.
+- **Prepare image.** A large first pull can outlast the 60 s ready timeout,
+  so the first user call fails. "Prepare image" pulls ahead of users:
+  OpenSandbox has no pull endpoint, so `prepareImage` creates a throwaway
+  sandbox (label `chathub-sandbox-prepare`, the profile's own network
+  policy), waits up to 15 minutes for it to run, and always deletes it. The
+  result is stored on the row for the image it ran with, so a later image
+  change shows `unknown`. It runs on the durable worker
+  (`sandbox_image_prepare`, one attempt) or in process when nothing can be
+  queued. A preparation that never finished (the process stopped) shows as
+  failed after 20 minutes.
 
 ### Editable instructions
 
@@ -214,7 +285,11 @@ servers:                     # optional; "default" falls back to OPENSANDBOX_SER
     name: Dedicated sandbox host
     url: https://sandbox.example.com
     apiKeyEnv: REMOTE_SANDBOX_API_KEY   # the key itself stays in the environment
-profiles:                    # 1..16, in display and prompt order
+    registries:                         # optional private-registry logins, from env
+      - host: registry.example.com
+        usernameEnv: REGISTRY_USERNAME
+        passwordEnv: REGISTRY_PASSWORD
+profiles:                    # optional, 0..16: imported into the Hub once, then ignored
   - id: general              # keeps lobe-sandbox; the built-in instruction is its starting text
     name: Sandbox
     description: General Linux sandbox
@@ -234,13 +309,15 @@ profiles:                    # 1..16, in display and prompt order
       base: general                # general (default) prepends the built-in contract; none = only this text
 ```
 
-Rules: omitted image, cpu, memory, egress, and timeout fields fall back to
-`OPENSANDBOX_*`; literal API keys are rejected; a server entry without
+Rules: a file may list only `servers`; `profiles` are imported into the Hub
+while it has none and ignored after that; omitted image, cpu, memory,
+egress, and timeout fields fall back to `OPENSANDBOX_*`; literal API keys
+are rejected; a server entry without
 `apiKeyEnv` has no key and is never sent `OPENSANDBOX_API_KEY` (only the
 implicit `default` server uses that key); a server whose `apiKeyEnv` names an
 unset variable is `misconfigured` and its profiles cannot run; **any** error
-configures no profiles at all (logged once) instead of silently running the
-rest; instructions are capped at 32 KiB and composed once per process
+configures no servers or profiles at all (logged once) instead of silently
+running the rest; instructions are capped at 32 KiB and composed once per process
 (restart to apply file edits). A saved Hub edit overrides the file text until
 an admin resets it.
 Server-wide OpenSandbox settings (gVisor/Kata runtime, egress mode,
@@ -737,7 +814,7 @@ mirror access.
 | `SANDBOX_HUB_ADMINS` | — | User ids or emails that may edit profile instructions for everyone. Unset = read-only. |
 | `SANDBOX_JOB_MAX_RUNTIME` | 7200000 | Longest a background job may keep its sandbox alive (ms). A profile's `jobMaxRuntimeMs` overrides it; 0 turns `startJob` off. |
 | `SANDBOX_JOB_MAX_RUNNING` | 3 | Background jobs one user may have running at once. |
-| `SANDBOX_PROFILES_FILE` | — | Sandbox Hub profiles (YAML/JSON). Unset = one `general` profile from the values above. The `OPENSANDBOX_*` values are the defaults for every profile field. |
+| `SANDBOX_PROFILES_FILE` | — | Sandbox servers (YAML/JSON), plus profiles imported into the Hub once. Unset = one `default` server and one `general` profile from the values above. The `OPENSANDBOX_*` values are the defaults for every profile field. |
 | `SANDBOX_TIMEOUT` | 60000 | Default per-call time limit (ms). Legacy `CODE_INTERPRETER_TIMEOUT`. |
 | `SANDBOX_MAX_TIMEOUT` | 600000 | Largest `timeout` the model may request (ms). |
 | `SANDBOX_MAX_FILE_BYTES` | 10 MiB | Per-file cap for inputs, reads, writes, exports. Legacy `CODE_INTERPRETER_MAX_FILE_BYTES`. |

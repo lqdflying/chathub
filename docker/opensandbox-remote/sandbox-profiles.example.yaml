@@ -1,6 +1,12 @@
 # ChatHub SANDBOX_PROFILES_FILE. Mount it into the ChatHub container and set
-# SANDBOX_PROFILES_FILE to its path. Any error configures no profiles at all
-# (see the ChatHub logs), so check the Sandbox Hub page after a change.
+# SANDBOX_PROFILES_FILE to its path. Any error configures no servers or
+# profiles at all (see the ChatHub logs), so check the Sandbox Hub page after
+# a change.
+#
+# Servers are read from here on every start. Profiles are imported into
+# Sandbox Hub once, while the Hub has none; after that admins manage them in
+# the Hub (SANDBOX_HUB_ADMINS) and the profiles below are ignored. A file may
+# list only servers.
 version: 1
 
 servers:
@@ -14,7 +20,14 @@ servers:
     # The lifecycle server returns its own host for execd. Send those calls
     # here so they pass through the reverse proxy.
     proxyEndpoint: baseUrl
+    # Optional private-registry logins, used when a profile image comes from
+    # that host. The values are ChatHub environment variable names.
+    registries:
+      - host: registry.example.com
+        usernameEnv: REGISTRY_USERNAME
+        passwordEnv: REGISTRY_PASSWORD
 
+# Imported into Sandbox Hub once (see above).
 profiles:
   # Keeps the lobe-sandbox tool, the built-in instruction and existing
   # agents. Omit image/cpu/memory to use OPENSANDBOX_*.
