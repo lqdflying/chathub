@@ -48,6 +48,10 @@ export const RUNTIME_METADATA_KEY = 'chathub-runtime';
 // sandboxes created before profiles existed are still reused.
 export const PROFILE_METADATA_KEY = 'chathub-profile';
 export const SANDBOX_METADATA_NAME = 'chathub-sandbox';
+// Name label of the throwaway sandbox "Prepare image" creates; never reused.
+export const SANDBOX_PREPARE_METADATA_NAME = 'chathub-sandbox-prepare';
+// The prepare sandbox's create TTL: a long pull plus margin. Deleted right after.
+const PREPARE_TTL_SECONDS = 20 * 60;
 // A reused sandbox that does not answer quickly is treated as gone.
 const REUSE_PING_TIMEOUT_MS = 5000;
 
@@ -108,6 +112,7 @@ export class OpenSandboxProvider implements SandboxProvider {
   private cpu: string;
   private egressAllow: string[];
   private image?: string;
+  private imageAuth?: { password: string; username: string };
   private maxFileBytes: number;
   private maxFileCount: number;
   private maxOutputChars: number;
@@ -130,6 +135,8 @@ export class OpenSandboxProvider implements SandboxProvider {
     /** Allowed egress targets; empty = no policy unless `networkDisabled`. */
     egressAllow?: string[];
     image?: string;
+    /** Registry login for the image, from the server's `registries`. */
+    imageAuth?: { password: string; username: string };
     memory?: string;
     /** Profile `egress: none`: deny all egress unless a call opts in. */
     networkDisabled?: boolean;
@@ -146,6 +153,7 @@ export class OpenSandboxProvider implements SandboxProvider {
     this.apiKey =
       options && 'apiKey' in options ? options.apiKey : sandboxEnv.OPENSANDBOX_API_KEY;
     this.image = (options?.image ?? sandboxEnv.OPENSANDBOX_IMAGE)?.trim() || undefined;
+    this.imageAuth = options?.imageAuth;
     this.cpu = options?.cpu ?? sandboxEnv.OPENSANDBOX_CPU;
     this.egressAllow =
       options?.egressAllow ??
@@ -169,6 +177,11 @@ export class OpenSandboxProvider implements SandboxProvider {
 
   isConfigured() {
     return !!this.baseUrl && !!this.image;
+  }
+
+  /** The create request's image, with the registry login when the server has one. */
+  private imageSpec() {
+    return { ...(this.imageAuth ? { auth: this.imageAuth } : {}), uri: this.image! };
   }
 
   /** A call's own `enableNetwork` wins; otherwise a profile with `egress: none` denies all. */
@@ -342,6 +355,51 @@ export class OpenSandboxProvider implements SandboxProvider {
     }
   }
 
+  /**
+   * Makes the server pull this profile's image ahead of users. OpenSandbox
+   * pulls a missing image while it creates a sandbox and has no pull
+   * endpoint, so this creates a throwaway sandbox with the image, waits until
+   * it runs (`signal` bounds the wait, which may be long for a large image),
+   * and deletes it. An image already on the host is not pulled again.
+   */
+  async prepareImage(signal: AbortSignal): Promise<{ durationMs: number }> {
+    if (!this.baseUrl || !this.image) {
+      throw new SandboxError('NotConfigured', 'This sandbox has no server or image to prepare.');
+    }
+    const client = new OpenSandboxClient({
+      apiKey: this.apiKey,
+      baseUrl: this.baseUrl,
+      rebaseExecdEndpoint: this.rebaseExecdEndpoint,
+    });
+    const startedAt = Date.now();
+    // The profile's own policy: what its sandboxes get, so a server that
+    // cannot enforce egress rules fails here exactly as it would for users.
+    const networkPolicy = buildNetworkPolicy(
+      this.networkDisabled ? false : undefined,
+      this.egressAllow,
+    );
+    const created = await client.createSandbox(
+      {
+        entrypoint: SANDBOX_ENTRYPOINT,
+        image: this.imageSpec(),
+        metadata: {
+          ...(this.profileId ? { [PROFILE_METADATA_KEY]: this.profileId } : {}),
+          name: SANDBOX_PREPARE_METADATA_NAME,
+        },
+        ...(networkPolicy ? { networkPolicy } : {}),
+        resourceLimits: { cpu: this.cpu, memory: this.memory },
+        timeout: PREPARE_TTL_SECONDS,
+      },
+      signal,
+    );
+    try {
+      await this.waitUntilRunning(client, created.id, created.state, signal);
+    } finally {
+      await this.deleteQuietly(client, created.id);
+    }
+    return { durationMs: Date.now() - startedAt };
+  }
+
   private async createSandbox(
     client: OpenSandboxClient,
     options: SandboxSessionOptions,
@@ -354,7 +412,7 @@ export class OpenSandboxProvider implements SandboxProvider {
     const created = await client.createSandbox(
       {
         entrypoint: SANDBOX_ENTRYPOINT,
-        image: { uri: this.image! },
+        image: this.imageSpec(),
         metadata: {
           [NETWORK_METADATA_KEY]: networkPolicyFingerprint(networkPolicy),
           [RUNTIME_METADATA_KEY]: runtimeFingerprint(this.image!),

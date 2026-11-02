@@ -8,6 +8,10 @@ import {
 } from '@/server/services/assistantMemoryDream';
 import { SANDBOX_JOB_WATCH_TASK } from '@/server/services/sandbox/jobs/constants';
 import { handleSandboxJobWatch } from '@/server/services/sandbox/jobs/watcher';
+import {
+  SANDBOX_IMAGE_PREPARE_TASK,
+  handleSandboxImagePrepare,
+} from '@/server/services/sandbox/profiles/prepare';
 
 import {
   CONVERSATION_GENERATION_SWEEP_INTERVAL_MS,
@@ -172,6 +176,7 @@ export const startConversationGenerationWorker = async (): Promise<Runner | unde
         taskList: {
           [ASSISTANT_MEMORY_DREAM_TASK]: handleAssistantMemoryDreamJob,
           [CONVERSATION_GENERATION_TASK]: handleConversationGenerationJob,
+          [SANDBOX_IMAGE_PREPARE_TASK]: handleSandboxImagePrepare,
           [SANDBOX_JOB_WATCH_TASK]: handleSandboxJobWatch,
         },
       });

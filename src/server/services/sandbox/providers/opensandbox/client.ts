@@ -21,7 +21,8 @@ export interface OpenSandboxNetworkPolicy {
 
 export interface CreateSandboxRequest {
   entrypoint: string[];
-  image: { uri: string };
+  /** `auth` logs in to a private registry for the pull; never logged by ChatHub. */
+  image: { auth?: { password: string; username: string }; uri: string };
   metadata?: Record<string, string>;
   networkPolicy?: OpenSandboxNetworkPolicy;
   resourceLimits: Record<string, string>;

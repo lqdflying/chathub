@@ -1,6 +1,7 @@
 import { getSandboxFileCatalog } from './profiles/load';
 import type { ResolvedSandboxProfile, ResolvedSandboxServer } from './profiles/schema';
 import { OpenSandboxProvider } from './providers/opensandbox/provider';
+import { registryLoginFor } from './registryAuth';
 import type { SandboxProvider } from './types';
 
 /**
@@ -12,12 +13,14 @@ export const getSandboxProvider = (
   server?: ResolvedSandboxServer,
 ): SandboxProvider => {
   if (!profile || !server) return new OpenSandboxProvider();
+  const login = registryLoginFor(profile.image, server.registries);
   return new OpenSandboxProvider({
     apiKey: server.apiKey,
     baseUrl: server.url,
     cpu: profile.cpu,
     egressAllow: profile.egress.mode === 'allowlist' ? profile.egress.targets : [],
     image: profile.image,
+    ...(login ? { imageAuth: { password: login.password, username: login.username } } : {}),
     memory: profile.memory,
     networkDisabled: profile.egress.mode === 'none',
     profileId: profile.id,

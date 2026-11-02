@@ -165,6 +165,8 @@ export interface SandboxProvider {
   isConfigured(): boolean;
   /** False when every call gets a fresh sandbox, so nothing carries over. */
   readonly keepsSessions: boolean;
+  /** Pulls the image on the server ahead of users ("Prepare image"), where supported. */
+  prepareImage?(signal: AbortSignal): Promise<{ durationMs: number }>;
   withWorkspace<T>(
     options: SandboxSessionOptions,
     task: (workspace: SandboxWorkspace) => Promise<T>,

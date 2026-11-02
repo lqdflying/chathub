@@ -785,6 +785,43 @@ describe('OpenSandboxProvider', () => {
       });
     });
 
+    it('logs in to the image registry only when the server has a login for it', async () => {
+      const withLogin = install();
+      await python(profileProvider({ imageAuth: { password: 'secret', username: 'robot' } }));
+      expect(withLogin.createBody?.image).toEqual({
+        auth: { password: 'secret', username: 'robot' },
+        uri: 'registry.example/data:3',
+      });
+
+      const without = install();
+      await python(profileProvider());
+      expect(without.createBody?.image).toEqual({ uri: 'registry.example/data:3' });
+    });
+
+    it('prepares an image with a throwaway sandbox and always deletes it', async () => {
+      const calls = install({ states: ['Pending', 'Running'] });
+      const result = await profileProvider({
+        imageAuth: { password: 'secret', username: 'robot' },
+      }).prepareImage(AbortSignal.timeout(10_000));
+
+      expect(result.durationMs).toBeGreaterThanOrEqual(0);
+      expect(calls.createBody).toMatchObject({
+        image: { auth: { username: 'robot' }, uri: 'registry.example/data:3' },
+        metadata: { 'chathub-profile': 'data', 'name': 'chathub-sandbox-prepare' },
+        resourceLimits: { cpu: '4', memory: '8Gi' },
+      });
+      expect(calls.createBody?.metadata).not.toHaveProperty('chathub-session');
+      expect(calls.createBody).not.toHaveProperty('networkPolicy');
+      expect(calls.deleted).toBe(1);
+
+      const failed = install({ states: ['Failed'] });
+      await expect(
+        profileProvider({ networkDisabled: true }).prepareImage(AbortSignal.timeout(10_000)),
+      ).rejects.toThrow('image pull failed');
+      expect(failed.createBody?.networkPolicy).toEqual({ defaultAction: 'deny', egress: [] });
+      expect(failed.deleted).toBe(1);
+    });
+
     it('denies all egress for egress: none, and uses the profile allowlist otherwise', async () => {
       const denied = install();
       await python(profileProvider({ networkDisabled: true }));
