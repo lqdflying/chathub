@@ -20,7 +20,7 @@ import { OpenSandboxProvider, PROFILE_METADATA_KEY, SESSION_METADATA_KEY } from 
 
 const serverUrl = process.env.OPENSANDBOX_E2E_SERVER_URL;
 
-const provider = (session?: { sessionMaxLifetime?: number }) =>
+const provider = (session?: { sessionIdleTimeout?: number; sessionMaxLifetime?: number }) =>
   new OpenSandboxProvider({
     apiKey: process.env.OPENSANDBOX_E2E_API_KEY,
     baseUrl: serverUrl,
@@ -469,6 +469,44 @@ describe.runIf(serverUrl)('OpenSandbox live', () => {
       // Every call above reused the one sandbox; failed requests did not replace it.
       expect(await sessionSandboxes(sessionKey)).toHaveLength(1);
     });
+
+    it('keeps a background job alive past the idle timeout with job checks, then reads its result', async () => {
+      const sessionKey = newSessionKey();
+      const p = provider({ sessionIdleTimeout: 60_000 });
+      // A job check (jobs/lifecycle.ts): never creates a sandbox, and renews it
+      // for another idle period when it returns.
+      const check = <T>(task: (workspace: SandboxWorkspace) => Promise<T>) =>
+        p.withWorkspace({ budgetMs: 120_000, createIfMissing: false, sessionKey }, task);
+
+      const commandId = await p.withWorkspace({ budgetMs: 60_000, sessionKey }, (workspace) =>
+        workspace.startBackground({
+          command: 'sleep 90; mkdir -p out; echo done > out/result.txt; echo finished',
+        }),
+      );
+
+      // The watcher polls every 60 s against a 30 min idle timeout; this keeps
+      // the same ratio with a 30 s poll and a 60 s idle timeout.
+      const startedAt = Date.now();
+      let status = await check((workspace) => workspace.commandStatus(commandId));
+      while (status.running && Date.now() - startedAt < 180_000) {
+        await sleep(30_000);
+        status = await check((workspace) => workspace.commandStatus(commandId));
+      }
+      expect(Date.now() - startedAt).toBeGreaterThan(60_000);
+      expect(status).toMatchObject({ exitCode: 0, running: false });
+
+      const result = await check(async (workspace) => ({
+        entries: await workspace.listDirectory(`${workspace.workdir}/out`, 5),
+        file: Buffer.from(
+          await workspace.readFile(`${workspace.workdir}/out/result.txt`, 1024),
+        ).toString(),
+        logs: await workspace.commandLogs(commandId),
+      }));
+      expect(result.entries.map((entry) => entry.path)).toContain('/tmp/workspace/out/result.txt');
+      expect(result.file).toBe('done\n');
+      expect(result.logs.output).toContain('finished');
+      expect(await sessionSandboxes(sessionKey)).toHaveLength(1);
+    }, 300_000);
   });
 
   it('reports exceptions as plain-text user tracebacks', async () => {
