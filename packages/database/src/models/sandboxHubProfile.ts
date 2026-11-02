@@ -103,14 +103,6 @@ export class SandboxHubProfileModel {
     return row;
   };
 
-  delete = async (id: string): Promise<boolean> => {
-    const rows = await this.db
-      .delete(sandboxHubProfiles)
-      .where(eq(sandboxHubProfiles.id, id))
-      .returning({ id: sandboxHubProfiles.id });
-    return rows.length > 0;
-  };
-
   /**
    * Removes the profile, its shared instruction edit, and every user's on/off
    * choice in one transaction. A failure leaves all three in place.

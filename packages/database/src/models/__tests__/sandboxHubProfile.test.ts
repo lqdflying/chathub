@@ -93,9 +93,8 @@ describe('SandboxHubProfileModel', () => {
     await new SandboxProfileModel(serverDB, 'user-b').setEnabled('data', false);
     await new SandboxProfileModel(serverDB, 'user-b').setEnabled('web', true);
 
-    expect(await model.delete('data')).toBe(true);
-    await SandboxProfileModel.deleteForProfile(serverDB, 'data');
-    expect(await model.delete('data')).toBe(false);
+    await model.deleteWithRelated('data');
+    expect(await model.find('data')).toBeUndefined();
     expect([...(await new SandboxProfileModel(serverDB, 'user-b').list()).keys()]).toEqual(['web']);
 
     await serverDB.delete(userSandboxProfiles);

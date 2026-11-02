@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const state = vi.hoisted(() => ({
   checkedAt: new Date('2026-11-02T08:00:00.000Z'),
-  enqueueError: undefined as unknown,
   executed: [] as unknown[],
   ignoreCheckedAt: undefined as Date | undefined,
   prepare: vi.fn(),
@@ -12,7 +11,6 @@ const state = vi.hoisted(() => ({
   statuses: [] as Array<Record<string, unknown>>,
 }));
 
-vi.mock('@/database/core/db-adaptor', () => ({ getServerDB: async () => db }));
 vi.mock('@/database/models/sandboxHubProfile', () => ({
   SandboxHubProfileModel: class {
     find = async (id: string) => (state.row?.id === id ? state.row : undefined);
@@ -51,7 +49,6 @@ vi.mock('../../registry', () => ({
 
 const db = {
   execute: async (query: unknown) => {
-    if (state.enqueueError) throw state.enqueueError;
     state.executed.push(query);
   },
 } as any;
@@ -59,7 +56,6 @@ const db = {
 const {
   SANDBOX_IMAGE_PREPARE_TIMEOUT_MS,
   effectiveImageStatus,
-  handleSandboxImagePrepare,
   prepareSandboxProfileImage,
   startSandboxImagePreparation,
 } = await import('../prepare');
@@ -87,7 +83,6 @@ const row = (extra: Record<string, unknown> = {}) => ({
 describe('Prepare image', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    state.enqueueError = undefined;
     state.executed = [];
     state.ignoreCheckedAt = undefined;
     state.row = row();
@@ -97,10 +92,13 @@ describe('Prepare image', () => {
   });
 
   it('records a ready image for the image it prepared', async () => {
-    await expect(prepareSandboxProfileImage(db, 'data')).resolves.toBe('ready');
+    await expect(
+      prepareSandboxProfileImage(db, 'data', undefined, state.checkedAt),
+    ).resolves.toBe('ready');
     expect(state.prepare).toHaveBeenCalledWith(expect.any(AbortSignal));
     expect(state.statuses).toEqual([
       {
+        expectedCheckedAt: '2026-11-02T08:00:00.000Z',
         id: 'data',
         message: 'Ready after 42 s.',
         ref: 'img.aksg.net/sandbox/python:1',
@@ -111,80 +109,62 @@ describe('Prepare image', () => {
 
   it('prepares the inherited OPENSANDBOX_IMAGE when the profile sets none', async () => {
     state.row = row({ image: null });
-    await prepareSandboxProfileImage(db, 'data');
+    await prepareSandboxProfileImage(db, 'data', undefined, state.checkedAt);
     expect(state.statuses[0]).toMatchObject({ ref: 'chathub-sandbox:2', status: 'ready' });
   });
 
   it('records why a preparation failed', async () => {
     state.prepare.mockRejectedValue(new Error('IMAGE_PULL_FAILED: manifest unknown'));
-    await expect(prepareSandboxProfileImage(db, 'data')).resolves.toBe('failed');
+    await expect(
+      prepareSandboxProfileImage(db, 'data', undefined, state.checkedAt),
+    ).resolves.toBe('failed');
     expect(state.statuses[0]).toMatchObject({
       message: 'IMAGE_PULL_FAILED: manifest unknown',
       status: 'failed',
     });
 
-    const timeout = new Error('timed out');
-    timeout.name = 'TimeoutError';
-    state.prepare.mockRejectedValue(timeout);
-    await prepareSandboxProfileImage(db, 'data', 2 * 60_000);
-    expect(state.statuses[1]).toMatchObject({
-      message: 'The image did not start within 2 minutes.',
-      status: 'failed',
-    });
-
     state.server = { id: 'default', status: 'misconfigured' };
-    await prepareSandboxProfileImage(db, 'data');
-    expect(state.statuses[2]).toMatchObject({
+    await prepareSandboxProfileImage(db, 'data', undefined, state.checkedAt);
+    expect(state.statuses[1]).toMatchObject({
       message: 'Server "default" is missing its API key.',
       status: 'failed',
     });
 
     state.server = undefined;
-    await prepareSandboxProfileImage(db, 'data');
-    expect(state.statuses[3]).toMatchObject({
+    await prepareSandboxProfileImage(db, 'data', undefined, state.checkedAt);
+    expect(state.statuses[2]).toMatchObject({
       message: 'Server "default" is not configured on this server.',
     });
-    expect(await prepareSandboxProfileImage(db, 'missing')).toBeUndefined();
+    expect(
+      await prepareSandboxProfileImage(db, 'missing', undefined, state.checkedAt),
+    ).toBeUndefined();
   });
 
-  it('marks the profile as preparing and queues the work, or runs it here', async () => {
-    await startSandboxImagePreparation(db, { id: 'data', image: null }, 'chathub-sandbox:2');
-    expect(state.statuses).toEqual([{ id: 'data', ref: 'chathub-sandbox:2', status: 'preparing' }]);
-    expect(state.executed).toHaveLength(1);
-    expect(JSON.stringify(state.executed[0])).toContain(
-      '\\"checkedAt\\":\\"2026-11-02T08:00:00.000Z\\",\\"profileId\\":\\"data\\"',
+  it('records an aborted wait as the timeout message', async () => {
+    state.prepare.mockImplementation(
+      (signal: AbortSignal) =>
+        new Promise((_resolve, reject) => {
+          signal.addEventListener('abort', () => {
+            reject(Object.assign(new Error('The operation was aborted'), { name: 'AbortError' }));
+          });
+        }),
     );
-    expect(state.prepare).not.toHaveBeenCalled();
+    await prepareSandboxProfileImage(db, 'data', 50, state.checkedAt);
+    expect(state.statuses[0]).toMatchObject({
+      message: expect.stringMatching(/did not start within/),
+      status: 'failed',
+    });
+  });
 
-    state.enqueueError = new Error('function graphile_worker.add_job does not exist');
+  it('prepares in this process and does not queue a worker job', async () => {
     await startSandboxImagePreparation(db, { id: 'data', image: null }, 'chathub-sandbox:2');
+    expect(state.statuses[0]).toEqual({ id: 'data', ref: 'chathub-sandbox:2', status: 'preparing' });
     await vi.waitFor(() => expect(state.prepare).toHaveBeenCalledTimes(1));
+    expect(state.executed).toHaveLength(0);
     expect(state.statuses.at(-1)).toMatchObject({
       expectedCheckedAt: '2026-11-02T08:00:00.000Z',
       status: 'ready',
     });
-  });
-
-  it('runs here when the conversation worker is disabled, and does not queue', async () => {
-    process.env.DISABLE_CONVERSATION_WORKER = '1';
-    try {
-      await startSandboxImagePreparation(db, { id: 'data', image: null }, 'chathub-sandbox:2');
-      await vi.waitFor(() => expect(state.prepare).toHaveBeenCalledTimes(1));
-      expect(state.executed).toHaveLength(0);
-    } finally {
-      delete process.env.DISABLE_CONVERSATION_WORKER;
-    }
-  });
-
-  it('runs the queued task for a profile id only', async () => {
-    await handleSandboxImagePrepare(
-      { checkedAt: '2026-11-02T08:00:00.000Z', profileId: 'data' },
-      {} as never,
-    );
-    await handleSandboxImagePrepare({}, {} as never);
-    await handleSandboxImagePrepare({ checkedAt: 'not-a-time', profileId: 'data' }, {} as never);
-    expect(state.prepare).toHaveBeenCalledTimes(1);
-    expect(state.statuses[0]).toMatchObject({ expectedCheckedAt: '2026-11-02T08:00:00.000Z' });
   });
 
   it('drops a result when a newer preparation has replaced this run', async () => {

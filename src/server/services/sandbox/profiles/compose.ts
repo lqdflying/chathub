@@ -12,9 +12,10 @@ interface ComposeInput {
 }
 
 /**
- * Builds a profile's instruction once at load time. The result never changes
- * for the life of the process, which keeps the system prompt cache-stable
- * (`.cursor/rules/sandbox-prompt.mdc`).
+ * Builds a profile's starting instruction from its stored fields. The same
+ * fields always produce the same bytes, which keeps the system prompt
+ * cache-stable (`.cursor/rules/sandbox-prompt.mdc`). A Hub read composes
+ * them again, so an admin edit applies on the next call.
  *
  * - `general` with no operator text is exactly the built-in Sandbox
  *   instruction, so existing agents send the same bytes as before.

@@ -123,8 +123,8 @@ Managing profiles in the Hub).
 | --- | --- |
 | Servers (and the profiles imported once) | `SANDBOX_PROFILES_FILE` (YAML or JSON), loaded by `src/server/services/sandbox/profiles/load.ts` (zod schema in `schema.ts`) |
 | Profiles in use | table `sandbox_hub_profiles` (migration 0067), `SandboxHubProfileModel`; catalog and import in `profiles/hub.ts`; admin changes in `profiles/hubAdmin.ts` |
-| Prepare image | `profiles/prepare.ts` (Graphile task `sandbox_image_prepare`), `OpenSandboxProvider.prepareImage` |
-| Instruction composition | `profiles/compose.ts`, once at load (the starting text) |
+| Prepare image | `profiles/prepare.ts` (in the process that handled the request), `OpenSandboxProvider.prepareImage` |
+| Instruction composition | `profiles/compose.ts`. The same stored fields always produce the same bytes. A Hub read composes them again, so an admin edit applies on the next call |
 | Edited instructions | table `sandbox_profile_instructions` (migration 0065), `SandboxProfileInstructionModel`; admins from `SANDBOX_HUB_ADMINS` (`profiles/admins.ts`) |
 | Per-user on/off | table `user_sandbox_profiles` (migration 0064), `SandboxProfileModel` |
 | Catalog + gate | `profiles/catalog.ts`: `getUserSandboxProfiles`, `getUserSandboxManifests`, `resolveSandboxProfileForUser` |
@@ -231,12 +231,11 @@ on `main`; confirm on the release you run.)
   policy), waits up to 15 minutes for it to run, and always deletes it. The
   preparing update stores `imageCheckedAt`. The finished status is written
   only while that timestamp, the image ref, and status `preparing` are still
-  current, so a slower older pull cannot overwrite a newer one. A job queued
-  before that token (no timestamp in the payload) still writes
-  unconditionally. A later image change shows `unknown`. It runs on the
-  durable worker (`sandbox_image_prepare`, one attempt). When
-  `DISABLE_CONVERSATION_WORKER=1`, or when the job cannot be queued, it runs
-  in this process. A preparation that never finished (the process stopped)
+  current, so a slower older pull cannot overwrite a newer one. A later image
+  change shows `unknown`. The pull runs in the process that handled the
+  request, not on the conversation worker, so it does not hold a generation
+  slot. A pull that passes 15 minutes is stored as failed with the timeout
+  message. A preparation that never finished because the process stopped
   shows as failed after 20 minutes.
 
 ### Editable instructions
@@ -322,9 +321,10 @@ are rejected; a server entry without
 implicit `default` server uses that key); a server whose `apiKeyEnv` names an
 unset variable is `misconfigured` and its profiles cannot run; **any** error
 configures no servers or profiles at all (logged once) instead of silently
-running the rest; instructions are capped at 32 KiB and composed once per process
-(restart to apply file edits). A saved Hub edit overrides the file text until
-an admin resets it.
+running the rest; instructions are capped at 32 KiB. The same stored fields
+always produce the same instruction bytes. A Hub read composes them again, so
+an admin edit of the starting text applies on the next call without a restart.
+A saved card edit overrides that starting text until an admin resets it.
 Server-wide OpenSandbox settings (gVisor/Kata runtime, egress mode,
 `network_mode`, max timeout) need separate servers, so put such profiles on
 their own server entry.
@@ -816,7 +816,7 @@ mirror access.
 | `OPENSANDBOX_EGRESS_ALLOW` | — | Deny-by-default domain allowlist. |
 | `OPENSANDBOX_SESSION_IDLE_TIMEOUT` | 1800000 | Keep a conversation's sandbox this long after its last call (ms); 0 = fresh per call. |
 | `OPENSANDBOX_SESSION_MAX_LIFETIME` | 0 | Optional age cap (ms). |
-| `SANDBOX_HUB_ADMINS` | — | User ids or emails that may edit profile instructions for everyone. Unset = read-only. |
+| `SANDBOX_HUB_ADMINS` | — | User ids or emails that may add, edit, reorder, and delete profiles, prepare images, and edit instructions. Unset = instructions read-only and profile settings hidden. |
 | `SANDBOX_JOB_MAX_RUNTIME` | 7200000 | Longest a background job may keep its sandbox alive (ms). A profile's `jobMaxRuntimeMs` overrides it; 0 turns `startJob` off. |
 | `SANDBOX_JOB_MAX_RUNNING` | 3 | Background jobs one user may have running at once. |
 | `SANDBOX_PROFILES_FILE` | — | Sandbox servers (YAML/JSON), plus profiles imported into the Hub once. Unset = one `default` server and one `general` profile from the values above. The `OPENSANDBOX_*` values are the defaults for every profile field. |
