@@ -1,9 +1,10 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { sandboxHubProfiles, userSandboxProfiles, users } from '../../schemas';
+import { sandboxHubProfiles, sandboxProfileInstructions, userSandboxProfiles, users } from '../../schemas';
 import { LobeChatDatabase } from '../../type';
 import { SandboxHubProfileModel } from '../sandboxHubProfile';
+import { SandboxProfileInstructionModel } from '../sandboxProfileInstruction';
 import { SandboxProfileModel } from '../sandboxProfile';
 import { getTestDB } from './_util';
 
@@ -20,6 +21,7 @@ const settings = (id: string, extra: Record<string, unknown> = {}) => ({
 describe('SandboxHubProfileModel', () => {
   beforeEach(async () => {
     await serverDB.delete(userSandboxProfiles);
+    await serverDB.delete(sandboxProfileInstructions);
     await serverDB.delete(sandboxHubProfiles);
     await serverDB.delete(users);
     await serverDB.insert(users).values([{ id: 'admin-a' }, { id: 'user-b' }]);
@@ -99,5 +101,59 @@ describe('SandboxHubProfileModel', () => {
     await serverDB.delete(userSandboxProfiles);
     await serverDB.delete(users);
     expect((await model.list()).map((row) => [row.id, row.updatedBy])).toEqual([['web', null]]);
+  });
+
+  it('drops an older prepare result after a newer run has started', async () => {
+    const model = new SandboxHubProfileModel(serverDB);
+    await model.create(settings('data', { image: 'data:1' }), 'admin-a');
+    const first = await model.setImageStatus('data', { ref: 'data:1', status: 'preparing' });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const second = await model.setImageStatus('data', { ref: 'data:1', status: 'preparing' });
+    expect(first).toBeInstanceOf(Date);
+    expect(second!.getTime()).toBeGreaterThan(first!.getTime());
+
+    expect(
+      await model.setImageStatus(
+        'data',
+        { message: 'old', ref: 'data:1', status: 'failed' },
+        first,
+      ),
+    ).toBeUndefined();
+    expect(
+      await model.setImageStatus(
+        'data',
+        { message: 'Ready after 3 s.', ref: 'data:1', status: 'ready' },
+        new Date(second!.toISOString()),
+      ),
+    ).toBeInstanceOf(Date);
+    expect(await model.find('data')).toMatchObject({
+      imageStatus: 'ready',
+      imageStatusMessage: 'Ready after 3 s.',
+    });
+    expect(
+      await model.setImageStatus(
+        'data',
+        { message: 'late', ref: 'data:1', status: 'failed' },
+        first,
+      ),
+    ).toBeUndefined();
+    expect((await model.find('data'))?.imageStatus).toBe('ready');
+  });
+
+  it('deletes the profile, its instruction, and every user choice together', async () => {
+    const model = new SandboxHubProfileModel(serverDB);
+    await model.create(settings('data'), 'admin-a');
+    await model.create(settings('web'), 'admin-a');
+    await new SandboxProfileInstructionModel(serverDB).upsert('data', 'Edited.', 'admin-a');
+    await new SandboxProfileInstructionModel(serverDB).upsert('web', 'Keep.', 'admin-a');
+    await new SandboxProfileModel(serverDB, 'user-b').setEnabled('data', false);
+    await new SandboxProfileModel(serverDB, 'user-b').setEnabled('web', true);
+
+    await model.deleteWithRelated('data');
+
+    expect(await model.find('data')).toBeUndefined();
+    expect([...(await new SandboxProfileModel(serverDB, 'user-b').list()).keys()]).toEqual(['web']);
+    expect([...(await new SandboxProfileInstructionModel(serverDB).list()).keys()]).toEqual(['web']);
+    expect(await model.find('web')).toBeDefined();
   });
 });

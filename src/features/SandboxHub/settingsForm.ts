@@ -104,6 +104,8 @@ export const toSettingsInput = (
     if (value === undefined)
       return { error: { field: field as keyof typeof durations }, ok: false };
   }
+  // Idle, lifetime, and job limit may be 0. Ready timeout must be positive.
+  if (durations.readySeconds === 0) return { error: { field: 'readySeconds' }, ok: false };
 
   let egress: SandboxHubProfileSettingsInput['egress'] = null;
   if (form.network === 'open' || form.network === 'none') egress = form.network;

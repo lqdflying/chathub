@@ -1,10 +1,12 @@
 import type { SandboxImageStatus } from '@lobechat/types';
-import { asc, count, eq, max } from 'drizzle-orm';
+import { and, asc, count, eq, max } from 'drizzle-orm';
 
 import {
   type NewSandboxHubProfileRow,
   type SandboxHubProfileRow,
   sandboxHubProfiles,
+  sandboxProfileInstructions,
+  userSandboxProfiles,
 } from '../schemas/sandboxProfile';
 import { LobeChatDatabase } from '../type';
 
@@ -110,6 +112,20 @@ export class SandboxHubProfileModel {
   };
 
   /**
+   * Removes the profile, its shared instruction edit, and every user's on/off
+   * choice in one transaction. A failure leaves all three in place.
+   */
+  deleteWithRelated = async (id: string): Promise<void> => {
+    await this.db.transaction(async (tx) => {
+      await tx.delete(sandboxHubProfiles).where(eq(sandboxHubProfiles.id, id));
+      await tx
+        .delete(sandboxProfileInstructions)
+        .where(eq(sandboxProfileInstructions.profileId, id));
+      await tx.delete(userSandboxProfiles).where(eq(userSandboxProfiles.profileId, id));
+    });
+  };
+
+  /**
    * Inserts profiles that do not exist yet, in the order given. Concurrent
    * seeds from several server processes insert each profile once.
    */
@@ -144,12 +160,18 @@ export class SandboxHubProfileModel {
       return true;
     });
 
-  /** Records a Prepare image result for the image named in `ref`. */
+  /**
+   * Records a Prepare image result for the image named in `ref`.
+   * Returns the stored `imageCheckedAt`, or undefined when `expectedCheckedAt`
+   * is set and this run is no longer the current preparing run.
+   * A missing `expectedCheckedAt` always writes (a job queued before the token).
+   */
   setImageStatus = async (
     id: string,
     { message, ref, status }: { message?: string; ref: string; status: SandboxImageStatus },
-  ) => {
-    await this.db
+    expectedCheckedAt?: Date,
+  ): Promise<Date | undefined> => {
+    const [row] = await this.db
       .update(sandboxHubProfiles)
       .set({
         imageCheckedAt: new Date(),
@@ -157,6 +179,17 @@ export class SandboxHubProfileModel {
         imageStatus: status,
         imageStatusMessage: message ?? null,
       })
-      .where(eq(sandboxHubProfiles.id, id));
+      .where(
+        expectedCheckedAt
+          ? and(
+              eq(sandboxHubProfiles.id, id),
+              eq(sandboxHubProfiles.imageStatus, 'preparing'),
+              eq(sandboxHubProfiles.imageCheckedRef, ref),
+              eq(sandboxHubProfiles.imageCheckedAt, expectedCheckedAt),
+            )
+          : eq(sandboxHubProfiles.id, id),
+      )
+      .returning({ imageCheckedAt: sandboxHubProfiles.imageCheckedAt });
+    return row?.imageCheckedAt ?? undefined;
   };
 }

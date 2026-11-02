@@ -78,8 +78,12 @@ describe('profile settings form', () => {
 
   it('maps network choices and blank numbers', () => {
     const base = toFormState(item, 'default');
-    const open = toSettingsInput({ ...base, jobMinutes: '0', network: 'open' });
-    expect(open.ok && open.input).toMatchObject({ egress: 'open', jobMaxRuntimeMs: 0 });
+    const open = toSettingsInput({ ...base, idleMinutes: '0', jobMinutes: '0', network: 'open' });
+    expect(open.ok && open.input).toMatchObject({
+      egress: 'open',
+      jobMaxRuntimeMs: 0,
+      sessionIdleTimeoutMs: 0,
+    });
     const inherit = toSettingsInput({ ...base, idleMinutes: ' ', network: 'inherit' });
     expect(inherit.ok && inherit.input).toMatchObject({ egress: null, sessionIdleTimeoutMs: null });
     expect(parseAllowlist('pypi.org, files.pythonhosted.org\npypi.org')).toEqual([
@@ -96,6 +100,10 @@ describe('profile settings form', () => {
     });
     expect(toSettingsInput({ ...base, idleMinutes: '-1' })).toEqual({
       error: { field: 'idleMinutes' },
+      ok: false,
+    });
+    expect(toSettingsInput({ ...base, readySeconds: '0' })).toEqual({
+      error: { field: 'readySeconds' },
       ok: false,
     });
     expect(toSettingsInput({ ...base, readySeconds: 'soon' })).toEqual({

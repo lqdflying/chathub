@@ -6,8 +6,6 @@ import type {
 } from '@lobechat/types';
 
 import { SandboxHubProfileModel } from '@/database/models/sandboxHubProfile';
-import { SandboxProfileModel } from '@/database/models/sandboxProfile';
-import { SandboxProfileInstructionModel } from '@/database/models/sandboxProfileInstruction';
 import type { SandboxHubProfileRow } from '@/database/schemas';
 import { DEFAULT_SANDBOX_PROFILE_ID } from '@/tools/sandbox/const';
 
@@ -193,8 +191,9 @@ export const updateSandboxHubProfile = async (
 
 /**
  * Removes a profile with its instruction edit and every user's on/off
- * choice. `general` stays (agents use lobe-sandbox), and so does the last
- * profile, so an empty Hub never re-imports the file's profiles.
+ * choice, in one transaction. `general` stays (agents use lobe-sandbox),
+ * and so does the last profile, so an empty Hub never re-imports the file's
+ * profiles.
  */
 export const deleteSandboxHubProfile = async (db: LobeChatDatabase, id: string) => {
   const model = new SandboxHubProfileModel(db);
@@ -210,9 +209,7 @@ export const deleteSandboxHubProfile = async (db: LobeChatDatabase, id: string) 
   if ((await model.count()) <= 1) {
     throw new SandboxHubProfileError('BAD_REQUEST', 'The last profile cannot be deleted.');
   }
-  await model.delete(id);
-  await new SandboxProfileInstructionModel(db).delete(id);
-  await SandboxProfileModel.deleteForProfile(db, id);
+  await model.deleteWithRelated(id);
 };
 
 export const moveSandboxHubProfile = async (

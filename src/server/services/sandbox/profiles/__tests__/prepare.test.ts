@@ -2,8 +2,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const state = vi.hoisted(() => ({
+  checkedAt: new Date('2026-11-02T08:00:00.000Z'),
   enqueueError: undefined as unknown,
   executed: [] as unknown[],
+  ignoreCheckedAt: undefined as Date | undefined,
   prepare: vi.fn(),
   row: undefined as Record<string, any> | undefined,
   server: { id: 'default', status: 'ok' } as Record<string, unknown> | undefined,
@@ -14,8 +16,20 @@ vi.mock('@/database/core/db-adaptor', () => ({ getServerDB: async () => db }));
 vi.mock('@/database/models/sandboxHubProfile', () => ({
   SandboxHubProfileModel: class {
     find = async (id: string) => (state.row?.id === id ? state.row : undefined);
-    setImageStatus = async (id: string, status: Record<string, unknown>) => {
-      state.statuses.push({ id, ...status });
+    setImageStatus = async (
+      id: string,
+      status: Record<string, unknown>,
+      expectedCheckedAt?: Date,
+    ) => {
+      if (expectedCheckedAt && state.ignoreCheckedAt?.getTime() === expectedCheckedAt.getTime()) {
+        return undefined;
+      }
+      state.statuses.push({
+        id,
+        ...status,
+        ...(expectedCheckedAt ? { expectedCheckedAt: expectedCheckedAt.toISOString() } : {}),
+      });
+      return state.checkedAt;
     };
   },
 }));
@@ -75,6 +89,7 @@ describe('Prepare image', () => {
     vi.clearAllMocks();
     state.enqueueError = undefined;
     state.executed = [];
+    state.ignoreCheckedAt = undefined;
     state.row = row();
     state.server = { id: 'default', status: 'ok' };
     state.statuses = [];
@@ -136,17 +151,48 @@ describe('Prepare image', () => {
     await startSandboxImagePreparation(db, { id: 'data', image: null }, 'chathub-sandbox:2');
     expect(state.statuses).toEqual([{ id: 'data', ref: 'chathub-sandbox:2', status: 'preparing' }]);
     expect(state.executed).toHaveLength(1);
+    expect(JSON.stringify(state.executed[0])).toContain(
+      '\\"checkedAt\\":\\"2026-11-02T08:00:00.000Z\\",\\"profileId\\":\\"data\\"',
+    );
     expect(state.prepare).not.toHaveBeenCalled();
 
     state.enqueueError = new Error('function graphile_worker.add_job does not exist');
     await startSandboxImagePreparation(db, { id: 'data', image: null }, 'chathub-sandbox:2');
     await vi.waitFor(() => expect(state.prepare).toHaveBeenCalledTimes(1));
+    expect(state.statuses.at(-1)).toMatchObject({
+      expectedCheckedAt: '2026-11-02T08:00:00.000Z',
+      status: 'ready',
+    });
+  });
+
+  it('runs here when the conversation worker is disabled, and does not queue', async () => {
+    process.env.DISABLE_CONVERSATION_WORKER = '1';
+    try {
+      await startSandboxImagePreparation(db, { id: 'data', image: null }, 'chathub-sandbox:2');
+      await vi.waitFor(() => expect(state.prepare).toHaveBeenCalledTimes(1));
+      expect(state.executed).toHaveLength(0);
+    } finally {
+      delete process.env.DISABLE_CONVERSATION_WORKER;
+    }
   });
 
   it('runs the queued task for a profile id only', async () => {
-    await handleSandboxImagePrepare({ profileId: 'data' }, {} as never);
+    await handleSandboxImagePrepare(
+      { checkedAt: '2026-11-02T08:00:00.000Z', profileId: 'data' },
+      {} as never,
+    );
     await handleSandboxImagePrepare({}, {} as never);
+    await handleSandboxImagePrepare({ checkedAt: 'not-a-time', profileId: 'data' }, {} as never);
     expect(state.prepare).toHaveBeenCalledTimes(1);
+    expect(state.statuses[0]).toMatchObject({ expectedCheckedAt: '2026-11-02T08:00:00.000Z' });
+  });
+
+  it('drops a result when a newer preparation has replaced this run', async () => {
+    state.ignoreCheckedAt = state.checkedAt;
+    await expect(
+      prepareSandboxProfileImage(db, 'data', undefined, state.checkedAt),
+    ).resolves.toBeUndefined();
+    expect(state.statuses).toEqual([]);
   });
 
   it('shows a status only for the current image, and a stuck preparation as failed', () => {

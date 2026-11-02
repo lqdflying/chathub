@@ -17,9 +17,10 @@ vi.mock('@/database/models/sandboxHubProfile', () => ({
     create = async (fields: Record<string, unknown>, updatedBy: string) => {
       state.rows.push({ ...fields, updatedBy });
     };
-    delete = async (id: string) => {
+    deleteWithRelated = async (id: string) => {
       state.rows = state.rows.filter((row) => row.id !== id);
-      return true;
+      state.choicesDeleted.push(id);
+      state.instructionsDeleted.push(id);
     };
     find = async (id: string) => state.rows.find((row) => row.id === id);
     list = async () => state.rows;
@@ -30,16 +31,6 @@ vi.mock('@/database/models/sandboxHubProfile', () => ({
       Object.assign(row, settings, { updatedBy });
       return row;
     };
-  },
-}));
-vi.mock('@/database/models/sandboxProfile', () => ({
-  SandboxProfileModel: {
-    deleteForProfile: async (_db: unknown, id: string) => state.choicesDeleted.push(id),
-  },
-}));
-vi.mock('@/database/models/sandboxProfileInstruction', () => ({
-  SandboxProfileInstructionModel: class {
-    delete = async (id: string) => state.instructionsDeleted.push(id);
   },
 }));
 vi.mock('../load', async (importOriginal) => ({

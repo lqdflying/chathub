@@ -197,7 +197,8 @@ default, as an omitted field does in the file.
   and job records). At most 16 profiles. `general` cannot be deleted
   (agents use `lobe-sandbox`), and neither can the last profile, so the
   table never empties and re-imports the file. Deleting a profile also
-  deletes its instruction edit and every user's on/off choice.
+  deletes its instruction edit and every user's on/off choice, in one
+  transaction, so a failure leaves all three in place.
 - **Effects of an edit.** A changed image or network replaces open
   sandboxes of that profile on their next call (runtime and network
   fingerprints). A changed server leaves the old server's sandboxes to
@@ -228,11 +229,15 @@ on `main`; confirm on the release you run.)
   OpenSandbox has no pull endpoint, so `prepareImage` creates a throwaway
   sandbox (label `chathub-sandbox-prepare`, the profile's own network
   policy), waits up to 15 minutes for it to run, and always deletes it. The
-  result is stored on the row for the image it ran with, so a later image
-  change shows `unknown`. It runs on the durable worker
-  (`sandbox_image_prepare`, one attempt) or in process when nothing can be
-  queued. A preparation that never finished (the process stopped) shows as
-  failed after 20 minutes.
+  preparing update stores `imageCheckedAt`. The finished status is written
+  only while that timestamp, the image ref, and status `preparing` are still
+  current, so a slower older pull cannot overwrite a newer one. A job queued
+  before that token (no timestamp in the payload) still writes
+  unconditionally. A later image change shows `unknown`. It runs on the
+  durable worker (`sandbox_image_prepare`, one attempt). When
+  `DISABLE_CONVERSATION_WORKER=1`, or when the job cannot be queued, it runs
+  in this process. A preparation that never finished (the process stopped)
+  shows as failed after 20 minutes.
 
 ### Editable instructions
 

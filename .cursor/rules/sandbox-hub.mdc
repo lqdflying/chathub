@@ -6,12 +6,12 @@ alwaysApply: false
 
 # Sandbox Hub
 
-Several purpose-built sandboxes, defined by the **operator** in
-`SANDBOX_PROFILES_FILE`, each its own tool with its own instruction and
-container. Users only turn them on or off (`/sandbox`); agents opt in from the
-tool picker. Admins listed in `SANDBOX_HUB_ADMINS` can edit each profile's
-instruction for every user. Maintainer doc: `openwiki/architecture/sandbox.md`
-(Sandbox Hub profiles, Editable instructions).
+Several purpose-built sandboxes, each its own tool with its own instruction and
+container. Servers stay in `SANDBOX_PROFILES_FILE`. Users only turn profiles on
+or off (`/sandbox`); agents opt in from the tool picker. Admins listed in
+`SANDBOX_HUB_ADMINS` add, edit, order, and delete profiles, prepare images, and
+edit each profile's instruction for every user. Maintainer doc:
+`openwiki/architecture/sandbox.md` (Sandbox Hub profiles, Editable instructions).
 
 ## Invariants (keep)
 
@@ -28,8 +28,9 @@ instruction for every user. Maintainer doc: `openwiki/architecture/sandbox.md`
   it changes prompt bytes for every existing agent.
 - **One gate:** every call goes through `resolveSandboxProfileForUser`. Do not
   add a path that invokes the provider without it.
-- **Server details never reach the browser:** the Hub DTO has no URL, key, or
-  image. Keys come from `apiKeyEnv`; a literal key in the file is rejected.
+- **Server details never reach the browser:** the user profile list has no URL,
+  key, or image. The admin editor includes the image name. Keys come from
+  `apiKeyEnv`; a literal key in the file is rejected.
 - **Profiles come from the database.** Read them with the async
   `getSandboxProfileCatalog(db)` (`profiles/hub.ts`); `getSandboxFileCatalog()`
   is only servers, the import source, and the missing-table fallback. Import
