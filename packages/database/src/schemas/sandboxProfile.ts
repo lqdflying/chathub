@@ -29,3 +29,21 @@ export const userSandboxProfiles = pgTable(
 
 export type UserSandboxProfileItem = typeof userSandboxProfiles.$inferSelect;
 export type NewUserSandboxProfileItem = typeof userSandboxProfiles.$inferInsert;
+
+/**
+ * Sandbox Hub: an admin-edited model instruction for a profile, shared by every
+ * user. A row exists only after an edit; without one the profile's starting
+ * instruction (the profiles file, or the built-in Sandbox text for `general`)
+ * applies. Reset deletes the row.
+ */
+export const sandboxProfileInstructions = pgTable('sandbox_profile_instructions', {
+  profileId: text('profile_id').primaryKey(),
+  instruction: text('instruction').notNull(),
+  updatedBy: text('updated_by').references(() => users.id, { onDelete: 'set null' }),
+  accessedAt: timestamps.accessedAt,
+  createdAt: timestamps.createdAt,
+  updatedAt: timestamps.updatedAt,
+});
+
+export type SandboxProfileInstructionItem = typeof sandboxProfileInstructions.$inferSelect;
+export type NewSandboxProfileInstructionItem = typeof sandboxProfileInstructions.$inferInsert;

@@ -455,6 +455,13 @@
       "when": 1788330000000,
       "tag": "0064_user_sandbox_profiles",
       "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1788340000000,
+      "tag": "0065_sandbox_profile_instructions",
+      "breakpoints": true
     }
   ],
   "version": "6"
