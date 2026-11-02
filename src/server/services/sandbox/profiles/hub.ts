@@ -1,9 +1,6 @@
 import type { LobeChatDatabase } from '@lobechat/database';
 
-import {
-  SandboxHubProfileModel,
-  type SandboxHubProfileSettings,
-} from '@/database/models/sandboxHubProfile';
+import { SandboxHubProfileModel } from '@/database/models/sandboxHubProfile';
 import type { SandboxHubProfileRow } from '@/database/schemas';
 import { DEFAULT_SANDBOX_PROFILE_ID } from '@/tools/sandbox/const';
 
@@ -25,8 +22,28 @@ import {
 
 const MISSING_HUB_TABLE = /relation "sandbox_hub_profiles" does not exist/i;
 
-/** The settings columns of a Hub profile row. */
-export type SandboxHubProfileFields = Omit<SandboxHubProfileSettings, 'id'> & { id: string };
+/** The settings columns of a Hub profile row, every one present (null = inherit). */
+export type SandboxHubProfileFields = Pick<
+  SandboxHubProfileRow,
+  | 'avatar'
+  | 'cpu'
+  | 'defaultEnabled'
+  | 'description'
+  | 'egress'
+  | 'id'
+  | 'image'
+  | 'instructionBase'
+  | 'instructionText'
+  | 'jobMaxRuntimeMs'
+  | 'memory'
+  | 'name'
+  | 'readyTimeoutMs'
+  | 'serverId'
+  | 'sessionIdleTimeoutMs'
+  | 'sessionMaxLifetimeMs'
+>;
+
+type HubRowFields = SandboxHubProfileFields;
 
 /** A file (or OPENSANDBOX_*) profile as a Hub row; unset fields stay null and keep inheriting. */
 export const seedToHubSettings = ({
@@ -50,26 +67,6 @@ export const seedToHubSettings = ({
   sessionIdleTimeoutMs: config.sessionIdleTimeoutMs ?? null,
   sessionMaxLifetimeMs: config.sessionMaxLifetimeMs ?? null,
 });
-
-type HubRowFields = Pick<
-  SandboxHubProfileRow,
-  | 'avatar'
-  | 'cpu'
-  | 'defaultEnabled'
-  | 'description'
-  | 'egress'
-  | 'id'
-  | 'image'
-  | 'instructionBase'
-  | 'instructionText'
-  | 'jobMaxRuntimeMs'
-  | 'memory'
-  | 'name'
-  | 'readyTimeoutMs'
-  | 'serverId'
-  | 'sessionIdleTimeoutMs'
-  | 'sessionMaxLifetimeMs'
->;
 
 /** A stored setting that is set (not null, which means "inherit"). */
 const isSet = <T>(value: T | null | undefined): value is T => value !== null && value !== undefined;
