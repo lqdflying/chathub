@@ -10,6 +10,7 @@ import { sandboxHubService } from '@/services/sandboxHub';
 import { useToolStore } from '@/store/tool';
 import { useUserStore } from '@/store/user';
 
+import JobList from './JobList';
 import ProfileCard, { type InstructionAccess } from './ProfileCard';
 
 const useStyles = createStyles(({ css, token }) => ({
@@ -108,6 +109,8 @@ const SandboxHub = memo(() => {
           profile={profile}
         />
       ))}
+
+      {scope && profiles.length > 0 && <JobList profiles={profiles} scope={scope} />}
     </Flexbox>
   );
 });

@@ -7,6 +7,26 @@
     "unauthorized": "API key rejected",
     "unreachable": "Unreachable"
   },
+  "jobs": {
+    "cancel": "Cancel job",
+    "cancelConfirm": "Stop this job? The output and files it produced so far are kept.",
+    "cancelFailed": "Could not cancel the job. Please try again later.",
+    "description": "Long tasks the assistant started with startJob. When one ends its result is saved; ask the assistant in that conversation to read it.",
+    "duration": "Ran {{time}}",
+    "exitCode": "Exit code {{code}}",
+    "loadFailed": "Could not load background jobs. Please try again later.",
+    "refresh": "Refresh",
+    "startedAt": "Started {{time}}",
+    "status": {
+      "cancelled": "Cancelled",
+      "failed": "Failed",
+      "lost": "Lost",
+      "running": "Running",
+      "succeeded": "Succeeded",
+      "timed_out": "Timed out"
+    },
+    "title": "Background jobs"
+  },
   "loadFailed": "Could not load the sandboxes. Try again later.",
   "loading": "Loading sandboxes…",
   "profile": {

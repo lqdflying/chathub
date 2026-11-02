@@ -7,6 +7,26 @@
     "unauthorized": "API Key 被拒绝",
     "unreachable": "无法连接"
   },
+  "jobs": {
+    "cancel": "取消任务",
+    "cancelConfirm": "停止这个任务？已产生的输出和文件会保留。",
+    "cancelFailed": "无法取消任务，请稍后重试。",
+    "description": "助手用 startJob 启动的长时间任务。结束后结果会保存，可在原对话中让助手读取。",
+    "duration": "用时 {{time}}",
+    "exitCode": "退出码 {{code}}",
+    "loadFailed": "无法读取后台任务，请稍后重试。",
+    "refresh": "刷新",
+    "startedAt": "开始于 {{time}}",
+    "status": {
+      "cancelled": "已取消",
+      "failed": "失败",
+      "lost": "已丢失",
+      "running": "运行中",
+      "succeeded": "已完成",
+      "timed_out": "已超时"
+    },
+    "title": "后台任务"
+  },
   "loadFailed": "无法读取沙盒列表，请稍后重试。",
   "loading": "正在读取沙盒…",
   "profile": {

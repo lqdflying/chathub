@@ -1,5 +1,6 @@
 import type {
   SandboxHubAccess,
+  SandboxJobItem,
   SandboxProfileItem,
   SandboxServerHealth,
 } from '@lobechat/types';
@@ -9,6 +10,12 @@ import { lambdaClient } from '@/libs/trpc/client';
 class SandboxHubService {
   access = (accountScope: string): Promise<SandboxHubAccess> =>
     lambdaClient.sandboxHub.access.query({ accountScope });
+
+  cancelJob = (accountScope: string, jobId: string): Promise<SandboxJobItem[]> =>
+    lambdaClient.sandboxHub.cancelJob.mutate({ accountScope, jobId });
+
+  listJobs = (accountScope: string): Promise<SandboxJobItem[]> =>
+    lambdaClient.sandboxHub.listJobs.query({ accountScope });
 
   listProfiles = (accountScope: string): Promise<SandboxProfileItem[]> =>
     lambdaClient.sandboxHub.listProfiles.query({ accountScope });

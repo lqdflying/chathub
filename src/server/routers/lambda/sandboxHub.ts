@@ -9,6 +9,7 @@ import {
   hasSandboxHubAdmins,
   isSandboxHubAdmin,
 } from '@/server/services/sandbox/profiles/admins';
+import { cancelSandboxJob, listSandboxJobs } from '@/server/services/sandbox/jobs/service';
 import { getUserSandboxProfiles } from '@/server/services/sandbox/profiles/catalog';
 import { findSandboxProfile } from '@/server/services/sandbox/profiles/load';
 import { getSandboxServerHealth } from '@/server/services/sandbox/profiles/status';
@@ -70,6 +71,27 @@ export const sandboxHubRouter = router({
       adminsConfigured: hasSandboxHubAdmins(),
       canEditInstructions: await isSandboxHubAdmin(ctx.serverDB, ctx.userId),
     };
+  }),
+
+  /** Stops one of this user's running background jobs and returns the updated job list. */
+  cancelJob: sandboxHubProcedure
+    .input(accountScopeInput.extend({ jobId: z.string().trim().min(1).max(64) }))
+    .mutation(async ({ ctx, input }) => {
+      assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
+      const job = await cancelSandboxJob({
+        db: ctx.serverDB,
+        jobId: input.jobId,
+        reason: 'Cancelled from Sandbox Hub.',
+        userId: ctx.userId,
+      });
+      if (!job) throw new TRPCError({ code: 'NOT_FOUND', message: 'Sandbox job not found' });
+      return listSandboxJobs({ db: ctx.serverDB, userId: ctx.userId });
+    }),
+
+  /** This user's recent background jobs across conversations, newest first. */
+  listJobs: sandboxHubProcedure.input(accountScopeInput).query(async ({ ctx, input }) => {
+    assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
+    return listSandboxJobs({ db: ctx.serverDB, userId: ctx.userId });
   }),
 
   /** Operator profiles merged with this user's Hub choices. */

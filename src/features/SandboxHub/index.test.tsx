@@ -8,7 +8,9 @@ vi.stubGlobal('React', React);
 
 const mocks = vi.hoisted(() => ({
   access: vi.fn(),
+  cancelJob: vi.fn(),
   initFailed: false,
+  listJobs: vi.fn(),
   load: vi.fn(),
   loadedScope: 'user:u1' as string | undefined,
   profiles: [] as SandboxProfileItem[],
@@ -60,7 +62,12 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 vi.mock('@/services/sandboxHub', () => ({
-  sandboxHubService: { access: mocks.access, serverStatus: mocks.serverStatus },
+  sandboxHubService: {
+    access: mocks.access,
+    cancelJob: mocks.cancelJob,
+    listJobs: mocks.listJobs,
+    serverStatus: mocks.serverStatus,
+  },
 }));
 vi.mock('@/store/user', () => ({
   useUserStore: (selector: (state: any) => unknown) =>
@@ -112,6 +119,7 @@ describe('SandboxHub', () => {
     mocks.load.mockResolvedValue(undefined);
     mocks.serverStatus.mockResolvedValue({ remote: 'ok' });
     mocks.access.mockResolvedValue({ adminsConfigured: true, canEditInstructions: false });
+    mocks.listJobs.mockResolvedValue([]);
     mocks.setEnabled.mockResolvedValue(undefined);
     mocks.setInstruction.mockResolvedValue(undefined);
     mocks.resetInstruction.mockResolvedValue(undefined);
@@ -283,6 +291,74 @@ describe('SandboxHub', () => {
         fireEvent.click(screen.getByText('confirm:profile.instruction.reset'));
       });
       expect(mocks.resetInstruction).toHaveBeenCalledWith('data');
+    });
+  });
+
+  describe('background jobs', () => {
+    const running = {
+      command: 'python train.py',
+      id: 'sjob_1',
+      profileId: 'data',
+      startedAt: '2026-11-02T08:00:00.000Z',
+      status: 'running' as const,
+    };
+
+    it('stays hidden until the user has a job', async () => {
+      mocks.profiles = [profile('data')];
+      await act(async () => {
+        render(<SandboxHub />);
+      });
+      expect(mocks.listJobs).toHaveBeenCalledWith('user:u1');
+      expect(screen.queryByText('jobs.title')).toBeNull();
+    });
+
+    it('lists jobs with their profile and cancels a running one', async () => {
+      mocks.profiles = [profile('data')];
+      mocks.listJobs.mockResolvedValue([
+        running,
+        {
+          command: 'make',
+          exitCode: 0,
+          finishedAt: '2026-11-02T07:30:00.000Z',
+          id: 'sjob_0',
+          profileId: 'data',
+          startedAt: '2026-11-02T07:00:00.000Z',
+          status: 'succeeded' as const,
+        },
+      ]);
+      mocks.cancelJob.mockResolvedValue([{ ...running, status: 'cancelled' }]);
+      await act(async () => {
+        render(<SandboxHub />);
+      });
+
+      expect(screen.getByText('jobs.title')).toBeTruthy();
+      expect(screen.getByText('python train.py')).toBeTruthy();
+      expect(screen.getByText('jobs.status.running')).toBeTruthy();
+      expect(screen.getByText('jobs.status.succeeded')).toBeTruthy();
+      expect(screen.getAllByText('data name').length).toBeGreaterThan(1);
+      expect(screen.getByText(/jobs\.exitCode/).textContent).toContain('"code":0');
+      // Only the running job can be cancelled.
+      expect(screen.getAllByText('confirm:jobs.cancel')).toHaveLength(1);
+
+      await act(async () => {
+        fireEvent.click(screen.getByText('confirm:jobs.cancel'));
+      });
+      expect(mocks.cancelJob).toHaveBeenCalledWith('user:u1', 'sjob_1');
+      expect(screen.getByText('jobs.status.cancelled')).toBeTruthy();
+      expect(screen.queryByText('confirm:jobs.cancel')).toBeNull();
+    });
+
+    it('says when cancelling fails', async () => {
+      mocks.profiles = [profile('data')];
+      mocks.listJobs.mockResolvedValue([running]);
+      mocks.cancelJob.mockRejectedValue(new Error('NOT_FOUND'));
+      await act(async () => {
+        render(<SandboxHub />);
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByText('confirm:jobs.cancel'));
+      });
+      expect(screen.getByText('jobs.cancelFailed')).toBeTruthy();
     });
   });
 });

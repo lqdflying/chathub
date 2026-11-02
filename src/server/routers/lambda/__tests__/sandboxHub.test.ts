@@ -5,11 +5,13 @@ import { getServerDB } from '@/database/core/db-adaptor';
 import { sandboxHubRouter } from '../sandboxHub';
 
 const mocks = vi.hoisted(() => ({
+  cancelJob: vi.fn(),
   deleteInstruction: vi.fn(),
   findProfile: vi.fn(),
   health: vi.fn(),
   isAdmin: vi.fn(),
   list: vi.fn(),
+  listJobs: vi.fn(),
   setEnabled: vi.fn(),
   upsertInstruction: vi.fn(),
 }));
@@ -33,6 +35,10 @@ vi.mock('@/database/models/sandboxProfileInstruction', () => ({
 vi.mock('@/server/services/sandbox/profiles/admins', () => ({
   hasSandboxHubAdmins: () => true,
   isSandboxHubAdmin: mocks.isAdmin,
+}));
+vi.mock('@/server/services/sandbox/jobs/service', () => ({
+  cancelSandboxJob: mocks.cancelJob,
+  listSandboxJobs: mocks.listJobs,
 }));
 vi.mock('@/server/services/sandbox/profiles/catalog', () => ({
   getUserSandboxProfiles: mocks.list,
@@ -187,6 +193,44 @@ describe('sandboxHubRouter', () => {
         }),
       ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
       expect(mocks.upsertInstruction).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('jobs', () => {
+    const scope = { accountScope: 'user:account-a' };
+    const jobs = [{ id: 'sjob_1', status: 'running' }];
+
+    it('lists and cancels only the caller jobs', async () => {
+      mocks.listJobs.mockResolvedValue(jobs);
+      mocks.cancelJob.mockResolvedValue({ id: 'sjob_1', status: 'cancelled' });
+      const api = caller('user:account-a');
+
+      await expect(api.listJobs(scope)).resolves.toEqual(jobs);
+      expect(mocks.listJobs).toHaveBeenCalledWith({ db: {}, userId: 'account-a' });
+
+      await expect(api.cancelJob({ ...scope, jobId: 'sjob_1' })).resolves.toEqual(jobs);
+      expect(mocks.cancelJob).toHaveBeenCalledWith({
+        db: {},
+        jobId: 'sjob_1',
+        reason: 'Cancelled from Sandbox Hub.',
+        userId: 'account-a',
+      });
+
+      mocks.cancelJob.mockResolvedValue(undefined);
+      await expect(api.cancelJob({ ...scope, jobId: 'sjob_x' })).rejects.toMatchObject({
+        code: 'NOT_FOUND',
+      });
+    });
+
+    it('checks the account scope first', async () => {
+      await expect(
+        caller('user:account-b').cancelJob({ ...scope, jobId: 'sjob_1' }),
+      ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      await expect(caller(undefined).listJobs(scope)).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+      });
+      expect(mocks.cancelJob).not.toHaveBeenCalled();
+      expect(mocks.listJobs).not.toHaveBeenCalled();
     });
   });
 });
