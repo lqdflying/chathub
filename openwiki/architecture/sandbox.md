@@ -193,7 +193,9 @@ release or a restart, so it can follow sandbox image updates.
   Edits are rare, so the prefix stays stable in practice.
 - **Template variables.** Instructions go through the chat template step, so
   `{{date}}` and similar placeholders are filled in. The editor warns when
-  the text contains `{{`.
+  the text contains `{{`. A placeholder that changes (`{{date}}`, and
+  `{{time}}` on providers that expand it) changes the cached prefix on its
+  own, not only the one miss from the save.
 - **Code changes to the starting text** (for example `systemRole.ts`) do not
   reach a deployment whose admin saved an edit of that profile. Release notes
   that change the built-in instruction should tell admins to compare and
