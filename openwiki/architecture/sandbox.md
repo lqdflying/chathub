@@ -115,11 +115,12 @@ conversation. Users turn profiles on or off in the **Sandbox Hub**
 | Piece | Where |
 | --- | --- |
 | Operator config | `SANDBOX_PROFILES_FILE` (YAML or JSON), loaded by `src/server/services/sandbox/profiles/load.ts` (zod schema in `schema.ts`) |
-| Instruction composition | `profiles/compose.ts`, once at load |
+| Instruction composition | `profiles/compose.ts`, once at load (the starting text) |
+| Edited instructions | table `sandbox_profile_instructions` (migration 0065), `SandboxProfileInstructionModel`; admins from `SANDBOX_HUB_ADMINS` (`profiles/admins.ts`) |
 | Per-user on/off | table `user_sandbox_profiles` (migration 0064), `SandboxProfileModel` |
 | Catalog + gate | `profiles/catalog.ts`: `getUserSandboxProfiles`, `getUserSandboxManifests`, `resolveSandboxProfileForUser` |
 | Server status | `profiles/status.ts` + `OpenSandboxClient.health` (30 s cache) |
-| Hub API | tRPC `sandboxHub.listProfiles` / `setProfileEnabled` / `serverStatus` (account-scope checked) |
+| Hub API | tRPC `sandboxHub.listProfiles` / `setProfileEnabled` / `serverStatus` / `access` / `setInstruction` / `resetInstruction` (account-scope checked; the instruction writes are admin only) |
 | Browser tools | tool-store slice `src/store/tool/slices/sandbox` |
 | Hub page | `src/app/[variants]/(main)/sandbox`, `src/features/SandboxHub` |
 
@@ -158,6 +159,46 @@ every profile except `general`, so each profile has its own sandbox and lock
 in a conversation and profiles never evict each other. New sandboxes carry a
 `chathub-profile` label; reuse never requires it.
 
+### Editable instructions
+
+Each profile's instruction can be changed at runtime from the Hub, without a
+release or a restart, so it can follow sandbox image updates.
+
+- **Starting text.** What `compose.ts` builds at load: the built-in
+  `DEFAULT_SANDBOX_INSTRUCTION` for `general`, or the profile file's text.
+  It applies while no edit is saved, so a deployment without edits sends the
+  same prompt bytes as before.
+- **Edits are shared.** Admins save a full replacement text per profile in
+  `sandbox_profile_instructions` (one row per profile id, `updated_by` set to
+  null if that user is deleted). It applies to every user at once. Editing
+  `general` does not change other profiles, even those with `base: general`:
+  each saved text is complete on its own.
+- **Admins** are listed in `SANDBOX_HUB_ADMINS`: comma-separated user ids or
+  emails (emails match case-insensitively against the account email). Unset
+  means nobody can edit, and the Hub shows instructions read-only with a hint
+  naming the variable. The table is not user-scoped, so the router checks
+  `isSandboxHubAdmin` on every write.
+- **Writes.** `setInstruction` needs a configured profile and 1 B to 32 KiB of
+  non-blank text; saving the starting text again deletes the row (the same
+  as `resetInstruction`). Both return the updated profile list, which the
+  tool store applies to its Sandbox manifests.
+- **Reads.** `getUserSandboxProfiles` (Hub list, browser tools) and
+  `getUserSandboxManifests` (durable worker) read all saved texts with one
+  query per request. A missing table (migration not run) means no edits; any
+  other read error fails, so an edited text is never silently swapped back.
+  An open tab reloads its list before a browser-path send once it is older
+  than 5 minutes; durable sends read the database every time.
+- **Prompt cache.** The instruction is part of the system prompt, so an edit
+  costs one expected cache miss per conversation that uses that profile.
+  Edits are rare, so the prefix stays stable in practice.
+- **Template variables.** Instructions go through the chat template step, so
+  `{{date}}` and similar placeholders are filled in. The editor warns when
+  the text contains `{{`.
+- **Code changes to the starting text** (for example `systemRole.ts`) do not
+  reach a deployment whose admin saved an edit of that profile. Release notes
+  that change the built-in instruction should tell admins to compare and
+  reset or merge.
+
 ### Profiles file
 
 ```yaml
@@ -168,7 +209,7 @@ servers:                     # optional; "default" falls back to OPENSANDBOX_SER
     url: https://sandbox.example.com
     apiKeyEnv: REMOTE_SANDBOX_API_KEY   # the key itself stays in the environment
 profiles:                    # 1..16, in display and prompt order
-  - id: general              # keeps lobe-sandbox and the built-in instruction
+  - id: general              # keeps lobe-sandbox; the built-in instruction is its starting text
     name: Sandbox
     description: General Linux sandbox
   - id: data
@@ -193,7 +234,8 @@ implicit `default` server uses that key); a server whose `apiKeyEnv` names an
 unset variable is `misconfigured` and its profiles cannot run; **any** error
 configures no profiles at all (logged once) instead of silently running the
 rest; instructions are capped at 32 KiB and composed once per process
-(restart to apply file edits).
+(restart to apply file edits). A saved Hub edit overrides the file text until
+an admin resets it.
 Server-wide OpenSandbox settings (gVisor/Kata runtime, egress mode,
 `network_mode`, max timeout) need separate servers, so put such profiles on
 their own server entry.
@@ -627,7 +669,7 @@ operator-specific jobs there.
 | Standing specialty | That assistant’s system prompt (Agent Setting) |
 | One-off task | User message or a Skill — topics have **no** system-prompt field |
 | ChatHub LLM API keys | Stay on the ChatHub container; they are **not** injected into the sandbox |
-| A purpose-built sandbox (different image, network, limits) | A Sandbox Hub profile. Its `instruction` (file or text) is that profile's own system role; with `base: general` it follows the built-in contract. It is injected only while that profile's tool is enabled |
+| A purpose-built sandbox (different image, network, limits) | A Sandbox Hub profile. Its `instruction` (file or text) is that profile's own system role; with `base: general` it follows the built-in contract. It is injected only while that profile's tool is enabled. Sandbox Hub admins (`SANDBOX_HUB_ADMINS`) can replace it at runtime |
 
 Agent rule: `.cursor/rules/sandbox-prompt.mdc`.
 
