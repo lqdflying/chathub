@@ -26,6 +26,19 @@ vi.mock('@/database/models/sandboxProfile', () => ({
     list = async () => new Map<string, boolean>();
   },
 }));
+// An in-memory Sandbox Hub table, so the env profile is imported as in production.
+vi.mock('@/database/models/sandboxHubProfile', () => {
+  let rows: Array<Record<string, unknown>> = [];
+  return {
+    SandboxHubProfileModel: class {
+      list = async () => rows;
+      seed = async (seeds: Array<Record<string, unknown>>) => {
+        rows = seeds.map((seed, position) => ({ ...seed, position }));
+        return seeds.length;
+      };
+    },
+  };
+});
 vi.mock('@/database/models/conversationGeneration', () => ({
   ConversationGenerationModel: class {
     claimStep = generationStepMocks.claimStep;

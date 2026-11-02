@@ -1,4 +1,4 @@
-import { getSandboxProfileCatalog, isSandboxProfileUsable } from './profiles/load';
+import { getSandboxFileCatalog } from './profiles/load';
 import type { ResolvedSandboxProfile, ResolvedSandboxServer } from './profiles/schema';
 import { OpenSandboxProvider } from './providers/opensandbox/provider';
 import type { SandboxProvider } from './types';
@@ -28,6 +28,9 @@ export const getSandboxProvider = (
   });
 };
 
-/** At least one Sandbox Hub profile can run (its server has the credentials it declares). */
+/**
+ * At least one sandbox server has the credentials it declares. Profiles live
+ * in Sandbox Hub, so this stays true with none yet: admins add them there.
+ */
 export const isSandboxConfigured = () =>
-  getSandboxProfileCatalog().profiles.some((profile) => isSandboxProfileUsable(profile));
+  getSandboxFileCatalog().servers.some((server) => server.status === 'ok');

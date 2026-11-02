@@ -15,7 +15,8 @@ import { SANDBOX_CONTROL_DIR, sandboxToolIdentifier } from '@/tools/sandbox/cons
 import { persistSandboxOutputFiles } from '../conversationFiles';
 import { loadSandboxFiles } from '../exportFiles';
 import { resolveSandboxProfileForUser } from '../profiles/catalog';
-import { findSandboxProfile, findSandboxServer } from '../profiles/load';
+import { findSandboxProfile } from '../profiles/hub';
+import { findSandboxServer } from '../profiles/load';
 import { getSandboxProvider } from '../registry';
 import { SandboxError, SandboxRequestError, type SandboxWorkspace } from '../types';
 import { SANDBOX_JOB_CHECK_BUDGET_MS } from './constants';
@@ -295,7 +296,7 @@ const inJobSandbox = async <T>({
     identifier: sandboxToolIdentifier(row.profileId),
     userId,
   });
-  const profile = gate.ok ? gate.profile : findSandboxProfile(row.profileId);
+  const profile = gate.ok ? gate.profile : await findSandboxProfile(db, row.profileId);
   const server = gate.ok ? gate.server : profile && findSandboxServer(profile.serverId);
   if (!profile || !server) {
     return {

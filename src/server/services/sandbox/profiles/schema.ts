@@ -35,6 +35,22 @@ export const sandboxServerConfigSchema = z
      * another host (for example behind a TLS reverse proxy). Default `server`.
      */
     proxyEndpoint: z.enum(['baseUrl', 'server']).default('server'),
+    /**
+     * Private-registry logins for images this server pulls, matched by the
+     * image's registry host. Credentials stay in the environment.
+     */
+    registries: z
+      .array(
+        z
+          .object({
+            host: z.string().trim().min(1).max(253),
+            passwordEnv: z.string().regex(ENV_NAME, 'passwordEnv must be an environment variable name'),
+            usernameEnv: z.string().regex(ENV_NAME, 'usernameEnv must be an environment variable name'),
+          })
+          .strict(),
+      )
+      .max(16)
+      .optional(),
     url: z.string().url(),
   })
   .strict();
@@ -87,7 +103,11 @@ export const sandboxProfileConfigSchema = z
 
 export const sandboxProfilesFileSchema = z
   .object({
-    profiles: z.array(sandboxProfileConfigSchema).min(1).max(SANDBOX_PROFILES_MAX),
+    /**
+     * Imported into Sandbox Hub once, while the Hub has no profiles; after
+     * that the Hub owns them. A file may list only servers.
+     */
+    profiles: z.array(sandboxProfileConfigSchema).max(SANDBOX_PROFILES_MAX).default([]),
     servers: z.array(sandboxServerConfigSchema).max(16).optional(),
     version: z.literal(1),
   })
@@ -124,11 +144,19 @@ export type SandboxProfilesFile = z.infer<typeof sandboxProfilesFileSchema>;
 export type SandboxEgress =
   { mode: 'allowlist'; targets: string[] } | { mode: 'none' } | { mode: 'open' };
 
+export interface SandboxRegistryLogin {
+  host: string;
+  password: string;
+  username: string;
+}
+
 export interface ResolvedSandboxServer {
   apiKey?: string;
   id: string;
   name: string;
   proxyEndpoint: 'baseUrl' | 'server';
+  /** Registry logins whose variables are set; omitted when there are none. */
+  registries?: SandboxRegistryLogin[];
   /** `misconfigured` when `apiKeyEnv` names a variable that is not set. */
   status: 'misconfigured' | 'ok';
   url: string;
@@ -155,13 +183,27 @@ export interface ResolvedSandboxProfile {
   sessionMaxLifetimeMs: number;
 }
 
+/** A profile as the file (or OPENSANDBOX_*) defines it, before defaults are applied. */
+export interface SandboxProfileSeed {
+  config: SandboxProfileConfig;
+  /** Instruction text, already read from `instruction.file` when the file names one. */
+  text?: string;
+}
+
 export interface SandboxProfileCatalog {
   /** Human-readable load problems, already logged once. */
   errors: string[];
   profiles: ResolvedSandboxProfile[];
+  /** The file or env profiles in raw form, imported into an empty Sandbox Hub. */
+  seeds: SandboxProfileSeed[];
   servers: ResolvedSandboxServer[];
-  /** `env`: synthesized from OPENSANDBOX_*; `file`: SANDBOX_PROFILES_FILE; `none`: nothing usable. */
-  source: 'env' | 'file' | 'none';
+  /**
+   * `env`: synthesized from OPENSANDBOX_*; `file`: SANDBOX_PROFILES_FILE;
+   * `hub`: profiles managed in Sandbox Hub; `none`: nothing usable.
+   */
+  source: 'env' | 'file' | 'hub' | 'none';
+  /** Problems that do not stop loading (an unset registry variable), logged once. */
+  warnings: string[];
 }
 
 export const isDefaultSandboxProfile = (profile: Pick<ResolvedSandboxProfile, 'id'>) =>

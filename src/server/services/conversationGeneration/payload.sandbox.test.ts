@@ -38,12 +38,17 @@ vi.mock('@/database/models/sandboxProfileInstruction', () => ({
     list = async () => state.instructions;
   },
 }));
+vi.mock('@/server/services/sandbox/profiles/hub', () => ({
+  findSandboxProfile: async (_db: unknown, id: string) =>
+    state.catalog.profiles.find((profile) => profile.id === id),
+  getSandboxProfileCatalog: async () => state.catalog,
+}));
 vi.mock('@/server/services/sandbox/profiles/load', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/server/services/sandbox/profiles/load')>();
   return {
     ...actual,
     findSandboxServer: (id: string) => state.catalog.servers.find((server) => server.id === id),
-    getSandboxProfileCatalog: () => state.catalog,
+    getSandboxFileCatalog: () => state.catalog,
     isSandboxProfileUsable: (profile: { serverId: string }) =>
       state.catalog.servers.find((server) => server.id === profile.serverId)?.status === 'ok',
   };

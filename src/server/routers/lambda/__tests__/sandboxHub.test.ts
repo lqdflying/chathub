@@ -43,8 +43,8 @@ vi.mock('@/server/services/sandbox/jobs/service', () => ({
 vi.mock('@/server/services/sandbox/profiles/catalog', () => ({
   getUserSandboxProfiles: mocks.list,
 }));
-vi.mock('@/server/services/sandbox/profiles/load', () => ({
-  findSandboxProfile: mocks.findProfile,
+vi.mock('@/server/services/sandbox/profiles/hub', () => ({
+  findSandboxProfile: async (_db: unknown, id: string) => mocks.findProfile(id),
 }));
 vi.mock('@/server/services/sandbox/profiles/status', () => ({
   getSandboxServerHealth: mocks.health,

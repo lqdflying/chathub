@@ -9,7 +9,7 @@ vi.mock('../../providers/opensandbox/client', () => ({
   },
 }));
 vi.mock('../load', () => ({
-  getSandboxProfileCatalog: () => ({
+  getSandboxFileCatalog: () => ({
     errors: [],
     profiles: [],
     servers: [

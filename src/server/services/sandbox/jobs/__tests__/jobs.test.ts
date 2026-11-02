@@ -58,11 +58,13 @@ vi.mock('@/database/models/sandboxJob', () => ({
 vi.mock('../../profiles/catalog', () => ({
   resolveSandboxProfileForUser: async () => state.gate,
 }));
-vi.mock('../../profiles/load', () => ({
-  findSandboxProfile: (id: string) =>
+vi.mock('../../profiles/hub', () => ({
+  findSandboxProfile: async (_db: unknown, id: string) =>
     state.profileExists
       ? { id, serverId: 'default', sessionIdleTimeoutMs: state.idleMs }
       : undefined,
+}));
+vi.mock('../../profiles/load', () => ({
   findSandboxServer: (id: string) => ({ id, status: 'ok' }),
 }));
 vi.mock('../../registry', () => ({

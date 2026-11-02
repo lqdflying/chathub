@@ -11,7 +11,7 @@ import {
 } from '@/server/services/sandbox/profiles/admins';
 import { cancelSandboxJob, listSandboxJobs } from '@/server/services/sandbox/jobs/service';
 import { getUserSandboxProfiles } from '@/server/services/sandbox/profiles/catalog';
-import { findSandboxProfile } from '@/server/services/sandbox/profiles/load';
+import { findSandboxProfile } from '@/server/services/sandbox/profiles/hub';
 import { getSandboxServerHealth } from '@/server/services/sandbox/profiles/status';
 import { SANDBOX_INSTRUCTION_MAX_BYTES, isValidSandboxProfileId } from '@/tools/sandbox/const';
 
@@ -45,8 +45,11 @@ const instructionInput = z
     message: `Instruction is larger than ${SANDBOX_INSTRUCTION_MAX_BYTES} bytes`,
   });
 
-const findProfileOrThrow = (profileId: string) => {
-  const profile = findSandboxProfile(profileId);
+const findProfileOrThrow = async (
+  db: Parameters<typeof findSandboxProfile>[0],
+  profileId: string,
+) => {
+  const profile = await findSandboxProfile(db, profileId);
   if (!profile) throw new TRPCError({ code: 'NOT_FOUND', message: 'Sandbox profile not found' });
   return profile;
 };
@@ -106,7 +109,7 @@ export const sandboxHubRouter = router({
     .mutation(async ({ ctx, input }) => {
       assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
       await assertSandboxHubAdmin(ctx);
-      findProfileOrThrow(input.profileId);
+      await findProfileOrThrow(ctx.serverDB, input.profileId);
       await new SandboxProfileInstructionModel(ctx.serverDB).delete(input.profileId);
       return getUserSandboxProfiles(ctx.serverDB, ctx.userId);
     }),
@@ -126,7 +129,7 @@ export const sandboxHubRouter = router({
     .mutation(async ({ ctx, input }) => {
       assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
       await assertSandboxHubAdmin(ctx);
-      const profile = findProfileOrThrow(input.profileId);
+      const profile = await findProfileOrThrow(ctx.serverDB, input.profileId);
       const model = new SandboxProfileInstructionModel(ctx.serverDB);
       if (input.instruction === profile.instruction) {
         await model.delete(input.profileId);
@@ -149,7 +152,7 @@ export const sandboxHubRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
-      findProfileOrThrow(input.profileId);
+      await findProfileOrThrow(ctx.serverDB, input.profileId);
       await new SandboxProfileModel(ctx.serverDB, ctx.userId).setEnabled(
         input.profileId,
         input.enabled,

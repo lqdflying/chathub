@@ -1,7 +1,7 @@
 import type { SandboxServerHealth } from '@lobechat/types';
 
 import { OpenSandboxClient } from '../providers/opensandbox/client';
-import { getSandboxProfileCatalog } from './load';
+import { getSandboxFileCatalog } from './load';
 
 const HEALTH_TTL_MS = 30_000;
 const HEALTH_TIMEOUT_MS = 5000;
@@ -20,7 +20,7 @@ export const getSandboxServerHealth = async (
   now = Date.now(),
 ): Promise<Record<string, SandboxServerHealth>> => {
   const entries = await Promise.all(
-    getSandboxProfileCatalog().servers.map(async (server) => {
+    getSandboxFileCatalog().servers.map(async (server) => {
       if (server.status !== 'ok') return [server.id, 'misconfigured'] as const;
       const cacheKey = `${server.id}\u0000${server.url}`;
       const cached = healthCache.get(cacheKey);

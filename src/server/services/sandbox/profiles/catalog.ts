@@ -9,27 +9,13 @@ import {
 import { createSandboxProfileManifest } from '@/tools/sandbox';
 import { parseSandboxToolIdentifier } from '@/tools/sandbox/const';
 
-import { findSandboxServer, getSandboxProfileCatalog, isSandboxProfileUsable } from './load';
+import { getSandboxProfileCatalog } from './hub';
+import { findSandboxServer, isSandboxProfileUsable } from './load';
+import { isMissingTable } from './missingTable';
 import type { ResolvedSandboxProfile, ResolvedSandboxServer } from './schema';
 
 const MISSING_CHOICES_TABLE = /relation "user_sandbox_profiles" does not exist/i;
 const MISSING_INSTRUCTIONS_TABLE = /relation "sandbox_profile_instructions" does not exist/i;
-
-/** Postgres `undefined_table`, including when Drizzle wraps the driver error. */
-const isMissingTable = (error: unknown, pattern: RegExp) => {
-  const seen = new Set<unknown>();
-  let current: unknown = error;
-  while (current && typeof current === 'object' && !seen.has(current)) {
-    seen.add(current);
-    const record = current as { cause?: unknown; code?: unknown; message?: unknown };
-    if (record.code === '42P01') return true;
-    if (typeof record.message === 'string' && pattern.test(record.message)) {
-      return true;
-    }
-    current = record.cause;
-  }
-  return false;
-};
 
 const isMissingSandboxChoicesTable = (error: unknown) =>
   isMissingTable(error, MISSING_CHOICES_TABLE);
@@ -99,7 +85,7 @@ export const getUserSandboxProfiles = async (
   db: LobeChatDatabase,
   userId: string,
 ): Promise<SandboxProfileItem[]> => {
-  const { profiles } = getSandboxProfileCatalog();
+  const { profiles } = await getSandboxProfileCatalog(db);
   if (profiles.length === 0) return [];
   const [choices, instructions] = await Promise.all([
     readChoices(db, userId),
@@ -150,7 +136,7 @@ export const resolveSandboxProfileForUser = async ({
     return { message: `Unknown Sandbox tool "${identifier}".`, ok: false, reason: 'unknown' };
   }
 
-  const { profiles } = getSandboxProfileCatalog();
+  const { profiles } = await getSandboxProfileCatalog(db);
   const profile = profiles.find((item) => item.id === parsed.profileId);
   if (!profile) {
     return {
@@ -166,7 +152,9 @@ export const resolveSandboxProfileForUser = async ({
   const server = findSandboxServer(profile.serverId);
   if (!server || server.status !== 'ok') {
     return {
-      message: `The "${profile.name}" sandbox cannot run: its server "${profile.serverId}" is missing its API key.`,
+      message: server
+        ? `The "${profile.name}" sandbox cannot run: its server "${profile.serverId}" is missing its API key.`
+        : `The "${profile.name}" sandbox cannot run: its server "${profile.serverId}" is not configured on this server.`,
       ok: false,
       reason: 'not_configured',
     };

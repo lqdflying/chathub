@@ -48,23 +48,31 @@ const profile = (id: string, extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 
-vi.mock('../load', () => {
-  const servers = [
-    { apiKey: 'k', id: 'default', name: 'Default', status: 'ok', url: 'http://opensandbox:8090' },
-    { id: 'locked', name: 'Locked', status: 'misconfigured', url: 'https://locked.example' },
-  ];
-  const profiles = [
-    profile('general'),
-    profile('data'),
-    profile('vault', { defaultEnabled: true, serverId: 'locked' }),
-  ];
-  return {
-    findSandboxServer: (id: string) => servers.find((server) => server.id === id),
-    getSandboxProfileCatalog: () => ({ errors: [], profiles, servers, source: 'file' }),
-    isSandboxProfileUsable: (item: { serverId: string }) =>
-      servers.find((server) => server.id === item.serverId)?.status === 'ok',
-  };
-});
+const catalogServers = [
+  { apiKey: 'k', id: 'default', name: 'Default', status: 'ok', url: 'http://opensandbox:8090' },
+  { id: 'locked', name: 'Locked', status: 'misconfigured', url: 'https://locked.example' },
+];
+
+vi.mock('../load', () => ({
+  findSandboxServer: (id: string) => catalogServers.find((server) => server.id === id),
+  isSandboxProfileUsable: (item: { serverId: string }) =>
+    catalogServers.find((server) => server.id === item.serverId)?.status === 'ok',
+}));
+vi.mock('../hub', () => ({
+  getSandboxProfileCatalog: async () => ({
+    errors: [],
+    profiles: [
+      profile('general'),
+      profile('data'),
+      profile('vault', { defaultEnabled: true, serverId: 'locked' }),
+      profile('orphan', { defaultEnabled: true, serverId: 'gone' }),
+    ],
+    seeds: [],
+    servers: catalogServers,
+    source: 'hub',
+    warnings: [],
+  }),
+}));
 
 const {
   getUserEnabledSandboxProfiles,
@@ -115,7 +123,7 @@ describe('Sandbox Hub catalog', () => {
     });
 
     mocks.instructionError = new Error('relation "sandbox_profile_instructions" does not exist');
-    await expect(getUserSandboxProfiles(db, 'user-1')).resolves.toHaveLength(3);
+    await expect(getUserSandboxProfiles(db, 'user-1')).resolves.toHaveLength(4);
   });
 
   it('does not swap an edited instruction for the starting text when the read fails', async () => {
@@ -134,6 +142,7 @@ describe('Sandbox Hub catalog', () => {
       { available: true, enabled: false, id: 'general' },
       { available: true, enabled: true, id: 'data' },
       { available: false, enabled: true, id: 'vault' },
+      { available: false, enabled: true, id: 'orphan' },
     ]);
     expect(profiles[0]).toMatchObject({ serverName: 'Default' });
     expect(JSON.stringify(profiles)).not.toContain('opensandbox:8090');
@@ -182,6 +191,12 @@ describe('Sandbox Hub catalog', () => {
       reason: 'disabled',
     });
     expect(await resolve('lobe-sandbox--vault')).toMatchObject({
+      message: 'The "vault" sandbox cannot run: its server "locked" is missing its API key.',
+      ok: false,
+      reason: 'not_configured',
+    });
+    expect(await resolve('lobe-sandbox--orphan')).toMatchObject({
+      message: 'The "orphan" sandbox cannot run: its server "gone" is not configured on this server.',
       ok: false,
       reason: 'not_configured',
     });

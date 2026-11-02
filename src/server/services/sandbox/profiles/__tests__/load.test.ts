@@ -31,6 +31,18 @@ describe('loadSandboxProfiles without a profiles file', () => {
   it('builds the general profile from OPENSANDBOX_* with the built-in meta and instruction', () => {
     const catalog = loadSandboxProfiles({ env: baseEnv });
     expect(catalog.source).toBe('env');
+    expect(catalog.seeds).toEqual([
+      {
+        config: {
+          avatar: SandboxManifest.meta.avatar,
+          defaultEnabled: true,
+          description: SandboxManifest.meta.description,
+          id: 'general',
+          name: SandboxManifest.meta.title,
+          server: 'default',
+        },
+      },
+    ]);
     expect(catalog.servers).toEqual([
       {
         apiKey: 'env-key',
@@ -192,6 +204,62 @@ profiles:
     expect(catalog.profiles.map((profile) => profile.jobMaxRuntimeMs)).toEqual([
       3_600_000, 21_600_000, 0,
     ]);
+  });
+
+  it('accepts a servers-only file and lists every server, used or not', () => {
+    const catalog = withFile({
+      '/etc/chathub/sandbox-profiles.yaml': `version: 1
+servers:
+  - {id: remote, url: "https://sandbox.example.com"}
+`,
+    });
+    expect(catalog).toMatchObject({ errors: [], profiles: [], seeds: [], source: 'file' });
+    expect(catalog.servers.map((server) => server.id).sort()).toEqual(['default', 'remote']);
+  });
+
+  it('resolves registry logins from the environment and warns about unset ones', () => {
+    const catalog = loadSandboxProfiles({
+      env: { ...baseEnv, SANDBOX_PROFILES_FILE: '/p.yaml' },
+      processEnv: { REG_PASS: 'secret', REG_USER: 'robot' },
+      readFile: () => `version: 1
+servers:
+  - id: remote
+    url: https://sandbox.example.com
+    registries:
+      - {host: IMG.example.net, usernameEnv: REG_USER, passwordEnv: REG_PASS}
+      - {host: other.example.net, usernameEnv: OTHER_USER, passwordEnv: OTHER_PASS}
+`,
+    });
+    expect(catalog.errors).toEqual([]);
+    expect(catalog.servers.find((server) => server.id === 'remote')?.registries).toEqual([
+      { host: 'img.example.net', password: 'secret', username: 'robot' },
+    ]);
+    expect(catalog.warnings).toEqual([
+      'servers.remote.registries.other.example.net: OTHER_USER is unset; images from other.example.net are pulled without a login',
+    ]);
+    // A server without logins has no registries field at all.
+    expect(catalog.servers.find((server) => server.id === 'default')).not.toHaveProperty(
+      'registries',
+    );
+  });
+
+  it('keeps the raw file profiles as Sandbox Hub seeds, with instruction files read', () => {
+    const catalog = withFile({
+      '/etc/chathub/data.md': 'Prefer polars.',
+      '/etc/chathub/sandbox-profiles.yaml': `version: 1
+profiles:
+  - {id: general, name: Sandbox, description: General}
+  - {id: data, name: Data, description: Data, cpu: "2", instruction: {file: data.md}}
+`,
+    });
+    expect(catalog.seeds).toEqual([
+      { config: expect.objectContaining({ id: 'general', server: 'default' }) },
+      {
+        config: expect.objectContaining({ cpu: '2', id: 'data' }),
+        text: 'Prefer polars.',
+      },
+    ]);
+    expect(catalog.seeds[1].config).not.toHaveProperty('memory');
   });
 
   it('reads JSON too', () => {

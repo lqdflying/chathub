@@ -16,6 +16,8 @@ import {
   type SandboxEgress,
   type SandboxProfileCatalog,
   type SandboxProfileConfig,
+  type SandboxProfileSeed,
+  type SandboxRegistryLogin,
   sandboxProfilesFileSchema,
 } from './schema';
 
@@ -50,8 +52,10 @@ export interface LoadSandboxProfilesOptions {
 const EMPTY = (errors: string[] = []): SandboxProfileCatalog => ({
   errors,
   profiles: [],
+  seeds: [],
   servers: [],
   source: 'none',
+  warnings: [],
 });
 
 const parseEgressAllow = (value?: string) =>
@@ -98,6 +102,16 @@ const synthesizeFromEnv = (env: SandboxProfilesEnv): SandboxProfileCatalog => {
   if (!server || !image) return EMPTY();
 
   const { meta } = SandboxManifest;
+  const seed: SandboxProfileSeed = {
+    config: {
+      avatar: meta.avatar,
+      defaultEnabled: true,
+      description: meta.description ?? '',
+      id: DEFAULT_SANDBOX_PROFILE_ID,
+      name: meta.title ?? 'Sandbox',
+      server: server.id,
+    },
+  };
   const profile: ResolvedSandboxProfile = {
     avatar: meta.avatar,
     cpu: env.OPENSANDBOX_CPU,
@@ -116,7 +130,55 @@ const synthesizeFromEnv = (env: SandboxProfilesEnv): SandboxProfileCatalog => {
     sessionIdleTimeoutMs: env.OPENSANDBOX_SESSION_IDLE_TIMEOUT,
     sessionMaxLifetimeMs: env.OPENSANDBOX_SESSION_MAX_LIFETIME,
   };
-  return { errors: [], profiles: [profile], servers: [server], source: 'env' };
+  return {
+    errors: [],
+    profiles: [profile],
+    seeds: [seed],
+    servers: [server],
+    source: 'env',
+    warnings: [],
+  };
+};
+
+/**
+ * Applies the OPENSANDBOX_* defaults to one profile config and composes its
+ * starting instruction. Shared by the profiles file and Sandbox Hub, so both
+ * resolve a profile the same way. Fails only when no image is known.
+ */
+export const resolveProfileConfig = (
+  config: SandboxProfileConfig,
+  env: SandboxProfilesEnv,
+  text?: string,
+): { error: string; ok: false } | { ok: true; profile: ResolvedSandboxProfile } => {
+  const image = config.image ?? env.OPENSANDBOX_IMAGE?.trim();
+  if (!image) return { error: 'no image and OPENSANDBOX_IMAGE is unset', ok: false };
+  return {
+    ok: true,
+    profile: {
+      avatar: config.avatar,
+      cpu: config.cpu ?? env.OPENSANDBOX_CPU,
+      defaultEnabled: config.defaultEnabled ?? config.id === DEFAULT_SANDBOX_PROFILE_ID,
+      description: config.description,
+      egress: toEgress(config.egress, env),
+      id: config.id,
+      identifier: sandboxToolIdentifier(config.id),
+      image,
+      instruction: composeSandboxInstruction({
+        base: config.instruction?.base ?? 'general',
+        description: config.description,
+        id: config.id,
+        name: config.name,
+        text,
+      }),
+      jobMaxRuntimeMs: config.jobMaxRuntimeMs ?? envJobMaxRuntime(env),
+      memory: config.memory ?? env.OPENSANDBOX_MEMORY,
+      name: config.name,
+      readyTimeoutMs: config.readyTimeoutMs ?? env.OPENSANDBOX_READY_TIMEOUT,
+      serverId: config.server,
+      sessionIdleTimeoutMs: config.sessionIdleTimeoutMs ?? env.OPENSANDBOX_SESSION_IDLE_TIMEOUT,
+      sessionMaxLifetimeMs: config.sessionMaxLifetimeMs ?? env.OPENSANDBOX_SESSION_MAX_LIFETIME,
+    },
+  };
 };
 
 /**
@@ -146,14 +208,28 @@ export const loadSandboxProfiles = ({
   if (!parsed.success) return EMPTY(formatZodError(parsed.error));
 
   const errors: string[] = [];
+  const warnings: string[] = [];
   const servers = new Map<string, ResolvedSandboxServer>();
   for (const server of parsed.data.servers ?? []) {
     const apiKey = server.apiKeyEnv ? processEnv[server.apiKeyEnv]?.trim() || undefined : undefined;
+    const registries: SandboxRegistryLogin[] = [];
+    for (const registry of server.registries ?? []) {
+      const username = processEnv[registry.usernameEnv]?.trim();
+      const password = processEnv[registry.passwordEnv];
+      if (!username || !password) {
+        warnings.push(
+          `servers.${server.id}.registries.${registry.host}: ${!username ? registry.usernameEnv : registry.passwordEnv} is unset; images from ${registry.host} are pulled without a login`,
+        );
+        continue;
+      }
+      registries.push({ host: registry.host.toLowerCase(), password, username });
+    }
     servers.set(server.id, {
       apiKey,
       id: server.id,
       name: server.name ?? server.id,
       proxyEndpoint: server.proxyEndpoint,
+      ...(registries.length > 0 ? { registries } : {}),
       status: server.apiKeyEnv && !apiKey ? 'misconfigured' : 'ok',
       url: server.url.replace(/\/+$/, ''),
     });
@@ -165,15 +241,11 @@ export const loadSandboxProfiles = ({
 
   const baseDir = dirname(filePath);
   const profiles: ResolvedSandboxProfile[] = [];
+  const seeds: SandboxProfileSeed[] = [];
   for (const config of parsed.data.profiles) {
     const where = `profiles.${config.id}`;
     if (!servers.has(config.server)) {
       errors.push(`${where}.server: unknown server "${config.server}"`);
-      continue;
-    }
-    const image = config.image ?? env.OPENSANDBOX_IMAGE?.trim();
-    if (!image) {
-      errors.push(`${where}.image: no image and OPENSANDBOX_IMAGE is unset`);
       continue;
     }
 
@@ -196,42 +268,27 @@ export const loadSandboxProfiles = ({
       continue;
     }
 
-    profiles.push({
-      avatar: config.avatar,
-      cpu: config.cpu ?? env.OPENSANDBOX_CPU,
-      defaultEnabled: config.defaultEnabled ?? config.id === DEFAULT_SANDBOX_PROFILE_ID,
-      description: config.description,
-      egress: toEgress(config.egress, env),
-      id: config.id,
-      identifier: sandboxToolIdentifier(config.id),
-      image,
-      instruction: composeSandboxInstruction({
-        base: config.instruction?.base ?? 'general',
-        description: config.description,
-        id: config.id,
-        name: config.name,
-        text,
-      }),
-      jobMaxRuntimeMs: config.jobMaxRuntimeMs ?? envJobMaxRuntime(env),
-      memory: config.memory ?? env.OPENSANDBOX_MEMORY,
-      name: config.name,
-      readyTimeoutMs: config.readyTimeoutMs ?? env.OPENSANDBOX_READY_TIMEOUT,
-      serverId: config.server,
-      sessionIdleTimeoutMs: config.sessionIdleTimeoutMs ?? env.OPENSANDBOX_SESSION_IDLE_TIMEOUT,
-      sessionMaxLifetimeMs: config.sessionMaxLifetimeMs ?? env.OPENSANDBOX_SESSION_MAX_LIFETIME,
-    });
+    const resolved = resolveProfileConfig(config, env, text);
+    if (!resolved.ok) {
+      errors.push(`${where}.image: ${resolved.error}`);
+      continue;
+    }
+    profiles.push(resolved.profile);
+    seeds.push({ config, ...(text ? { text } : {}) });
   }
 
   // A partly broken file must not run with the remaining profiles: the
   // operator would not notice that one silently vanished.
   if (errors.length > 0) return EMPTY(errors);
 
-  const usedServers = new Set(profiles.map((profile) => profile.serverId));
+  // Every server is listed, used or not: Sandbox Hub admins pick from them.
   return {
     errors,
     profiles,
-    servers: [...servers.values()].filter((server) => usedServers.has(server.id)),
+    seeds,
+    servers: [...servers.values()],
     source: 'file',
+    warnings,
   };
 };
 
@@ -251,44 +308,46 @@ const PROFILE_ENV_KEYS = [
   'SANDBOX_PROFILES_FILE',
 ] as const satisfies readonly (keyof SandboxProfilesEnv)[];
 
-const readProfilesEnv = (): SandboxProfilesEnv =>
+/** The OPENSANDBOX_* defaults every profile falls back to. */
+export const readSandboxProfilesEnv = (): SandboxProfilesEnv =>
   Object.fromEntries(
     PROFILE_ENV_KEYS.map((key) => [key, sandboxEnv[key]]),
   ) as unknown as SandboxProfilesEnv;
 
 /**
- * Loaded once per process (the durable worker runs in the same process), and
- * only reloaded when the OPENSANDBOX_* / SANDBOX_JOB_MAX_RUNTIME /
- * SANDBOX_PROFILES_FILE values change.
- * Edits to the profiles file itself need a restart.
+ * The profiles file (or OPENSANDBOX_*) as loaded: the servers, plus the
+ * profiles used to seed Sandbox Hub and as the fallback while the Hub table
+ * does not exist. Loaded once per process (the durable worker runs in the
+ * same process) and only reloaded when the OPENSANDBOX_* /
+ * SANDBOX_JOB_MAX_RUNTIME / SANDBOX_PROFILES_FILE values change. Edits to the
+ * file itself need a restart. Profiles in use come from
+ * `getSandboxProfileCatalog(db)` (`hub.ts`).
  */
-export const getSandboxProfileCatalog = (): SandboxProfileCatalog => {
-  const env = readProfilesEnv();
+export const getSandboxFileCatalog = (): SandboxProfileCatalog => {
+  const env = readSandboxProfilesEnv();
   const signature = JSON.stringify(env);
   if (cached?.signature === signature) return cached.catalog;
   const catalog = loadSandboxProfiles({ env });
   cached = { catalog, signature };
   if (catalog.errors.length > 0) {
     console.error(
-      '[sandbox] SANDBOX_PROFILES_FILE is invalid; no sandbox profiles are configured',
-      {
-        errors: catalog.errors,
-      },
+      '[sandbox] SANDBOX_PROFILES_FILE is invalid; no sandbox servers or profiles are configured',
+      { errors: catalog.errors },
     );
+  }
+  if (catalog.warnings.length > 0) {
+    console.warn('[sandbox] SANDBOX_PROFILES_FILE warnings', { warnings: catalog.warnings });
   }
   return catalog;
 };
 
 /** Test hook. */
-export const resetSandboxProfileCatalog = () => {
+export const resetSandboxFileCatalog = () => {
   cached = undefined;
 };
 
-export const findSandboxProfile = (profileId: string) =>
-  getSandboxProfileCatalog().profiles.find((profile) => profile.id === profileId);
-
 export const findSandboxServer = (serverId: string) =>
-  getSandboxProfileCatalog().servers.find((server) => server.id === serverId);
+  getSandboxFileCatalog().servers.find((server) => server.id === serverId);
 
 /** A profile can run when its server has the credentials it declares. */
 export const isSandboxProfileUsable = (profile: ResolvedSandboxProfile) =>
