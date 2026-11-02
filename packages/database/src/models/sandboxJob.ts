@@ -1,5 +1,5 @@
 import type { SandboxJobFile, SandboxJobStatus } from '@lobechat/types';
-import { and, count, desc, eq } from 'drizzle-orm';
+import { and, count, desc, eq, gt } from 'drizzle-orm';
 
 import { type SandboxJobRow, sandboxJobs } from '../schemas/sandboxJob';
 import { LobeChatDatabase } from '../type';
@@ -74,11 +74,18 @@ export class SandboxJobModel {
       .orderBy(desc(sandboxJobs.startedAt))
       .limit(limit);
 
+  /** Running jobs still inside their deadline. A past deadline no longer holds a slot. */
   countRunning = async (): Promise<number> => {
     const [row] = await this.db
       .select({ value: count() })
       .from(sandboxJobs)
-      .where(and(eq(sandboxJobs.userId, this.userId), eq(sandboxJobs.status, 'running')));
+      .where(
+        and(
+          eq(sandboxJobs.userId, this.userId),
+          eq(sandboxJobs.status, 'running'),
+          gt(sandboxJobs.deadlineAt, new Date()),
+        ),
+      );
     return Number(row?.value ?? 0);
   };
 

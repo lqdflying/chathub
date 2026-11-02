@@ -46,8 +46,9 @@ instruction for every user. Maintainer doc: `openwiki/architecture/sandbox.md`
   watcher run goes through `resolveSandboxProfileForUser`; the watcher never
   creates a sandbox (`createIfMissing: false`); every job has a deadline;
   only `SandboxJobModel.finish` ends a job and only while it is running.
-  Never write the database inside a `withWorkspace` task: a non-request
-  error there makes the provider delete the sandbox and kills the job.
+  Write the job row only after `withWorkspace` returns. Catch and note any
+  database or storage error inside the task: a non-request error that leaves
+  the task makes the provider delete the sandbox and kills the job.
 - Hub tRPC lives in the `sandboxHub.` namespace, which is in the client's
   `VERIFIED_ACCOUNT_RPC_NAMESPACES`. A new scope-checked namespace must be
   added there too, or every call fails as a mismatched user.

@@ -1514,6 +1514,18 @@ describe('OpenSandboxProvider', () => {
       expect(calls.creates).toBe(0);
     });
 
+    it('reports Unavailable when the sandbox list fails and creation is refused', async () => {
+      const calls = install({ list: () => json({ code: 'UNAVAILABLE', message: 'x' }, 503) });
+
+      await expect(
+        useIn('topic-a', (workspace) => workspace.commandStatus('bg-1'), {
+          createIfMissing: false,
+        }),
+      ).rejects.toMatchObject({ code: 'Unavailable' });
+      expect(calls.creates).toBe(0);
+      expect(calls.deleted).toBe(0);
+    });
+
     it('replaces a parked sandbox that runs a different image or layout', async () => {
       const calls = install({
         existing: [

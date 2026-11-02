@@ -27,9 +27,9 @@ describe('SandboxJobModel', () => {
 
   it('creates running jobs and lists them per conversation and per user, newest first', async () => {
     const model = new SandboxJobModel(serverDB, 'user-a');
-    const first = await model.create(job('conv-1', new Date('2026-11-01T08:00:00Z')));
-    const second = await model.create(job('conv-1', new Date('2026-11-01T09:00:00Z')));
-    const other = await model.create(job('conv-2', new Date('2026-11-01T10:00:00Z')));
+    const first = await model.create(job('conv-1', new Date(Date.now() + 60_000)));
+    const second = await model.create(job('conv-1', new Date(Date.now() + 120_000)));
+    const other = await model.create(job('conv-2', new Date(Date.now() + 180_000)));
 
     expect(first.id).toMatch(/^sjob_/);
     expect(first).toMatchObject({ status: 'running', userId: 'user-a' });
@@ -42,6 +42,9 @@ describe('SandboxJobModel', () => {
       second.id,
       first.id,
     ]);
+    expect(await model.countRunning()).toBe(3);
+
+    await model.create(job('conv-1', new Date('2026-11-01T08:00:00Z')));
     expect(await model.countRunning()).toBe(3);
   });
 

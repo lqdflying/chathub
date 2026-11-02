@@ -98,8 +98,9 @@ export interface SandboxSessionOptions {
   /** Longest step the task will run, in milliseconds. Sizes the sandbox TTL. */
   budgetMs: number;
   /**
-   * False: only reuse this conversation's running sandbox. Without one, the
-   * call fails with `NotFound` instead of creating an empty sandbox.
+   * False: only reuse this conversation's running sandbox. A lookup that
+   * finds nothing fails with `NotFound`. A lookup that cannot reach the
+   * server fails with `Unavailable`. Neither creates a sandbox.
    */
   createIfMissing?: boolean;
   enableNetwork?: boolean;

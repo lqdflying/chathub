@@ -266,6 +266,14 @@ export class OpenSandboxProvider implements SandboxProvider {
         reused = true;
       } else {
         if (options.createIfMissing === false) {
+          // A failed list is not proof the sandbox is gone. NotFound would
+          // end a background job on the first blip instead of the 10-minute grace.
+          if (lookupFailed) {
+            throw new SandboxError(
+              'Unavailable',
+              'The sandbox server could not list sandboxes for this conversation.',
+            );
+          }
           throw new SandboxError(
             'NotFound',
             'This conversation has no running sandbox. It was removed after being idle or replaced, so its files and processes are gone.',
