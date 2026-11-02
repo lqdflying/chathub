@@ -64,7 +64,8 @@ const parseEgressAllow = (value?: string) =>
     .map((item) => item.trim())
     .filter(Boolean);
 
-const envEgress = (env: SandboxProfilesEnv): SandboxEgress => {
+/** The network a profile without `egress` gets: OPENSANDBOX_EGRESS_ALLOW or open. */
+export const envEgress = (env: SandboxProfilesEnv): SandboxEgress => {
   const targets = parseEgressAllow(env.OPENSANDBOX_EGRESS_ALLOW);
   return targets.length > 0 ? { mode: 'allowlist', targets } : { mode: 'open' };
 };

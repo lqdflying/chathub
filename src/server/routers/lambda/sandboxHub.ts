@@ -12,6 +12,15 @@ import {
 import { cancelSandboxJob, listSandboxJobs } from '@/server/services/sandbox/jobs/service';
 import { getUserSandboxProfiles } from '@/server/services/sandbox/profiles/catalog';
 import { findSandboxProfile } from '@/server/services/sandbox/profiles/hub';
+import {
+  SandboxHubProfileError,
+  createSandboxHubProfile,
+  deleteSandboxHubProfile,
+  getSandboxHubSettings,
+  moveSandboxHubProfile,
+  prepareSandboxHubProfileImage,
+  updateSandboxHubProfile,
+} from '@/server/services/sandbox/profiles/hubAdmin';
 import { getSandboxServerHealth } from '@/server/services/sandbox/profiles/status';
 import { SANDBOX_INSTRUCTION_MAX_BYTES, isValidSandboxProfileId } from '@/tools/sandbox/const';
 
@@ -61,9 +70,54 @@ const assertSandboxHubAdmin = async (ctx: {
   if (!(await isSandboxHubAdmin(ctx.serverDB, ctx.userId))) {
     throw new TRPCError({
       code: 'FORBIDDEN',
-      message: 'Only Sandbox Hub admins (SANDBOX_HUB_ADMINS) can edit instructions',
+      message: 'Only Sandbox Hub admins (SANDBOX_HUB_ADMINS) can change sandbox profiles',
     });
   }
+};
+
+const optionalText = (max: number) => z.string().max(max).nullish();
+// Up to 30 days; the profiles-file rules check each field's own range.
+const optionalMs = z
+  .number()
+  .int()
+  .min(0)
+  .max(30 * 24 * 3_600_000)
+  .nullish();
+
+const profileSettingsInput = z.object({
+  avatar: optionalText(64 * 1024),
+  cpu: optionalText(16),
+  defaultEnabled: z.boolean(),
+  description: z.string().max(280),
+  egress: z
+    .union([z.enum(['none', 'open']), z.array(z.string().max(253)).max(64)])
+    .nullish(),
+  image: optionalText(512),
+  instructionBase: z.enum(['general', 'none']),
+  instructionText: optionalText(4 * SANDBOX_INSTRUCTION_MAX_BYTES),
+  jobMaxRuntimeMs: optionalMs,
+  memory: optionalText(16),
+  name: z.string().max(64),
+  readyTimeoutMs: optionalMs,
+  serverId: z.string().min(1).max(32),
+  sessionIdleTimeoutMs: optionalMs,
+  sessionMaxLifetimeMs: optionalMs,
+});
+
+/** Runs an admin change and returns the editor's data, mapping a rejection to its HTTP code. */
+const adminChange = async (
+  db: Parameters<typeof getSandboxHubSettings>[0],
+  change: () => Promise<void>,
+) => {
+  try {
+    await change();
+  } catch (error) {
+    if (error instanceof SandboxHubProfileError) {
+      throw new TRPCError({ code: error.code, message: error.message });
+    }
+    throw error;
+  }
+  return getSandboxHubSettings(db);
 };
 
 export const sandboxHubRouter = router({
@@ -91,6 +145,26 @@ export const sandboxHubRouter = router({
       return listSandboxJobs({ db: ctx.serverDB, userId: ctx.userId });
     }),
 
+  /** Admin only: adds a profile after the existing ones. */
+  createProfile: sandboxHubProcedure
+    .input(accountScopeInput.extend({ id: profileIdInput, settings: profileSettingsInput }))
+    .mutation(async ({ ctx, input }) => {
+      assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
+      await assertSandboxHubAdmin(ctx);
+      return adminChange(ctx.serverDB, () =>
+        createSandboxHubProfile(ctx.serverDB, ctx.userId, input.id, input.settings),
+      );
+    }),
+
+  /** Admin only: removes a profile, its instruction edit and every user's choice for it. */
+  deleteProfile: sandboxHubProcedure
+    .input(accountScopeInput.extend({ id: profileIdInput }))
+    .mutation(async ({ ctx, input }) => {
+      assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
+      await assertSandboxHubAdmin(ctx);
+      return adminChange(ctx.serverDB, () => deleteSandboxHubProfile(ctx.serverDB, input.id));
+    }),
+
   /** This user's recent background jobs across conversations, newest first. */
   listJobs: sandboxHubProcedure.input(accountScopeInput).query(async ({ ctx, input }) => {
     assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
@@ -101,6 +175,35 @@ export const sandboxHubRouter = router({
   listProfiles: sandboxHubProcedure.input(accountScopeInput).query(async ({ ctx, input }) => {
     assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
     return getUserSandboxProfiles(ctx.serverDB, ctx.userId);
+  }),
+
+  /** Admin only: moves a profile one place; order is tool and prompt order. */
+  moveProfile: sandboxHubProcedure
+    .input(accountScopeInput.extend({ direction: z.enum(['down', 'up']), id: profileIdInput }))
+    .mutation(async ({ ctx, input }) => {
+      assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
+      await assertSandboxHubAdmin(ctx);
+      return adminChange(ctx.serverDB, () =>
+        moveSandboxHubProfile(ctx.serverDB, input.id, input.direction),
+      );
+    }),
+
+  /** Admin only: pulls a profile's image on its server ahead of users. */
+  prepareImage: sandboxHubProcedure
+    .input(accountScopeInput.extend({ id: profileIdInput }))
+    .mutation(async ({ ctx, input }) => {
+      assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
+      await assertSandboxHubAdmin(ctx);
+      return adminChange(ctx.serverDB, () =>
+        prepareSandboxHubProfileImage(ctx.serverDB, input.id),
+      );
+    }),
+
+  /** Admin only: every profile's settings, the servers to pick from, and the inherited defaults. */
+  profileSettings: sandboxHubProcedure.input(accountScopeInput).query(async ({ ctx, input }) => {
+    assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
+    await assertSandboxHubAdmin(ctx);
+    return getSandboxHubSettings(ctx.serverDB);
   }),
 
   /** Admin only: drops the edited instruction so the starting text applies again. */
@@ -158,5 +261,16 @@ export const sandboxHubRouter = router({
         input.enabled,
       );
       return getUserSandboxProfiles(ctx.serverDB, ctx.userId);
+    }),
+
+  /** Admin only: replaces a profile's settings. */
+  updateProfile: sandboxHubProcedure
+    .input(accountScopeInput.extend({ id: profileIdInput, settings: profileSettingsInput }))
+    .mutation(async ({ ctx, input }) => {
+      assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
+      await assertSandboxHubAdmin(ctx);
+      return adminChange(ctx.serverDB, () =>
+        updateSandboxHubProfile(ctx.serverDB, ctx.userId, input.id, input.settings),
+      );
     }),
 });

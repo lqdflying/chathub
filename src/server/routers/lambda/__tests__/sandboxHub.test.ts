@@ -5,6 +5,14 @@ import { getServerDB } from '@/database/core/db-adaptor';
 import { sandboxHubRouter } from '../sandboxHub';
 
 const mocks = vi.hoisted(() => ({
+  admin: {
+    create: vi.fn(),
+    delete: vi.fn(),
+    move: vi.fn(),
+    prepare: vi.fn(),
+    settings: vi.fn(),
+    update: vi.fn(),
+  },
   cancelJob: vi.fn(),
   deleteInstruction: vi.fn(),
   findProfile: vi.fn(),
@@ -36,6 +44,19 @@ vi.mock('@/server/services/sandbox/profiles/admins', () => ({
   hasSandboxHubAdmins: () => true,
   isSandboxHubAdmin: mocks.isAdmin,
 }));
+vi.mock('@/server/services/sandbox/profiles/hubAdmin', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@/server/services/sandbox/profiles/hubAdmin')>();
+  return {
+    SandboxHubProfileError: actual.SandboxHubProfileError,
+    createSandboxHubProfile: mocks.admin.create,
+    deleteSandboxHubProfile: mocks.admin.delete,
+    getSandboxHubSettings: mocks.admin.settings,
+    moveSandboxHubProfile: mocks.admin.move,
+    prepareSandboxHubProfileImage: mocks.admin.prepare,
+    updateSandboxHubProfile: mocks.admin.update,
+  };
+});
 vi.mock('@/server/services/sandbox/jobs/service', () => ({
   cancelSandboxJob: mocks.cancelJob,
   listSandboxJobs: mocks.listJobs,
@@ -231,6 +252,77 @@ describe('sandboxHubRouter', () => {
       });
       expect(mocks.cancelJob).not.toHaveBeenCalled();
       expect(mocks.listJobs).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('profile administration', () => {
+    const scope = { accountScope: 'user:account-a' };
+    const settings = {
+      defaultEnabled: false,
+      description: 'Data',
+      instructionBase: 'general' as const,
+      name: 'Data',
+      serverId: 'default',
+    };
+
+    beforeEach(() => {
+      mocks.admin.settings.mockResolvedValue({ profiles: [] });
+    });
+
+    it('is for admins only', async () => {
+      const api = caller('user:account-a');
+      await expect(api.profileSettings(scope)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      await expect(api.createProfile({ ...scope, id: 'data', settings })).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+      });
+      await expect(api.deleteProfile({ ...scope, id: 'data' })).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+      });
+      await expect(api.prepareImage({ ...scope, id: 'data' })).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+      });
+      expect(mocks.admin.create).not.toHaveBeenCalled();
+      expect(mocks.admin.delete).not.toHaveBeenCalled();
+      expect(mocks.admin.prepare).not.toHaveBeenCalled();
+    });
+
+    it('runs each change and returns the refreshed settings', async () => {
+      mocks.isAdmin.mockResolvedValue(true);
+      const api = caller('user:account-a');
+
+      await expect(api.createProfile({ ...scope, id: 'data', settings })).resolves.toEqual({
+        profiles: [],
+      });
+      expect(mocks.admin.create).toHaveBeenCalledWith({}, 'account-a', 'data', settings);
+      await api.updateProfile({ ...scope, id: 'data', settings: { ...settings, cpu: '2' } });
+      expect(mocks.admin.update).toHaveBeenCalledWith({}, 'account-a', 'data', {
+        ...settings,
+        cpu: '2',
+      });
+      await api.moveProfile({ ...scope, direction: 'up', id: 'data' });
+      expect(mocks.admin.move).toHaveBeenCalledWith({}, 'data', 'up');
+      await api.prepareImage({ ...scope, id: 'data' });
+      expect(mocks.admin.prepare).toHaveBeenCalledWith({}, 'data');
+      await api.deleteProfile({ ...scope, id: 'data' });
+      expect(mocks.admin.delete).toHaveBeenCalledWith({}, 'data');
+      await expect(api.profileSettings(scope)).resolves.toEqual({ profiles: [] });
+    });
+
+    it('returns a rejected change with its code and message', async () => {
+      mocks.isAdmin.mockResolvedValue(true);
+      const { SandboxHubProfileError } = await import(
+        '@/server/services/sandbox/profiles/hubAdmin'
+      );
+      mocks.admin.delete.mockRejectedValue(
+        new SandboxHubProfileError('BAD_REQUEST', 'The last profile cannot be deleted.'),
+      );
+      await expect(
+        caller('user:account-a').deleteProfile({ ...scope, id: 'data' }),
+      ).rejects.toMatchObject({ code: 'BAD_REQUEST', message: 'The last profile cannot be deleted.' });
+
+      await expect(
+        caller('user:account-a').createProfile({ ...scope, id: 'Bad_Id', settings }),
+      ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
     });
   });
 });

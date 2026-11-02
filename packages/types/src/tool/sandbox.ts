@@ -143,3 +143,62 @@ export type SandboxImageStatus = 'failed' | 'preparing' | 'ready' | 'unknown';
 /** A profile's network as stored: the profiles-file value, or null to inherit OPENSANDBOX_EGRESS_ALLOW. */
 export type SandboxProfileEgressSetting = 'none' | 'open' | string[];
 
+/** A Sandbox Hub profile's settings as an admin edits them; an empty setting inherits OPENSANDBOX_*. */
+export interface SandboxHubProfileSettingsInput {
+  avatar?: string | null;
+  cpu?: string | null;
+  defaultEnabled: boolean;
+  description: string;
+  egress?: SandboxProfileEgressSetting | null;
+  image?: string | null;
+  instructionBase: 'general' | 'none';
+  instructionText?: string | null;
+  jobMaxRuntimeMs?: number | null;
+  memory?: string | null;
+  name: string;
+  readyTimeoutMs?: number | null;
+  serverId: string;
+  sessionIdleTimeoutMs?: number | null;
+  sessionMaxLifetimeMs?: number | null;
+}
+
+/** A profile in the Hub admin editor. */
+export interface SandboxHubProfileSettingsItem extends SandboxHubProfileSettingsInput {
+  /** False for `general` (agents use lobe-sandbox) and for the last profile. */
+  deletable: boolean;
+  id: string;
+  imageStatus: SandboxImageStatus;
+  imageStatusMessage?: string;
+  /** ISO time of the image status. */
+  imageStatusUpdatedAt?: string;
+  /** Why users are not offered this profile (no image known, unknown server). */
+  issue?: string;
+  /** ISO time of the last settings change. */
+  updatedAt: string;
+}
+
+/** A sandbox server from the profiles file, as the Hub server dropdown lists it. */
+export interface SandboxHubServerItem {
+  id: string;
+  name: string;
+  status: 'misconfigured' | 'ok';
+}
+
+/** Everything the Hub admin editor shows. */
+export interface SandboxHubSettings {
+  /** The OPENSANDBOX_* values an empty setting inherits. */
+  defaults: {
+    cpu: string;
+    egress: SandboxProfileEgress;
+    image?: string;
+    jobMaxRuntimeMs: number;
+    memory: string;
+    readyTimeoutMs: number;
+    sessionIdleTimeoutMs: number;
+    sessionMaxLifetimeMs: number;
+  };
+  maxProfiles: number;
+  profiles: SandboxHubProfileSettingsItem[];
+  servers: SandboxHubServerItem[];
+}
+
