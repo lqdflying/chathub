@@ -34,10 +34,12 @@ const stringList = (value: unknown) => {
   return [value];
 };
 const commandId = z.string().trim().min(1).max(256);
+const jobId = z.string().trim().min(1).max(64);
 // The per-file byte cap is checked again after encoding.
 const fileText = z.string().max(16 * 1024 * 1024);
 
 export const sandboxToolSchemas = {
+  [SandboxApiName.cancelJob]: z.object({ jobId }),
   [SandboxApiName.editFile]: z.object({
     newString: fileText,
     oldString: fileText.min(1),
@@ -51,10 +53,12 @@ export const sandboxToolSchemas = {
     commandId,
     cursor: optionalNumber,
   }),
+  [SandboxApiName.getJobResult]: z.object({ jobId }),
   [SandboxApiName.listFiles]: z.object({
     depth: optionalNumber,
     path: optionalPath,
   }),
+  [SandboxApiName.listJobs]: z.object({}),
   [SandboxApiName.readFile]: z.object({
     limit: optionalNumber,
     offset: optionalNumber,
@@ -70,6 +74,12 @@ export const sandboxToolSchemas = {
     code: z.string().max(512_000),
     packages: z.array(z.string().max(256)).max(50).nullish(),
     timeout: optionalNumber,
+  }),
+  [SandboxApiName.startJob]: z.object({
+    command: z.string().min(1).max(512_000),
+    cwd: optionalPath,
+    maxRuntimeMinutes: optionalNumber,
+    outputDir: optionalPath,
   }),
   [SandboxApiName.stopCommand]: z.object({ commandId }),
   [SandboxApiName.writeFile]: z.object({ content: fileText, path }),

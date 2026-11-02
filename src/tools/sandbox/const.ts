@@ -7,13 +7,17 @@ export const SandboxIdentifier = 'lobe-sandbox';
 export const LegacyCodeInterpreterIdentifier = 'lobe-code-interpreter';
 
 export const SandboxApiName = {
+  cancelJob: 'cancelJob',
   editFile: 'editFile',
   exportFile: 'exportFile',
   getCommandOutput: 'getCommandOutput',
+  getJobResult: 'getJobResult',
   listFiles: 'listFiles',
+  listJobs: 'listJobs',
   readFile: 'readFile',
   runCommand: 'runCommand',
   runPython: 'runPython',
+  startJob: 'startJob',
   stopCommand: 'stopCommand',
   writeFile: 'writeFile',
 } as const;

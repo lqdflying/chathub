@@ -64,6 +64,56 @@ export const SANDBOX_API: BuiltinToolManifest['api'] = [
   },
   {
     description:
+      'Start a long task as a background job that keeps running after this reply, up to the operator runtime limit (2 hours unless changed), and return its jobId at once. Use it for work longer than the per-call time limit, such as builds, training, or data processing. Its result is saved when it ends, even after the sandbox is removed; read it with getJobResult.',
+    name: SandboxApiName.startJob,
+    parameters: {
+      properties: {
+        command: { description: 'The bash command line to run.', type: 'string' },
+        cwd: path('Working directory. Defaults to the sandbox working directory.'),
+        maxRuntimeMinutes: {
+          description:
+            'Stop the job after this many minutes. Omit for the operator limit; larger values are lowered to it.',
+          type: 'number',
+        },
+        outputDir: path(
+          'Folder whose files are kept and shared in the chat when the job ends. Write the results there. Created if missing.',
+        ),
+      },
+      required: ['command'],
+      type: 'object',
+    },
+  },
+  {
+    description:
+      "Get a background job's status, exit code, output (start and end), and links to the files kept from its output folder. Works after the job ended and its sandbox was removed. While it runs, shows the output so far.",
+    name: SandboxApiName.getJobResult,
+    parameters: {
+      properties: {
+        jobId: { description: 'The jobId startJob returned.', type: 'string' },
+      },
+      required: ['jobId'],
+      type: 'object',
+    },
+  },
+  {
+    description:
+      'List the background jobs started in this conversation with this sandbox, newest first, with their status.',
+    name: SandboxApiName.listJobs,
+    parameters: { properties: {}, type: 'object' },
+  },
+  {
+    description: 'Stop a running background job. The output and files it produced so far are kept.',
+    name: SandboxApiName.cancelJob,
+    parameters: {
+      properties: {
+        jobId: { description: 'The jobId startJob returned.', type: 'string' },
+      },
+      required: ['jobId'],
+      type: 'object',
+    },
+  },
+  {
+    description:
       'Run Python code in a new process. New or changed files in the working directory are returned as downloadable files: top-level files first, then files in subdirectories when they all fit in the per-call file limit.',
     name: SandboxApiName.runPython,
     parameters: {

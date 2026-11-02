@@ -3,6 +3,7 @@ import { posix } from 'node:path';
 import type { LobeChatDatabase } from '@lobechat/database';
 import type { CodeInterpreterResponse, SandboxToolResult } from '@lobechat/types';
 
+import { SandboxJobModel } from '@/database/models/sandboxJob';
 import { sandboxEnv } from '@/envs/sandbox';
 import {
   SANDBOX_CONTROL_DIR,
@@ -13,6 +14,10 @@ import {
 
 import { listConversationSandboxInputs, persistSandboxOutputFiles } from '../conversationFiles';
 import { loadSandboxFiles } from '../exportFiles';
+import { SANDBOX_JOB_COMMAND_MAX_CHARS, SANDBOX_JOB_POLL_MS } from '../jobs/constants';
+import { enqueueSandboxJobWatch } from '../jobs/enqueue';
+import { toJobResult } from '../jobs/lifecycle';
+import { cancelSandboxJob, getSandboxJobResult, listSandboxJobs } from '../jobs/service';
 import { resolveSandboxProfileForUser } from '../profiles/catalog';
 import type { ResolvedSandboxProfile, ResolvedSandboxServer } from '../profiles/schema';
 import { getSandboxProvider } from '../registry';
@@ -36,6 +41,11 @@ const MAX_ERROR_CHARS = 100_000;
 
 const NO_SESSIONS_ERROR =
   'Background commands need a sandbox that stays alive between calls, but this sandbox starts fresh for every call (its idle timeout is 0). Run the command in the foreground instead.';
+const JOBS_OFF_ERROR =
+  'Background jobs are turned off for this sandbox. Run the command with runCommand instead.';
+
+/** Single-quotes a value for bash. */
+const shellQuote = (value: string) => `'${value.replaceAll("'", `'\\''`)}'`;
 
 export interface InvokeSandboxToolParams extends Omit<SandboxConversationScope, 'profileId'> {
   apiName: string;
@@ -55,6 +65,9 @@ const failure = (message: string, extra?: Partial<SandboxToolResult>): SandboxTo
   error: clip(message),
   success: false,
 });
+
+const jobNotFound = (jobId: string) =>
+  failure(`No background job "${jobId}" was found. Use listJobs to see this conversation's jobs.`);
 
 /** runPython keeps the Code Interpreter shape: errors arrive as stderr output. */
 const pythonFailure = (message: string): CodeInterpreterResponse => ({
@@ -77,6 +90,7 @@ const describeIssues = (issues: { message: string; path: (number | string)[] }[]
 class SandboxToolRunner {
   private readonly maxFileBytes = sandboxEnv.SANDBOX_MAX_FILE_BYTES;
   private readonly maxFileCount = sandboxEnv.SANDBOX_MAX_FILE_COUNT;
+  private readonly profile: ResolvedSandboxProfile;
   private readonly provider: SandboxProvider;
   private readonly sessionKey: string;
 
@@ -84,6 +98,7 @@ class SandboxToolRunner {
     private readonly params: InvokeSandboxToolParams,
     target: { profile: ResolvedSandboxProfile; server: ResolvedSandboxServer },
   ) {
+    this.profile = target.profile;
     this.provider = getSandboxProvider(target.profile, target.server);
     this.sessionKey = buildSandboxSessionKey({ ...params, profileId: target.profile.id });
   }
@@ -214,6 +229,129 @@ class SandboxToolRunner {
       },
       false,
     );
+  }
+
+  async startJob({
+    command,
+    cwd,
+    maxRuntimeMinutes,
+    outputDir,
+  }: SandboxToolArgs['startJob']): Promise<SandboxToolResult> {
+    if (!this.provider.keepsSessions) return failure(NO_SESSIONS_ERROR);
+    const limitMs = this.profile.jobMaxRuntimeMs;
+    if (limitMs <= 0) return failure(JOBS_OFF_ERROR);
+    const requestedMs =
+      maxRuntimeMinutes && maxRuntimeMinutes > 0 ? Math.round(maxRuntimeMinutes * 60_000) : limitMs;
+    const runtimeMs = Math.min(limitMs, requestedMs);
+
+    const { db, userId } = this.params;
+    const model = new SandboxJobModel(db, userId);
+    const running = await model.countRunning();
+    if (running >= sandboxEnv.SANDBOX_JOB_MAX_RUNNING) {
+      return failure(
+        `${running} background jobs are already running, the most this server allows per user. Wait for one to end, or stop one with cancelJob.`,
+      );
+    }
+
+    const started = await this.useWithInputs(
+      SandboxApiName.startJob,
+      FILE_BUDGET_MS,
+      async (workspace) => {
+        const resolvedCwd = cwd ? this.resolvePath(workspace, cwd) : undefined;
+        const resolvedOutput = outputDir ? this.resolvePath(workspace, outputDir) : undefined;
+        if (resolvedOutput) {
+          const made = await workspace.exec({
+            command: `mkdir -p -- ${shellQuote(resolvedOutput)}`,
+            timeoutMs: 10_000,
+          });
+          if (made.exitCode !== 0) {
+            const reason = made.stderr.trim() || `exit code ${made.exitCode}`;
+            return { error: `Could not create the output folder ${resolvedOutput}: ${reason}` };
+          }
+        }
+        const commandId = await workspace.startBackground({ command, cwd: resolvedCwd });
+        return { commandId, cwd: resolvedCwd, outputDir: resolvedOutput };
+      },
+    );
+    if ('error' in started) return failure(started.error);
+
+    const startedAt = new Date();
+    let row;
+    try {
+      row = await model.create({
+        command: command.slice(0, SANDBOX_JOB_COMMAND_MAX_CHARS),
+        commandId: started.commandId,
+        cwd: started.cwd,
+        deadlineAt: new Date(startedAt.getTime() + runtimeMs),
+        outputDir: started.outputDir,
+        profileId: this.profile.id,
+        sessionKey: this.sessionKey,
+        startedAt,
+      });
+    } catch (error) {
+      // Without a record nothing would watch or stop the command.
+      await this.use(
+        SandboxApiName.cancelJob,
+        FILE_BUDGET_MS,
+        (workspace) => workspace.interrupt(started.commandId),
+        false,
+      ).catch(() => undefined);
+      throw error;
+    }
+
+    let watched = true;
+    try {
+      await enqueueSandboxJobWatch(
+        db,
+        { jobId: row.id, userId },
+        new Date(Date.now() + SANDBOX_JOB_POLL_MS),
+      );
+    } catch (error) {
+      watched = false;
+      console.warn('[sandbox] could not queue the background job watcher', {
+        errorClass: error instanceof Error ? error.name : typeof error,
+      });
+    }
+
+    const minutes = Math.round(runtimeMs / 60_000);
+    const idleMinutes = Math.max(1, Math.round(this.profile.sessionIdleTimeoutMs / 60_000));
+    const kept = row.outputDir ? ` Files written to ${row.outputDir} are kept when it ends.` : '';
+    return {
+      deadlineAt: row.deadlineAt.toISOString(),
+      hint: watched
+        ? `Started. It keeps running after this reply for up to ${minutes} minutes.${kept} Tell the user the jobId, then read the result with getJobResult when they ask.`
+        : `Started, but no job worker is running on this server, so the job ends if this sandbox gets no call for ${idleMinutes} minutes.${kept} Check it with getJobResult before then.`,
+      jobId: row.id,
+      jobStatus: 'running',
+      running: true,
+      startedAt: row.startedAt.toISOString(),
+      success: true,
+    } satisfies SandboxToolResult;
+  }
+
+  async getJobResult({ jobId }: SandboxToolArgs['getJobResult']): Promise<SandboxToolResult> {
+    const { db, userId } = this.params;
+    const result = await getSandboxJobResult({ db, jobId, userId });
+    return result ?? jobNotFound(jobId);
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async listJobs(_args: SandboxToolArgs['listJobs']): Promise<SandboxToolResult> {
+    const { db, userId } = this.params;
+    const jobs = await listSandboxJobs({ db, sessionKey: this.sessionKey, userId });
+    return {
+      ...(jobs.length === 0
+        ? { hint: 'No background jobs were started in this conversation with this sandbox.' }
+        : {}),
+      jobs,
+      success: true,
+    } satisfies SandboxToolResult;
+  }
+
+  async cancelJob({ jobId }: SandboxToolArgs['cancelJob']): Promise<SandboxToolResult> {
+    const { db, userId } = this.params;
+    const row = await cancelSandboxJob({ db, jobId, reason: 'Stopped with cancelJob.', userId });
+    return row ? toJobResult(row) : jobNotFound(jobId);
   }
 
   async runPython({ code, timeout }: SandboxToolArgs['runPython']): Promise<SandboxToolResult> {

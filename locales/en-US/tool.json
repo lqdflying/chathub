@@ -51,6 +51,19 @@
     "entries": "{{count}} entries",
     "exitCode": "Exit code {{code}}",
     "exportedFiles": "Exported files:",
+    "job": {
+      "keptFiles": "Kept files:",
+      "none": "No background jobs in this conversation.",
+      "status": {
+        "cancelled": "Cancelled",
+        "failed": "Failed",
+        "lost": "Lost",
+        "running": "Running",
+        "succeeded": "Succeeded",
+        "timed_out": "Timed out"
+      },
+      "until": "Until {{time}}"
+    },
     "lines": "Lines {{start}}–{{end}} of {{total}}",
     "log": "Output:",
     "replacements": "{{count}} replaced",

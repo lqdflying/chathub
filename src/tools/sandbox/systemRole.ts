@@ -12,6 +12,7 @@ Environment:
 APIs:
 - runCommand runs a bash command line. Use it for git, npm, pip, builds, tests, searching (rg, find), and anything else a shell can do. Commands get no stdin, so pass non-interactive flags (for example -y). Set cwd instead of starting with cd. A command that times out returns the output so far.
 - For servers, watchers, and other long-running processes, call runCommand with background: true. Then use getCommandOutput (pass nextCursor to read only new output) and stopCommand. Background processes end when the sandbox is removed.
+- For work longer than one call's time limit (builds, training, long data processing), use startJob instead. The job keeps running after your reply, up to the operator runtime limit, and its result is saved even after the sandbox is removed. Pass outputDir and write the results there; those files are kept and shared when the job ends. Tell the user the jobId. When they ask, read the result with getJobResult (listJobs finds this conversation's jobs); do not wait for a job in a loop. cancelJob stops one.
 - readFile returns numbered lines of a text file; use offset and limit for long files. For binary files, use exportFile or inspect them with runCommand.
 - writeFile creates or replaces a whole file. editFile replaces an exact string: oldString must match once, including whitespace, unless replaceAll is true. Prefer these over heredocs, sed, or echo when you change files.
 - listFiles lists a directory, two levels deep by default.

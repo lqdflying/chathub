@@ -1,4 +1,9 @@
-import { BuiltinRenderProps, SandboxToolResult, SandboxToolState } from '@lobechat/types';
+import {
+  BuiltinRenderProps,
+  SandboxJobStatus,
+  SandboxToolResult,
+  SandboxToolState,
+} from '@lobechat/types';
 import { Alert, Highlighter, Tag, Text } from '@lobehub/ui';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -124,6 +129,79 @@ const CommandOutputView = memo<{ args: SandboxArgs; content?: SandboxToolResult 
     );
   },
 );
+
+const JOB_STATUS_COLOR: Record<SandboxJobStatus, string | undefined> = {
+  cancelled: undefined,
+  failed: 'error',
+  lost: 'error',
+  running: 'processing',
+  succeeded: 'success',
+  timed_out: 'warning',
+};
+
+const JobStatusTag = memo<{ status: SandboxJobStatus }>(({ status }) => {
+  const { t } = useTranslation('tool');
+  return <Tag color={JOB_STATUS_COLOR[status]}>{t(`sandbox.job.status.${status}`)}</Tag>;
+});
+
+/** startJob, getJobResult and cancelJob: one job's state, output, and kept files. */
+const JobView = memo<{ apiName: string; args: SandboxArgs; content?: SandboxToolResult }>(
+  ({ apiName, args, content }) => {
+    const { t } = useTranslation('tool');
+    const jobId = content?.jobId ?? text(args.jobId);
+
+    return (
+      <Flexbox gap={12}>
+        {apiName === SandboxApiName.startJob && (
+          <CodeView code={text(args.command)} language="bash" />
+        )}
+        <Flexbox gap={8} horizontal wrap="wrap">
+          {jobId && <Tag>{jobId}</Tag>}
+          {content?.jobStatus && <JobStatusTag status={content.jobStatus} />}
+          {content?.exitCode !== undefined && (
+            <Tag color={content.exitCode === 0 ? 'success' : 'error'}>
+              {t('sandbox.exitCode', { code: content.exitCode })}
+            </Tag>
+          )}
+          {content?.jobStatus === 'running' && content.deadlineAt && (
+            <Tag>
+              {t('sandbox.job.until', { time: new Date(content.deadlineAt).toLocaleString() })}
+            </Tag>
+          )}
+        </Flexbox>
+        {content?.log && (
+          <OutputBlock items={[{ data: content.log, type: 'stdout' }]} title={t('sandbox.log')} />
+        )}
+        {content?.files && content.files.length > 0 && (
+          <Flexbox>
+            <Text strong style={{ marginBottom: 8 }}>
+              {t('sandbox.job.keptFiles')}
+            </Text>
+            <ResultFileGallery files={content.files} />
+          </Flexbox>
+        )}
+      </Flexbox>
+    );
+  },
+);
+
+const JobListView = memo<{ content?: SandboxToolResult }>(({ content }) => {
+  const { t } = useTranslation('tool');
+  const jobs = content?.jobs ?? [];
+  if (content && jobs.length === 0) return <Text type="secondary">{t('sandbox.job.none')}</Text>;
+
+  return (
+    <Flexbox gap={8}>
+      {jobs.map((job) => (
+        <Flexbox align="center" gap={8} horizontal key={job.id} wrap="wrap">
+          <JobStatusTag status={job.status} />
+          <Text code>{job.command}</Text>
+          <Text type="secondary">{job.id}</Text>
+        </Flexbox>
+      ))}
+    </Flexbox>
+  );
+});
 
 const FileView = memo<{
   apiName: string;
@@ -269,6 +347,16 @@ const Sandbox = memo<BuiltinRenderProps<SandboxToolResult, SandboxArgs, SandboxT
       case SandboxApiName.getCommandOutput:
       case SandboxApiName.stopCommand: {
         body = <CommandOutputView args={safeArgs} content={content} />;
+        break;
+      }
+      case SandboxApiName.startJob:
+      case SandboxApiName.getJobResult:
+      case SandboxApiName.cancelJob: {
+        body = <JobView apiName={api} args={safeArgs} content={content} />;
+        break;
+      }
+      case SandboxApiName.listJobs: {
+        body = <JobListView content={content} />;
         break;
       }
       case SandboxApiName.readFile:
