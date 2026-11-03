@@ -430,7 +430,7 @@ model reads the result when the user asks.
 | Read, list, cancel, watch | `jobs/service.ts` |
 | Watcher | Graphile task `sandbox_job_watch` (`jobs/watcher.ts`), registered in `conversationGeneration/worker.ts` |
 | Model calls | `startJob` / `getJobResult` / `listJobs` / `cancelJob` in `tool/index.ts` |
-| Hub list | tRPC `sandboxHub.listJobs` / `cancelJob`, `src/features/SandboxHub/JobList.tsx` |
+| Hub list | tRPC `sandboxHub.listHubJobs` / `purgeSucceededJobs` / `cancelJob`, `src/features/SandboxHub/JobList.tsx`. Non-succeeded jobs are all shown. Succeeded jobs are paged at 20. Purge deletes only this user's `succeeded` rows. The conversation `listJobs` tool still uses `listSandboxJobs` (20 newest in that session). |
 
 **Start.** `startJob` refuses when the profile keeps no sessions (idle
 timeout 0), when its `jobMaxRuntimeMs` is 0, or when the user already has

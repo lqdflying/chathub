@@ -20,7 +20,9 @@ const mocks = vi.hoisted(() => ({
   health: vi.fn(),
   isAdmin: vi.fn(),
   list: vi.fn(),
+  listHubJobs: vi.fn(),
   listJobs: vi.fn(),
+  purgeSucceededJobs: vi.fn(),
   setEnabled: vi.fn(),
   startingInstruction: vi.fn(),
   upsertInstruction: vi.fn(),
@@ -61,7 +63,9 @@ vi.mock('@/server/services/sandbox/profiles/hubAdmin', async (importOriginal) =>
 });
 vi.mock('@/server/services/sandbox/jobs/service', () => ({
   cancelSandboxJob: mocks.cancelJob,
+  listSandboxHubJobs: mocks.listHubJobs,
   listSandboxJobs: mocks.listJobs,
+  purgeSucceededSandboxJobs: mocks.purgeSucceededJobs,
 }));
 vi.mock('@/server/services/sandbox/profiles/catalog', () => ({
   getSandboxStartingInstruction: mocks.startingInstruction,

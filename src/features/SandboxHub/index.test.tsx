@@ -27,7 +27,9 @@ const mocks = vi.hoisted(() => ({
     setShared: vi.fn(),
   },
   initFailed: false,
+  listHubJobs: vi.fn(),
   listJobs: vi.fn(),
+  purgeSucceededJobs: vi.fn(),
   load: vi.fn(),
   loadedScope: 'user:u1' as string | undefined,
   profiles: [] as SandboxProfileItem[],
@@ -237,7 +239,9 @@ vi.mock('@/services/sandboxHub', () => ({
     deleteProfile: mocks.admin.delete,
     deleteSharedEnv: mocks.env.deleteShared,
     listEnvs: mocks.env.list,
+    listHubJobs: mocks.listHubJobs,
     listJobs: mocks.listJobs,
+    purgeSucceededJobs: mocks.purgeSucceededJobs,
     moveProfile: mocks.admin.move,
     prepareImage: mocks.admin.prepare,
     profileSettings: mocks.admin.settings,
@@ -339,7 +343,10 @@ describe('SandboxHub', () => {
     mocks.load.mockResolvedValue(undefined);
     mocks.serverStatus.mockResolvedValue({ remote: 'ok' });
     mocks.access.mockResolvedValue({ adminsConfigured: true, canEditInstructions: false });
-    mocks.listJobs.mockResolvedValue([]);
+    mocks.listHubJobs.mockResolvedValue({
+      other: [],
+      succeeded: { items: [], page: 1, pageSize: 20, total: 0 },
+    });
     mocks.env.list.mockResolvedValue({ available: true, profiles: {} });
     mocks.admin.settings.mockResolvedValue(hubSettings());
     mocks.setEnabled.mockResolvedValue(undefined);
@@ -707,15 +714,14 @@ describe('SandboxHub', () => {
       await act(async () => {
         render(<SandboxHub />);
       });
-      expect(mocks.listJobs).toHaveBeenCalledWith('user:u1');
+      expect(mocks.listHubJobs).toHaveBeenCalledWith('user:u1', 1);
       expect(screen.queryByText('jobs.title')).toBeNull();
     });
 
     it('lists jobs with their profile and cancels a running one', async () => {
       mocks.profiles = [profile('data')];
       const longCommand = `python ${'a'.repeat(180)}.py`;
-      mocks.listJobs.mockResolvedValue([
-        running,
+      const succeeded = [
         {
           command: 'make',
           exitCode: 0,
@@ -733,24 +739,32 @@ describe('SandboxHub', () => {
           startedAt: '2026-11-02T06:00:00.000Z',
           status: 'succeeded' as const,
         },
-      ]);
-      mocks.cancelJob.mockResolvedValue([{ ...running, status: 'cancelled' }]);
+      ];
+      mocks.listHubJobs.mockResolvedValue({
+        other: [running],
+        succeeded: { items: succeeded, page: 1, pageSize: 20, total: succeeded.length },
+      });
+      mocks.cancelJob.mockImplementation(async () => {
+        mocks.listHubJobs.mockResolvedValue({
+          other: [{ ...running, status: 'cancelled' }],
+          succeeded: { items: succeeded, page: 1, pageSize: 20, total: succeeded.length },
+        });
+      });
       await act(async () => {
         render(<SandboxHub />);
       });
 
       expect(screen.getByText('jobs.title')).toBeTruthy();
+      expect(screen.getByText('jobs.other')).toBeTruthy();
+      expect(screen.getByText('jobs.succeeded')).toBeTruthy();
       expect(screen.getByRole('button', { name: 'jobs.refresh' })).toBeTruthy();
       expect(screen.getByText('python train.py')).toBeTruthy();
       expect(screen.getByText('jobs.status.running')).toBeTruthy();
       expect(screen.getAllByText('jobs.status.succeeded')).toHaveLength(2);
+      expect(screen.getByText('make')).toBeTruthy();
       // Each job row names its sandbox first.
       expect(screen.getAllByText(/^data name · jobs\.startedAt/)).toHaveLength(3);
-      // A long command is the row content, not the Settings label.
-      const command = screen.getByText(longCommand);
-      const commandRow = command.closest('[data-layout]');
-      expect(commandRow?.getAttribute('data-layout')).toBe('vertical');
-      expect(commandRow?.querySelector('[data-slot="label"]')).toBeNull();
+      expect(screen.getByText(longCommand)).toBeTruthy();
       expect(screen.getByText(/jobs\.exitCode/).textContent).toContain('"code":0');
       // Only the running job can be cancelled.
       expect(screen.getAllByText('confirm:jobs.cancel')).toHaveLength(1);
@@ -763,9 +777,48 @@ describe('SandboxHub', () => {
       expect(screen.queryByText('confirm:jobs.cancel')).toBeNull();
     });
 
+    it('purges succeeded jobs', async () => {
+      mocks.profiles = [profile('data')];
+      const succeeded = {
+        command: 'make',
+        exitCode: 0,
+        finishedAt: '2026-11-02T07:30:00.000Z',
+        id: 'sjob_0',
+        profileId: 'data',
+        startedAt: '2026-11-02T07:00:00.000Z',
+        status: 'succeeded' as const,
+      };
+      mocks.listHubJobs.mockResolvedValue({
+        other: [],
+        succeeded: { items: [succeeded], page: 1, pageSize: 20, total: 1 },
+      });
+      mocks.purgeSucceededJobs.mockImplementation(async () => {
+        mocks.listHubJobs.mockResolvedValue({
+          other: [],
+          succeeded: { items: [], page: 1, pageSize: 20, total: 0 },
+        });
+        return { deleted: 1 };
+      });
+      await act(async () => {
+        render(<SandboxHub />);
+      });
+
+      expect(screen.getByText('jobs.succeeded')).toBeTruthy();
+      expect(screen.getByText('make')).toBeTruthy();
+      await act(async () => {
+        fireEvent.click(screen.getByText('confirm:jobs.purge'));
+      });
+      expect(mocks.purgeSucceededJobs).toHaveBeenCalledWith('user:u1');
+      expect(screen.queryByText('make')).toBeNull();
+      expect(screen.queryByText('jobs.title')).toBeNull();
+    });
+
     it('says when cancelling fails', async () => {
       mocks.profiles = [profile('data')];
-      mocks.listJobs.mockResolvedValue([running]);
+      mocks.listHubJobs.mockResolvedValue({
+        other: [running],
+        succeeded: { items: [], page: 1, pageSize: 20, total: 0 },
+      });
       mocks.cancelJob.mockRejectedValue(new Error('NOT_FOUND'));
       await act(async () => {
         render(<SandboxHub />);

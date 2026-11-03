@@ -26,5 +26,8 @@ export const SANDBOX_JOB_COMMAND_MAX_CHARS = 4096;
 /** Graphile attempts for one watch run before it gives up (a later poll is not queued then). */
 export const SANDBOX_JOB_WATCH_MAX_ATTEMPTS = 10;
 
-/** Jobs `listJobs` and the Hub show. */
+/** Jobs the conversation `listJobs` tool shows. */
 export const SANDBOX_JOB_LIST_LIMIT = 20;
+
+/** Succeeded jobs on one Sandbox Hub page. */
+export const SANDBOX_HUB_JOB_PAGE_SIZE = 20;

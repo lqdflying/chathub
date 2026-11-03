@@ -143,6 +143,13 @@
     "duration": "用时 {{time}}",
     "exitCode": "退出码 {{code}}",
     "loadFailed": "无法读取后台任务，请稍后重试。",
+    "next": "下一页",
+    "other": "任务",
+    "page": "{{page}} / {{pages}}",
+    "previous": "上一页",
+    "purge": "清除",
+    "purgeConfirm": "删除全部已完成的任务？此操作无法撤销。",
+    "purgeFailed": "无法删除已完成的任务，请稍后重试。",
     "refresh": "刷新",
     "startedAt": "开始于 {{time}}",
     "status": {
@@ -153,6 +160,7 @@
       "succeeded": "已完成",
       "timed_out": "已超时"
     },
+    "succeeded": "已完成",
     "title": "后台任务"
   },
   "loadFailed": "无法读取沙盒列表，请稍后重试。",

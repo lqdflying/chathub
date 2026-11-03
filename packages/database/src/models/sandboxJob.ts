@@ -1,5 +1,5 @@
 import type { SandboxJobFile, SandboxJobStatus } from '@lobechat/types';
-import { and, count, desc, eq, gt } from 'drizzle-orm';
+import { and, count, desc, eq, gt, ne } from 'drizzle-orm';
 
 import { type SandboxJobRow, sandboxJobs } from '../schemas/sandboxJob';
 import { LobeChatDatabase } from '../type';
@@ -66,6 +66,41 @@ export class SandboxJobModel {
       .where(and(eq(sandboxJobs.userId, this.userId), eq(sandboxJobs.sessionKey, sessionKey)))
       .orderBy(desc(sandboxJobs.startedAt))
       .limit(limit);
+
+  /** This user's jobs that are not succeeded, newest first. */
+  listOther = async (): Promise<SandboxJobRow[]> =>
+    this.db
+      .select()
+      .from(sandboxJobs)
+      .where(and(eq(sandboxJobs.userId, this.userId), ne(sandboxJobs.status, 'succeeded')))
+      .orderBy(desc(sandboxJobs.startedAt));
+
+  /** This user's succeeded jobs, newest first. */
+  listSucceeded = async (limit: number, offset: number): Promise<SandboxJobRow[]> =>
+    this.db
+      .select()
+      .from(sandboxJobs)
+      .where(and(eq(sandboxJobs.userId, this.userId), eq(sandboxJobs.status, 'succeeded')))
+      .orderBy(desc(sandboxJobs.startedAt))
+      .limit(limit)
+      .offset(offset);
+
+  countSucceeded = async (): Promise<number> => {
+    const [row] = await this.db
+      .select({ value: count() })
+      .from(sandboxJobs)
+      .where(and(eq(sandboxJobs.userId, this.userId), eq(sandboxJobs.status, 'succeeded')));
+    return Number(row?.value ?? 0);
+  };
+
+  /** Deletes this user's succeeded jobs. Returns how many were removed. */
+  deleteSucceeded = async (): Promise<number> => {
+    const rows = await this.db
+      .delete(sandboxJobs)
+      .where(and(eq(sandboxJobs.userId, this.userId), eq(sandboxJobs.status, 'succeeded')))
+      .returning({ id: sandboxJobs.id });
+    return rows.length;
+  };
 
   /** All of this user's jobs, newest first. */
   listRecent = async (limit = 20): Promise<SandboxJobRow[]> =>

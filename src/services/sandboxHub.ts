@@ -1,6 +1,7 @@
 import type {
   SandboxEnvList,
   SandboxHubAccess,
+  SandboxHubJobList,
   SandboxHubProfileSettingsInput,
   SandboxHubSettings,
   SandboxJobItem,
@@ -40,8 +41,14 @@ class SandboxHubService {
   listEnvs = (accountScope: string): Promise<SandboxEnvList> =>
     lambdaClient.sandboxHub.listEnvs.query({ accountScope });
 
+  listHubJobs = (accountScope: string, page = 1): Promise<SandboxHubJobList> =>
+    lambdaClient.sandboxHub.listHubJobs.query({ accountScope, page });
+
   listJobs = (accountScope: string): Promise<SandboxJobItem[]> =>
     lambdaClient.sandboxHub.listJobs.query({ accountScope });
+
+  purgeSucceededJobs = (accountScope: string): Promise<{ deleted: number }> =>
+    lambdaClient.sandboxHub.purgeSucceededJobs.mutate({ accountScope });
 
   listProfiles = (accountScope: string): Promise<SandboxProfileItem[]> =>
     lambdaClient.sandboxHub.listProfiles.query({ accountScope });

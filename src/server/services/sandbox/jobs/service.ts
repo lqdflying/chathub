@@ -1,10 +1,14 @@
 import type { LobeChatDatabase } from '@lobechat/database';
-import type { SandboxJobItem, SandboxToolResult } from '@lobechat/types';
+import type { SandboxHubJobList, SandboxJobItem, SandboxToolResult } from '@lobechat/types';
 
 import { SandboxJobModel } from '@/database/models/sandboxJob';
 import type { SandboxJobRow } from '@/database/schemas';
 
-import { SANDBOX_JOB_LIST_LIMIT, SANDBOX_JOB_UNREACHABLE_MS } from './constants';
+import {
+  SANDBOX_HUB_JOB_PAGE_SIZE,
+  SANDBOX_JOB_LIST_LIMIT,
+  SANDBOX_JOB_UNREACHABLE_MS,
+} from './constants';
 import { checkSandboxJob, markSandboxJobLost, toJobItem, toJobResult } from './lifecycle';
 
 interface JobLookup {
@@ -72,6 +76,48 @@ export const listSandboxJobs = async ({
     : await model.listRecent(SANDBOX_JOB_LIST_LIMIT);
   return rows.map(toJobItem);
 };
+
+/** Hub list: every non-succeeded job, plus one page of succeeded jobs. */
+export const listSandboxHubJobs = async ({
+  db,
+  page = 1,
+  userId,
+}: {
+  db: LobeChatDatabase;
+  page?: number;
+  userId: string;
+}): Promise<SandboxHubJobList> => {
+  const model = new SandboxJobModel(db, userId);
+  const pageSize = SANDBOX_HUB_JOB_PAGE_SIZE;
+  const requested = Number.isFinite(page) && page >= 1 ? Math.floor(page) : 1;
+  const total = await model.countSucceeded();
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  const current = Math.min(requested, pages);
+  const [other, succeeded] = await Promise.all([
+    model.listOther(),
+    model.listSucceeded(pageSize, (current - 1) * pageSize),
+  ]);
+  return {
+    other: other.map(toJobItem),
+    succeeded: {
+      items: succeeded.map(toJobItem),
+      page: current,
+      pageSize,
+      total,
+    },
+  };
+};
+
+/** Deletes every succeeded job for this user. */
+export const purgeSucceededSandboxJobs = async ({
+  db,
+  userId,
+}: {
+  db: LobeChatDatabase;
+  userId: string;
+}): Promise<{ deleted: number }> => ({
+  deleted: await new SandboxJobModel(db, userId).deleteSucceeded(),
+});
 
 /**
  * The watcher's check. A failure to reach the sandbox server is retried on

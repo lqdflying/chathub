@@ -91,6 +91,30 @@ describe('SandboxJobModel', () => {
     expect(await model.countRunning()).toBe(0);
   });
 
+  it('pages succeeded jobs and deletes only those', async () => {
+    const model = new SandboxJobModel(serverDB, 'user-a');
+    const running = await model.create(job('conv-1', new Date('2026-11-03T01:00:00Z')));
+    const older = await model.create(job('conv-1', new Date('2026-11-03T02:00:00Z')));
+    const newer = await model.create(job('conv-1', new Date('2026-11-03T03:00:00Z')));
+    const failed = await model.create(job('conv-1', new Date('2026-11-03T04:00:00Z')));
+    await model.finish(older.id, { status: 'succeeded' });
+    await model.finish(newer.id, { status: 'succeeded' });
+    await model.finish(failed.id, { status: 'failed' });
+    const kept = await new SandboxJobModel(serverDB, 'user-b').create(
+      job('conv-1', new Date('2026-11-03T05:00:00Z')),
+    );
+    await new SandboxJobModel(serverDB, 'user-b').finish(kept.id, { status: 'succeeded' });
+
+    expect((await model.listOther()).map((row) => row.id)).toEqual([failed.id, running.id]);
+    expect(await model.countSucceeded()).toBe(2);
+    expect((await model.listSucceeded(1, 1)).map((row) => row.id)).toEqual([older.id]);
+    expect(await model.deleteSucceeded()).toBe(2);
+    expect(await model.countSucceeded()).toBe(0);
+    expect((await model.find(running.id))?.status).toBe('running');
+    expect((await model.find(failed.id))?.status).toBe('failed');
+    expect((await new SandboxJobModel(serverDB, 'user-b').find(kept.id))?.status).toBe('succeeded');
+  });
+
   it('removes jobs with their user', async () => {
     await new SandboxJobModel(serverDB, 'user-a').create(job('conv-1', new Date()));
     await serverDB.delete(users);

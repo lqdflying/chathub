@@ -62,9 +62,7 @@ export interface SandboxToolState {
 }
 
 export type SandboxProfileEgress =
-  | { mode: 'allowlist'; targets: string[] }
-  | { mode: 'none' }
-  | { mode: 'open' };
+  { mode: 'allowlist'; targets: string[] } | { mode: 'none' } | { mode: 'open' };
 
 /**
  * One operator-defined Sandbox Hub profile as a user sees it. Server URLs,
@@ -108,12 +106,7 @@ export interface SandboxHubAccess {
 
 /** Lifecycle of a Sandbox background job (`startJob`). Only `running` changes later. */
 export type SandboxJobStatus =
-  | 'cancelled'
-  | 'failed'
-  | 'lost'
-  | 'running'
-  | 'succeeded'
-  | 'timed_out';
+  'cancelled' | 'failed' | 'lost' | 'running' | 'succeeded' | 'timed_out';
 
 /** A file a finished job left in its output folder, copied to chat storage. */
 export interface SandboxJobFile {
@@ -124,6 +117,17 @@ export interface SandboxJobFile {
 }
 
 /** A background job as the Sandbox Hub lists it. */
+/** Hub background jobs: everything still in progress or unsuccessful, plus one page of successes. */
+export interface SandboxHubJobList {
+  other: SandboxJobItem[];
+  succeeded: {
+    items: SandboxJobItem[];
+    page: number;
+    pageSize: number;
+    total: number;
+  };
+}
+
 export interface SandboxJobItem {
   /** First line of the command, shortened. */
   command: string;
@@ -217,4 +221,3 @@ export interface SandboxEnvList {
   available: boolean;
   profiles: Record<string, { mine: SandboxEnvItem[]; shared: SandboxEnvItem[] }>;
 }
-

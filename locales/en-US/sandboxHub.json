@@ -143,6 +143,13 @@
     "duration": "Ran {{time}}",
     "exitCode": "Exit code {{code}}",
     "loadFailed": "Could not load background jobs. Please try again later.",
+    "next": "Next",
+    "other": "Jobs",
+    "page": "{{page}} / {{pages}}",
+    "previous": "Previous",
+    "purge": "Purge",
+    "purgeConfirm": "Delete all succeeded jobs? This cannot be undone.",
+    "purgeFailed": "Could not delete the succeeded jobs. Please try again later.",
     "refresh": "Refresh",
     "startedAt": "Started {{time}}",
     "status": {
@@ -153,6 +160,7 @@
       "succeeded": "Succeeded",
       "timed_out": "Timed out"
     },
+    "succeeded": "Succeeded",
     "title": "Background jobs"
   },
   "loadFailed": "Could not load the sandboxes. Try again later.",
