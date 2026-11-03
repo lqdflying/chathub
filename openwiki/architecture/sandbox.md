@@ -203,10 +203,12 @@ default, as an omitted field does in the file.
   sandboxes of that profile on their next call (runtime and network
   fingerprints). A changed server leaves the old server's sandboxes to
   expire. Running background jobs of that profile end as `lost`.
-- **Admin page.** Admins get Add sandbox, Settings (one form; blank fields
-  show and inherit the defaults), move up and down (tool and prompt order),
-  Delete, and Prepare image with its status. Profiles users are not offered
-  (no image, unknown server) are listed separately with the reason.
+- **Admin page.** The Hub page is Settings groups (`ProfileSection`, with
+  instructions in `InstructionModal`). Admins get Add sandbox, Settings (one
+  form; blank fields show and inherit the defaults), move up and down (tool
+  and prompt order), Delete, and Prepare image with its status. Profiles
+  users are not offered (no image, unknown server) are listed separately
+  with the reason.
   `isSandboxConfigured` now means "a usable server exists", so the Hub opens
   even before the first profile.
 
@@ -324,7 +326,7 @@ configures no servers or profiles at all (logged once) instead of silently
 running the rest; instructions are capped at 32 KiB. The same stored fields
 always produce the same instruction bytes. A Hub read composes them again, so
 an admin edit of the starting text applies on the next call without a restart.
-A saved card edit overrides that starting text until an admin resets it.
+A saved instruction edit overrides that starting text until an admin resets it.
 Server-wide OpenSandbox settings (gVisor/Kata runtime, egress mode,
 `network_mode`, max timeout) need separate servers, so put such profiles on
 their own server entry.

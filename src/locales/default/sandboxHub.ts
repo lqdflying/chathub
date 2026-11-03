@@ -35,7 +35,7 @@ export default {
         none: '只使用下面的文字',
       },
       instructionText: '附加说明',
-      instructionTextHint: '此沙盒特有的说明，例如已安装的工具。可在卡片上编辑完整说明。',
+      instructionTextHint: '此沙盒特有的说明，例如已安装的工具。完整说明请在“模型说明”一行选择“编辑”。',
       invalid: {
         allowlist: '请至少填写一个地址。',
         description: '请填写描述。',

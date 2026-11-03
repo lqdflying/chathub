@@ -25,9 +25,12 @@ import { formatDuration } from './format';
 
 const useStyles = createStyles(({ css, token }) => ({
   command: css`
+    flex: 1;
     min-width: 0;
+
     font-family: ${token.fontFamilyCode};
     font-size: 13px;
+    line-height: 1.5;
     overflow-wrap: anywhere;
   `,
   groupDesc: css`
@@ -35,6 +38,13 @@ const useStyles = createStyles(({ css, token }) => ({
     font-weight: normal;
     line-height: 1.5;
     color: ${token.colorTextDescription};
+  `,
+  meta: css`
+    min-width: 0;
+    font-size: 12px;
+    line-height: 1.5;
+    color: ${token.colorTextDescription};
+    overflow-wrap: anywhere;
   `,
   notice: css`
     font-size: 12px;
@@ -123,36 +133,44 @@ const JobList = memo<JobListProps>(({ profiles, scope }) => {
 
   const rows: FormItemProps[] = jobs.map((job): FormItemProps => {
     const duration = durationLabel(job);
+    const meta = [
+      profileName(job.profileId),
+      t('jobs.startedAt', { time: dayjs(job.startedAt).format('YYYY-MM-DD HH:mm') }),
+      duration ? t('jobs.duration', { time: duration }) : '',
+      job.exitCode === undefined ? '' : t('jobs.exitCode', { code: job.exitCode }),
+      job.id,
+    ]
+      .filter(Boolean)
+      .join(' · ');
     return {
+      // Full-width content. A command in the label column is clipped by the
+      // nowrap Settings row and the page's overflow-x.
       children: (
-        <Flexbox align={'center'} gap={8} horizontal justify={'flex-end'}>
-          <Tag color={STATUS_COLOR[job.status]} size={'small'}>
-            {t(`jobs.status.${job.status}`)}
-          </Tag>
-          {job.status === 'running' && (
-            <Popconfirm
-              cancelText={t('profile.instruction.cancel')}
-              okText={t('jobs.cancel')}
-              onConfirm={() => cancel(job.id)}
-              title={t('jobs.cancelConfirm')}
-            >
-              <Button loading={cancelling === job.id} size={'small'}>
-                {t('jobs.cancel')}
-              </Button>
-            </Popconfirm>
-          )}
+        <Flexbox gap={4} style={{ minWidth: 0, width: '100%' }}>
+          <Flexbox align={'flex-start'} gap={8} horizontal style={{ minWidth: 0 }}>
+            <span className={styles.command}>{job.command}</span>
+            <Flexbox align={'center'} gap={8} horizontal style={{ flex: 'none' }}>
+              <Tag color={STATUS_COLOR[job.status]} size={'small'}>
+                {t(`jobs.status.${job.status}`)}
+              </Tag>
+              {job.status === 'running' && (
+                <Popconfirm
+                  cancelText={t('profile.instruction.cancel')}
+                  okText={t('jobs.cancel')}
+                  onConfirm={() => cancel(job.id)}
+                  title={t('jobs.cancelConfirm')}
+                >
+                  <Button loading={cancelling === job.id} size={'small'}>
+                    {t('jobs.cancel')}
+                  </Button>
+                </Popconfirm>
+              )}
+            </Flexbox>
+          </Flexbox>
+          <span className={styles.meta}>{meta}</span>
         </Flexbox>
       ),
-      desc: [
-        profileName(job.profileId),
-        t('jobs.startedAt', { time: dayjs(job.startedAt).format('YYYY-MM-DD HH:mm') }),
-        duration ? t('jobs.duration', { time: duration }) : '',
-        job.exitCode === undefined ? '' : t('jobs.exitCode', { code: job.exitCode }),
-        job.id,
-      ]
-        .filter(Boolean)
-        .join(' · '),
-      label: <span className={styles.command}>{job.command}</span>,
+      layout: 'vertical',
       minWidth: undefined,
     };
   });

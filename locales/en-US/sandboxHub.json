@@ -32,7 +32,7 @@
         "none": "Only the text below"
       },
       "instructionText": "Extra instruction",
-      "instructionTextHint": "What is special about this sandbox, such as the tools installed. The full instruction can be edited on the card.",
+      "instructionTextHint": "What is special about this sandbox, such as the tools installed. Edit the full instruction from the Model instruction row.",
       "invalid": {
         "allowlist": "Add at least one address.",
         "description": "Enter a description.",

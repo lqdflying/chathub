@@ -47,8 +47,8 @@ vi.mock('@lobehub/ui', () => {
   );
   const row = (item: any, index: number) =>
     item.hidden ? null : (
-      <div key={item.key ?? index}>
-        {item.label && <span>{item.label}</span>}
+      <div data-layout={item.layout} key={item.key ?? index}>
+        {item.label && <span data-slot="label">{item.label}</span>}
         {item.desc && <span>{item.desc}</span>}
         {item.children}
         {item.help && <span>{item.help}</span>}
@@ -481,6 +481,7 @@ describe('SandboxHub', () => {
 
     it('lists jobs with their profile and cancels a running one', async () => {
       mocks.profiles = [profile('data')];
+      const longCommand = `python ${'a'.repeat(180)}.py`;
       mocks.listJobs.mockResolvedValue([
         running,
         {
@@ -492,6 +493,14 @@ describe('SandboxHub', () => {
           startedAt: '2026-11-02T07:00:00.000Z',
           status: 'succeeded' as const,
         },
+        {
+          command: longCommand,
+          finishedAt: '2026-11-02T06:30:00.000Z',
+          id: 'sjob_long',
+          profileId: 'data',
+          startedAt: '2026-11-02T06:00:00.000Z',
+          status: 'succeeded' as const,
+        },
       ]);
       mocks.cancelJob.mockResolvedValue([{ ...running, status: 'cancelled' }]);
       await act(async () => {
@@ -501,9 +510,14 @@ describe('SandboxHub', () => {
       expect(screen.getByText('jobs.title')).toBeTruthy();
       expect(screen.getByText('python train.py')).toBeTruthy();
       expect(screen.getByText('jobs.status.running')).toBeTruthy();
-      expect(screen.getByText('jobs.status.succeeded')).toBeTruthy();
+      expect(screen.getAllByText('jobs.status.succeeded')).toHaveLength(2);
       // Each job row names its sandbox first.
-      expect(screen.getAllByText(/^data name · jobs\.startedAt/)).toHaveLength(2);
+      expect(screen.getAllByText(/^data name · jobs\.startedAt/)).toHaveLength(3);
+      // A long command is the row content, not the Settings label.
+      const command = screen.getByText(longCommand);
+      const commandRow = command.closest('[data-layout]');
+      expect(commandRow?.getAttribute('data-layout')).toBe('vertical');
+      expect(commandRow?.querySelector('[data-slot="label"]')).toBeNull();
       expect(screen.getByText(/jobs\.exitCode/).textContent).toContain('"code":0');
       // Only the running job can be cancelled.
       expect(screen.getAllByText('confirm:jobs.cancel')).toHaveLength(1);
