@@ -202,11 +202,18 @@ const ProfileSettingsModal = memo<ProfileSettingsModalProps>(
       }
     };
 
-    const text = (key: keyof ProfileFormState, label: string, placeholder?: string) => (
+    const text = (
+      key: keyof ProfileFormState,
+      label: string,
+      placeholder?: string,
+      inputMode?: 'decimal',
+    ) => (
       <Input
         aria-label={label}
+        inputMode={inputMode}
         onChange={(event) => set(key, event.target.value as never)}
         placeholder={placeholder}
+        status={fieldError === key ? 'error' : undefined}
         value={form[key] as string}
       />
     );
@@ -300,6 +307,7 @@ const ProfileSettingsModal = memo<ProfileSettingsModalProps>(
                       : t('admin.form.serverMisconfigured', { name: server.name }),
                   value: server.id,
                 }))}
+                status={fieldError === 'serverId' ? 'error' : undefined}
                 style={{ width: '100%' }}
                 value={form.serverId || undefined}
               />,
@@ -351,6 +359,7 @@ const ProfileSettingsModal = memo<ProfileSettingsModalProps>(
                 aria-label={t('admin.form.defaultEnabled')}
                 checked={form.defaultEnabled}
                 onChange={(checked) => set('defaultEnabled', checked)}
+                style={{ alignSelf: 'flex-start' }}
               />,
             )}
             {form.network === 'allowlist' &&
@@ -361,6 +370,7 @@ const ProfileSettingsModal = memo<ProfileSettingsModalProps>(
                   autoSize={{ maxRows: 6, minRows: 2 }}
                   onChange={(event) => set('allowlist', event.target.value)}
                   placeholder={'pypi.org\nfiles.pythonhosted.org'}
+                  status={fieldError === 'allowlist' ? 'error' : undefined}
                   value={form.allowlist}
                 />,
                 { error: invalid('allowlist'), wide: true },
@@ -374,6 +384,7 @@ const ProfileSettingsModal = memo<ProfileSettingsModalProps>(
                 'idleMinutes',
                 t('admin.form.idle'),
                 inherit(durationLabel(defaults.sessionIdleTimeoutMs)),
+                'decimal',
               ),
               { error: invalid('idleMinutes'), hint: t('admin.form.idleHint') },
             )}
@@ -383,6 +394,7 @@ const ProfileSettingsModal = memo<ProfileSettingsModalProps>(
                 'maxLifetimeMinutes',
                 t('admin.form.maxLifetime'),
                 inherit(durationLabel(defaults.sessionMaxLifetimeMs)),
+                'decimal',
               ),
               { error: invalid('maxLifetimeMinutes'), hint: t('admin.form.minutesZeroNone') },
             )}
@@ -392,6 +404,7 @@ const ProfileSettingsModal = memo<ProfileSettingsModalProps>(
                 'readySeconds',
                 t('admin.form.ready'),
                 inherit(String(Math.round(defaults.readyTimeoutMs / 1000))),
+                'decimal',
               ),
               { error: invalid('readySeconds'), hint: t('admin.form.readyHint') },
             )}
@@ -401,6 +414,7 @@ const ProfileSettingsModal = memo<ProfileSettingsModalProps>(
                 'jobMinutes',
                 t('admin.form.job'),
                 inherit(durationLabel(defaults.jobMaxRuntimeMs)),
+                'decimal',
               ),
               { error: invalid('jobMinutes'), hint: t('admin.form.jobHint') },
             )}

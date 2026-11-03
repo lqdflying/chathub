@@ -147,6 +147,8 @@ vi.mock('antd', () => ({
     ({ onChange, value, ...rest }: any) => (
       <input
         aria-label={rest['aria-label']}
+        data-status={rest.status}
+        inputMode={rest.inputMode}
         onChange={onChange}
         placeholder={rest.placeholder}
         value={value}
@@ -898,6 +900,8 @@ describe('SandboxHub', () => {
         target: { value: 'registry.npmjs.org' },
       });
       expect(field('admin.form.cpu').placeholder).toContain('"value":"1"');
+      expect(field('admin.form.idle').getAttribute('inputmode')).toBe('decimal');
+      expect(field('admin.form.name').getAttribute('inputmode')).toBeNull();
 
       await act(async () => {
         fireEvent.click(screen.getByText('admin.form.save'));
@@ -936,6 +940,7 @@ describe('SandboxHub', () => {
         fireEvent.click(screen.getByText('admin.form.save'));
       });
       expect(screen.getByText('admin.form.invalid.idleMinutes')).toBeTruthy();
+      expect(screen.getByLabelText('admin.form.idle').getAttribute('data-status')).toBe('error');
       expect(mocks.admin.update).not.toHaveBeenCalled();
 
       fireEvent.change(screen.getByLabelText('admin.form.idle'), { target: { value: '' } });
@@ -985,6 +990,9 @@ describe('SandboxHub', () => {
         target: { value: 'x'.repeat(64 * 1024 + 1) },
       });
       expect(screen.getByText('admin.form.avatarTooLarge')).toBeTruthy();
+      expect(screen.getByText('admin.form.avatarTooLarge').parentElement).toBe(
+        screen.getByLabelText('admin.form.avatar').parentElement?.parentElement,
+      );
 
       fireEvent.change(screen.getByLabelText('admin.form.avatar'), { target: { value: '🧪' } });
       expect(screen.queryByText('admin.form.avatarTooLarge')).toBeNull();
