@@ -192,6 +192,7 @@ vi.mock('antd', () => ({
       ))}
     </select>
   ),
+  Upload: ({ children }: any) => <div>{children}</div>,
   Popconfirm: ({ children, okText, onConfirm }: any) => (
     <span>
       {children}
@@ -209,7 +210,14 @@ vi.mock('antd', () => ({
   ),
   Tag: ({ children }: any) => <span>{children}</span>,
 }));
-vi.mock('antd-style', () => ({ createStyles: () => () => ({ styles: {} }) }));
+vi.mock('antd-style', () => ({
+  createStyles: () => () => ({ styles: {} }),
+  useTheme: () => ({
+    colorBgContainer: '#fff',
+    colorBorderSecondary: '#ddd',
+    colorFillTertiary: '#f5f5f5',
+  }),
+}));
 vi.mock('react-layout-kit', () => ({ Flexbox: ({ children }: any) => <div>{children}</div> }));
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({

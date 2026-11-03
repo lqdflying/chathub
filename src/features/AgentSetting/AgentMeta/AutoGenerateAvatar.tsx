@@ -17,6 +17,8 @@ const EmojiPicker = dynamic(() => import('@lobehub/ui/es/EmojiPicker'), { ssr: f
 export interface AutoGenerateAvatarProps {
   background?: string;
   canAutoGenerate?: boolean;
+  /** Shown on the generate button when `canAutoGenerate` is false. */
+  disabledTitle?: string;
   loading?: boolean;
   onChange?: (value: string) => void;
   onGenerate?: () => void;
@@ -24,7 +26,7 @@ export interface AutoGenerateAvatarProps {
 }
 
 const AutoGenerateAvatar = memo<AutoGenerateAvatarProps>(
-  ({ loading, background, value, onChange, onGenerate, canAutoGenerate }) => {
+  ({ loading, background, value, onChange, onGenerate, canAutoGenerate, disabledTitle }) => {
     const { t } = useTranslation('common');
     const theme = useTheme();
     const locale = useGlobalStore(globalGeneralSelectors.currentLanguage);
@@ -81,7 +83,11 @@ const AutoGenerateAvatar = memo<AutoGenerateAvatarProps>(
           loading={loading}
           onClick={onGenerate}
           size="small"
-          title={!canAutoGenerate ? t('autoGenerateTooltipDisabled') : t('autoGenerate')}
+          title={
+            !canAutoGenerate
+              ? (disabledTitle ?? t('autoGenerateTooltipDisabled'))
+              : t('autoGenerate')
+          }
         />
         <Upload
           accept="image/*"

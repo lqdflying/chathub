@@ -1,5 +1,6 @@
 'use client';
 
+import { chainPickEmoji } from '@lobechat/prompts';
 import type {
   SandboxHubProfileSettingsInput,
   SandboxHubProfileSettingsItem,
@@ -10,6 +11,12 @@ import { Input, Select, Switch } from 'antd';
 import { memo, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
+
+import AutoGenerateAvatar from '@/features/AgentSetting/AgentMeta/AutoGenerateAvatar';
+import { chatService } from '@/services/chat';
+import { useUserStore } from '@/store/user';
+import { systemAgentSelectors } from '@/store/user/slices/settings/selectors';
+import { merge } from '@/utils/merge';
 
 import { formatDuration } from './format';
 import {
@@ -44,6 +51,7 @@ const ProfileSettingsModal = memo<ProfileSettingsModalProps>(
     const [fieldError, setFieldError] = useState<FormError['field']>();
     const [serverError, setServerError] = useState<string>();
     const [saving, setSaving] = useState(false);
+    const [avatarLoading, setAvatarLoading] = useState(false);
 
     useEffect(() => {
       if (!open) return;
@@ -54,6 +62,32 @@ const ProfileSettingsModal = memo<ProfileSettingsModalProps>(
 
     const set = <K extends keyof ProfileFormState>(key: K, value: ProfileFormState[K]) =>
       setForm((current) => ({ ...current, [key]: value }));
+
+    // Same cap as the profile schema: a 256px upload is usually under it.
+    const setAvatar = (value: string) => {
+      if (value.length > 64 * 1024) {
+        setServerError(t('admin.form.avatarTooLarge'));
+        return;
+      }
+      set('avatar', value);
+    };
+
+    const generateAvatar = () => {
+      const content = [form.name, form.description]
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .join(', ');
+      if (!content) return;
+      void chatService.fetchPresetTaskResult({
+        onError: () => setServerError(t('admin.form.avatarGenerateFailed')),
+        onFinish: async (emoji) => setAvatar(emoji.trim()),
+        onLoadingChange: setAvatarLoading,
+        params: merge(
+          systemAgentSelectors.agentMeta(useUserStore.getState()),
+          chainPickEmoji(content),
+        ),
+      });
+    };
 
     const durationLabel = (ms: number) => {
       const parts = formatDuration(ms);
@@ -144,7 +178,31 @@ const ProfileSettingsModal = memo<ProfileSettingsModalProps>(
             t('admin.form.description'),
             text('description', t('admin.form.description')),
           ),
-          row(undefined, t('admin.form.avatar'), text('avatar', t('admin.form.avatar'))),
+          row(
+            undefined,
+            t('admin.form.avatar'),
+            <Flexbox gap={8}>
+              <AutoGenerateAvatar
+                canAutoGenerate={!!(form.name.trim() || form.description.trim())}
+                disabledTitle={t('admin.form.avatarGenerateNeedsText')}
+                loading={avatarLoading}
+                onChange={setAvatar}
+                onGenerate={generateAvatar}
+                value={form.avatar}
+              />
+              <Input
+                aria-label={t('admin.form.avatar')}
+                onChange={(event) => setAvatar(event.target.value)}
+                placeholder={
+                  form.avatar.startsWith('data:')
+                    ? t('admin.form.avatarUploaded')
+                    : t('admin.form.avatarPlaceholder')
+                }
+                value={form.avatar.startsWith('data:') ? '' : form.avatar}
+              />
+            </Flexbox>,
+            t('admin.form.avatarHint'),
+          ),
           row(
             'serverId',
             t('admin.form.server'),
