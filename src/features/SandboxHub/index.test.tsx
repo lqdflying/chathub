@@ -382,7 +382,8 @@ describe('SandboxHub', () => {
     expect(screen.getAllByText('profile.unavailable')).toHaveLength(2);
 
     expect(screen.queryByText('data instruction text')).toBeNull();
-    fireEvent.click(screen.getAllByText('profile.instruction.view')[0]);
+    fireEvent.click(screen.getAllByRole('button', { name: 'profile.details' })[0]);
+    fireEvent.click(screen.getByText('profile.instruction.view'));
     expect(screen.getByRole('dialog').textContent).toContain('data instruction text');
 
     const locked = screen.getByRole('button', { name: /locked name/ }) as HTMLButtonElement;
@@ -408,12 +409,15 @@ describe('SandboxHub', () => {
         render(<SandboxHub />);
       });
     };
+    const openDetails = () =>
+      fireEvent.click(screen.getByRole('button', { name: 'profile.details' }));
 
     it('keeps instructions read-only for non-admins and says who can edit', async () => {
       mocks.profiles = [profile('data')];
       await renderHub();
       expect(mocks.access).toHaveBeenCalledWith('user:u1');
       expect(screen.queryByText('profile.instruction.edit')).toBeNull();
+      openDetails();
       fireEvent.click(screen.getByText('profile.instruction.view'));
       expect(screen.getByText('profile.instruction.readOnly')).toBeTruthy();
       expect(screen.getByRole('dialog').getAttribute('data-mask-closable')).toBe('true');
@@ -422,6 +426,7 @@ describe('SandboxHub', () => {
       cleanup();
       mocks.access.mockResolvedValue({ adminsConfigured: false, canEditInstructions: false });
       await renderHub();
+      openDetails();
       fireEvent.click(screen.getByText('profile.instruction.view'));
       expect(screen.getByText('profile.instruction.readOnlyNoAdmins')).toBeTruthy();
     });
@@ -433,6 +438,7 @@ describe('SandboxHub', () => {
 
       // Reset only appears once the text has been edited.
       expect(screen.queryByText('profile.instruction.reset')).toBeNull();
+      openDetails();
       fireEvent.click(screen.getByText('profile.instruction.edit'));
       expect(screen.getByRole('dialog').getAttribute('data-mask-closable')).toBe('false');
       expect(screen.getByRole('dialog').getAttribute('data-keyboard')).toBe('false');
@@ -457,6 +463,7 @@ describe('SandboxHub', () => {
       mocks.setInstruction.mockRejectedValue(new Error('FORBIDDEN'));
       mocks.profiles = [profile('data')];
       await renderHub();
+      openDetails();
       fireEvent.click(screen.getByText('profile.instruction.edit'));
       fireEvent.change(screen.getByRole('textbox'), { target: { value: 'New text.' } });
       await act(async () => {
@@ -470,6 +477,7 @@ describe('SandboxHub', () => {
       mocks.access.mockResolvedValue({ adminsConfigured: true, canEditInstructions: true });
       mocks.profiles = [profile('data')];
       await renderHub();
+      openDetails();
       fireEvent.click(screen.getByText('profile.instruction.edit'));
       fireEvent.change(screen.getByRole('textbox'), {
         target: { value: 'x'.repeat(32 * 1024 + 1) },
@@ -490,6 +498,7 @@ describe('SandboxHub', () => {
         }),
       ];
       await renderHub();
+      openDetails();
       expect(screen.getByText('profile.instruction.customized')).toBeTruthy();
       expect(screen.getByText(/profile\.instruction\.updatedAt/)).toBeTruthy();
 
@@ -516,7 +525,10 @@ describe('SandboxHub', () => {
         render(<SandboxHub />);
       });
     };
-    const openEnv = () => fireEvent.click(screen.getByText('env.manage'));
+    const openEnv = () => {
+      fireEvent.click(screen.getByRole('button', { name: 'profile.details' }));
+      fireEvent.click(screen.getByText('env.manage'));
+    };
 
     it('shows the counts and lets a user add, replace and delete their own', async () => {
       mocks.profiles = [profile('data')];
@@ -524,8 +536,9 @@ describe('SandboxHub', () => {
       await renderHub();
 
       expect(mocks.env.list).toHaveBeenCalledWith('user:u1');
+      fireEvent.click(screen.getByRole('button', { name: 'profile.details' }));
       expect(screen.getByText('env.summary:{"mine":0,"shared":1}')).toBeTruthy();
-      openEnv();
+      fireEvent.click(screen.getByText('env.manage'));
       expect(screen.getByText('env.warning')).toBeTruthy();
       // Not an admin: shared names only, no controls for them.
       expect(screen.getByText('env.sharedReadOnly')).toBeTruthy();
@@ -771,6 +784,7 @@ describe('SandboxHub', () => {
       expect(screen.getByText('admin.addProfile')).toBeTruthy();
       expect(screen.getAllByRole('button', { name: 'admin.more' })).toHaveLength(2);
       expect(screen.getByText('admin.image.ready')).toBeTruthy();
+      fireEvent.click(screen.getAllByRole('button', { name: 'profile.details' })[0]);
       expect(screen.getByText(/Ready after 3 s\./)).toBeTruthy();
       expect(screen.getByText('admin.notOffered')).toBeTruthy();
       expect(screen.getByText('broken name')).toBeTruthy();
@@ -802,8 +816,9 @@ describe('SandboxHub', () => {
       await renderAsAdmin();
       mocks.load.mockClear();
 
+      fireEvent.click(screen.getAllByRole('button', { name: 'profile.details' })[1]);
       await act(async () => {
-        fireEvent.click(screen.getAllByText('admin.prepare')[1]);
+        fireEvent.click(screen.getByText('admin.prepare'));
       });
       expect(mocks.admin.prepare).toHaveBeenCalledWith('user:u1', 'data');
       expect(mocks.load).toHaveBeenCalledWith('user:u1');
@@ -825,6 +840,7 @@ describe('SandboxHub', () => {
       mocks.profiles = [profile('data')];
       mocks.admin.prepare.mockRejectedValue(new Error('Server "remote" is missing its API key.'));
       await renderAsAdmin();
+      fireEvent.click(screen.getByRole('button', { name: 'profile.details' }));
       await act(async () => {
         fireEvent.click(screen.getByText('admin.prepare'));
       });

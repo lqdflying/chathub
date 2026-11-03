@@ -199,6 +199,7 @@
       "server": "服务器",
       "serverDesc": "沙盒运行在哪台服务器上"
     },
+    "details": "详情",
     "toggle": "开启或关闭 {{name}}",
     "toggleFailed": "无法保存，请稍后重试。",
     "unavailable": "该沙盒的服务器缺少 API Key，运营者修复配置前无法使用。"

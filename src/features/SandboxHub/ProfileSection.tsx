@@ -6,17 +6,7 @@ import type {
   SandboxProfileItem,
   SandboxServerHealth,
 } from '@lobechat/types';
-import {
-  ActionIcon,
-  Avatar,
-  Button,
-  Dropdown,
-  Form,
-  type FormGroupItemType,
-  type FormItemProps,
-  Icon,
-  Tag,
-} from '@lobehub/ui';
+import { ActionIcon, Avatar, Button, Dropdown, Icon, Modal, Tag } from '@lobehub/ui';
 import { App, Switch } from 'antd';
 import { createStyles } from 'antd-style';
 import dayjs from 'dayjs';
@@ -29,30 +19,68 @@ import {
   Settings2,
   Trash2,
 } from 'lucide-react';
-import { memo, useState } from 'react';
+import { Fragment, memo, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
-
-import { FORM_STYLE } from '@/const/layoutTokens';
 
 import { egressSummaryKey, formatDuration } from './format';
 
 const useStyles = createStyles(({ css, token }) => ({
+  actions: css`
+    flex: none;
+  `,
+  card: css`
+    border: 1px solid ${token.colorBorderSecondary};
+    border-radius: ${token.borderRadiusLG}px;
+    background: ${token.colorBgContainer};
+    padding-block: 12px;
+    padding-inline: 16px;
+  `,
+  cardMain: css`
+    all: unset;
+    cursor: pointer;
+    flex: 1;
+    min-width: 0;
+
+    &:focus-visible {
+      outline: 2px solid ${token.colorPrimary};
+      outline-offset: 2px;
+    }
+  `,
+  fact: css`
+    display: flex;
+    gap: 12px;
+    align-items: baseline;
+    justify-content: space-between;
+    font-size: 13px;
+    line-height: 1.4;
+  `,
+  factLabel: css`
+    flex: none;
+    color: ${token.colorTextDescription};
+  `,
+  factValue: css`
+    min-width: 0;
+    color: ${token.colorText};
+    text-align: end;
+    overflow-wrap: anywhere;
+  `,
   groupDesc: css`
     font-size: 12px;
     font-weight: normal;
-    line-height: 1.5;
+    line-height: 1.4;
     color: ${token.colorTextDescription};
     overflow-wrap: anywhere;
   `,
   name: css`
     min-width: 0;
     overflow-wrap: anywhere;
+    font-weight: 500;
   `,
   notice: css`
     font-size: 12px;
     font-weight: normal;
-    line-height: 1.5;
+    line-height: 1.4;
     overflow-wrap: anywhere;
   `,
   noticeError: css`
@@ -61,11 +89,14 @@ const useStyles = createStyles(({ css, token }) => ({
   noticeWarning: css`
     color: ${token.colorWarningText};
   `,
-  value: css`
-    min-width: 0;
+  summary: css`
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 0;
+    margin-block-start: 4px;
     color: ${token.colorTextSecondary};
-    text-align: end;
-    overflow-wrap: anywhere;
+    font-size: 12px;
+    line-height: 1.4;
   `,
 }));
 
@@ -198,8 +229,8 @@ const AdminActions = memo<ProfileAdminProps>(
 AdminActions.displayName = 'SandboxHubAdminActions';
 
 /**
- * One sandbox as a Settings group: name and description in the header, the
- * on/off switch and admin controls on the right, and one row per setting.
+ * One sandbox as a compact card. The summary stays on the card; the rest
+ * opens in a narrow dialog. The switch and admin controls do not open it.
  */
 const ProfileSection = memo<ProfileSectionProps>(
   ({ access, admin, env, health, onOpenEnv, onOpenInstruction, onToggle, profile }) => {
@@ -207,6 +238,7 @@ const ProfileSection = memo<ProfileSectionProps>(
     const { t } = useTranslation('sandboxHub');
     const [pending, setPending] = useState(false);
     const [failed, setFailed] = useState(false);
+    const [detailsOpen, setDetailsOpen] = useState(false);
 
     const name = profile?.name ?? admin?.item.name ?? '';
     const description = profile?.description ?? admin?.item.description;
@@ -236,9 +268,7 @@ const ProfileSection = memo<ProfileSectionProps>(
       }
     };
 
-    const value = (text: string | undefined) => <span className={styles.value}>{text}</span>;
-
-    // Problems show in the group header, under the description.
+    // Problems show on the card, under the description.
     const notices: { message: string; type: 'error' | 'warning' }[] = [];
     if (failed) notices.push({ message: t('profile.toggleFailed'), type: 'error' });
     if (admin?.item.issue) {
@@ -247,179 +277,223 @@ const ProfileSection = memo<ProfileSectionProps>(
       notices.push({ message: t('profile.unavailable'), type: 'warning' });
     }
 
-    const rows: FormItemProps[] = [];
+    const idle = profile ? timeLabel(profile.sessionIdleTimeoutMs) : undefined;
+    const maxLifetime = profile ? timeLabel(profile.sessionMaxLifetimeMs) : undefined;
+    const preparing = admin?.item.imageStatus === 'preparing';
+    const imageStatusTime = admin?.item.imageStatusUpdatedAt
+      ? dayjs(admin.item.imageStatusUpdatedAt).format('YYYY-MM-DD HH:mm')
+      : undefined;
+    const imageNote = admin
+      ? [admin.item.imageStatusMessage, imageStatusTime].filter(Boolean).join(' · ')
+      : '';
 
-    if (profile) {
-      const idle = timeLabel(profile.sessionIdleTimeoutMs);
-      const maxLifetime = timeLabel(profile.sessionMaxLifetimeMs);
-      rows.push(
-        {
-          children: value(t('profile.resources', { cpu: profile.cpu, memory: profile.memory })),
-          desc: t('profile.rows.resourcesDesc'),
-          label: t('profile.rows.resources'),
-          minWidth: undefined,
-        },
-        {
-          children: value(
-            t(egressSummaryKey(profile.egress), {
-              count: profile.egress.mode === 'allowlist' ? profile.egress.targets.length : 0,
-            }),
-          ),
-          desc:
-            profile.egress.mode === 'allowlist'
-              ? t('profile.egressTargets', { targets: profile.egress.targets.join(', ') })
-              : t('profile.rows.networkDesc'),
-          label: t('profile.rows.network'),
-          minWidth: undefined,
-        },
-        {
-          children: value(
-            [
-              idle ? t('profile.idle', { time: idle }) : t('profile.idlePerCall'),
-              maxLifetime ? t('profile.maxLifetime', { time: maxLifetime }) : '',
-            ]
-              .filter(Boolean)
-              .join(' · '),
-          ),
-          desc: t('profile.rows.lifetimeDesc'),
-          label: t('profile.rows.lifetime'),
-          minWidth: undefined,
-        },
-        {
-          children: (
-            <Flexbox align={'center'} gap={8} horizontal justify={'flex-end'}>
-              {value(profile.serverName)}
-              {health && (
-                <Tag color={HEALTH_COLOR[health]} size={'small'}>
-                  {t(`health.${health}`)}
-                </Tag>
-              )}
-            </Flexbox>
-          ),
-          desc: t('profile.rows.serverDesc'),
-          label: t('profile.rows.server'),
-          minWidth: undefined,
-        },
-        {
-          children: (
-            <Button onClick={onOpenInstruction} size={'small'}>
-              {access?.canEdit ? t('profile.instruction.edit') : t('profile.instruction.view')}
-            </Button>
-          ),
-          desc: profile.instructionCustomized ? (
-            <Flexbox align={'center'} gap={8} horizontal wrap={'wrap'}>
-              <Tag color={'processing'} size={'small'}>
-                {t('profile.instruction.customized')}
-              </Tag>
-              {profile.instructionUpdatedAt &&
-                t('profile.instruction.updatedAt', {
-                  time: dayjs(profile.instructionUpdatedAt).format('YYYY-MM-DD HH:mm'),
-                })}
-            </Flexbox>
-          ) : (
-            t('profile.rows.instructionDesc')
-          ),
-          label: t('profile.rows.instruction'),
-          minWidth: undefined,
-        },
-      );
-      if (onOpenEnv) {
-        rows.push({
-          children: (
-            <Flexbox align={'center'} gap={8} horizontal justify={'flex-end'}>
-              {env && value(t('env.summary', { mine: env.mine, shared: env.shared }))}
-              <Button onClick={onOpenEnv} size={'small'}>
-                {t('env.manage')}
-              </Button>
-            </Flexbox>
-          ),
-          desc: env && !env.available ? t('env.unavailable') : t('env.rowDesc'),
-          label: t('env.row'),
-          minWidth: undefined,
-        });
-      }
-    }
+    const summary = [
+      profile && t('profile.resources', { cpu: profile.cpu, memory: profile.memory }),
+      profile &&
+        t(egressSummaryKey(profile.egress), {
+          count: profile.egress.mode === 'allowlist' ? profile.egress.targets.length : 0,
+        }),
+      profile && (idle ? t('profile.idle', { time: idle }) : t('profile.idlePerCall')),
+      profile?.serverName,
+      env && !env.available ? t('env.unavailable') : '',
+    ].filter(Boolean);
 
-    if (admin) {
-      const { item } = admin;
-      const preparing = item.imageStatus === 'preparing';
-      const statusTime = item.imageStatusUpdatedAt
-        ? dayjs(item.imageStatusUpdatedAt).format('YYYY-MM-DD HH:mm')
-        : undefined;
-      rows.push({
-        children: (
-          <Flexbox align={'center'} gap={8} horizontal justify={'flex-end'}>
-            <Tag color={IMAGE_COLOR[item.imageStatus]} size={'small'}>
-              {t(`admin.image.${item.imageStatus}`)}
-            </Tag>
-            <Button
-              disabled={admin.busy || preparing}
-              icon={DownloadCloud}
-              loading={preparing}
-              onClick={admin.onPrepare}
-              size={'small'}
-            >
-              {t('admin.prepare')}
-            </Button>
-          </Flexbox>
-        ),
-        desc:
-          [item.imageStatusMessage, statusTime].filter(Boolean).join(' · ') ||
-          t('profile.rows.imageDesc'),
-        label: t('profile.rows.image'),
-        minWidth: undefined,
-      });
-    }
+    const fact = (label: string, value: ReactNode) => (
+      <div className={styles.fact} key={label}>
+        <span className={styles.factLabel}>{label}</span>
+        <span className={styles.factValue}>{value}</span>
+      </div>
+    );
 
-    const group: FormGroupItemType = {
-      children: rows,
-      defaultActive: true,
-      extra: (
-        <Flexbox align={'center'} gap={4} horizontal>
-          {admin && <AdminActions {...admin} />}
-          {profile && onToggle && (
-            <Switch
-              aria-label={t('profile.toggle', { name: profile.name })}
-              checked={profile.enabled}
-              disabled={!profile.available && !profile.enabled}
-              loading={pending}
-              onChange={(checked) => void toggle(checked)}
-              style={{ marginInlineStart: 8 }}
-            />
-          )}
-        </Flexbox>
-      ),
-      key: profile?.id ?? admin?.item.id,
-      // Form does not show a group's `desc`, so the description is the title's second line.
-      title: (
-        <Flexbox gap={2} style={{ minWidth: 0 }}>
-          <Flexbox align={'center'} gap={8} horizontal style={{ minWidth: 0 }}>
-            {avatar && <Avatar avatar={avatar} size={24} style={{ flex: 'none' }} />}
-            <span className={styles.name}>{name}</span>
-            {!profile && admin && (
-              <Tag color={'warning'} size={'small'}>
-                {t('admin.notOfferedTag')}
-              </Tag>
-            )}
-          </Flexbox>
-          {description && <span className={styles.groupDesc}>{description}</span>}
-          {notices.map(({ message, type }) => (
-            <Flexbox
-              align={'center'}
-              className={`${styles.notice} ${type === 'error' ? styles.noticeError : styles.noticeWarning}`}
-              gap={4}
-              horizontal
-              key={message}
-            >
-              <Icon icon={AlertTriangle} size={12} />
-              <span>{message}</span>
-            </Flexbox>
-          ))}
-        </Flexbox>
-      ),
+    const closeAnd = (action?: () => void) => {
+      setDetailsOpen(false);
+      action?.();
     };
 
-    return <Form items={[group]} itemsType={'group'} variant={'borderless'} {...FORM_STYLE} />;
+    return (
+      <>
+        <Flexbox align={'flex-start'} className={styles.card} gap={8} horizontal>
+          <button
+            aria-label={t('profile.details')}
+            className={styles.cardMain}
+            onClick={() => setDetailsOpen(true)}
+            type={'button'}
+          >
+            <Flexbox gap={2}>
+              <Flexbox align={'center'} gap={8} horizontal>
+                {avatar && <Avatar avatar={avatar} size={24} style={{ flex: 'none' }} />}
+                <span className={styles.name}>{name}</span>
+                {!profile && admin && (
+                  <Tag color={'warning'} size={'small'}>
+                    {t('admin.notOfferedTag')}
+                  </Tag>
+                )}
+              </Flexbox>
+              {description && <span className={styles.groupDesc}>{description}</span>}
+              {notices.map(({ message, type }) => (
+                <Flexbox
+                  align={'center'}
+                  className={`${styles.notice} ${type === 'error' ? styles.noticeError : styles.noticeWarning}`}
+                  gap={4}
+                  horizontal
+                  key={message}
+                >
+                  <Icon icon={AlertTriangle} size={12} />
+                  <span>{message}</span>
+                </Flexbox>
+              ))}
+              {(summary.length > 0 || health || admin) && (
+                <div className={styles.summary}>
+                  {summary.map((part, index) => (
+                    <Fragment key={`${index}-${part}`}>
+                      {index > 0 && ' · '}
+                      <span>{part}</span>
+                    </Fragment>
+                  ))}
+                  {health && (
+                    <>
+                      {' · '}
+                      <Tag color={HEALTH_COLOR[health]} size={'small'}>
+                        {t(`health.${health}`)}
+                      </Tag>
+                    </>
+                  )}
+                  {admin && (
+                    <>
+                      {' · '}
+                      <Tag color={IMAGE_COLOR[admin.item.imageStatus]} size={'small'}>
+                        {t(`admin.image.${admin.item.imageStatus}`)}
+                      </Tag>
+                    </>
+                  )}
+                </div>
+              )}
+            </Flexbox>
+          </button>
+          <Flexbox align={'center'} className={styles.actions} gap={4} horizontal>
+            {admin && <AdminActions {...admin} />}
+            {profile && onToggle && (
+              <Switch
+                aria-label={t('profile.toggle', { name: profile.name })}
+                checked={profile.enabled}
+                disabled={!profile.available && !profile.enabled}
+                loading={pending}
+                onChange={(checked) => void toggle(checked)}
+              />
+            )}
+          </Flexbox>
+        </Flexbox>
+        <Modal
+          footer={null}
+          onCancel={() => setDetailsOpen(false)}
+          open={detailsOpen}
+          title={name}
+          width={440}
+        >
+          <Flexbox gap={10}>
+            {profile && (
+              <>
+                {fact(
+                  t('profile.rows.resources'),
+                  t('profile.resources', { cpu: profile.cpu, memory: profile.memory }),
+                )}
+                {fact(
+                  t('profile.rows.network'),
+                  <>
+                    {t(egressSummaryKey(profile.egress), {
+                      count: profile.egress.mode === 'allowlist' ? profile.egress.targets.length : 0,
+                    })}
+                    {profile.egress.mode === 'allowlist' && (
+                      <div className={styles.groupDesc}>
+                        {t('profile.egressTargets', { targets: profile.egress.targets.join(', ') })}
+                      </div>
+                    )}
+                  </>,
+                )}
+                {fact(
+                  t('profile.rows.lifetime'),
+                  [
+                    idle ? t('profile.idle', { time: idle }) : t('profile.idlePerCall'),
+                    maxLifetime ? t('profile.maxLifetime', { time: maxLifetime }) : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' · '),
+                )}
+                {fact(
+                  t('profile.rows.server'),
+                  <>
+                    {profile.serverName}
+                    {health && (
+                      <>
+                        {' '}
+                        <Tag color={HEALTH_COLOR[health]} size={'small'}>
+                          {t(`health.${health}`)}
+                        </Tag>
+                      </>
+                    )}
+                  </>,
+                )}
+                {fact(
+                  t('profile.rows.instruction'),
+                  <Flexbox align={'center'} gap={8} horizontal justify={'flex-end'} wrap={'wrap'}>
+                    {profile.instructionCustomized && (
+                      <Tag color={'processing'} size={'small'}>
+                        {t('profile.instruction.customized')}
+                      </Tag>
+                    )}
+                    {profile.instructionUpdatedAt && (
+                      <span className={styles.groupDesc}>
+                        {t('profile.instruction.updatedAt', {
+                          time: dayjs(profile.instructionUpdatedAt).format('YYYY-MM-DD HH:mm'),
+                        })}
+                      </span>
+                    )}
+                    <Button onClick={() => closeAnd(onOpenInstruction)} size={'small'}>
+                      {access?.canEdit ? t('profile.instruction.edit') : t('profile.instruction.view')}
+                    </Button>
+                  </Flexbox>,
+                )}
+                {onOpenEnv &&
+                  fact(
+                    t('env.row'),
+                    <Flexbox align={'center'} gap={8} horizontal justify={'flex-end'}>
+                      <span>
+                        {env && !env.available
+                          ? t('env.unavailable')
+                          : env
+                            ? t('env.summary', { mine: env.mine, shared: env.shared })
+                            : ''}
+                      </span>
+                      <Button onClick={() => closeAnd(onOpenEnv)} size={'small'}>
+                        {t('env.manage')}
+                      </Button>
+                    </Flexbox>,
+                  )}
+              </>
+            )}
+            {admin &&
+              fact(
+                t('profile.rows.image'),
+                <Flexbox align={'center'} gap={8} horizontal justify={'flex-end'} wrap={'wrap'}>
+                  <Tag color={IMAGE_COLOR[admin.item.imageStatus]} size={'small'}>
+                    {t(`admin.image.${admin.item.imageStatus}`)}
+                  </Tag>
+                  {imageNote && <span className={styles.groupDesc}>{imageNote}</span>}
+                  <Button
+                    disabled={admin.busy || preparing}
+                    icon={DownloadCloud}
+                    loading={preparing}
+                    onClick={admin.onPrepare}
+                    size={'small'}
+                  >
+                    {t('admin.prepare')}
+                  </Button>
+                </Flexbox>,
+              )}
+          </Flexbox>
+        </Modal>
+      </>
+    );
   },
 );
 

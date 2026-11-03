@@ -199,6 +199,7 @@
       "server": "Server",
       "serverDesc": "Where this sandbox runs"
     },
+    "details": "Details",
     "toggle": "Turn {{name}} on or off",
     "toggleFailed": "Could not save. Try again later.",
     "unavailable": "This sandbox's server is missing its API key, so it cannot run until the operator fixes the configuration."

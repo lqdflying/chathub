@@ -98,6 +98,9 @@ const ProfileSettingsModal = memo<ProfileSettingsModalProps>(
       children,
       desc,
       label,
+      // Label above the control. The settings column leaves a wide empty gap.
+      layout: 'vertical',
+      minWidth: undefined,
       ...(field && fieldError === field
         ? { help: t(`admin.form.invalid.${field}`), validateStatus: 'error' as const }
         : {}),
@@ -175,19 +178,24 @@ const ProfileSettingsModal = memo<ProfileSettingsModalProps>(
               defaults.image ? inherit(defaults.image) : t('admin.form.imageRequired'),
             ),
             t('admin.form.imageHint'),
-            // A long image reference needs the full width.
-            { layout: 'vertical', minWidth: undefined },
           ),
-          row(
-            undefined,
-            t('admin.form.cpu'),
-            text('cpu', t('admin.form.cpu'), inherit(defaults.cpu)),
-          ),
-          row(
-            undefined,
-            t('admin.form.memory'),
-            text('memory', t('admin.form.memory'), inherit(defaults.memory)),
-          ),
+          {
+            children: (
+              <Flexbox gap={12} horizontal>
+                <Flexbox flex={1} gap={4}>
+                  <span>{t('admin.form.cpu')}</span>
+                  {text('cpu', t('admin.form.cpu'), inherit(defaults.cpu))}
+                </Flexbox>
+                <Flexbox flex={1} gap={4}>
+                  <span>{t('admin.form.memory')}</span>
+                  {text('memory', t('admin.form.memory'), inherit(defaults.memory))}
+                </Flexbox>
+              </Flexbox>
+            ),
+            key: 'cpu-memory',
+            layout: 'vertical',
+            minWidth: undefined,
+          },
         ],
         key: 'resources',
         title: t('admin.form.groups.resources'),
@@ -318,7 +326,6 @@ const ProfileSettingsModal = memo<ProfileSettingsModalProps>(
               value={form.instructionText}
             />,
             t('admin.form.instructionTextHint'),
-            { layout: 'vertical', minWidth: undefined },
           ),
         ],
         key: 'behaviour',
@@ -336,16 +343,11 @@ const ProfileSettingsModal = memo<ProfileSettingsModalProps>(
         onOk={() => void submit()}
         open={open}
         title={item ? t('admin.form.titleEdit', { name: item.name }) : t('admin.form.titleCreate')}
-        width={760}
+        width={480}
       >
         <Flexbox gap={12}>
           {item && <Alert message={t('admin.form.changeWarning')} showIcon type={'warning'} />}
-          <Form
-            itemMinWidth={'max(50%, 240px)'}
-            items={groups}
-            itemsType={'group'}
-            variant={'borderless'}
-          />
+          <Form items={groups} itemsType={'group'} variant={'borderless'} />
           {serverError && <Alert message={serverError} showIcon type={'error'} />}
         </Flexbox>
       </Modal>

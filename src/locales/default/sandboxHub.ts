@@ -158,6 +158,7 @@ export default {
   loadFailed: '无法读取沙盒列表，请稍后重试。',
   loading: '正在读取沙盒…',
   profile: {
+    details: '详情',
     duration: {
       hours: '{{count}} 小时',
       minutes: '{{count}} 分钟',
