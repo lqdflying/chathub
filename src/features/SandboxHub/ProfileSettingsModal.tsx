@@ -6,12 +6,11 @@ import type {
   SandboxHubProfileSettingsItem,
   SandboxHubSettings,
 } from '@lobechat/types';
-import { Alert, Form, type FormGroupItemType, type FormItemProps, Modal } from '@lobehub/ui';
+import { Alert, Modal } from '@lobehub/ui';
 import { Input, Select, Switch } from 'antd';
 import { createStyles } from 'antd-style';
-import { memo, useEffect, useRef, useState } from 'react';
+import { type ReactNode, memo, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Flexbox } from 'react-layout-kit';
 
 import AutoGenerateAvatar from '@/features/AgentSetting/AgentMeta/AutoGenerateAvatar';
 import { chatService } from '@/services/chat';
@@ -28,16 +27,64 @@ import {
   toSettingsInput,
 } from './settingsForm';
 
-/** Tighter than the settings-page form this dialog reuses (48px groups, 16px rows). */
-const useStyles = createStyles(({ css, prefixCls }) => ({
-  form: css`
-    && .${prefixCls}-form-item.${prefixCls}-form-item {
-      padding-block: 8px;
+const useStyles = createStyles(({ css, responsive, token }) => ({
+  avatarRow: css`
+    display: flex;
+    gap: 8px;
+    align-items: center;
 
-      .${prefixCls}-row {
-        gap: 8px;
-      }
+    ${responsive.mobile} {
+      flex-direction: column;
+      align-items: stretch;
     }
+  `,
+  error: css`
+    font-size: 12px;
+    line-height: 1.45;
+    color: ${token.colorError};
+  `,
+  field: css`
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+  `,
+  form: css`
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  `,
+  hint: css`
+    font-size: 12px;
+    line-height: 1.45;
+    color: ${token.colorTextDescription};
+  `,
+  label: css`
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.4;
+  `,
+  section: css`
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px 16px;
+
+    ${responsive.mobile} {
+      grid-template-columns: 1fr;
+    }
+  `,
+  title: css`
+    grid-column: 1 / -1;
+    font-size: 12px;
+    font-weight: 600;
+    color: ${token.colorTextSecondary};
+  `,
+  url: css`
+    flex: 1;
+    min-width: 0;
+  `,
+  wide: css`
+    grid-column: 1 / -1;
   `,
 }));
 
@@ -51,8 +98,9 @@ interface ProfileSettingsModalProps {
 }
 
 /**
- * Add or edit one Sandbox Hub profile, laid out as Settings groups. Blank
- * settings inherit the OPENSANDBOX_* defaults, shown as placeholders.
+ * Add or edit one Sandbox Hub profile. Blank settings inherit the
+ * OPENSANDBOX_* defaults, shown as placeholders. Short fields share a row
+ * on a wide screen and stack on a phone.
  */
 const ProfileSettingsModal = memo<ProfileSettingsModalProps>(
   ({ item, onClose, onSubmit, open, settings }) => {
@@ -132,6 +180,8 @@ const ProfileSettingsModal = memo<ProfileSettingsModalProps>(
     };
     const inherit = (value: string) => t('admin.form.inherit', { value });
     const { defaults } = settings;
+    const invalid = (field: FormError['field']) =>
+      fieldError === field ? t(`admin.form.invalid.${field}`) : undefined;
 
     const submit = async () => {
       const result = toSettingsInput(form);
@@ -152,26 +202,6 @@ const ProfileSettingsModal = memo<ProfileSettingsModalProps>(
       }
     };
 
-    /** One Settings row; a field error shows on its row. */
-    const row = (
-      field: FormError['field'] | undefined,
-      label: string,
-      children: FormItemProps['children'],
-      desc?: string,
-      extra: Partial<FormItemProps> = {},
-    ): FormItemProps => ({
-      children,
-      desc,
-      label,
-      // Label above the field so the input uses the dialog width.
-      layout: 'vertical',
-      minWidth: undefined,
-      ...(field && fieldError === field
-        ? { help: t(`admin.form.invalid.${field}`), validateStatus: 'error' as const }
-        : {}),
-      ...extra,
-    });
-
     const text = (key: keyof ProfileFormState, label: string, placeholder?: string) => (
       <Input
         aria-label={label}
@@ -180,247 +210,22 @@ const ProfileSettingsModal = memo<ProfileSettingsModalProps>(
         value={form[key] as string}
       />
     );
-    const minutes = (key: keyof ProfileFormState, label: string, placeholder: string) => (
-      <Input
-        aria-label={label}
-        inputMode={'decimal'}
-        onChange={(event) => set(key, event.target.value as never)}
-        placeholder={placeholder}
-        value={form[key] as string}
-      />
-    );
 
-    const groups: FormGroupItemType[] = [
-      {
-        children: [
-          ...(item
-            ? []
-            : [
-                row(
-                  undefined,
-                  t('admin.form.id'),
-                  text('id', t('admin.form.id'), 'data'),
-                  t('admin.form.idHint'),
-                ),
-              ]),
-          row('name', t('admin.form.name'), text('name', t('admin.form.name'))),
-          row(
-            'description',
-            t('admin.form.description'),
-            text('description', t('admin.form.description')),
-          ),
-          row(
-            undefined,
-            t('admin.form.avatar'),
-            <Flexbox gap={8}>
-              <AutoGenerateAvatar
-                canAutoGenerate={!!(form.name.trim() || form.description.trim())}
-                disabledTitle={t('admin.form.avatarGenerateNeedsText')}
-                loading={avatarLoading}
-                onChange={setAvatar}
-                onGenerate={generateAvatar}
-                value={form.avatar}
-              />
-              <Input
-                aria-label={t('admin.form.avatar')}
-                onChange={(event) => setAvatar(event.target.value)}
-                placeholder={
-                  form.avatar.startsWith('data:')
-                    ? t('admin.form.avatarUploaded')
-                    : t('admin.form.avatarPlaceholder')
-                }
-                value={form.avatar.startsWith('data:') ? '' : form.avatar}
-              />
-            </Flexbox>,
-            t('admin.form.avatarHint'),
-            { help: avatarError, validateStatus: avatarError ? 'error' : undefined },
-          ),
-          row(
-            'serverId',
-            t('admin.form.server'),
-            <Select
-              aria-label={t('admin.form.server')}
-              onChange={(value: string) => set('serverId', value)}
-              options={settings.servers.map((server) => ({
-                label:
-                  server.status === 'ok'
-                    ? server.name
-                    : t('admin.form.serverMisconfigured', { name: server.name }),
-                value: server.id,
-              }))}
-              style={{ width: '100%' }}
-              value={form.serverId || undefined}
-            />,
-            t('admin.form.serverHint'),
-          ),
-        ],
-        key: 'basics',
-        title: t('admin.form.groups.basics'),
-      },
-      {
-        children: [
-          row(
-            undefined,
-            t('admin.form.image'),
-            text(
-              'image',
-              t('admin.form.image'),
-              defaults.image ? inherit(defaults.image) : t('admin.form.imageRequired'),
-            ),
-            t('admin.form.imageHint'),
-          ),
-          {
-            children: (
-              <Flexbox gap={12} horizontal>
-                <Flexbox flex={1} gap={4}>
-                  <span>{t('admin.form.cpu')}</span>
-                  {text('cpu', t('admin.form.cpu'), inherit(defaults.cpu))}
-                </Flexbox>
-                <Flexbox flex={1} gap={4}>
-                  <span>{t('admin.form.memory')}</span>
-                  {text('memory', t('admin.form.memory'), inherit(defaults.memory))}
-                </Flexbox>
-              </Flexbox>
-            ),
-            layout: 'vertical',
-            minWidth: undefined,
-          },
-        ],
-        key: 'resources',
-        title: t('admin.form.groups.resources'),
-      },
-      {
-        children: [
-          row(
-            undefined,
-            t('admin.form.network'),
-            <Select
-              aria-label={t('admin.form.network')}
-              onChange={(value: ProfileFormState['network']) => set('network', value)}
-              options={(['inherit', 'open', 'none', 'allowlist'] as const).map((value) => ({
-                label:
-                  value === 'inherit'
-                    ? inherit(
-                        t(egressLabelKey(defaults.egress), {
-                          count:
-                            defaults.egress.mode === 'allowlist'
-                              ? defaults.egress.targets.length
-                              : 0,
-                        }),
-                      )
-                    : t(`admin.form.networkOption.${value}`),
-                value,
-              }))}
-              style={{ width: '100%' }}
-              value={form.network}
-            />,
-          ),
-          row(
-            'allowlist',
-            t('admin.form.allowlist'),
-            <Input.TextArea
-              aria-label={t('admin.form.allowlist')}
-              autoSize={{ maxRows: 8, minRows: 2 }}
-              onChange={(event) => set('allowlist', event.target.value)}
-              placeholder={'pypi.org\nfiles.pythonhosted.org'}
-              value={form.allowlist}
-            />,
-            undefined,
-            { hidden: form.network !== 'allowlist' },
-          ),
-        ],
-        key: 'network',
-        title: t('admin.form.groups.network'),
-      },
-      {
-        children: [
-          row(
-            'idleMinutes',
-            t('admin.form.idle'),
-            minutes(
-              'idleMinutes',
-              t('admin.form.idle'),
-              inherit(durationLabel(defaults.sessionIdleTimeoutMs)),
-            ),
-            t('admin.form.idleHint'),
-          ),
-          row(
-            'maxLifetimeMinutes',
-            t('admin.form.maxLifetime'),
-            minutes(
-              'maxLifetimeMinutes',
-              t('admin.form.maxLifetime'),
-              inherit(durationLabel(defaults.sessionMaxLifetimeMs)),
-            ),
-            t('admin.form.minutesZeroNone'),
-          ),
-          row(
-            'readySeconds',
-            t('admin.form.ready'),
-            minutes(
-              'readySeconds',
-              t('admin.form.ready'),
-              inherit(String(Math.round(defaults.readyTimeoutMs / 1000))),
-            ),
-            t('admin.form.readyHint'),
-          ),
-          row(
-            'jobMinutes',
-            t('admin.form.job'),
-            minutes(
-              'jobMinutes',
-              t('admin.form.job'),
-              inherit(durationLabel(defaults.jobMaxRuntimeMs)),
-            ),
-            t('admin.form.jobHint'),
-          ),
-        ],
-        key: 'lifetimes',
-        title: t('admin.form.groups.lifetimes'),
-      },
-      {
-        children: [
-          row(
-            undefined,
-            t('admin.form.defaultEnabled'),
-            <Switch
-              aria-label={t('admin.form.defaultEnabled')}
-              checked={form.defaultEnabled}
-              onChange={(checked) => set('defaultEnabled', checked)}
-            />,
-          ),
-          row(
-            undefined,
-            t('admin.form.instructionBase'),
-            <Select
-              aria-label={t('admin.form.instructionBase')}
-              onChange={(value: ProfileFormState['instructionBase']) =>
-                set('instructionBase', value)
-              }
-              options={(['general', 'none'] as const).map((value) => ({
-                label: t(`admin.form.instructionBaseOption.${value}`),
-                value,
-              }))}
-              style={{ width: '100%' }}
-              value={form.instructionBase}
-            />,
-          ),
-          row(
-            undefined,
-            t('admin.form.instructionText'),
-            <Input.TextArea
-              aria-label={t('admin.form.instructionText')}
-              autoSize={{ maxRows: 12, minRows: 3 }}
-              onChange={(event) => set('instructionText', event.target.value)}
-              value={form.instructionText}
-            />,
-            t('admin.form.instructionTextHint'),
-          ),
-        ],
-        key: 'behaviour',
-        title: t('admin.form.groups.behaviour'),
-      },
-    ];
+    const field = (
+      label: string,
+      control: ReactNode,
+      options?: { error?: string; hint?: string; wide?: boolean },
+    ) => (
+      <div className={options?.wide ? `${styles.field} ${styles.wide}` : styles.field}>
+        <span className={styles.label}>{label}</span>
+        {control}
+        {options?.error ? (
+          <span className={styles.error}>{options.error}</span>
+        ) : (
+          options?.hint && <span className={styles.hint}>{options.hint}</span>
+        )}
+      </div>
+    );
 
     return (
       <Modal
@@ -432,21 +237,205 @@ const ProfileSettingsModal = memo<ProfileSettingsModalProps>(
         onOk={() => void submit()}
         open={open}
         title={item ? t('admin.form.titleEdit', { name: item.name }) : t('admin.form.titleCreate')}
-        width={640}
+        width={720}
         // Above the default tooltip layer, so a leftover label cannot cover the sheet.
         zIndex={1100}
       >
-        <Flexbox gap={12}>
+        <div className={styles.form}>
           {item && <Alert message={t('admin.form.changeWarning')} showIcon type={'warning'} />}
-          <Form
-            className={styles.form}
-            gap={16}
-            items={groups}
-            itemsType={'group'}
-            variant={'borderless'}
-          />
+          <section className={styles.section}>
+            <div className={styles.title}>{t('admin.form.groups.basics')}</div>
+            {!item &&
+              field(t('admin.form.id'), text('id', t('admin.form.id'), 'data'), {
+                hint: t('admin.form.idHint'),
+                wide: true,
+              })}
+            {field(t('admin.form.name'), text('name', t('admin.form.name')), {
+              error: invalid('name'),
+            })}
+            {field(t('admin.form.description'), text('description', t('admin.form.description')), {
+              error: invalid('description'),
+            })}
+            {field(
+              t('admin.form.avatar'),
+              <div className={styles.avatarRow}>
+                <AutoGenerateAvatar
+                  canAutoGenerate={!!(form.name.trim() || form.description.trim())}
+                  disabledTitle={t('admin.form.avatarGenerateNeedsText')}
+                  loading={avatarLoading}
+                  onChange={setAvatar}
+                  onGenerate={generateAvatar}
+                  value={form.avatar}
+                />
+                <Input
+                  aria-label={t('admin.form.avatar')}
+                  className={styles.url}
+                  onChange={(event) => setAvatar(event.target.value)}
+                  placeholder={
+                    form.avatar.startsWith('data:')
+                      ? t('admin.form.avatarUploaded')
+                      : t('admin.form.avatarPlaceholder')
+                  }
+                  value={form.avatar.startsWith('data:') ? '' : form.avatar}
+                />
+              </div>,
+              {
+                error: avatarError,
+                hint: t('admin.form.avatarHint'),
+                wide: true,
+              },
+            )}
+          </section>
+          <section className={styles.section}>
+            <div className={styles.title}>{t('admin.form.groups.resources')}</div>
+            {field(
+              t('admin.form.server'),
+              <Select
+                aria-label={t('admin.form.server')}
+                onChange={(value: string) => set('serverId', value)}
+                options={settings.servers.map((server) => ({
+                  label:
+                    server.status === 'ok'
+                      ? server.name
+                      : t('admin.form.serverMisconfigured', { name: server.name }),
+                  value: server.id,
+                }))}
+                style={{ width: '100%' }}
+                value={form.serverId || undefined}
+              />,
+              { error: invalid('serverId'), hint: t('admin.form.serverHint') },
+            )}
+            {field(
+              t('admin.form.image'),
+              text(
+                'image',
+                t('admin.form.image'),
+                defaults.image ? inherit(defaults.image) : t('admin.form.imageRequired'),
+              ),
+              { hint: t('admin.form.imageHint') },
+            )}
+            {field(t('admin.form.cpu'), text('cpu', t('admin.form.cpu'), inherit(defaults.cpu)))}
+            {field(
+              t('admin.form.memory'),
+              text('memory', t('admin.form.memory'), inherit(defaults.memory)),
+            )}
+          </section>
+          <section className={styles.section}>
+            <div className={styles.title}>{t('admin.form.groups.network')}</div>
+            {field(
+              t('admin.form.network'),
+              <Select
+                aria-label={t('admin.form.network')}
+                onChange={(value: ProfileFormState['network']) => set('network', value)}
+                options={(['inherit', 'open', 'none', 'allowlist'] as const).map((value) => ({
+                  label:
+                    value === 'inherit'
+                      ? inherit(
+                          t(egressLabelKey(defaults.egress), {
+                            count:
+                              defaults.egress.mode === 'allowlist'
+                                ? defaults.egress.targets.length
+                                : 0,
+                          }),
+                        )
+                      : t(`admin.form.networkOption.${value}`),
+                  value,
+                }))}
+                style={{ width: '100%' }}
+                value={form.network}
+              />,
+            )}
+            {field(
+              t('admin.form.defaultEnabled'),
+              <Switch
+                aria-label={t('admin.form.defaultEnabled')}
+                checked={form.defaultEnabled}
+                onChange={(checked) => set('defaultEnabled', checked)}
+              />,
+            )}
+            {form.network === 'allowlist' &&
+              field(
+                t('admin.form.allowlist'),
+                <Input.TextArea
+                  aria-label={t('admin.form.allowlist')}
+                  autoSize={{ maxRows: 6, minRows: 2 }}
+                  onChange={(event) => set('allowlist', event.target.value)}
+                  placeholder={'pypi.org\nfiles.pythonhosted.org'}
+                  value={form.allowlist}
+                />,
+                { error: invalid('allowlist'), wide: true },
+              )}
+          </section>
+          <section className={styles.section}>
+            <div className={styles.title}>{t('admin.form.groups.lifetimes')}</div>
+            {field(
+              t('admin.form.idle'),
+              text(
+                'idleMinutes',
+                t('admin.form.idle'),
+                inherit(durationLabel(defaults.sessionIdleTimeoutMs)),
+              ),
+              { error: invalid('idleMinutes'), hint: t('admin.form.idleHint') },
+            )}
+            {field(
+              t('admin.form.maxLifetime'),
+              text(
+                'maxLifetimeMinutes',
+                t('admin.form.maxLifetime'),
+                inherit(durationLabel(defaults.sessionMaxLifetimeMs)),
+              ),
+              { error: invalid('maxLifetimeMinutes'), hint: t('admin.form.minutesZeroNone') },
+            )}
+            {field(
+              t('admin.form.ready'),
+              text(
+                'readySeconds',
+                t('admin.form.ready'),
+                inherit(String(Math.round(defaults.readyTimeoutMs / 1000))),
+              ),
+              { error: invalid('readySeconds'), hint: t('admin.form.readyHint') },
+            )}
+            {field(
+              t('admin.form.job'),
+              text(
+                'jobMinutes',
+                t('admin.form.job'),
+                inherit(durationLabel(defaults.jobMaxRuntimeMs)),
+              ),
+              { error: invalid('jobMinutes'), hint: t('admin.form.jobHint') },
+            )}
+          </section>
+          <section className={styles.section}>
+            <div className={styles.title}>{t('admin.form.groups.behaviour')}</div>
+            {field(
+              t('admin.form.instructionBase'),
+              <Select
+                aria-label={t('admin.form.instructionBase')}
+                onChange={(value: ProfileFormState['instructionBase']) =>
+                  set('instructionBase', value)
+                }
+                options={(['general', 'none'] as const).map((value) => ({
+                  label: t(`admin.form.instructionBaseOption.${value}`),
+                  value,
+                }))}
+                style={{ width: '100%' }}
+                value={form.instructionBase}
+              />,
+              { wide: true },
+            )}
+            {field(
+              t('admin.form.instructionText'),
+              <Input.TextArea
+                aria-label={t('admin.form.instructionText')}
+                autoSize={{ maxRows: 8, minRows: 2 }}
+                onChange={(event) => set('instructionText', event.target.value)}
+                value={form.instructionText}
+              />,
+              { hint: t('admin.form.instructionTextHint'), wide: true },
+            )}
+          </section>
           {serverError && <Alert message={serverError} showIcon type={'error'} />}
-        </Flexbox>
+        </div>
       </Modal>
     );
   },
