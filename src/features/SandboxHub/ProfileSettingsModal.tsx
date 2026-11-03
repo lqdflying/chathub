@@ -237,12 +237,15 @@ const ProfileSettingsModal = memo<ProfileSettingsModalProps>(
     return (
       <Modal
         cancelText={t('admin.form.cancel')}
+        centered
         confirmLoading={saving}
         destroyOnHidden
         okText={t('admin.form.save')}
         onCancel={onClose}
         onOk={() => void submit()}
         open={open}
+        // With `centered`, only the form scrolls: 240px leaves room for the title, Save and margins.
+        styles={{ body: { maxHeight: 'calc(100dvh - 240px)' } }}
         title={item ? t('admin.form.titleEdit', { name: item.name }) : t('admin.form.titleCreate')}
         width={720}
         // Above the default tooltip layer, so a leftover label cannot cover the sheet.
