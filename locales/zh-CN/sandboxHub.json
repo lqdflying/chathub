@@ -32,7 +32,7 @@
         "none": "只使用下面的文字"
       },
       "instructionText": "附加说明",
-      "instructionTextHint": "此沙盒特有的说明，例如已安装的工具。完整说明请在“模型说明”一行选择“编辑”。",
+      "instructionTextHint": "此沙盒特有的说明，例如已安装的工具。完整说明请打开沙盒卡片并选择“编辑”。",
       "invalid": {
         "allowlist": "请至少填写一个地址。",
         "description": "请填写描述。",
@@ -107,7 +107,6 @@
     "replaceNote": "保存或删除后，你对话中的这个沙盒会在下次调用时重新创建，其中的文件和后台任务会丢失。",
     "reservedName": "{{name}} 由沙盒保留，请换一个名称。",
     "row": "环境变量",
-    "rowDesc": "创建沙盒时注入的变量，例如 API Token 或服务地址",
     "save": "保存",
     "shared": "共享变量",
     "sharedHint": "由管理员设置，对该沙盒的所有用户生效。",
@@ -187,19 +186,13 @@
     "resources": "CPU {{cpu}} · 内存 {{memory}}",
     "rows": {
       "image": "镜像",
-      "imageDesc": "提前在服务器上拉取镜像，避免用户首次调用超时",
       "instruction": "模型说明",
-      "instructionDesc": "开启此沙盒时提供给模型的说明",
       "lifetime": "生命周期",
-      "lifetimeDesc": "闲置多久后回收沙盒",
       "network": "网络",
-      "networkDesc": "沙盒可以访问的网络",
       "resources": "资源",
-      "resourcesDesc": "每个沙盒可用的 CPU 和内存",
-      "server": "服务器",
-      "serverDesc": "沙盒运行在哪台服务器上"
+      "server": "服务器"
     },
-    "details": "详情",
+    "details": "{{name}} 详情",
     "toggle": "开启或关闭 {{name}}",
     "toggleFailed": "无法保存，请稍后重试。",
     "unavailable": "该沙盒的服务器缺少 API Key，运营者修复配置前无法使用。"

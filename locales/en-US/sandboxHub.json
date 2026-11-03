@@ -32,7 +32,7 @@
         "none": "Only the text below"
       },
       "instructionText": "Extra instruction",
-      "instructionTextHint": "What is special about this sandbox, such as the tools installed. Edit the full instruction from the Model instruction row.",
+      "instructionTextHint": "What is special about this sandbox, such as the tools installed. To edit the full instruction, open the sandbox card and choose Edit.",
       "invalid": {
         "allowlist": "Add at least one address.",
         "description": "Enter a description.",
@@ -107,7 +107,6 @@
     "replaceNote": "After you save or delete, this sandbox in your conversations is created again on its next call. Its files and background jobs are lost.",
     "reservedName": "{{name}} is reserved by the sandbox. Choose another name.",
     "row": "Environment variables",
-    "rowDesc": "Variables the sandbox starts with, such as API tokens or service URLs",
     "save": "Save",
     "shared": "Shared variables",
     "sharedHint": "Set by admins for every user of this sandbox.",
@@ -187,19 +186,13 @@
     "resources": "CPU {{cpu}} · Memory {{memory}}",
     "rows": {
       "image": "Image",
-      "imageDesc": "Pull the image on the server ahead of users, so a first call does not time out",
       "instruction": "Model instruction",
-      "instructionDesc": "Given to the model while this sandbox is on",
       "lifetime": "Lifetime",
-      "lifetimeDesc": "When an unused sandbox is removed",
       "network": "Network",
-      "networkDesc": "What the sandbox can reach",
       "resources": "Resources",
-      "resourcesDesc": "CPU and memory each sandbox gets",
-      "server": "Server",
-      "serverDesc": "Where this sandbox runs"
+      "server": "Server"
     },
-    "details": "Details",
+    "details": "{{name}} details",
     "toggle": "Turn {{name}} on or off",
     "toggleFailed": "Could not save. Try again later.",
     "unavailable": "This sandbox's server is missing its API key, so it cannot run until the operator fixes the configuration."

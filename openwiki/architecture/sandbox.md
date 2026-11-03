@@ -203,8 +203,9 @@ default, as an omitted field does in the file.
   sandboxes of that profile on their next call (runtime and network
   fingerprints). A changed server leaves the old server's sandboxes to
   expire. Running background jobs of that profile end as `lost`.
-- **Admin page.** The Hub page is Settings groups (`ProfileSection`, with
-  instructions in `InstructionModal`). Admins get Add sandbox, Settings (one
+- **Admin page.** The Hub page lists one card per profile (`ProfileSection`;
+  the details, instruction (`InstructionModal`), environment variables, and
+  Prepare image open from the card). Admins get Add sandbox, Settings (one
   form; blank fields show and inherit the defaults), move up and down (tool
   and prompt order), Delete, and Prepare image with its status. Profiles
   users are not offered (no image, unknown server) are listed separately

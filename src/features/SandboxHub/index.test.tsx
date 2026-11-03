@@ -382,14 +382,19 @@ describe('SandboxHub', () => {
     expect(screen.getAllByText('profile.unavailable')).toHaveLength(2);
 
     expect(screen.queryByText('data instruction text')).toBeNull();
-    fireEvent.click(screen.getAllByRole('button', { name: 'profile.details' })[0]);
+    fireEvent.click(screen.getByRole('button', { name: /profile\.details.*data name/ }));
     fireEvent.click(screen.getByText('profile.instruction.view'));
     expect(screen.getByRole('dialog').textContent).toContain('data instruction text');
 
-    const locked = screen.getByRole('button', { name: /locked name/ }) as HTMLButtonElement;
+    const locked = screen.getByRole('button', {
+      name: /profile\.toggle.*locked name/,
+    }) as HTMLButtonElement;
     expect(locked.disabled).toBe(true);
-    const broken = screen.getByRole('button', { name: /broken name/ }) as HTMLButtonElement;
+    const broken = screen.getByRole('button', {
+      name: /profile\.toggle.*broken name/,
+    }) as HTMLButtonElement;
     expect(broken.disabled).toBe(false);
+    expect(screen.getByRole('button', { name: /profile\.details.*locked name/ })).toBeTruthy();
   });
 
   it('turns a profile on or off through the store', async () => {
@@ -398,7 +403,7 @@ describe('SandboxHub', () => {
       render(<SandboxHub />);
     });
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /data name/ }));
+      fireEvent.click(screen.getByRole('button', { name: /profile\.toggle.*data name/ }));
     });
     expect(mocks.setEnabled).toHaveBeenCalledWith('data', true);
   });
@@ -410,7 +415,7 @@ describe('SandboxHub', () => {
       });
     };
     const openDetails = () =>
-      fireEvent.click(screen.getByRole('button', { name: 'profile.details' }));
+      fireEvent.click(screen.getByRole('button', { name: /profile\.details.*data name/ }));
 
     it('keeps instructions read-only for non-admins and says who can edit', async () => {
       mocks.profiles = [profile('data')];
@@ -526,7 +531,7 @@ describe('SandboxHub', () => {
       });
     };
     const openEnv = () => {
-      fireEvent.click(screen.getByRole('button', { name: 'profile.details' }));
+      fireEvent.click(screen.getByRole('button', { name: /profile\.details.*data name/ }));
       fireEvent.click(screen.getByText('env.manage'));
     };
 
@@ -536,7 +541,7 @@ describe('SandboxHub', () => {
       await renderHub();
 
       expect(mocks.env.list).toHaveBeenCalledWith('user:u1');
-      fireEvent.click(screen.getByRole('button', { name: 'profile.details' }));
+      fireEvent.click(screen.getByRole('button', { name: /profile\.details.*data name/ }));
       expect(screen.getByText('env.summary:{"mine":0,"shared":1}')).toBeTruthy();
       fireEvent.click(screen.getByText('env.manage'));
       expect(screen.getByText('env.warning')).toBeTruthy();
@@ -784,7 +789,10 @@ describe('SandboxHub', () => {
       expect(screen.getByText('admin.addProfile')).toBeTruthy();
       expect(screen.getAllByRole('button', { name: 'admin.more' })).toHaveLength(2);
       expect(screen.getByText('admin.image.ready')).toBeTruthy();
-      fireEvent.click(screen.getAllByRole('button', { name: 'profile.details' })[0]);
+      expect(screen.getByText('admin.image.unknown').parentElement?.textContent).toBe(
+        'admin.image.unknown',
+      );
+      fireEvent.click(screen.getByRole('button', { name: /profile\.details.*data name/ }));
       expect(screen.getByText(/Ready after 3 s\./)).toBeTruthy();
       expect(screen.getByText('admin.notOffered')).toBeTruthy();
       expect(screen.getByText('broken name')).toBeTruthy();
@@ -816,12 +824,13 @@ describe('SandboxHub', () => {
       await renderAsAdmin();
       mocks.load.mockClear();
 
-      fireEvent.click(screen.getAllByRole('button', { name: 'profile.details' })[1]);
+      fireEvent.click(screen.getByRole('button', { name: /profile\.details.*data name/ }));
       await act(async () => {
         fireEvent.click(screen.getByText('admin.prepare'));
       });
       expect(mocks.admin.prepare).toHaveBeenCalledWith('user:u1', 'data');
       expect(mocks.load).toHaveBeenCalledWith('user:u1');
+      expect(screen.queryByRole('dialog')).toBeNull();
 
       await act(async () => {
         fireEvent.click(screen.getAllByRole('button', { name: 'menu:admin.moveUp' })[1]);
@@ -840,11 +849,12 @@ describe('SandboxHub', () => {
       mocks.profiles = [profile('data')];
       mocks.admin.prepare.mockRejectedValue(new Error('Server "remote" is missing its API key.'));
       await renderAsAdmin();
-      fireEvent.click(screen.getByRole('button', { name: 'profile.details' }));
+      fireEvent.click(screen.getByRole('button', { name: /profile\.details.*data name/ }));
       await act(async () => {
         fireEvent.click(screen.getByText('admin.prepare'));
       });
       expect(screen.getByText('Server "remote" is missing its API key.')).toBeTruthy();
+      expect(screen.queryByRole('dialog')).toBeNull();
     });
 
     it('adds a profile from the form', async () => {

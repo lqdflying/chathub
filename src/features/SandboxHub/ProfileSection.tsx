@@ -19,7 +19,7 @@ import {
   Settings2,
   Trash2,
 } from 'lucide-react';
-import { Fragment, memo, useState, type ReactNode } from 'react';
+import { Fragment, type ReactNode, memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
@@ -30,11 +30,12 @@ const useStyles = createStyles(({ css, token }) => ({
     flex: none;
   `,
   card: css`
-    border: 1px solid ${token.colorBorderSecondary};
-    border-radius: ${token.borderRadiusLG}px;
-    background: ${token.colorBgContainer};
     padding-block: 12px;
     padding-inline: 16px;
+    border: 1px solid ${token.colorBorderSecondary};
+    border-radius: ${token.borderRadiusLG}px;
+
+    background: ${token.colorBgContainer};
   `,
   cardMain: css`
     all: unset;
@@ -52,6 +53,7 @@ const useStyles = createStyles(({ css, token }) => ({
     gap: 12px;
     align-items: baseline;
     justify-content: space-between;
+
     font-size: 13px;
     line-height: 1.4;
   `,
@@ -74,8 +76,8 @@ const useStyles = createStyles(({ css, token }) => ({
   `,
   name: css`
     min-width: 0;
-    overflow-wrap: anywhere;
     font-weight: 500;
+    overflow-wrap: anywhere;
   `,
   notice: css`
     font-size: 12px;
@@ -93,10 +95,12 @@ const useStyles = createStyles(({ css, token }) => ({
     display: flex;
     flex-wrap: wrap;
     gap: 2px 0;
+
     margin-block-start: 4px;
-    color: ${token.colorTextSecondary};
+
     font-size: 12px;
     line-height: 1.4;
+    color: ${token.colorTextSecondary};
   `,
 }));
 
@@ -287,16 +291,33 @@ const ProfileSection = memo<ProfileSectionProps>(
       ? [admin.item.imageStatusMessage, imageStatusTime].filter(Boolean).join(' · ')
       : '';
 
-    const summary = [
-      profile && t('profile.resources', { cpu: profile.cpu, memory: profile.memory }),
-      profile &&
-        t(egressSummaryKey(profile.egress), {
-          count: profile.egress.mode === 'allowlist' ? profile.egress.targets.length : 0,
-        }),
-      profile && (idle ? t('profile.idle', { time: idle }) : t('profile.idlePerCall')),
-      profile?.serverName,
-      env && !env.available ? t('env.unavailable') : '',
-    ].filter(Boolean);
+    const summary: ReactNode[] = [
+      ...(profile
+        ? [
+            t('profile.resources', { cpu: profile.cpu, memory: profile.memory }),
+            t(egressSummaryKey(profile.egress), {
+              count: profile.egress.mode === 'allowlist' ? profile.egress.targets.length : 0,
+            }),
+            idle ? t('profile.idle', { time: idle }) : t('profile.idlePerCall'),
+            ...(profile.serverName ? [profile.serverName] : []),
+          ]
+        : []),
+      ...(env && !env.available ? [t('env.unavailable')] : []),
+      ...(health
+        ? [
+            <Tag color={HEALTH_COLOR[health]} key={'health'} size={'small'}>
+              {t(`health.${health}`)}
+            </Tag>,
+          ]
+        : []),
+      ...(admin
+        ? [
+            <Tag color={IMAGE_COLOR[admin.item.imageStatus]} key={'image'} size={'small'}>
+              {t(`admin.image.${admin.item.imageStatus}`)}
+            </Tag>,
+          ]
+        : []),
+    ];
 
     const fact = (label: string, value: ReactNode) => (
       <div className={styles.fact} key={label}>
@@ -314,7 +335,7 @@ const ProfileSection = memo<ProfileSectionProps>(
       <>
         <Flexbox align={'flex-start'} className={styles.card} gap={8} horizontal>
           <button
-            aria-label={t('profile.details')}
+            aria-label={t('profile.details', { name })}
             className={styles.cardMain}
             onClick={() => setDetailsOpen(true)}
             type={'button'}
@@ -342,30 +363,14 @@ const ProfileSection = memo<ProfileSectionProps>(
                   <span>{message}</span>
                 </Flexbox>
               ))}
-              {(summary.length > 0 || health || admin) && (
+              {summary.length > 0 && (
                 <div className={styles.summary}>
                   {summary.map((part, index) => (
-                    <Fragment key={`${index}-${part}`}>
+                    <Fragment key={index}>
                       {index > 0 && ' · '}
-                      <span>{part}</span>
+                      {typeof part === 'string' ? <span>{part}</span> : part}
                     </Fragment>
                   ))}
-                  {health && (
-                    <>
-                      {' · '}
-                      <Tag color={HEALTH_COLOR[health]} size={'small'}>
-                        {t(`health.${health}`)}
-                      </Tag>
-                    </>
-                  )}
-                  {admin && (
-                    <>
-                      {' · '}
-                      <Tag color={IMAGE_COLOR[admin.item.imageStatus]} size={'small'}>
-                        {t(`admin.image.${admin.item.imageStatus}`)}
-                      </Tag>
-                    </>
-                  )}
                 </div>
               )}
             </Flexbox>
@@ -401,7 +406,8 @@ const ProfileSection = memo<ProfileSectionProps>(
                   t('profile.rows.network'),
                   <>
                     {t(egressSummaryKey(profile.egress), {
-                      count: profile.egress.mode === 'allowlist' ? profile.egress.targets.length : 0,
+                      count:
+                        profile.egress.mode === 'allowlist' ? profile.egress.targets.length : 0,
                     })}
                     {profile.egress.mode === 'allowlist' && (
                       <div className={styles.groupDesc}>
@@ -449,7 +455,9 @@ const ProfileSection = memo<ProfileSectionProps>(
                       </span>
                     )}
                     <Button onClick={() => closeAnd(onOpenInstruction)} size={'small'}>
-                      {access?.canEdit ? t('profile.instruction.edit') : t('profile.instruction.view')}
+                      {access?.canEdit
+                        ? t('profile.instruction.edit')
+                        : t('profile.instruction.view')}
                     </Button>
                   </Flexbox>,
                 )}
@@ -483,7 +491,7 @@ const ProfileSection = memo<ProfileSectionProps>(
                     disabled={admin.busy || preparing}
                     icon={DownloadCloud}
                     loading={preparing}
-                    onClick={admin.onPrepare}
+                    onClick={() => closeAnd(admin.onPrepare)}
                     size={'small'}
                   >
                     {t('admin.prepare')}

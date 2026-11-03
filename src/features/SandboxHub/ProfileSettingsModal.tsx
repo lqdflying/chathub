@@ -192,7 +192,6 @@ const ProfileSettingsModal = memo<ProfileSettingsModalProps>(
                 </Flexbox>
               </Flexbox>
             ),
-            key: 'cpu-memory',
             layout: 'vertical',
             minWidth: undefined,
           },
