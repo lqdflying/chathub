@@ -380,6 +380,7 @@ describe('sandboxHubRouter', () => {
         name: 'API_TOKEN',
         owner: { userId: 'account-a' },
         profileId: 'data',
+        sensitive: true,
         updatedBy: 'account-a',
         value: 'my-secret-value',
       });

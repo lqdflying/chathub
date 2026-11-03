@@ -224,13 +224,13 @@ const SandboxHub = memo(() => {
   }, [scope, loadSandboxProfiles]);
 
   /** The dialog reports a failed change itself, so these rethrow. */
-  const saveEnv = async (section: EnvSection, name: string, value: string) => {
+  const saveEnv = async (section: EnvSection, name: string, value: string, sensitive: boolean) => {
     if (!scope || !envDialog.id) return;
     const request = ++envRequest.current;
     const next =
       section === 'shared'
-        ? await sandboxHubService.setSharedEnv(scope, envDialog.id, name, value)
-        : await sandboxHubService.setMyEnv(scope, envDialog.id, name, value);
+        ? await sandboxHubService.setSharedEnv(scope, envDialog.id, name, value, sensitive)
+        : await sandboxHubService.setMyEnv(scope, envDialog.id, name, value, sensitive);
     if (envRequest.current !== request) return;
     setEnvList(next);
     setEnvFailed(false);

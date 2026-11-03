@@ -109,6 +109,7 @@ vi.mock('../../profiles/env', async (importOriginal) => ({
     return state.snapshot;
   },
   resolveSandboxEnv: async () => state.env,
+  resolveSandboxMaskEnv: async () => state.env,
 }));
 vi.mock('../enqueue', () => ({ enqueueSandboxJobWatch: state.enqueue }));
 

@@ -206,13 +206,19 @@ export interface SandboxHubSettings {
   servers: SandboxHubServerItem[];
 }
 
-/** A saved sandbox environment variable as the Hub shows it; the value never leaves the server. */
+/**
+ * A saved sandbox environment variable as the Hub shows it. A sensitive value
+ * never leaves the server. A value that is not sensitive is returned so it can
+ * be edited.
+ */
 export interface SandboxEnvItem {
-  /** `••••` and the last 4 characters of a long value. */
+  /** `••••` and the last 4 characters of a long sensitive value. */
   hint?: string;
   name: string;
   /** ISO time of the last change. */
   updatedAt: string;
+  /** Present only when the variable is not marked sensitive. */
+  value?: string;
 }
 
 /** Sandbox environment variables the signed-in user can see, per profile. */

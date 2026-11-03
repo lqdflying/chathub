@@ -19,6 +19,9 @@ describe('ensureSandboxProfileEnvsTable', () => {
     );
     expect(SANDBOX_PROFILE_ENVS_SQL).toContain('WHERE "user_id" is null');
     expect(SANDBOX_PROFILE_ENVS_SQL).toContain('WHERE "user_id" is not null');
+    expect(SANDBOX_PROFILE_ENVS_SQL).toContain(
+      'ADD COLUMN IF NOT EXISTS "sensitive" boolean DEFAULT true NOT NULL',
+    );
   });
 
   it('matches the columns of migration 0068', () => {

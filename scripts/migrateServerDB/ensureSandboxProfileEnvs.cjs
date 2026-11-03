@@ -38,6 +38,8 @@ DO $$ BEGIN
   END IF;
 END $$;
 
+ALTER TABLE "sandbox_profile_envs" ADD COLUMN IF NOT EXISTS "sensitive" boolean DEFAULT true NOT NULL;
+
 CREATE UNIQUE INDEX IF NOT EXISTS "sandbox_profile_envs_shared_uniq"
   ON "sandbox_profile_envs" USING btree ("profile_id","name") WHERE "user_id" is null;
 CREATE UNIQUE INDEX IF NOT EXISTS "sandbox_profile_envs_user_uniq"

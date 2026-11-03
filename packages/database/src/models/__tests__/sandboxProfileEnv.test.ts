@@ -15,6 +15,7 @@ const write = (name: string, value: string, extra: Record<string, unknown> = {})
   hint: null,
   name,
   profileId: 'data',
+  sensitive: true,
   updatedBy: 'admin',
   ...extra,
 });

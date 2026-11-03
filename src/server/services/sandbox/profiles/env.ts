@@ -77,8 +77,8 @@ const requireAvailable = () => {
 export const sandboxEnvHint = (value: string) =>
   value.length >= 12 ? `••••${value.slice(-4)}` : '••••';
 
-const toItem = (row: SandboxProfileEnvRow): SandboxEnvItem => ({
-  ...(row.hint ? { hint: row.hint } : {}),
+const toItem = (row: SandboxProfileEnvRow, value?: string): SandboxEnvItem => ({
+  ...(value !== undefined ? { value } : row.hint ? { hint: row.hint } : {}),
   name: row.name,
   updatedAt: row.updatedAt.toISOString(),
 });
@@ -90,10 +90,23 @@ export const listSandboxEnvs = async (
 ): Promise<SandboxEnvList> => {
   const model = new SandboxProfileEnvModel(db);
   const rows = await readOrNone(() => model.listVisible(userId));
+  const gateKeeper =
+    rows.some((row) => row.sensitive === false) && isSandboxEnvAvailable()
+      ? await KeyVaultsGateKeeper.initWithEnvKey()
+      : undefined;
   const profiles: SandboxEnvList['profiles'] = {};
   for (const row of rows) {
+    let value: string | undefined;
+    if (row.sensitive === false && gateKeeper) {
+      try {
+        const decrypted = await gateKeeper.decrypt(row.value);
+        if (decrypted.wasAuthentic) value = decrypted.plaintext;
+      } catch {
+        value = undefined;
+      }
+    }
     const entry = (profiles[row.profileId] ??= { mine: [], shared: [] });
-    (row.userId ? entry.mine : entry.shared).push(toItem(row));
+    (row.userId ? entry.mine : entry.shared).push(toItem(row, value));
   }
   return { available: isSandboxEnvAvailable(), profiles };
 };
@@ -104,6 +117,7 @@ export const setSandboxEnv = async ({
   name,
   owner,
   profileId,
+  sensitive = true,
   updatedBy,
   value,
 }: {
@@ -111,6 +125,8 @@ export const setSandboxEnv = async ({
   name: string;
   owner: SandboxEnvOwner;
   profileId: string;
+  /** Checked by default. An unchecked value is shown in the Hub and not masked in output. */
+  sensitive?: boolean;
   updatedBy: string;
   value: string;
 }) => {
@@ -137,9 +153,10 @@ export const setSandboxEnv = async ({
   const gateKeeper = await KeyVaultsGateKeeper.initWithEnvKey();
   const write = {
     encryptedValue: await gateKeeper.encrypt(value),
-    hint: sandboxEnvHint(value),
+    hint: sensitive ? sandboxEnvHint(value) : null,
     name,
     profileId,
+    sensitive,
     updatedBy,
   };
   if ('userId' in owner) await model.upsertForUser(owner.userId, write);
@@ -161,27 +178,20 @@ export const deleteSandboxEnv = async ({
   if (!deleted) throw new SandboxEnvError('NOT_FOUND', `${name} is not set.`);
 };
 
-/**
- * The variables one user's sandbox of one profile is created with: the
- * shared values, then the user's own on top. A value that cannot be
- * decrypted (the key changed, or the stored text is not ciphertext) is left
- * out; only its name is logged. A user's row that cannot be decrypted also
- * drops a shared value of that name, so the shared secret is not sent in its
- * place. A name that does not fit in the total size cap is left out, and
- * later names are still included when they fit.
- */
-export const resolveSandboxEnv = async (
+/** Shared values, then the user's own. Also the subset that command output must hide. */
+const readProfileEnv = async (
   db: LobeChatDatabase,
   userId: string,
   profileId: string,
-): Promise<Record<string, string>> => {
-  if (!isSandboxEnvAvailable()) return {};
+): Promise<{ env: Record<string, string>; mask: Record<string, string> }> => {
+  if (!isSandboxEnvAvailable()) return { env: {}, mask: {} };
   const model = new SandboxProfileEnvModel(db);
   const rows = await readOrNone(() => model.listForSandbox(profileId, userId));
-  if (rows.length === 0) return {};
+  if (rows.length === 0) return { env: {}, mask: {} };
 
   const gateKeeper = await KeyVaultsGateKeeper.initWithEnvKey();
   const env: Record<string, string> = {};
+  const sensitive = new Map<string, boolean>();
   // Shared first, so a user's own value of the same name wins.
   const ordered = [...rows].sort((a, b) => Number(!!a.userId) - Number(!!b.userId));
   for (const row of ordered) {
@@ -197,10 +207,14 @@ export const resolveSandboxEnv = async (
         profileId,
       });
       // The user's override is what they asked to send. Do not fall back to shared.
-      if (row.userId) delete env[row.name];
+      if (row.userId) {
+        delete env[row.name];
+        sensitive.delete(row.name);
+      }
       continue;
     }
     env[row.name] = decrypted.plaintext;
+    sensitive.set(row.name, row.sensitive !== false);
   }
 
   let total = 0;
@@ -212,11 +226,44 @@ export const resolveSandboxEnv = async (
         profileId,
       });
       delete env[name];
+      sensitive.delete(name);
       continue;
     }
     total += next;
   }
+  const mask: Record<string, string> = {};
+  for (const [name, value] of Object.entries(env)) {
+    if (sensitive.get(name) !== false) mask[name] = value;
+  }
+  return { env, mask };
+};
+
+/**
+ * The variables one user's sandbox of one profile is created with: the
+ * shared values, then the user's own on top. A value that cannot be
+ * decrypted (the key changed, or the stored text is not ciphertext) is left
+ * out; only its name is logged. A user's row that cannot be decrypted also
+ * drops a shared value of that name, so the shared secret is not sent in its
+ * place. A name that does not fit in the total size cap is left out, and
+ * later names are still included when they fit.
+ */
+export const resolveSandboxEnv = async (
+  db: LobeChatDatabase,
+  userId: string,
+  profileId: string,
+): Promise<Record<string, string>> => {
+  const { env } = await readProfileEnv(db, userId, profileId);
   return env;
+};
+
+/** Values marked sensitive, for hiding them in command output. */
+export const resolveSandboxMaskEnv = async (
+  db: LobeChatDatabase,
+  userId: string,
+  profileId: string,
+): Promise<Record<string, string>> => {
+  const { mask } = await readProfileEnv(db, userId, profileId);
+  return mask;
 };
 
 /** Ciphertext of an env map, or null when there is nothing to store. */

@@ -116,6 +116,8 @@ export const sandboxProfileEnvs = pgTable(
     value: text('value').notNull(),
     /** `••••` and the last 4 characters of a long value; never more. */
     hint: text('hint'),
+    /** When true, the Hub and command output hide the value. Existing rows stay hidden. */
+    sensitive: boolean('sensitive').default(true).notNull(),
     updatedBy: text('updated_by').references(() => users.id, { onDelete: 'set null' }),
     accessedAt: timestamps.accessedAt,
     createdAt: timestamps.createdAt,

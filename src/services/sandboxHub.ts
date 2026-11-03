@@ -84,8 +84,9 @@ class SandboxHubService {
     profileId: string,
     name: string,
     value: string,
+    sensitive = true,
   ): Promise<SandboxEnvList> =>
-    lambdaClient.sandboxHub.setMyEnv.mutate({ accountScope, name, profileId, value });
+    lambdaClient.sandboxHub.setMyEnv.mutate({ accountScope, name, profileId, sensitive, value });
 
   setProfileEnabled = (
     accountScope: string,
@@ -99,8 +100,15 @@ class SandboxHubService {
     profileId: string,
     name: string,
     value: string,
+    sensitive = true,
   ): Promise<SandboxEnvList> =>
-    lambdaClient.sandboxHub.setSharedEnv.mutate({ accountScope, name, profileId, value });
+    lambdaClient.sandboxHub.setSharedEnv.mutate({
+      accountScope,
+      name,
+      profileId,
+      sensitive,
+      value,
+    });
 
   updateProfile = (
     accountScope: string,

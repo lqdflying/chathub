@@ -18,7 +18,7 @@ import { resolveSandboxProfileForUser } from '../profiles/catalog';
 import {
   maskSandboxSecrets,
   readSandboxEnvSnapshot,
-  resolveSandboxEnv,
+  resolveSandboxMaskEnv,
   sandboxJobMaskEnv,
 } from '../profiles/env';
 import { findSandboxProfile } from '../profiles/hub';
@@ -396,7 +396,7 @@ export const checkSandboxJob = async ({
   const env = needsMask
     ? sandboxJobMaskEnv(
         await readSandboxEnvSnapshot(row.envSnapshot),
-        await resolveSandboxEnv(db, userId, row.profileId),
+        await resolveSandboxMaskEnv(db, userId, row.profileId),
       )
     : {};
 

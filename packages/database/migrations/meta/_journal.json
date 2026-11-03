@@ -490,6 +490,13 @@
       "when": 1788380000000,
       "tag": "0069_sandbox_job_env_snapshot",
       "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1788390000000,
+      "tag": "0070_sandbox_profile_env_sensitive",
+      "breakpoints": true
     }
   ],
   "version": "6"

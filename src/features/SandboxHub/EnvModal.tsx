@@ -2,7 +2,7 @@
 
 import type { SandboxEnvItem } from '@lobechat/types';
 import { Alert, Button, Modal, Tag } from '@lobehub/ui';
-import { Input, Popconfirm } from 'antd';
+import { Checkbox, Input, Popconfirm } from 'antd';
 import { createStyles } from 'antd-style';
 import dayjs from 'dayjs';
 import { Plus } from 'lucide-react';
@@ -71,6 +71,8 @@ interface Draft {
   /** Replacing a saved variable: its name is fixed. */
   replacing: boolean;
   section: EnvSection;
+  /** Checked hides the value. Defaults to checked. */
+  sensitive: boolean;
   value: string;
 }
 
@@ -82,7 +84,7 @@ interface EnvModalProps {
   loadFailed?: boolean;
   onClose: () => void;
   onDelete: (section: EnvSection, name: string) => Promise<void>;
-  onSave: (section: EnvSection, name: string, value: string) => Promise<void>;
+  onSave: (section: EnvSection, name: string, value: string, sensitive: boolean) => Promise<void>;
   open: boolean;
   profileName: string;
 }
@@ -92,7 +94,7 @@ const byteLength = (text: string) => new TextEncoder().encode(text).length;
 /**
  * A profile's environment variables: the shared ones (admins edit, everyone
  * sees names) and the user's own. Values are typed here and sent once; the
- * server never returns them, so a saved variable shows its name and hint only.
+ * server returns a value only when Sensitive is unchecked. A checked value shows a hint.
  */
 const EnvModal = memo<EnvModalProps>(
   ({
@@ -160,15 +162,30 @@ const EnvModal = memo<EnvModalProps>(
             placeholder={'API_TOKEN'}
             value={draft.name}
           />
-          <Input.Password
-            aria-label={t('env.value')}
-            autoComplete={'new-password'}
-            onChange={(event) => setDraft({ ...draft, value: event.target.value })}
-            placeholder={
-              draft.replacing ? t('env.valueReplacePlaceholder') : t('env.valuePlaceholder')
-            }
-            value={draft.value}
-          />
+          {draft.sensitive ? (
+            <Input.Password
+              aria-label={t('env.value')}
+              autoComplete={'new-password'}
+              onChange={(event) => setDraft({ ...draft, value: event.target.value })}
+              placeholder={
+                draft.replacing ? t('env.valueReplacePlaceholder') : t('env.valuePlaceholder')
+              }
+              value={draft.value}
+            />
+          ) : (
+            <Input
+              aria-label={t('env.value')}
+              onChange={(event) => setDraft({ ...draft, value: event.target.value })}
+              placeholder={t('env.valuePlaceholder')}
+              value={draft.value}
+            />
+          )}
+          <Checkbox
+            checked={draft.sensitive}
+            onChange={(event) => setDraft({ ...draft, sensitive: event.target.checked })}
+          >
+            {t('env.sensitive')}
+          </Checkbox>
           {nameProblem && <div className={styles.error}>{nameProblem}</div>}
           {tooLarge && (
             <div className={styles.error}>
@@ -184,7 +201,7 @@ const EnvModal = memo<EnvModalProps>(
               loading={busy}
               onClick={() =>
                 void run(
-                  () => onSave(section, draft.name, draft.value),
+                  () => onSave(section, draft.name, draft.value, draft.sensitive),
                   () => setDraft(undefined),
                 )
               }
@@ -218,7 +235,15 @@ const EnvModal = memo<EnvModalProps>(
               <Button
                 disabled={!available || busy || !!draft}
                 icon={Plus}
-                onClick={() => setDraft({ name: '', replacing: false, section: which, value: '' })}
+                onClick={() =>
+                  setDraft({
+                    name: '',
+                    replacing: false,
+                    section: which,
+                    sensitive: true,
+                    value: '',
+                  })
+                }
                 size={'small'}
                 style={{ flex: 'none' }}
               >
@@ -235,7 +260,9 @@ const EnvModal = memo<EnvModalProps>(
                 <Flexbox flex={1} gap={2} style={{ minWidth: 0 }}>
                   <Flexbox align={'center'} gap={8} horizontal wrap={'wrap'}>
                     <span className={styles.name}>{item.name}</span>
-                    {item.hint && <span className={styles.valueHint}>{item.hint}</span>}
+                    {(item.value ?? item.hint) && (
+                      <span className={styles.valueHint}>{item.value ?? item.hint}</span>
+                    )}
                     {which === 'shared' && mineNames.has(item.name) && (
                       <Tag size={'small'}>{t('env.overridden')}</Tag>
                     )}
@@ -251,7 +278,13 @@ const EnvModal = memo<EnvModalProps>(
                     <Button
                       disabled={!available || busy || !!draft}
                       onClick={() =>
-                        setDraft({ name: item.name, replacing: true, section: which, value: '' })
+                        setDraft({
+                          name: item.name,
+                          replacing: true,
+                          section: which,
+                          sensitive: item.value === undefined,
+                          value: item.value ?? '',
+                        })
                       }
                       size={'small'}
                     >

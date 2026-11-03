@@ -10,6 +10,8 @@ export interface SandboxEnvWrite {
   hint: string | null;
   name: string;
   profileId: string;
+  /** When false, the Hub may show the value and command output is not masked. */
+  sensitive: boolean;
   updatedBy: string;
 }
 
@@ -85,6 +87,7 @@ export class SandboxProfileEnvModel {
         id: idGenerator('sandboxEnvs'),
         name: write.name,
         profileId: write.profileId,
+        sensitive: write.sensitive,
         updatedAt: now,
         updatedBy: write.updatedBy,
         userId: null,
@@ -93,6 +96,7 @@ export class SandboxProfileEnvModel {
       .onConflictDoUpdate({
         set: {
           hint: write.hint,
+          sensitive: write.sensitive,
           updatedAt: now,
           updatedBy: write.updatedBy,
           value: write.encryptedValue,
@@ -112,6 +116,7 @@ export class SandboxProfileEnvModel {
         id: idGenerator('sandboxEnvs'),
         name: write.name,
         profileId: write.profileId,
+        sensitive: write.sensitive,
         updatedAt: now,
         updatedBy: write.updatedBy,
         userId,
@@ -120,6 +125,7 @@ export class SandboxProfileEnvModel {
       .onConflictDoUpdate({
         set: {
           hint: write.hint,
+          sensitive: write.sensitive,
           updatedAt: now,
           updatedBy: write.updatedBy,
           value: write.encryptedValue,

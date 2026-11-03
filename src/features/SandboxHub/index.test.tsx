@@ -140,6 +140,16 @@ vi.mock('@lobehub/ui', () => {
 vi.mock('antd', () => ({
   // Confirming runs the action, so a test sees the effect of a confirmed delete.
   App: { useApp: () => ({ modal: { confirm: mocks.confirm } }) },
+  Checkbox: ({ checked, children, onChange }: any) => (
+    <label>
+      <input
+        checked={checked}
+        onChange={(event) => onChange({ target: { checked: event.target.checked } })}
+        type="checkbox"
+      />
+      {children}
+    </label>
+  ),
   Button: ({ children, disabled, onClick, ...rest }: any) => (
     <button aria-label={rest['aria-label']} disabled={disabled} onClick={onClick} type="button">
       {children}
@@ -598,6 +608,7 @@ describe('SandboxHub', () => {
         'data',
         'API_TOKEN',
         'my-token-9876',
+        true,
       );
       expect(screen.queryByLabelText('env.value')).toBeNull();
       expect(screen.getByText('env.overridden')).toBeTruthy();
@@ -680,13 +691,48 @@ describe('SandboxHub', () => {
       await act(async () => {
         fireEvent.click(screen.getByText('env.save'));
       });
-      expect(mocks.env.setShared).toHaveBeenCalledWith('user:u1', 'data', 'REGION', 'eu-west-1');
+      expect(mocks.env.setShared).toHaveBeenCalledWith(
+        'user:u1',
+        'data',
+        'REGION',
+        'eu-west-1',
+        true,
+      );
 
       await act(async () => {
         fireEvent.click(screen.getByText('confirm:env.delete'));
       });
       expect(mocks.env.deleteShared).toHaveBeenCalledWith('user:u1', 'data', 'REGION');
       expect(screen.getAllByText('env.empty')).toHaveLength(2);
+    });
+
+    it('shows a non-sensitive value and prefills replace', async () => {
+      mocks.profiles = [profile('data')];
+      mocks.env.list.mockResolvedValue(
+        listed([{ ...item('BASE_URL'), value: 'https://example.test/v1' }], []),
+      );
+      mocks.env.setMine.mockResolvedValue(
+        listed([{ ...item('BASE_URL'), value: 'https://example.test/v2' }], []),
+      );
+      await renderHub();
+      openEnv();
+
+      expect(screen.getByText('https://example.test/v1')).toBeTruthy();
+      fireEvent.click(screen.getByText('env.replace'));
+      const value = screen.getByLabelText('env.value') as HTMLInputElement;
+      expect(value.type).toBe('text');
+      expect(value.value).toBe('https://example.test/v1');
+      fireEvent.change(value, { target: { value: 'https://example.test/v2' } });
+      await act(async () => {
+        fireEvent.click(screen.getByText('env.save'));
+      });
+      expect(mocks.env.setMine).toHaveBeenCalledWith(
+        'user:u1',
+        'data',
+        'BASE_URL',
+        'https://example.test/v2',
+        false,
+      );
     });
 
     it('says when the server cannot store variables', async () => {

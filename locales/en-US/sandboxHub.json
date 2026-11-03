@@ -116,9 +116,10 @@
     "reservedName": "{{name}} is reserved by the sandbox. Choose another name.",
     "row": "Environment variables",
     "save": "Save",
+    "sensitive": "Sensitive",
     "shared": "Shared variables",
     "sharedHint": "Set by admins for every user of this sandbox.",
-    "sharedReadOnly": "Set by Sandbox Hub admins. Names and a short hint are shown; the full value is never sent to the browser.",
+    "sharedReadOnly": "Set by Sandbox Hub admins. A sensitive value shows a short hint. A value that is not sensitive is shown in full.",
     "summary": "{{shared}} shared · {{mine}} yours",
     "title": "Environment variables for \"{{name}}\"",
     "tooLarge": "A value can be at most {{max}} KB.",
@@ -127,7 +128,7 @@
     "value": "Value",
     "valuePlaceholder": "Enter the value",
     "valueReplacePlaceholder": "Enter the new value",
-    "warning": "Programs in the sandbox, including the assistant, can read these values, and so can the operator of the sandbox server. Every user of this sandbox can read a shared value through the assistant. Values that appear in output are shown as [secret:NAME], but that does not stop a deliberate read."
+    "warning": "Programs in the sandbox, including the assistant, can read these values, and so can the operator of the sandbox server. Every user of this sandbox can read a shared value through the assistant. A sensitive value that appears in output is shown as [secret:NAME], but that does not stop a deliberate read."
   },
   "health": {
     "misconfigured": "API key missing",

@@ -138,8 +138,9 @@ const envNameInput = z.string().min(1).max(64);
 const envValueInput = z.string().min(1).max(SANDBOX_ENV_VALUE_MAX_BYTES);
 
 /**
- * Writes or deletes one variable and returns the names and hints the user
- * can see. Values never come back, in a result or an error.
+ * Writes or deletes one variable and returns what the user can see.
+ * A sensitive value comes back as a hint. A value that is not sensitive
+ * comes back in full. An error carries the refusal, never a stored value.
  */
 const envChange = async (
   ctx: { serverDB: Parameters<typeof listSandboxEnvs>[0]; userId: string },
@@ -362,6 +363,7 @@ purgeSucceededJobs: sandboxHubProcedure
       accountScopeInput.extend({
         name: envNameInput,
         profileId: profileIdInput,
+        sensitive: z.boolean().default(true),
         value: envValueInput,
       }),
     )
@@ -373,6 +375,7 @@ purgeSucceededJobs: sandboxHubProcedure
           name: input.name,
           owner: { userId: ctx.userId },
           profileId: input.profileId,
+          sensitive: input.sensitive,
           updatedBy: ctx.userId,
           value: input.value,
         }),
@@ -406,6 +409,7 @@ purgeSucceededJobs: sandboxHubProcedure
       accountScopeInput.extend({
         name: envNameInput,
         profileId: profileIdInput,
+        sensitive: z.boolean().default(true),
         value: envValueInput,
       }),
     )
@@ -418,6 +422,7 @@ purgeSucceededJobs: sandboxHubProcedure
           name: input.name,
           owner: { shared: true },
           profileId: input.profileId,
+          sensitive: input.sensitive,
           updatedBy: ctx.userId,
           value: input.value,
         }),

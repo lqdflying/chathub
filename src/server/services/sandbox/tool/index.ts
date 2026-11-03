@@ -23,6 +23,7 @@ import {
   encryptSandboxEnvSnapshot,
   maskSandboxSecrets,
   resolveSandboxEnv,
+  resolveSandboxMaskEnv,
   sandboxEnvFingerprint,
 } from '../profiles/env';
 import type { ResolvedSandboxProfile, ResolvedSandboxServer } from '../profiles/schema';
@@ -95,6 +96,8 @@ const describeIssues = (issues: { message: string; path: (number | string)[] }[]
 
 class SandboxToolRunner {
   private readonly env: Record<string, string>;
+  /** Sensitive values only. Command output and the job snapshot use this. */
+  private readonly maskEnv: Record<string, string>;
   private readonly maxFileBytes = sandboxEnv.SANDBOX_MAX_FILE_BYTES;
   private readonly maxFileCount = sandboxEnv.SANDBOX_MAX_FILE_COUNT;
   private readonly profile: ResolvedSandboxProfile;
@@ -106,8 +109,10 @@ class SandboxToolRunner {
     target: { profile: ResolvedSandboxProfile; server: ResolvedSandboxServer },
     /** Sandbox Hub variables for this user's sandbox of this profile. */
     env: Record<string, string>,
+    maskEnv: Record<string, string>,
   ) {
     this.env = env;
+    this.maskEnv = maskEnv;
     this.profile = target.profile;
     this.provider = getSandboxProvider(target.profile, target.server, {
       env: { fingerprint: sandboxEnvFingerprint(env), values: env },
@@ -298,7 +303,7 @@ class SandboxToolRunner {
         commandId: started.commandId,
         cwd: started.cwd,
         deadlineAt: new Date(startedAt.getTime() + runtimeMs),
-        envSnapshot: await encryptSandboxEnvSnapshot(this.env),
+        envSnapshot: await encryptSandboxEnvSnapshot(this.maskEnv),
         outputDir: started.outputDir,
         profileId: this.profile.id,
         sessionKey: this.sessionKey,
@@ -579,8 +584,10 @@ export const invokeSandboxTool = async (
   if (!target.ok) return isPython ? pythonFailure(target.message) : failure(target.message);
 
   let env: Record<string, string>;
+  let maskEnv: Record<string, string>;
   try {
     env = await resolveSandboxEnv(params.db, params.userId, target.profile.id);
+    maskEnv = await resolveSandboxMaskEnv(params.db, params.userId, target.profile.id);
   } catch (error) {
     // Without them a new sandbox would start without its variables.
     console.warn('[sandbox] could not read environment variables; the call was refused', {
@@ -591,19 +598,19 @@ export const invokeSandboxTool = async (
     return isPython ? pythonFailure(message) : failure(message);
   }
 
-  const runner = new SandboxToolRunner(params, target, env);
+  const runner = new SandboxToolRunner(params, target, env, maskEnv);
   try {
     // The schema for each API name produces that API's arguments.
     const call = runner[apiName].bind(runner) as (args: unknown) => Promise<SandboxToolResult>;
     const result = await call(parsed.data);
     throwIfCallerCancelled(params.signal);
-    return maskSandboxSecrets(result, env);
+    return maskSandboxSecrets(result, maskEnv);
   } catch (error) {
     if (params.signal?.aborted || (error instanceof SandboxError && error.code === 'Cancelled')) {
       throw error;
     }
     const message =
       error instanceof SandboxError || error instanceof Error ? error.message : 'Sandbox failed.';
-    return maskSandboxSecrets(isPython ? pythonFailure(message) : failure(message), env);
+    return maskSandboxSecrets(isPython ? pythonFailure(message) : failure(message), maskEnv);
   }
 };

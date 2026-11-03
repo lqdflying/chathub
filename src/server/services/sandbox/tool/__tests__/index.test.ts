@@ -35,6 +35,7 @@ vi.mock('../../registry', () => ({
 vi.mock('../../profiles/env', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../profiles/env')>()),
   resolveSandboxEnv: mocks.resolveEnv,
+  resolveSandboxMaskEnv: mocks.resolveEnv,
 }));
 vi.mock('../../profiles/catalog', () => ({
   resolveSandboxProfileForUser: async ({ identifier }: { identifier: string }) => {

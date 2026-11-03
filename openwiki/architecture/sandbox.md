@@ -304,18 +304,22 @@ own `[docker] sandbox_env`. OpenSandbox's read endpoints do not return them.
   The router checks `isSandboxHubAdmin` on every shared write
   (`setSharedEnv`, `deleteSharedEnv`); `setMyEnv` and `deleteMyEnv` are open
   to any user for a configured profile.
-- **Storage.** `sandbox_profile_envs` (migration `0068`, repaired by
-  `ensureSandboxProfileEnvs.cjs`): one row per profile and name for shared
-  rows (`user_id` null) and per profile, user and name for a user's rows (two
-  partial unique indexes). `value` is AES-GCM ciphertext from
-  `KeyVaultsGateKeeper`, keyed by `KEY_VAULTS_SECRET`. `hint` is `••••` plus
-  the last 4 characters of a value of 12 or more characters, else `••••`.
-  User rows go with the user; all rows go with the profile.
-- **Never back to the browser.** `listEnvs` and every write return names,
-  hints and times only. Values are typed into a password field, sent once,
-  and dropped from the dialog's state after the save or when it closes.
-  Without `KEY_VAULTS_SECRET` the feature is off: writes are refused and the
-  Hub says why.
+- **Storage.** `sandbox_profile_envs` (migration `0068`, `sensitive` in
+  `0070`, repaired by `ensureSandboxProfileEnvs.cjs`): one row per profile
+  and name for shared rows (`user_id` null) and per profile, user and name
+  for a user's rows (two partial unique indexes). `value` is AES-GCM
+  ciphertext from `KeyVaultsGateKeeper`, keyed by `KEY_VAULTS_SECRET`.
+  `sensitive` defaults true. For a sensitive row, `hint` is `••••` plus the
+  last 4 characters of a value of 12 or more characters, else `••••`; a row
+  that is not sensitive stores no hint. User rows go with the user; all rows
+  go with the profile.
+- **Shown only when not sensitive.** `listEnvs` decrypts `value` only when
+  `sensitive` is false and returns that plaintext as `value`. A sensitive
+  row returns the name, hint, and time. Existing rows stay sensitive, so a
+  token already saved stays masked until it is replaced with the box cleared.
+  Clearing the box on a save stores the newly typed value; it does not reveal
+  the previous one. Without `KEY_VAULTS_SECRET` the feature is off: writes
+  are refused and the Hub says why.
 - **Rules** (`profiles/env.ts`, `tools/sandbox/const.ts`). Names match
   `^[A-Z_][A-Z0-9_]{0,63}$`. Reserved: `PATH`, `HOME`, `HOSTNAME`, `PWD`,
   `SHELL`, `USER`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, and the prefixes
@@ -339,13 +343,15 @@ own `[docker] sandbox_env`. OpenSandbox's read endpoints do not return them.
   saved change applies on the conversation's next call and that sandbox's
   files and running jobs are lost. Background-job checks and Prepare image
   pass no variables, skip the comparison, and never replace a sandbox.
-- **Masking.** Before a tool result goes back to the model, every string in
-  it has each value of 6 or more characters replaced with `[secret:NAME]`
+- **Masking.** Only values with `sensitive` true are masked. Before a tool
+  result goes back to the model, every string in it has each of those values
+  of 6 or more characters replaced with `[secret:NAME]`
   when that label does not itself contain a value, otherwise `[redacted]`,
   otherwise U+FFFC (longest value first, in one pass, so masking twice
-  changes nothing). `startJob` stores a KeyVaults ciphertext of the env map
-  on `sandbox_jobs.env_snapshot`. A job's error, output, and kept file names
-  are masked with that snapshot plus the current values before they are
+  changes nothing). `startJob` stores a KeyVaults ciphertext of the sensitive
+  values only on `sandbox_jobs.env_snapshot`. A job's error, output, and kept
+  file names are masked with that snapshot plus the current sensitive values
+  before they are
   saved, and a running job's live log before it is returned. A check with
   nothing to mask does not decrypt. If the snapshot cannot be read, the
   output is not saved. A job with no snapshot (it started before snapshots,

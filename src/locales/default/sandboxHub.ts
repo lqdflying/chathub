@@ -123,9 +123,10 @@ export default {
     reservedName: '{{name}} 由沙盒保留，请换一个名称。',
     row: '环境变量',
     save: '保存',
+    sensitive: '敏感',
     shared: '共享变量',
     sharedHint: '由管理员设置，对该沙盒的所有用户生效。',
-    sharedReadOnly: '由沙盒中心管理员设置。只显示名称和简短提示，完整的值不会发送到浏览器。',
+    sharedReadOnly: '由沙盒中心管理员设置。勾选“敏感”的值只显示简短提示；未勾选的值会完整显示。',
     summary: '{{shared}} 个共享 · {{mine}} 个我的',
     title: '“{{name}}”的环境变量',
     tooLarge: '值不能超过 {{max}} KB。',
@@ -135,7 +136,7 @@ export default {
     valuePlaceholder: '输入值',
     valueReplacePlaceholder: '输入新值',
     warning:
-      '沙盒中的程序（包括助手）都能读取这些值，沙盒服务器的运营者也可以。共享变量的值可被该沙盒的每位用户通过助手读到。输出中出现的值会显示为 [secret:名称]，但这不能阻止有意的读取。',
+      '沙盒中的程序（包括助手）都能读取这些值，沙盒服务器的运营者也可以。共享变量的值可被该沙盒的每位用户通过助手读到。输出中出现的敏感值会显示为 [secret:名称]，但这不能阻止有意的读取。',
   },
   health: {
     misconfigured: '缺少 API Key',

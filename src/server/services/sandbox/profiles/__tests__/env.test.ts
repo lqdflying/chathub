@@ -5,9 +5,18 @@ interface Row {
   hint: string | null;
   name: string;
   profileId: string;
+  sensitive: boolean;
   updatedAt: Date;
   userId: string | null;
   value: string;
+}
+
+interface Write {
+  encryptedValue: string;
+  hint: string | null;
+  name: string;
+  profileId: string;
+  sensitive?: boolean;
 }
 
 const mocks = vi.hoisted(() => ({
@@ -52,10 +61,9 @@ vi.mock('@/database/models/sandboxProfileEnv', () => ({
       if (mocks.readError) throw mocks.readError;
       return mocks.rows.filter((row) => row.userId === null || row.userId === userId);
     };
-    upsertForUser = async (userId: string, write: Record<string, string>) =>
-      this.upsert(userId, write);
-    upsertShared = async (write: Record<string, string>) => this.upsert(null, write);
-    private upsert = (userId: string | null, write: Record<string, string>) => {
+    upsertForUser = async (userId: string, write: Write) => this.upsert(userId, write);
+    upsertShared = async (write: Write) => this.upsert(null, write);
+    private upsert = (userId: string | null, write: Write) => {
       mocks.rows = mocks.rows.filter(
         (row) =>
           !(row.profileId === write.profileId && row.name === write.name && row.userId === userId),
@@ -64,6 +72,7 @@ vi.mock('@/database/models/sandboxProfileEnv', () => ({
         hint: write.hint,
         name: write.name,
         profileId: write.profileId,
+        sensitive: write.sensitive !== false,
         updatedAt: new Date('2026-01-02T03:04:05Z'),
         userId,
         value: write.encryptedValue,
@@ -80,6 +89,7 @@ const {
   maskSandboxSecrets,
   readSandboxEnvSnapshot,
   resolveSandboxEnv,
+  resolveSandboxMaskEnv,
   sandboxEnvFingerprint,
   sandboxEnvHint,
   sandboxEnvNameProblem,
@@ -134,8 +144,42 @@ describe('sandbox env storage', () => {
       },
     });
     expect(JSON.stringify(list)).not.toContain('secret-value');
+    expect(mocks.rows.every((row) => row.sensitive)).toBe(true);
     // Another user sees the shared variable only.
     expect((await listSandboxEnvs(db, 'u2')).profiles.data.mine).toEqual([]);
+  });
+
+  it('returns a non-sensitive value and leaves it out of output masking', async () => {
+    await setSandboxEnv({
+      db,
+      name: 'BASE_URL',
+      owner: { userId: 'u1' },
+      profileId: 'data',
+      sensitive: false,
+      updatedBy: 'u1',
+      value: 'https://example.test/v1',
+    });
+    await set('API_TOKEN', 'shared-secret-value', { userId: 'u1' });
+
+    const mine = (await listSandboxEnvs(db, 'u1')).profiles.data.mine;
+    expect(mine).toEqual([
+      {
+        name: 'BASE_URL',
+        updatedAt: '2026-01-02T03:04:05.000Z',
+        value: 'https://example.test/v1',
+      },
+      { hint: '••••alue', name: 'API_TOKEN', updatedAt: '2026-01-02T03:04:05.000Z' },
+    ]);
+
+    expect(await resolveSandboxMaskEnv(db, 'u1', 'data')).toEqual({
+      API_TOKEN: 'shared-secret-value',
+    });
+    expect(
+      maskSandboxSecrets(
+        'see https://example.test/v1 and shared-secret-value',
+        await resolveSandboxMaskEnv(db, 'u1', 'data'),
+      ),
+    ).toBe('see https://example.test/v1 and [secret:API_TOKEN]');
   });
 
   it("lays a user's own value over the shared one", async () => {
