@@ -5,6 +5,7 @@ import {
   type NewSandboxHubProfileRow,
   type SandboxHubProfileRow,
   sandboxHubProfiles,
+  sandboxProfileEnvs,
   sandboxProfileInstructions,
   userSandboxProfiles,
 } from '../schemas/sandboxProfile';
@@ -104,8 +105,9 @@ export class SandboxHubProfileModel {
   };
 
   /**
-   * Removes the profile, its shared instruction edit, and every user's on/off
-   * choice in one transaction. A failure leaves all three in place.
+   * Removes the profile, its shared instruction edit, every user's on/off
+   * choice, and its environment variables (shared and every user's) in one
+   * transaction. A failure leaves all of them in place.
    */
   deleteWithRelated = async (id: string): Promise<void> => {
     await this.db.transaction(async (tx) => {
@@ -114,6 +116,7 @@ export class SandboxHubProfileModel {
         .delete(sandboxProfileInstructions)
         .where(eq(sandboxProfileInstructions.profileId, id));
       await tx.delete(userSandboxProfiles).where(eq(userSandboxProfiles.profileId, id));
+      await tx.delete(sandboxProfileEnvs).where(eq(sandboxProfileEnvs.profileId, id));
     });
   };
 

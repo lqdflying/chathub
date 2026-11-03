@@ -21,6 +21,7 @@ const prefixes = {
   messages: 'msg',
   picbedImages: 'pbi',
   plugins: 'plg',
+  sandboxEnvs: 'senv',
   sandboxJobs: 'sjob',
   sessionGroups: 'sg',
   sessions: 'ssn',

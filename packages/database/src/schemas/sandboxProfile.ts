@@ -1,6 +1,17 @@
 /* eslint-disable sort-keys-fix/sort-keys-fix */
 import type { SandboxImageStatus, SandboxProfileEgressSetting } from '@lobechat/types';
-import { bigint, boolean, integer, jsonb, pgTable, primaryKey, text } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import {
+  bigint,
+  boolean,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  primaryKey,
+  text,
+  uniqueIndex,
+} from 'drizzle-orm/pg-core';
 
 import { timestamps, timestamptz } from './_helpers';
 import { users } from './user';
@@ -87,4 +98,39 @@ export const sandboxHubProfiles = pgTable('sandbox_hub_profiles', {
 
 export type SandboxHubProfileRow = typeof sandboxHubProfiles.$inferSelect;
 export type NewSandboxHubProfileRow = typeof sandboxHubProfiles.$inferInsert;
+
+/**
+ * Sandbox Hub: secret environment variables sent to a profile's sandboxes when
+ * they are created. A row without `user_id` is shared by every user of the
+ * profile (set by admins); a row with one belongs to that user and overrides
+ * a shared variable of the same name in their sandboxes only. `value` is
+ * KeyVaultsGateKeeper ciphertext and never leaves the server.
+ */
+export const sandboxProfileEnvs = pgTable(
+  'sandbox_profile_envs',
+  {
+    id: text('id').primaryKey(),
+    profileId: text('profile_id').notNull(),
+    userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    value: text('value').notNull(),
+    /** `••••` and the last 4 characters of a long value; never more. */
+    hint: text('hint'),
+    updatedBy: text('updated_by').references(() => users.id, { onDelete: 'set null' }),
+    accessedAt: timestamps.accessedAt,
+    createdAt: timestamps.createdAt,
+    updatedAt: timestamps.updatedAt,
+  },
+  (table) => [
+    uniqueIndex('sandbox_profile_envs_shared_uniq')
+      .on(table.profileId, table.name)
+      .where(sql`${table.userId} is null`),
+    uniqueIndex('sandbox_profile_envs_user_uniq')
+      .on(table.profileId, table.userId, table.name)
+      .where(sql`${table.userId} is not null`),
+    index('sandbox_profile_envs_user_idx').on(table.userId),
+  ],
+);
+
+export type SandboxProfileEnvRow = typeof sandboxProfileEnvs.$inferSelect;
 

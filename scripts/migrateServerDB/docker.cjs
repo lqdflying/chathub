@@ -24,6 +24,7 @@ const { ensureUserSandboxProfilesTable } = require('./ensureUserSandboxProfiles.
 const { ensureSandboxProfileInstructionsTable } = require('./ensureSandboxProfileInstructions.cjs');
 const { ensureSandboxJobsTable } = require('./ensureSandboxJobs.cjs');
 const { ensureSandboxHubProfilesTable } = require('./ensureSandboxHubProfiles.cjs');
+const { ensureSandboxProfileEnvsTable } = require('./ensureSandboxProfileEnvs.cjs');
 
 // SAFETY NET: Every new Drizzle migration that adds a table or column MUST also
 // add a corresponding ensure* call here. This protects against journal drift —
@@ -64,6 +65,7 @@ const runMigrations = async () => {
   await ensureSandboxProfileInstructionsTable(client);
   await ensureSandboxJobsTable(client);
   await ensureSandboxHubProfilesTable(client);
+  await ensureSandboxProfileEnvsTable(client);
 
   console.log('✅ database migration pass.');
   console.log('-------------------------------------');
