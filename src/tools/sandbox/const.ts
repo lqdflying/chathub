@@ -76,6 +76,27 @@ export const SANDBOX_PROFILE_ID_MAX_LENGTH = 16;
 /** Largest profile instruction, from the profiles file or an admin edit (UTF-8 bytes). */
 export const SANDBOX_INSTRUCTION_MAX_BYTES = 32 * 1024;
 
+/** Sandbox Hub environment variable names: shell style, capitals. */
+export const SANDBOX_ENV_NAME_PATTERN = /^[A-Z_][\dA-Z_]{0,63}$/;
+/** Names the sandbox runtime or its services rely on. */
+const SANDBOX_ENV_RESERVED_NAMES = new Set([
+  'HOME',
+  'HOSTNAME',
+  'LD_LIBRARY_PATH',
+  'LD_PRELOAD',
+  'PATH',
+  'PWD',
+  'SHELL',
+  'USER',
+]);
+const SANDBOX_ENV_RESERVED_PREFIXES = ['CHATHUB_', 'EXECD_', 'OPENSANDBOX_'];
+/** Largest variable value (UTF-8 bytes). */
+export const SANDBOX_ENV_VALUE_MAX_BYTES = 8 * 1024;
+
+export const isReservedSandboxEnvName = (name: string) =>
+  SANDBOX_ENV_RESERVED_NAMES.has(name) ||
+  SANDBOX_ENV_RESERVED_PREFIXES.some((prefix) => name.startsWith(prefix));
+
 const SANDBOX_PROFILE_SEPARATOR = '--';
 const SANDBOX_PROFILE_ID_PATTERN = /^[a-z][\da-z]*(?:-[\da-z]+)*$/;
 const SANDBOX_PROFILE_PREFIX = `${SandboxIdentifier}${SANDBOX_PROFILE_SEPARATOR}`;

@@ -6,23 +6,14 @@ import { getServerDBConfig } from '@/config/db';
 import { SandboxProfileEnvModel } from '@/database/models/sandboxProfileEnv';
 import type { SandboxProfileEnvRow } from '@/database/schemas';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
+import {
+  SANDBOX_ENV_NAME_PATTERN,
+  SANDBOX_ENV_VALUE_MAX_BYTES,
+  isReservedSandboxEnvName,
+} from '@/tools/sandbox/const';
 
 import { isMissingTable } from './missingTable';
 
-export const SANDBOX_ENV_NAME = /^[A-Z_][\dA-Z_]{0,63}$/;
-const RESERVED_NAMES = new Set([
-  'HOME',
-  'HOSTNAME',
-  'LD_LIBRARY_PATH',
-  'LD_PRELOAD',
-  'PATH',
-  'PWD',
-  'SHELL',
-  'USER',
-]);
-const RESERVED_PREFIXES = ['CHATHUB_', 'EXECD_', 'OPENSANDBOX_'];
-
-export const SANDBOX_ENV_VALUE_MAX_BYTES = 8 * 1024;
 export const SANDBOX_ENV_MAX_PER_OWNER = 32;
 export const SANDBOX_ENV_TOTAL_MAX_BYTES = 64 * 1024;
 /** Shorter values are not masked in tool output: too likely to match ordinary text. */
@@ -58,10 +49,10 @@ const bytes = (value: string) => Buffer.byteLength(value, 'utf8');
 
 /** Why a variable name is refused, or undefined when it is allowed. */
 export const sandboxEnvNameProblem = (name: string): string | undefined => {
-  if (!SANDBOX_ENV_NAME.test(name)) {
+  if (!SANDBOX_ENV_NAME_PATTERN.test(name)) {
     return 'Use capital letters, digits and underscores, starting with a letter or underscore (at most 64 characters).';
   }
-  if (RESERVED_NAMES.has(name) || RESERVED_PREFIXES.some((prefix) => name.startsWith(prefix))) {
+  if (isReservedSandboxEnvName(name)) {
     return `${name} is reserved by the sandbox.`;
   }
   return undefined;

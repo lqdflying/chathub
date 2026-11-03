@@ -100,11 +100,21 @@ export interface ProfileAdminProps {
   onPrepare: () => void;
 }
 
+/** Counts for the Environment row; undefined while loading or after a failed read. */
+export interface ProfileEnvSummary {
+  available: boolean;
+  mine: number;
+  shared: number;
+}
+
 interface ProfileSectionProps {
   access?: InstructionAccess;
   /** Present for Sandbox Hub admins. */
   admin?: ProfileAdminProps;
+  env?: ProfileEnvSummary;
   health?: SandboxServerHealth;
+  /** Opens the environment variables dialog. */
+  onOpenEnv?: () => void;
   /** Opens the instruction viewer (or editor, for admins). */
   onOpenInstruction?: () => void;
   onToggle?: (enabled: boolean) => Promise<void>;
@@ -192,7 +202,7 @@ AdminActions.displayName = 'SandboxHubAdminActions';
  * on/off switch and admin controls on the right, and one row per setting.
  */
 const ProfileSection = memo<ProfileSectionProps>(
-  ({ access, admin, health, onOpenInstruction, onToggle, profile }) => {
+  ({ access, admin, env, health, onOpenEnv, onOpenInstruction, onToggle, profile }) => {
     const { styles } = useStyles();
     const { t } = useTranslation('sandboxHub');
     const [pending, setPending] = useState(false);
@@ -313,6 +323,21 @@ const ProfileSection = memo<ProfileSectionProps>(
           minWidth: undefined,
         },
       );
+      if (onOpenEnv) {
+        rows.push({
+          children: (
+            <Flexbox align={'center'} gap={8} horizontal justify={'flex-end'}>
+              {env && value(t('env.summary', { mine: env.mine, shared: env.shared }))}
+              <Button onClick={onOpenEnv} size={'small'}>
+                {t('env.manage')}
+              </Button>
+            </Flexbox>
+          ),
+          desc: env && !env.available ? t('env.unavailable') : t('env.rowDesc'),
+          label: t('env.row'),
+          minWidth: undefined,
+        });
+      }
     }
 
     if (admin) {

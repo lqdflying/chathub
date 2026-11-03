@@ -1,4 +1,5 @@
 import type {
+  SandboxEnvList,
   SandboxHubAccess,
   SandboxHubProfileSettingsInput,
   SandboxHubSettings,
@@ -23,8 +24,21 @@ class SandboxHubService {
   ): Promise<SandboxHubSettings> =>
     lambdaClient.sandboxHub.createProfile.mutate({ accountScope, id, settings });
 
+  deleteMyEnv = (accountScope: string, profileId: string, name: string): Promise<SandboxEnvList> =>
+    lambdaClient.sandboxHub.deleteMyEnv.mutate({ accountScope, name, profileId });
+
   deleteProfile = (accountScope: string, id: string): Promise<SandboxHubSettings> =>
     lambdaClient.sandboxHub.deleteProfile.mutate({ accountScope, id });
+
+  deleteSharedEnv = (
+    accountScope: string,
+    profileId: string,
+    name: string,
+  ): Promise<SandboxEnvList> =>
+    lambdaClient.sandboxHub.deleteSharedEnv.mutate({ accountScope, name, profileId });
+
+  listEnvs = (accountScope: string): Promise<SandboxEnvList> =>
+    lambdaClient.sandboxHub.listEnvs.query({ accountScope });
 
   listJobs = (accountScope: string): Promise<SandboxJobItem[]> =>
     lambdaClient.sandboxHub.listJobs.query({ accountScope });
@@ -58,12 +72,28 @@ class SandboxHubService {
   ): Promise<SandboxProfileItem[]> =>
     lambdaClient.sandboxHub.setInstruction.mutate({ accountScope, instruction, profileId });
 
+  setMyEnv = (
+    accountScope: string,
+    profileId: string,
+    name: string,
+    value: string,
+  ): Promise<SandboxEnvList> =>
+    lambdaClient.sandboxHub.setMyEnv.mutate({ accountScope, name, profileId, value });
+
   setProfileEnabled = (
     accountScope: string,
     profileId: string,
     enabled: boolean,
   ): Promise<SandboxProfileItem[]> =>
     lambdaClient.sandboxHub.setProfileEnabled.mutate({ accountScope, enabled, profileId });
+
+  setSharedEnv = (
+    accountScope: string,
+    profileId: string,
+    name: string,
+    value: string,
+  ): Promise<SandboxEnvList> =>
+    lambdaClient.sandboxHub.setSharedEnv.mutate({ accountScope, name, profileId, value });
 
   updateProfile = (
     accountScope: string,

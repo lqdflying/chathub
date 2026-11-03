@@ -18,6 +18,13 @@ const mocks = vi.hoisted(() => ({
   },
   cancelJob: vi.fn(),
   confirm: vi.fn(),
+  env: {
+    deleteMine: vi.fn(),
+    deleteShared: vi.fn(),
+    list: vi.fn(),
+    setMine: vi.fn(),
+    setShared: vi.fn(),
+  },
   initFailed: false,
   listJobs: vi.fn(),
   load: vi.fn(),
@@ -145,6 +152,15 @@ vi.mock('antd', () => ({
       />
     ),
     {
+      Password: ({ onChange, value, ...rest }: any) => (
+        <input
+          aria-label={rest['aria-label']}
+          onChange={onChange}
+          placeholder={rest.placeholder}
+          type="password"
+          value={value}
+        />
+      ),
       TextArea: ({ onChange, value, ...rest }: any) => (
         <textarea aria-label={rest['aria-label']} onChange={onChange} value={value} />
       ),
@@ -206,12 +222,17 @@ vi.mock('@/services/sandboxHub', () => ({
     access: mocks.access,
     cancelJob: mocks.cancelJob,
     createProfile: mocks.admin.create,
+    deleteMyEnv: mocks.env.deleteMine,
     deleteProfile: mocks.admin.delete,
+    deleteSharedEnv: mocks.env.deleteShared,
+    listEnvs: mocks.env.list,
     listJobs: mocks.listJobs,
     moveProfile: mocks.admin.move,
     prepareImage: mocks.admin.prepare,
     profileSettings: mocks.admin.settings,
     serverStatus: mocks.serverStatus,
+    setMyEnv: mocks.env.setMine,
+    setSharedEnv: mocks.env.setShared,
     updateProfile: mocks.admin.update,
   },
 }));
@@ -298,6 +319,7 @@ describe('SandboxHub', () => {
     mocks.serverStatus.mockResolvedValue({ remote: 'ok' });
     mocks.access.mockResolvedValue({ adminsConfigured: true, canEditInstructions: false });
     mocks.listJobs.mockResolvedValue([]);
+    mocks.env.list.mockResolvedValue({ available: true, profiles: {} });
     mocks.admin.settings.mockResolvedValue(hubSettings());
     mocks.setEnabled.mockResolvedValue(undefined);
     mocks.setInstruction.mockResolvedValue(undefined);
@@ -476,6 +498,130 @@ describe('SandboxHub', () => {
         fireEvent.click(screen.getByText('confirm:profile.instruction.reset'));
       });
       expect(mocks.resetInstruction).toHaveBeenCalledWith('data');
+    });
+  });
+
+  describe('environment variables', () => {
+    const item = (name: string, hint?: string) => ({
+      ...(hint ? { hint } : {}),
+      name,
+      updatedAt: '2026-11-02T08:00:00.000Z',
+    });
+    const listed = (mine: ReturnType<typeof item>[], shared: ReturnType<typeof item>[]) => ({
+      available: true,
+      profiles: { data: { mine, shared } },
+    });
+    const renderHub = async () => {
+      await act(async () => {
+        render(<SandboxHub />);
+      });
+    };
+    const openEnv = () => fireEvent.click(screen.getByText('env.manage'));
+
+    it('shows the counts and lets a user add, replace and delete their own', async () => {
+      mocks.profiles = [profile('data')];
+      mocks.env.list.mockResolvedValue(listed([], [item('API_TOKEN', '••••1234')]));
+      await renderHub();
+
+      expect(mocks.env.list).toHaveBeenCalledWith('user:u1');
+      expect(screen.getByText('env.summary:{"mine":0,"shared":1}')).toBeTruthy();
+      openEnv();
+      expect(screen.getByText('env.warning')).toBeTruthy();
+      // Not an admin: shared names only, no controls for them.
+      expect(screen.getByText('env.sharedReadOnly')).toBeTruthy();
+      expect(screen.getByText('••••1234')).toBeTruthy();
+      expect(screen.getAllByText('env.add')).toHaveLength(1);
+      expect(screen.queryByText('env.replace')).toBeNull();
+
+      mocks.env.setMine.mockResolvedValue(
+        listed([item('API_TOKEN', '••••9876')], [item('API_TOKEN', '••••1234')]),
+      );
+      fireEvent.click(screen.getByText('env.add'));
+      expect(screen.getByRole('dialog').getAttribute('data-mask-closable')).toBe('false');
+      fireEvent.change(screen.getByLabelText('env.name'), { target: { value: 'api_token' } });
+      const value = screen.getByLabelText('env.value') as HTMLInputElement;
+      expect(value.type).toBe('password');
+      fireEvent.change(value, { target: { value: 'my-token-9876' } });
+      await act(async () => {
+        fireEvent.click(screen.getByText('env.save'));
+      });
+      expect(mocks.env.setMine).toHaveBeenCalledWith(
+        'user:u1',
+        'data',
+        'API_TOKEN',
+        'my-token-9876',
+      );
+      expect(screen.queryByLabelText('env.value')).toBeNull();
+      expect(screen.getByText('env.overridden')).toBeTruthy();
+
+      // Replace keeps the name.
+      fireEvent.click(screen.getByText('env.replace'));
+      expect((screen.getByLabelText('env.name') as HTMLInputElement).value).toBe('API_TOKEN');
+      fireEvent.click(screen.getByText('env.cancel'));
+
+      mocks.env.deleteMine.mockResolvedValue(listed([], [item('API_TOKEN', '••••1234')]));
+      await act(async () => {
+        fireEvent.click(screen.getByText('confirm:env.delete'));
+      });
+      expect(mocks.env.deleteMine).toHaveBeenCalledWith('user:u1', 'data', 'API_TOKEN');
+      expect(screen.queryByText('env.overridden')).toBeNull();
+    });
+
+    it('checks the name before saving and shows a refused save', async () => {
+      mocks.profiles = [profile('data')];
+      await renderHub();
+      openEnv();
+      fireEvent.click(screen.getByText('env.add'));
+      fireEvent.change(screen.getByLabelText('env.value'), { target: { value: 'x' } });
+
+      fireEvent.change(screen.getByLabelText('env.name'), { target: { value: '1BAD' } });
+      expect(screen.getByText('env.invalidName')).toBeTruthy();
+      expect((screen.getByText('env.save') as HTMLButtonElement).disabled).toBe(true);
+      fireEvent.change(screen.getByLabelText('env.name'), { target: { value: 'PATH' } });
+      expect(screen.getByText('env.reservedName:{"name":"PATH"}')).toBeTruthy();
+
+      mocks.env.setMine.mockRejectedValue(new Error('At most 32 variables can be set here.'));
+      fireEvent.change(screen.getByLabelText('env.name'), { target: { value: 'TOKEN' } });
+      await act(async () => {
+        fireEvent.click(screen.getByText('env.save'));
+      });
+      expect(screen.getByText('At most 32 variables can be set here.')).toBeTruthy();
+      expect(screen.getByLabelText('env.value')).toBeTruthy();
+    });
+
+    it('lets an admin manage shared variables', async () => {
+      mocks.access.mockResolvedValue({ adminsConfigured: true, canEditInstructions: true });
+      mocks.profiles = [profile('data')];
+      mocks.env.list.mockResolvedValue(listed([], [item('REGION')]));
+      mocks.env.setShared.mockResolvedValue(listed([], [item('REGION')]));
+      mocks.env.deleteShared.mockResolvedValue(listed([], []));
+      await renderHub();
+      openEnv();
+
+      expect(screen.getByText('env.sharedHint')).toBeTruthy();
+      expect(screen.getAllByText('env.add')).toHaveLength(2);
+      fireEvent.click(screen.getByText('env.replace'));
+      fireEvent.change(screen.getByLabelText('env.value'), { target: { value: 'eu-west-1' } });
+      await act(async () => {
+        fireEvent.click(screen.getByText('env.save'));
+      });
+      expect(mocks.env.setShared).toHaveBeenCalledWith('user:u1', 'data', 'REGION', 'eu-west-1');
+
+      await act(async () => {
+        fireEvent.click(screen.getByText('confirm:env.delete'));
+      });
+      expect(mocks.env.deleteShared).toHaveBeenCalledWith('user:u1', 'data', 'REGION');
+      expect(screen.getAllByText('env.empty')).toHaveLength(2);
+    });
+
+    it('says when the server cannot store variables', async () => {
+      mocks.profiles = [profile('data')];
+      mocks.env.list.mockResolvedValue({ available: false, profiles: {} });
+      await renderHub();
+
+      expect(screen.getByText('env.unavailable')).toBeTruthy();
+      openEnv();
+      expect((screen.getByText('env.add') as HTMLButtonElement).disabled).toBe(true);
     });
   });
 

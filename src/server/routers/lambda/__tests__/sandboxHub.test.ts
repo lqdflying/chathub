@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   },
   cancelJob: vi.fn(),
   deleteInstruction: vi.fn(),
+  env: { delete: vi.fn(), list: vi.fn(), set: vi.fn() },
   findProfile: vi.fn(),
   health: vi.fn(),
   isAdmin: vi.fn(),
@@ -64,6 +65,15 @@ vi.mock('@/server/services/sandbox/jobs/service', () => ({
 vi.mock('@/server/services/sandbox/profiles/catalog', () => ({
   getUserSandboxProfiles: mocks.list,
 }));
+vi.mock('@/server/services/sandbox/profiles/env', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/server/services/sandbox/profiles/env')>();
+  return {
+    SandboxEnvError: actual.SandboxEnvError,
+    deleteSandboxEnv: mocks.env.delete,
+    listSandboxEnvs: mocks.env.list,
+    setSandboxEnv: mocks.env.set,
+  };
+});
 vi.mock('@/server/services/sandbox/profiles/hub', () => ({
   findSandboxProfile: async (_db: unknown, id: string) => mocks.findProfile(id),
 }));
@@ -323,6 +333,86 @@ describe('sandboxHubRouter', () => {
       await expect(
         caller('user:account-a').createProfile({ ...scope, id: 'Bad_Id', settings }),
       ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    });
+  });
+
+  describe('environment variables', () => {
+    const scope = { accountScope: 'user:account-a' };
+    const list = {
+      available: true,
+      profiles: { data: { mine: [], shared: [{ name: 'API_TOKEN', updatedAt: 'now' }] } },
+    };
+
+    beforeEach(() => {
+      mocks.env.list.mockResolvedValue(list);
+      mocks.env.set.mockResolvedValue(undefined);
+      mocks.env.delete.mockResolvedValue(undefined);
+    });
+
+    it('lists names and hints, and lets any user write their own', async () => {
+      const api = caller('user:account-a');
+      await expect(api.listEnvs(scope)).resolves.toEqual(list);
+      expect(mocks.env.list).toHaveBeenCalledWith({}, 'account-a');
+
+      const result = await api.setMyEnv({
+        ...scope,
+        name: 'API_TOKEN',
+        profileId: 'data',
+        value: 'my-secret-value',
+      });
+      expect(mocks.env.set).toHaveBeenCalledWith({
+        db: {},
+        name: 'API_TOKEN',
+        owner: { userId: 'account-a' },
+        profileId: 'data',
+        updatedBy: 'account-a',
+        value: 'my-secret-value',
+      });
+      expect(JSON.stringify(result)).not.toContain('my-secret-value');
+
+      await api.deleteMyEnv({ ...scope, name: 'API_TOKEN', profileId: 'data' });
+      expect(mocks.env.delete).toHaveBeenCalledWith({
+        db: {},
+        name: 'API_TOKEN',
+        owner: { userId: 'account-a' },
+        profileId: 'data',
+      });
+    });
+
+    it('lets only admins write shared variables', async () => {
+      const api = caller('user:account-a');
+      await expect(
+        api.setSharedEnv({ ...scope, name: 'API_TOKEN', profileId: 'data', value: 'x' }),
+      ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      await expect(
+        api.deleteSharedEnv({ ...scope, name: 'API_TOKEN', profileId: 'data' }),
+      ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      expect(mocks.env.set).not.toHaveBeenCalled();
+      expect(mocks.env.delete).not.toHaveBeenCalled();
+
+      mocks.isAdmin.mockResolvedValue(true);
+      await api.setSharedEnv({ ...scope, name: 'API_TOKEN', profileId: 'data', value: 'x' });
+      expect(mocks.env.set).toHaveBeenCalledWith(
+        expect.objectContaining({ owner: { shared: true }, profileId: 'data' }),
+      );
+      await api.deleteSharedEnv({ ...scope, name: 'API_TOKEN', profileId: 'data' });
+      expect(mocks.env.delete).toHaveBeenCalledWith(
+        expect.objectContaining({ owner: { shared: true } }),
+      );
+    });
+
+    it('rejects unknown profiles and returns a refused write with its code', async () => {
+      const api = caller('user:account-a');
+      await expect(
+        api.setMyEnv({ ...scope, name: 'API_TOKEN', profileId: 'nope', value: 'x' }),
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+      expect(mocks.env.set).not.toHaveBeenCalled();
+
+      const { SandboxEnvError } = await import('@/server/services/sandbox/profiles/env');
+      mocks.env.set.mockRejectedValue(new SandboxEnvError('BAD_REQUEST', 'PATH is reserved.'));
+      await expect(
+        api.setMyEnv({ ...scope, name: 'PATH', profileId: 'data', value: 'x' }),
+      ).rejects.toMatchObject({ code: 'BAD_REQUEST', message: 'PATH is reserved.' });
     });
   });
 });

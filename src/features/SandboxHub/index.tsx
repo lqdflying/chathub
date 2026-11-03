@@ -1,6 +1,7 @@
 'use client';
 
 import type {
+  SandboxEnvList,
   SandboxHubProfileSettingsInput,
   SandboxHubProfileSettingsItem,
   SandboxHubSettings,
@@ -17,6 +18,7 @@ import { sandboxHubService } from '@/services/sandboxHub';
 import { useToolStore } from '@/store/tool';
 import { useUserStore } from '@/store/user';
 
+import EnvModal, { type EnvSection } from './EnvModal';
 import InstructionModal from './InstructionModal';
 import JobList from './JobList';
 import ProfileSection, { type InstructionAccess, type ProfileAdminProps } from './ProfileSection';
@@ -85,6 +87,9 @@ const SandboxHub = memo(() => {
   const [instructionDialog, setInstructionDialog] = useState<{ id?: string; open: boolean }>({
     open: false,
   });
+  const [envList, setEnvList] = useState<SandboxEnvList>();
+  const [envFailed, setEnvFailed] = useState(false);
+  const [envDialog, setEnvDialog] = useState<{ id?: string; open: boolean }>({ open: false });
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string>();
   const canEdit = !!access?.canEdit;
@@ -159,6 +164,16 @@ const SandboxHub = memo(() => {
         if (!cancelled) setHealth(next);
       })
       .catch(() => undefined);
+    setEnvList(undefined);
+    setEnvFailed(false);
+    sandboxHubService
+      .listEnvs(scope)
+      .then((next) => {
+        if (!cancelled) setEnvList(next);
+      })
+      .catch(() => {
+        if (!cancelled) setEnvFailed(true);
+      });
     // Without an answer the instructions stay read-only.
     sandboxHubService
       .access(scope)
@@ -176,11 +191,41 @@ const SandboxHub = memo(() => {
     };
   }, [scope, loadSandboxProfiles]);
 
+  /** The dialog reports a failed change itself, so these rethrow. */
+  const saveEnv = async (section: EnvSection, name: string, value: string) => {
+    if (!scope || !envDialog.id) return;
+    const next =
+      section === 'shared'
+        ? await sandboxHubService.setSharedEnv(scope, envDialog.id, name, value)
+        : await sandboxHubService.setMyEnv(scope, envDialog.id, name, value);
+    setEnvList(next);
+    setEnvFailed(false);
+  };
+  const deleteEnv = async (section: EnvSection, name: string) => {
+    if (!scope || !envDialog.id) return;
+    const next =
+      section === 'shared'
+        ? await sandboxHubService.deleteSharedEnv(scope, envDialog.id, name)
+        : await sandboxHubService.deleteMyEnv(scope, envDialog.id, name);
+    setEnvList(next);
+    setEnvFailed(false);
+  };
+
   const loading = !accountFailed && (!scope || (loadedScope !== scope && !loadFailed));
   const settingsOrder = hubSettings?.profiles ?? [];
   const offered = new Set(profiles.map((profile) => profile.id));
   const notOffered = settingsOrder.filter((item) => !offered.has(item.id));
   const instructionProfile = profiles.find((profile) => profile.id === instructionDialog.id);
+  const envProfile = profiles.find((profile) => profile.id === envDialog.id);
+  const envSummary = (profileId: string) => {
+    if (!envList) return undefined;
+    const entry = envList.profiles[profileId];
+    return {
+      available: envList.available,
+      mine: entry?.mine.length ?? 0,
+      shared: entry?.shared.length ?? 0,
+    };
+  };
 
   const adminProps = (profileId: string): ProfileAdminProps | undefined => {
     const index = settingsOrder.findIndex((entry) => entry.id === profileId);
@@ -245,8 +290,10 @@ const SandboxHub = memo(() => {
         <ProfileSection
           access={access}
           admin={adminProps(profile.id)}
+          env={envSummary(profile.id)}
           health={health[profile.serverId]}
           key={profile.id}
+          onOpenEnv={() => setEnvDialog({ id: profile.id, open: true })}
           onOpenInstruction={() => setInstructionDialog({ id: profile.id, open: true })}
           onToggle={(enabled) => setSandboxProfileEnabled(profile.id, enabled)}
           profile={profile}
@@ -274,6 +321,18 @@ const SandboxHub = memo(() => {
         onSave={(instruction) => setSandboxProfileInstruction(instructionDialog.id!, instruction)}
         open={instructionDialog.open && !!instructionProfile}
         profile={instructionProfile}
+      />
+
+      <EnvModal
+        available={envList?.available ?? true}
+        canEditShared={canEdit}
+        entry={envDialog.id ? envList?.profiles[envDialog.id] : undefined}
+        loadFailed={envFailed}
+        onClose={() => setEnvDialog((current) => ({ ...current, open: false }))}
+        onDelete={deleteEnv}
+        onSave={saveEnv}
+        open={envDialog.open && !!envProfile}
+        profileName={envProfile?.name ?? ''}
       />
 
       {hubSettings && (

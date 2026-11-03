@@ -11,6 +11,12 @@ import {
 } from '@/server/services/sandbox/profiles/admins';
 import { cancelSandboxJob, listSandboxJobs } from '@/server/services/sandbox/jobs/service';
 import { getUserSandboxProfiles } from '@/server/services/sandbox/profiles/catalog';
+import {
+  SandboxEnvError,
+  deleteSandboxEnv,
+  listSandboxEnvs,
+  setSandboxEnv,
+} from '@/server/services/sandbox/profiles/env';
 import { findSandboxProfile } from '@/server/services/sandbox/profiles/hub';
 import {
   SandboxHubProfileError,
@@ -22,7 +28,11 @@ import {
   updateSandboxHubProfile,
 } from '@/server/services/sandbox/profiles/hubAdmin';
 import { getSandboxServerHealth } from '@/server/services/sandbox/profiles/status';
-import { SANDBOX_INSTRUCTION_MAX_BYTES, isValidSandboxProfileId } from '@/tools/sandbox/const';
+import {
+  SANDBOX_ENV_VALUE_MAX_BYTES,
+  SANDBOX_INSTRUCTION_MAX_BYTES,
+  isValidSandboxProfileId,
+} from '@/tools/sandbox/const';
 
 const sandboxHubProcedure = authedProcedure
   .use(verifiedAccountScope)
@@ -120,6 +130,31 @@ const adminChange = async (
   return getSandboxHubSettings(db);
 };
 
+// The service checks the name rules and the byte size; these only bound the request.
+const envNameInput = z.string().min(1).max(64);
+const envValueInput = z.string().min(1).max(SANDBOX_ENV_VALUE_MAX_BYTES);
+
+/**
+ * Writes or deletes one variable and returns the names and hints the user
+ * can see. Values never come back, in a result or an error.
+ */
+const envChange = async (
+  ctx: { serverDB: Parameters<typeof listSandboxEnvs>[0]; userId: string },
+  profileId: string,
+  change: () => Promise<void>,
+) => {
+  await findProfileOrThrow(ctx.serverDB, profileId);
+  try {
+    await change();
+  } catch (error) {
+    if (error instanceof SandboxEnvError) {
+      throw new TRPCError({ code: error.code, message: error.message });
+    }
+    throw error;
+  }
+  return listSandboxEnvs(ctx.serverDB, ctx.userId);
+};
+
 export const sandboxHubRouter = router({
   /** What this user may change in the Hub beyond their own on/off choices. */
   access: sandboxHubProcedure.input(accountScopeInput).query(async ({ ctx, input }) => {
@@ -156,6 +191,21 @@ export const sandboxHubRouter = router({
       );
     }),
 
+  /** Removes one of this user's own variables for a profile. */
+  deleteMyEnv: sandboxHubProcedure
+    .input(accountScopeInput.extend({ name: envNameInput, profileId: profileIdInput }))
+    .mutation(async ({ ctx, input }) => {
+      assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
+      return envChange(ctx, input.profileId, () =>
+        deleteSandboxEnv({
+          db: ctx.serverDB,
+          name: input.name,
+          owner: { userId: ctx.userId },
+          profileId: input.profileId,
+        }),
+      );
+    }),
+
   /** Admin only: removes a profile, its instruction edit and every user's choice for it. */
   deleteProfile: sandboxHubProcedure
     .input(accountScopeInput.extend({ id: profileIdInput }))
@@ -164,6 +214,28 @@ export const sandboxHubRouter = router({
       await assertSandboxHubAdmin(ctx);
       return adminChange(ctx.serverDB, () => deleteSandboxHubProfile(ctx.serverDB, input.id));
     }),
+
+  /** Admin only: removes a variable shared with every user of a profile. */
+  deleteSharedEnv: sandboxHubProcedure
+    .input(accountScopeInput.extend({ name: envNameInput, profileId: profileIdInput }))
+    .mutation(async ({ ctx, input }) => {
+      assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
+      await assertSandboxHubAdmin(ctx);
+      return envChange(ctx, input.profileId, () =>
+        deleteSandboxEnv({
+          db: ctx.serverDB,
+          name: input.name,
+          owner: { shared: true },
+          profileId: input.profileId,
+        }),
+      );
+    }),
+
+  /** Names and hints of the shared variables and this user's own, per profile; never values. */
+  listEnvs: sandboxHubProcedure.input(accountScopeInput).query(async ({ ctx, input }) => {
+    assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
+    return listSandboxEnvs(ctx.serverDB, ctx.userId);
+  }),
 
   /** This user's recent background jobs across conversations, newest first. */
   listJobs: sandboxHubProcedure.input(accountScopeInput).query(async ({ ctx, input }) => {
@@ -242,6 +314,29 @@ export const sandboxHubRouter = router({
       return getUserSandboxProfiles(ctx.serverDB, ctx.userId);
     }),
 
+  /** Adds or replaces one of this user's own variables; it overrides a shared one of the same name. */
+  setMyEnv: sandboxHubProcedure
+    .input(
+      accountScopeInput.extend({
+        name: envNameInput,
+        profileId: profileIdInput,
+        value: envValueInput,
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
+      return envChange(ctx, input.profileId, () =>
+        setSandboxEnv({
+          db: ctx.serverDB,
+          name: input.name,
+          owner: { userId: ctx.userId },
+          profileId: input.profileId,
+          updatedBy: ctx.userId,
+          value: input.value,
+        }),
+      );
+    }),
+
   /**
    * Turns a profile on or off for this user. Off removes its tool and its
    * instruction from every agent at once, without editing agent plugins.
@@ -261,6 +356,30 @@ export const sandboxHubRouter = router({
         input.enabled,
       );
       return getUserSandboxProfiles(ctx.serverDB, ctx.userId);
+    }),
+
+  /** Admin only: adds or replaces a variable for every user of a profile. */
+  setSharedEnv: sandboxHubProcedure
+    .input(
+      accountScopeInput.extend({
+        name: envNameInput,
+        profileId: profileIdInput,
+        value: envValueInput,
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
+      await assertSandboxHubAdmin(ctx);
+      return envChange(ctx, input.profileId, () =>
+        setSandboxEnv({
+          db: ctx.serverDB,
+          name: input.name,
+          owner: { shared: true },
+          profileId: input.profileId,
+          updatedBy: ctx.userId,
+          value: input.value,
+        }),
+      );
     }),
 
   /** Admin only: replaces a profile's settings. */
