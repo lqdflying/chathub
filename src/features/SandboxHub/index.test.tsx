@@ -55,9 +55,9 @@ vi.mock('@lobehub/ui', () => {
       </div>
     );
   return {
-    ActionIcon: ({ disabled, onClick, title }: any) => (
+    ActionIcon: ({ disabled, onClick, ...rest }: any) => (
       <button
-        aria-label={title}
+        aria-label={rest['aria-label']}
         disabled={disabled}
         onClick={(event) => onClick?.(event)}
         type="button"
@@ -91,9 +91,23 @@ vi.mock('@lobehub/ui', () => {
       </div>
     ),
     Icon: () => null,
-    Modal: ({ children, footer, okText, onCancel, onOk, open, title }: any) =>
+    Modal: ({
+      children,
+      footer,
+      keyboard,
+      maskClosable,
+      okText,
+      onCancel,
+      onOk,
+      open,
+      title,
+    }: any) =>
       open ? (
-        <div role="dialog">
+        <div
+          data-keyboard={String(keyboard)}
+          data-mask-closable={String(maskClosable)}
+          role="dialog"
+        >
           <h3>{title}</h3>
           {children}
           {footer === undefined ? (
@@ -380,6 +394,8 @@ describe('SandboxHub', () => {
       expect(screen.queryByText('profile.instruction.edit')).toBeNull();
       fireEvent.click(screen.getByText('profile.instruction.view'));
       expect(screen.getByText('profile.instruction.readOnly')).toBeTruthy();
+      expect(screen.getByRole('dialog').getAttribute('data-mask-closable')).toBe('true');
+      expect(screen.getByRole('dialog').getAttribute('data-keyboard')).toBe('true');
 
       cleanup();
       mocks.access.mockResolvedValue({ adminsConfigured: false, canEditInstructions: false });
@@ -396,6 +412,8 @@ describe('SandboxHub', () => {
       // Reset only appears once the text has been edited.
       expect(screen.queryByText('profile.instruction.reset')).toBeNull();
       fireEvent.click(screen.getByText('profile.instruction.edit'));
+      expect(screen.getByRole('dialog').getAttribute('data-mask-closable')).toBe('false');
+      expect(screen.getByRole('dialog').getAttribute('data-keyboard')).toBe('false');
       const editor = screen.getByRole('textbox') as HTMLTextAreaElement;
       expect(editor.value).toBe('data instruction text');
 
@@ -508,6 +526,7 @@ describe('SandboxHub', () => {
       });
 
       expect(screen.getByText('jobs.title')).toBeTruthy();
+      expect(screen.getByRole('button', { name: 'jobs.refresh' })).toBeTruthy();
       expect(screen.getByText('python train.py')).toBeTruthy();
       expect(screen.getByText('jobs.status.running')).toBeTruthy();
       expect(screen.getAllByText('jobs.status.succeeded')).toHaveLength(2);
@@ -577,6 +596,7 @@ describe('SandboxHub', () => {
 
       expect(mocks.admin.settings).toHaveBeenCalledWith('user:u1');
       expect(screen.getByText('admin.addProfile')).toBeTruthy();
+      expect(screen.getAllByRole('button', { name: 'admin.more' })).toHaveLength(2);
       expect(screen.getByText('admin.image.ready')).toBeTruthy();
       expect(screen.getByText(/Ready after 3 s\./)).toBeTruthy();
       expect(screen.getByText('admin.notOffered')).toBeTruthy();

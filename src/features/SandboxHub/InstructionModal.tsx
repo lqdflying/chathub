@@ -129,6 +129,10 @@ const InstructionModal = memo<InstructionModalProps>(
     return (
       <Modal
         footer={footer}
+        // Readers can dismiss from the backdrop or Escape. An admin's draft
+        // closes only from Cancel or the X button.
+        keyboard={!canEdit}
+        maskClosable={!canEdit}
         onCancel={onClose}
         open={open}
         title={t('profile.instruction.title', { name: profile?.name ?? '' })}

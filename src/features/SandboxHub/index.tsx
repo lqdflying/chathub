@@ -82,7 +82,9 @@ const SandboxHub = memo(() => {
   const [editor, setEditor] = useState<{ item?: SandboxHubProfileSettingsItem; open: boolean }>({
     open: false,
   });
-  const [instructionProfileId, setInstructionProfileId] = useState<string>();
+  const [instructionDialog, setInstructionDialog] = useState<{ id?: string; open: boolean }>({
+    open: false,
+  });
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string>();
   const canEdit = !!access?.canEdit;
@@ -178,7 +180,7 @@ const SandboxHub = memo(() => {
   const settingsOrder = hubSettings?.profiles ?? [];
   const offered = new Set(profiles.map((profile) => profile.id));
   const notOffered = settingsOrder.filter((item) => !offered.has(item.id));
-  const instructionProfile = profiles.find((profile) => profile.id === instructionProfileId);
+  const instructionProfile = profiles.find((profile) => profile.id === instructionDialog.id);
 
   const adminProps = (profileId: string): ProfileAdminProps | undefined => {
     const index = settingsOrder.findIndex((entry) => entry.id === profileId);
@@ -245,7 +247,7 @@ const SandboxHub = memo(() => {
           admin={adminProps(profile.id)}
           health={health[profile.serverId]}
           key={profile.id}
-          onOpenInstruction={() => setInstructionProfileId(profile.id)}
+          onOpenInstruction={() => setInstructionDialog({ id: profile.id, open: true })}
           onToggle={(enabled) => setSandboxProfileEnabled(profile.id, enabled)}
           profile={profile}
         />
@@ -267,10 +269,10 @@ const SandboxHub = memo(() => {
 
       <InstructionModal
         access={access}
-        onClose={() => setInstructionProfileId(undefined)}
-        onReset={() => resetSandboxProfileInstruction(instructionProfileId!)}
-        onSave={(instruction) => setSandboxProfileInstruction(instructionProfileId!, instruction)}
-        open={!!instructionProfile}
+        onClose={() => setInstructionDialog((current) => ({ ...current, open: false }))}
+        onReset={() => resetSandboxProfileInstruction(instructionDialog.id!)}
+        onSave={(instruction) => setSandboxProfileInstruction(instructionDialog.id!, instruction)}
+        open={instructionDialog.open && !!instructionProfile}
         profile={instructionProfile}
       />
 

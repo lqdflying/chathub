@@ -112,7 +112,7 @@ interface ProfileSectionProps {
   profile?: SandboxProfileItem;
 }
 
-/** Settings and order controls for admins, kept out of the group's collapse click. */
+/** Gear and more menu for Sandbox Hub admins. */
 const AdminActions = memo<ProfileAdminProps>(
   ({ busy, first, item, last, onDelete, onEdit, onMove }) => {
     const { t } = useTranslation('sandboxHub');
@@ -121,6 +121,7 @@ const AdminActions = memo<ProfileAdminProps>(
     return (
       <>
         <ActionIcon
+          aria-label={t('admin.settings')}
           disabled={busy}
           icon={Settings2}
           onClick={onEdit}
@@ -172,7 +173,12 @@ const AdminActions = memo<ProfileAdminProps>(
           placement={'bottomRight'}
           trigger={['click']}
         >
-          <ActionIcon icon={MoreHorizontal} size={'small'} title={t('admin.more')} />
+          <ActionIcon
+            aria-label={t('admin.more')}
+            icon={MoreHorizontal}
+            size={'small'}
+            title={t('admin.more')}
+          />
         </Dropdown>
       </>
     );
@@ -344,8 +350,7 @@ const ProfileSection = memo<ProfileSectionProps>(
       children: rows,
       defaultActive: true,
       extra: (
-        // The header toggles the group open and closed; its controls must not.
-        <Flexbox align={'center'} gap={4} horizontal onClick={(event) => event.stopPropagation()}>
+        <Flexbox align={'center'} gap={4} horizontal>
           {admin && <AdminActions {...admin} />}
           {profile && onToggle && (
             <Switch

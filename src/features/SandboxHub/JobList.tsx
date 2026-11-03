@@ -180,10 +180,10 @@ const JobList = memo<JobListProps>(({ profiles, scope }) => {
     defaultActive: true,
     extra: (
       <ActionIcon
+        aria-label={t('jobs.refresh')}
         icon={RefreshCw}
         loading={refreshing}
-        onClick={(event) => {
-          event.stopPropagation();
+        onClick={() => {
           void load();
         }}
         size={'small'}
