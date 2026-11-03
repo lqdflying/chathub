@@ -1,6 +1,8 @@
 /** @vitest-environment node */
 import { describe, expect, it, vi } from 'vitest';
 
+import { getSandboxProvider, isSandboxConfigured } from '../registry';
+
 vi.mock('@/envs/sandbox', () => ({
   sandboxEnv: {
     OPENSANDBOX_CPU: '1',
@@ -18,8 +20,6 @@ vi.mock('@/envs/sandbox', () => ({
     SANDBOX_TIMEOUT: 60_000,
   },
 }));
-
-import { getSandboxProvider, isSandboxConfigured } from '../registry';
 
 describe('sandbox provider registry', () => {
   it('always uses OpenSandbox', () => {
@@ -42,7 +42,7 @@ describe('sandbox provider registry with a profile', () => {
         id: 'data',
         identifier: 'lobe-sandbox--data',
         image: 'registry.example/data:3',
-        instruction: 'x',
+        instructionBase: 'general',
         memory: '4Gi',
         name: 'Data',
         readyTimeoutMs: 30_000,

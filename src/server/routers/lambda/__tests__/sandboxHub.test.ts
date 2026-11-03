@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   list: vi.fn(),
   listJobs: vi.fn(),
   setEnabled: vi.fn(),
+  startingInstruction: vi.fn(),
   upsertInstruction: vi.fn(),
 }));
 
@@ -63,6 +64,7 @@ vi.mock('@/server/services/sandbox/jobs/service', () => ({
   listSandboxJobs: mocks.listJobs,
 }));
 vi.mock('@/server/services/sandbox/profiles/catalog', () => ({
+  getSandboxStartingInstruction: mocks.startingInstruction,
   getUserSandboxProfiles: mocks.list,
 }));
 vi.mock('@/server/services/sandbox/profiles/env', async (importOriginal) => {
@@ -94,9 +96,8 @@ describe('sandboxHubRouter', () => {
     vi.mocked(getServerDB).mockResolvedValue({} as never);
     mocks.list.mockResolvedValue([{ enabled: true, id: 'general' }]);
     mocks.health.mockResolvedValue({ default: 'ok' });
-    mocks.findProfile.mockImplementation((id: string) =>
-      id === 'data' ? { id, instruction: 'Starting text.' } : undefined,
-    );
+    mocks.findProfile.mockImplementation((id: string) => (id === 'data' ? { id } : undefined));
+    mocks.startingInstruction.mockResolvedValue('Starting text.');
     mocks.isAdmin.mockResolvedValue(false);
   });
 
@@ -192,6 +193,7 @@ describe('sandboxHubRouter', () => {
 
     it('treats saving the starting text as a reset', async () => {
       mocks.isAdmin.mockResolvedValue(true);
+      mocks.startingInstruction.mockResolvedValue('Starting text.');
       await caller('user:account-a').setInstruction({
         ...scope,
         instruction: 'Starting text.',
@@ -199,6 +201,13 @@ describe('sandboxHubRouter', () => {
       });
       expect(mocks.upsertInstruction).not.toHaveBeenCalled();
       expect(mocks.deleteInstruction).toHaveBeenCalledWith('data');
+
+      await caller('user:account-a').setInstruction({
+        ...scope,
+        instruction: 'OLD fixture text',
+        profileId: 'data',
+      });
+      expect(mocks.upsertInstruction).toHaveBeenCalledWith('data', 'OLD fixture text', 'account-a');
     });
 
     it('rejects unknown profiles, empty text and text over 32 KiB', async () => {
@@ -320,15 +329,17 @@ describe('sandboxHubRouter', () => {
 
     it('returns a rejected change with its code and message', async () => {
       mocks.isAdmin.mockResolvedValue(true);
-      const { SandboxHubProfileError } = await import(
-        '@/server/services/sandbox/profiles/hubAdmin'
-      );
+      const { SandboxHubProfileError } =
+        await import('@/server/services/sandbox/profiles/hubAdmin');
       mocks.admin.delete.mockRejectedValue(
         new SandboxHubProfileError('BAD_REQUEST', 'The last profile cannot be deleted.'),
       );
       await expect(
         caller('user:account-a').deleteProfile({ ...scope, id: 'data' }),
-      ).rejects.toMatchObject({ code: 'BAD_REQUEST', message: 'The last profile cannot be deleted.' });
+      ).rejects.toMatchObject({
+        code: 'BAD_REQUEST',
+        message: 'The last profile cannot be deleted.',
+      });
 
       await expect(
         caller('user:account-a').createProfile({ ...scope, id: 'Bad_Id', settings }),

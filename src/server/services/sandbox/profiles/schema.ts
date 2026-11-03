@@ -44,8 +44,12 @@ export const sandboxServerConfigSchema = z
         z
           .object({
             host: z.string().trim().min(1).max(253),
-            passwordEnv: z.string().regex(ENV_NAME, 'passwordEnv must be an environment variable name'),
-            usernameEnv: z.string().regex(ENV_NAME, 'usernameEnv must be an environment variable name'),
+            passwordEnv: z
+              .string()
+              .regex(ENV_NAME, 'passwordEnv must be an environment variable name'),
+            usernameEnv: z
+              .string()
+              .regex(ENV_NAME, 'usernameEnv must be an environment variable name'),
           })
           .strict(),
       )
@@ -171,8 +175,10 @@ export interface ResolvedSandboxProfile {
   id: string;
   identifier: string;
   image: string;
-  /** Final instruction text injected as the tool's system role. Static per process. */
-  instruction: string;
+  /** `general` builds on the General instruction; `none` uses only this profile's text. */
+  instructionBase: 'general' | 'none';
+  /** This profile's own text. Blank means none. */
+  instructionText?: string;
   /** Longest a background job may keep the sandbox alive; 0 = jobs off. */
   jobMaxRuntimeMs: number;
   memory: string;

@@ -35,11 +35,11 @@
       "inherit": "默认：{{value}}",
       "instructionBase": "模型说明基础",
       "instructionBaseOption": {
-        "general": "在通用沙盒说明之后追加",
+        "general": "在通用说明之后追加",
         "none": "只使用下面的文字"
       },
       "instructionText": "附加说明",
-      "instructionTextHint": "此沙盒特有的说明，例如已安装的工具。通用说明用上面的按钮。其他沙盒的完整说明仍在各自卡片上选择“编辑”。",
+      "instructionTextHint": "此沙盒特有的说明，例如已安装的工具。所有沙盒都基于通用说明；在 Sandbox 上，这段文字会成为通用说明的一部分。要替换其他沙盒的完整说明，请在其卡片上选择“编辑”。",
       "invalid": {
         "allowlist": "请至少填写一个地址。",
         "description": "请填写描述。",
@@ -54,6 +54,7 @@
       "jobHint": "0 表示关闭后台任务。",
       "maxLifetime": "最长保留（分钟）",
       "memory": "内存",
+      "memoryHint": "只填数字时单位为 GiB：2 保存为 2Gi。也可以写单位，例如 512Mi。",
       "minutesZeroNone": "0 表示不限制。",
       "name": "名称",
       "network": "网络",

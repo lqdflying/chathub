@@ -331,6 +331,7 @@ const ProfileSettingsModal = memo<ProfileSettingsModalProps>(
             {field(
               t('admin.form.memory'),
               text('memory', t('admin.form.memory'), inherit(defaults.memory)),
+              { hint: t('admin.form.memoryHint') },
             )}
           </section>
           <section className={styles.section}>

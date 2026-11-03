@@ -807,6 +807,15 @@ describe('SandboxHub', () => {
       ).toBe(true);
     });
 
+    it('keeps the Sandbox instruction on the card when settings fail to load', async () => {
+      mocks.profiles = [profile('general', { name: 'Sandbox' })];
+      mocks.admin.settings.mockRejectedValue(new Error('down'));
+      await renderAsAdmin();
+
+      fireEvent.click(screen.getByRole('button', { name: /profile\.details.*Sandbox/ }));
+      expect(screen.getByText('profile.instruction.edit')).toBeTruthy();
+    });
+
     it('is not loaded for users who are not admins', async () => {
       mocks.profiles = [profile('data')];
       await act(async () => {

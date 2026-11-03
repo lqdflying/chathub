@@ -2,7 +2,6 @@
 import { describe, expect, it } from 'vitest';
 
 import { SandboxManifest } from '@/tools/sandbox';
-import { DEFAULT_SANDBOX_INSTRUCTION } from '@/tools/sandbox/systemRole';
 
 import { type SandboxProfilesEnv, loadSandboxProfiles } from '../load';
 
@@ -65,7 +64,8 @@ describe('loadSandboxProfiles without a profiles file', () => {
       name: SandboxManifest.meta.title,
       serverId: 'default',
     });
-    expect(general.instruction).toBe(SandboxManifest.systemRole);
+    expect(general.instructionBase).toBe('general');
+    expect(general.instructionText).toBeUndefined();
   });
 
   it('limits background jobs to 2 hours unless SANDBOX_JOB_MAX_RUNTIME says otherwise', () => {
@@ -148,7 +148,8 @@ profiles:
 
     const [general, data, offline] = catalog.profiles;
     expect(general).toMatchObject({ defaultEnabled: true, identifier: 'lobe-sandbox' });
-    expect(general.instruction).toBe(DEFAULT_SANDBOX_INSTRUCTION);
+    expect(general.instructionBase).toBe('general');
+    expect(general.instructionText).toBeUndefined();
 
     expect(data).toMatchObject({
       cpu: '2',
@@ -159,11 +160,8 @@ profiles:
       memory: '4Gi',
       serverId: 'gvisor',
     });
-    expect(data.instruction).toContain('This tool is the "Data science" sandbox');
-    expect(data.instruction).toContain(DEFAULT_SANDBOX_INSTRUCTION);
-    expect(data.instruction.endsWith('Profile instructions:\nPrefer polars over pandas.\n')).toBe(
-      true,
-    );
+    expect(data.instructionBase).toBe('general');
+    expect(data.instructionText).toBe('Prefer polars over pandas.');
 
     expect(offline).toMatchObject({
       defaultEnabled: true,
@@ -171,8 +169,8 @@ profiles:
       image: 'chathub-sandbox:2',
       serverId: 'default',
     });
-    expect(offline.instruction).not.toContain(DEFAULT_SANDBOX_INSTRUCTION);
-    expect(offline.instruction).toContain('Only use the files you are given.');
+    expect(offline.instructionBase).toBe('none');
+    expect(offline.instructionText).toBe('Only use the files you are given.');
   });
 
   it('reads proxyEndpoint per server', () => {
@@ -184,9 +182,7 @@ profiles:
   - {id: data, name: Data, description: Data, server: remote}
 `,
     });
-    expect(catalog.servers.find((server) => server.id === 'remote')?.proxyEndpoint).toBe(
-      'baseUrl',
-    );
+    expect(catalog.servers.find((server) => server.id === 'remote')?.proxyEndpoint).toBe('baseUrl');
   });
 
   it('reads a per-profile job runtime limit, falling back to SANDBOX_JOB_MAX_RUNTIME', () => {

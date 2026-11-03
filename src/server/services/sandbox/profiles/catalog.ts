@@ -3,12 +3,14 @@ import type { SandboxProfileItem } from '@lobechat/types';
 
 import { SandboxProfileModel } from '@/database/models/sandboxProfile';
 import {
-  type SavedSandboxInstruction,
   SandboxProfileInstructionModel,
+  type SavedSandboxInstruction,
 } from '@/database/models/sandboxProfileInstruction';
 import { createSandboxProfileManifest } from '@/tools/sandbox';
-import { parseSandboxToolIdentifier } from '@/tools/sandbox/const';
+import { DEFAULT_SANDBOX_PROFILE_ID, parseSandboxToolIdentifier } from '@/tools/sandbox/const';
+import { DEFAULT_SANDBOX_INSTRUCTION } from '@/tools/sandbox/systemRole';
 
+import { composeSandboxInstruction } from './compose';
 import { getSandboxProfileCatalog } from './hub';
 import { findSandboxServer, isSandboxProfileUsable } from './load';
 import { isMissingTable } from './missingTable';
@@ -52,10 +54,32 @@ const readInstructions = async (db: LobeChatDatabase) => {
   }
 };
 
+/** Starting text per profile id. Profiles with base `general` build on the General instruction. */
+const startingInstructions = (
+  profiles: ResolvedSandboxProfile[],
+  saved: Map<string, SavedSandboxInstruction>,
+) => {
+  const compose = (profile: ResolvedSandboxProfile, general?: string) =>
+    composeSandboxInstruction({
+      base: profile.instructionBase,
+      description: profile.description,
+      general,
+      id: profile.id,
+      name: profile.name,
+      text: profile.instructionText,
+    });
+  const sandbox = profiles.find((profile) => profile.id === DEFAULT_SANDBOX_PROFILE_ID);
+  const general =
+    saved.get(DEFAULT_SANDBOX_PROFILE_ID)?.instruction ??
+    (sandbox ? compose(sandbox) : DEFAULT_SANDBOX_INSTRUCTION);
+  return new Map(profiles.map((profile) => [profile.id, compose(profile, general)]));
+};
+
 export const toSandboxProfileItem = (
   profile: ResolvedSandboxProfile,
   enabled: boolean,
-  saved?: SavedSandboxInstruction,
+  saved: SavedSandboxInstruction | undefined,
+  starting: string,
 ): SandboxProfileItem => {
   const server = findSandboxServer(profile.serverId);
   return {
@@ -68,7 +92,7 @@ export const toSandboxProfileItem = (
     enabled,
     id: profile.id,
     identifier: profile.identifier,
-    instruction: saved?.instruction ?? profile.instruction,
+    instruction: saved?.instruction ?? starting,
     instructionCustomized: !!saved,
     ...(saved ? { instructionUpdatedAt: saved.updatedAt.toISOString() } : {}),
     memory: profile.memory,
@@ -91,13 +115,22 @@ export const getUserSandboxProfiles = async (
     readChoices(db, userId),
     readInstructions(db),
   ]);
+  const starting = startingInstructions(profiles, instructions);
   return profiles.map((profile) =>
     toSandboxProfileItem(
       profile,
       choices.get(profile.id) ?? profile.defaultEnabled,
       instructions.get(profile.id),
+      starting.get(profile.id) ?? '',
     ),
   );
+};
+
+/** The text a profile uses before any saved edit of its own. */
+export const getSandboxStartingInstruction = async (db: LobeChatDatabase, profileId: string) => {
+  const { profiles } = await getSandboxProfileCatalog(db);
+  const saved = await readInstructions(db);
+  return startingInstructions(profiles, saved).get(profileId);
 };
 
 /** Profiles the user can put in front of the model: enabled in the Hub and runnable. */

@@ -5,12 +5,12 @@ import { SandboxProfileModel } from '@/database/models/sandboxProfile';
 import { SandboxProfileInstructionModel } from '@/database/models/sandboxProfileInstruction';
 import { authedProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase, verifiedAccountScope } from '@/libs/trpc/lambda/middleware';
-import {
-  hasSandboxHubAdmins,
-  isSandboxHubAdmin,
-} from '@/server/services/sandbox/profiles/admins';
 import { cancelSandboxJob, listSandboxJobs } from '@/server/services/sandbox/jobs/service';
-import { getUserSandboxProfiles } from '@/server/services/sandbox/profiles/catalog';
+import { hasSandboxHubAdmins, isSandboxHubAdmin } from '@/server/services/sandbox/profiles/admins';
+import {
+  getSandboxStartingInstruction,
+  getUserSandboxProfiles,
+} from '@/server/services/sandbox/profiles/catalog';
 import {
   SandboxEnvError,
   deleteSandboxEnv,
@@ -99,9 +99,7 @@ const profileSettingsInput = z.object({
   cpu: optionalText(16),
   defaultEnabled: z.boolean(),
   description: z.string().max(280),
-  egress: z
-    .union([z.enum(['none', 'open']), z.array(z.string().max(253)).max(64)])
-    .nullish(),
+  egress: z.union([z.enum(['none', 'open']), z.array(z.string().max(253)).max(64)]).nullish(),
   image: optionalText(512),
   instructionBase: z.enum(['general', 'none']),
   instructionText: optionalText(4 * SANDBOX_INSTRUCTION_MAX_BYTES),
@@ -266,9 +264,7 @@ export const sandboxHubRouter = router({
     .mutation(async ({ ctx, input }) => {
       assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
       await assertSandboxHubAdmin(ctx);
-      return adminChange(ctx.serverDB, () =>
-        prepareSandboxHubProfileImage(ctx.serverDB, input.id),
-      );
+      return adminChange(ctx.serverDB, () => prepareSandboxHubProfileImage(ctx.serverDB, input.id));
     }),
 
   /** Admin only: every profile's settings, the servers to pick from, and the inherited defaults. */
@@ -304,9 +300,10 @@ export const sandboxHubRouter = router({
     .mutation(async ({ ctx, input }) => {
       assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
       await assertSandboxHubAdmin(ctx);
-      const profile = await findProfileOrThrow(ctx.serverDB, input.profileId);
+      await findProfileOrThrow(ctx.serverDB, input.profileId);
+      const starting = await getSandboxStartingInstruction(ctx.serverDB, input.profileId);
       const model = new SandboxProfileInstructionModel(ctx.serverDB);
-      if (input.instruction === profile.instruction) {
+      if (starting !== undefined && input.instruction === starting) {
         await model.delete(input.profileId);
       } else {
         await model.upsert(input.profileId, input.instruction, ctx.userId);

@@ -114,9 +114,9 @@ describe('Sandbox Hub profile catalog', () => {
 
     const [general] = catalog.profiles;
     expect(general).toEqual(state.file.profiles[0]);
-    expect(createSandboxProfileManifest({ ...general, instruction: general.instruction })).toEqual(
-      SandboxManifest,
-    );
+    expect(
+      createSandboxProfileManifest({ ...general, instruction: SandboxManifest.systemRole }),
+    ).toEqual(SandboxManifest);
 
     await getSandboxProfileCatalog(db);
     expect(state.seedCalls).toBe(1);

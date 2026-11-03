@@ -42,6 +42,14 @@ const text = (value?: string | null) => {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
 };
+
+/** A bare number is GiB (the form says so); a value with a unit is kept. */
+const memory = (value?: string | null) => {
+  const trimmed = text(value);
+  if (!trimmed || !/^\d+(\.\d+)?$/.test(trimmed)) return trimmed;
+  const gib = Number(trimmed);
+  return Number.isInteger(gib) ? `${gib}Gi` : `${Math.round(gib * 1024)}Mi`;
+};
 const number = (value?: number | null) =>
   value === null || value === undefined || !Number.isFinite(value) ? null : Math.round(value);
 
@@ -61,7 +69,7 @@ export const toHubFields = (
   // Kept as written: whitespace can matter in an instruction.
   instructionText: input.instructionText?.trim() ? input.instructionText : null,
   jobMaxRuntimeMs: number(input.jobMaxRuntimeMs),
-  memory: text(input.memory),
+  memory: memory(input.memory),
   name: input.name.trim(),
   readyTimeoutMs: number(input.readyTimeoutMs),
   serverId: input.serverId.trim(),

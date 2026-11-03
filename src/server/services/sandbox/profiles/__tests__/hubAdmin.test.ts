@@ -188,6 +188,20 @@ describe('Sandbox Hub profile administration', () => {
     });
   });
 
+  it('stores a bare memory number as GiB and keeps a value that already has a unit', async () => {
+    await createSandboxHubProfile(db, 'admin-1', 'data', input({ memory: ' 2 ' }));
+    expect(state.rows[1].memory).toBe('2Gi');
+
+    await updateSandboxHubProfile(db, 'admin-1', 'data', input({ memory: '0.5' }));
+    expect(state.rows[1].memory).toBe('512Mi');
+
+    await updateSandboxHubProfile(db, 'admin-1', 'data', input({ memory: '512Mi' }));
+    expect(state.rows[1].memory).toBe('512Mi');
+
+    await updateSandboxHubProfile(db, 'admin-1', 'data', input({ memory: null }));
+    expect(state.rows[1].memory).toBeNull();
+  });
+
   it('updates settings and reports a missing profile', async () => {
     await updateSandboxHubProfile(
       db,

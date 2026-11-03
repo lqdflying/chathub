@@ -246,16 +246,20 @@ on `main`; confirm on the release you run.)
 Each profile's instruction can be changed at runtime from the Hub, without a
 release or a restart, so it can follow sandbox image updates.
 
-- **Starting text.** What `compose.ts` builds at load: the built-in
-  `DEFAULT_SANDBOX_INSTRUCTION` for `general`, or the profile file's text.
-  It applies while no edit is saved, so a deployment without edits sends the
-  same prompt bytes as before.
-- **Where admins open it.** The shared Sandbox instruction opens from **General instruction** on a profile's edit form. The Sandbox card does not offer that editor. Every other profile still opens its own instruction from the card.
+- **Starting text.** The `general` profile's starting text is the built-in
+  `DEFAULT_SANDBOX_INSTRUCTION`, plus its extra instruction when one is set.
+  Other profiles are composed when they are read (`catalog.ts`), on the
+  General instruction: the saved `general` edit when one exists, otherwise
+  that starting text. A deployment with no saved edits sends the same prompt
+  bytes as before.
+- **Where admins open it.** The shared text opens from **General instruction**
+  on any profile's edit form. The Sandbox card does not offer that editor.
+  Every other profile still opens its own instruction from the card.
 - **Edits are shared.** Admins save a full replacement text per profile in
   `sandbox_profile_instructions` (one row per profile id, `updated_by` set to
-  null if that user is deleted). It applies to every user at once. Editing
-  `general` does not change other profiles, even those with `base: general`:
-  each saved text is complete on its own.
+  null if that user is deleted). It applies to every user at once. Saving the
+  General instruction changes every profile whose base is `general` on its
+  next turn. A profile with its own saved edit keeps that text until reset.
 - **Admins** are listed in `SANDBOX_HUB_ADMINS`: comma-separated user ids or
   emails (emails match case-insensitively against the account email). Unset
   means nobody can edit, and the Hub shows instructions read-only with a hint

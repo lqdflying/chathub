@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   choices: new Map<string, boolean>(),
   instructionError: undefined as unknown,
   instructions: new Map<string, { instruction: string; updatedAt: Date }>(),
+  profiles: undefined as Array<Record<string, unknown>> | undefined,
   readError: undefined as unknown,
 }));
 
@@ -38,7 +39,7 @@ const profile = (id: string, extra: Record<string, unknown> = {}) => ({
   id,
   identifier: id === 'general' ? 'lobe-sandbox' : `lobe-sandbox--${id}`,
   image: 'img:1',
-  instruction: `${id} instruction`,
+  instructionBase: 'general' as const,
   memory: '2Gi',
   name: id,
   readyTimeoutMs: 60_000,
@@ -61,7 +62,7 @@ vi.mock('../load', () => ({
 vi.mock('../hub', () => ({
   getSandboxProfileCatalog: async () => ({
     errors: [],
-    profiles: [
+    profiles: mocks.profiles ?? [
       profile('general'),
       profile('data'),
       profile('vault', { defaultEnabled: true, serverId: 'locked' }),
@@ -73,6 +74,10 @@ vi.mock('../hub', () => ({
     warnings: [],
   }),
 }));
+
+const { composeSandboxInstruction } = await import('../compose');
+const { DEFAULT_SANDBOX_INSTRUCTION } = await import('@/tools/sandbox/systemRole');
+const { createSandboxProfileManifest } = await import('@/tools/sandbox');
 
 const {
   getUserEnabledSandboxProfiles,
@@ -88,37 +93,76 @@ describe('Sandbox Hub catalog', () => {
     mocks.choices = new Map();
     mocks.instructionError = undefined;
     mocks.instructions = new Map();
+    mocks.profiles = undefined;
     mocks.readError = undefined;
   });
 
-  it('uses the starting instruction until an admin edits it', async () => {
-    const [general] = await getUserSandboxProfiles(db, 'user-1');
-    expect(general).toMatchObject({
-      instruction: 'general instruction',
+  it('builds every general-base profile on the saved General instruction', async () => {
+    const unchanged = await getUserSandboxProfiles(db, 'user-1');
+    const generalStart = composeSandboxInstruction({
+      base: 'general',
+      description: 'general profile',
+      id: 'general',
+      name: 'general',
+    });
+    const dataStart = composeSandboxInstruction({
+      base: 'general',
+      description: 'data profile',
+      id: 'data',
+      name: 'data',
+    });
+    expect(unchanged[0]).toMatchObject({
+      instruction: generalStart,
       instructionCustomized: false,
     });
-    expect(general).not.toHaveProperty('instructionUpdatedAt');
+    expect(unchanged[0]).not.toHaveProperty('instructionUpdatedAt');
+    expect(unchanged[1].instruction).toBe(dataStart);
+    expect(generalStart).toBe(DEFAULT_SANDBOX_INSTRUCTION);
 
     const updatedAt = new Date('2026-11-01T08:00:00.000Z');
     mocks.instructions = new Map([['general', { instruction: 'Edited.', updatedAt }]]);
-    const [edited, data] = await getUserSandboxProfiles(db, 'user-1');
-    expect(edited).toMatchObject({
+    const edited = await getUserSandboxProfiles(db, 'user-1');
+    const sandbox = edited[0];
+    const data = edited[1];
+    expect(sandbox).toMatchObject({
       instruction: 'Edited.',
       instructionCustomized: true,
       instructionUpdatedAt: '2026-11-01T08:00:00.000Z',
     });
-    expect(data).toMatchObject({ instruction: 'data instruction', instructionCustomized: false });
+    expect(data.instruction).toContain('Edited.');
+    expect(data.instruction).not.toContain(DEFAULT_SANDBOX_INSTRUCTION);
+    expect(data.instructionCustomized).toBe(false);
+    expect(createSandboxProfileManifest(data).systemRole).toBe(data.instruction);
 
     const [manifest] = await getUserSandboxManifests(db, 'user-1');
     expect(manifest.identifier).toBe('lobe-sandbox');
     expect(manifest.systemRole).toBe('Edited.');
   });
 
+  it('leaves base none and a saved profile edit off the General instruction', async () => {
+    const updatedAt = new Date('2026-11-01T08:00:00.000Z');
+    mocks.profiles = [
+      profile('general'),
+      profile('offline', { instructionBase: 'none', instructionText: 'files only' }),
+      profile('custom'),
+    ];
+    mocks.instructions = new Map([
+      ['general', { instruction: 'Edited.', updatedAt }],
+      ['custom', { instruction: 'Own text.', updatedAt }],
+    ]);
+    const profiles = await getUserSandboxProfiles(db, 'user-1');
+    const offline = profiles.find((item) => item.id === 'offline');
+    const custom = profiles.find((item) => item.id === 'custom');
+    expect(offline?.instruction).not.toContain('Edited.');
+    expect(offline?.instruction).toContain('files only');
+    expect(custom?.instruction).toBe('Own text.');
+  });
+
   it('keeps the starting instructions when the instructions table is missing', async () => {
     mocks.instructionError = { cause: { code: '42P01' } };
     const [general] = await getUserSandboxProfiles(db, 'user-1');
     expect(general).toMatchObject({
-      instruction: 'general instruction',
+      instruction: DEFAULT_SANDBOX_INSTRUCTION,
       instructionCustomized: false,
     });
 
@@ -196,7 +240,8 @@ describe('Sandbox Hub catalog', () => {
       reason: 'not_configured',
     });
     expect(await resolve('lobe-sandbox--orphan')).toMatchObject({
-      message: 'The "orphan" sandbox cannot run: its server "gone" is not configured on this server.',
+      message:
+        'The "orphan" sandbox cannot run: its server "gone" is not configured on this server.',
       ok: false,
       reason: 'not_configured',
     });

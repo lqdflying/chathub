@@ -7,7 +7,6 @@ import { sandboxEnv } from '@/envs/sandbox';
 import { SandboxManifest } from '@/tools/sandbox';
 import { DEFAULT_SANDBOX_PROFILE_ID, sandboxToolIdentifier } from '@/tools/sandbox/const';
 
-import { composeSandboxInstruction } from './compose';
 import {
   DEFAULT_SANDBOX_SERVER_ID,
   type ResolvedSandboxProfile,
@@ -122,7 +121,7 @@ const synthesizeFromEnv = (env: SandboxProfilesEnv): SandboxProfileCatalog => {
     id: DEFAULT_SANDBOX_PROFILE_ID,
     identifier: sandboxToolIdentifier(DEFAULT_SANDBOX_PROFILE_ID),
     image,
-    instruction: SandboxManifest.systemRole,
+    instructionBase: 'general',
     jobMaxRuntimeMs: envJobMaxRuntime(env),
     memory: env.OPENSANDBOX_MEMORY,
     name: meta.title ?? 'Sandbox',
@@ -164,13 +163,8 @@ export const resolveProfileConfig = (
       id: config.id,
       identifier: sandboxToolIdentifier(config.id),
       image,
-      instruction: composeSandboxInstruction({
-        base: config.instruction?.base ?? 'general',
-        description: config.description,
-        id: config.id,
-        name: config.name,
-        text,
-      }),
+      instructionBase: config.instruction?.base ?? 'general',
+      ...(text?.trim() ? { instructionText: text } : {}),
       jobMaxRuntimeMs: config.jobMaxRuntimeMs ?? envJobMaxRuntime(env),
       memory: config.memory ?? env.OPENSANDBOX_MEMORY,
       name: config.name,

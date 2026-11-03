@@ -429,7 +429,7 @@ const ProfileSection = memo<ProfileSectionProps>(
                     )}
                   </>,
                 )}
-                {!(profile.id === DEFAULT_SANDBOX_PROFILE_ID && access?.canEdit) &&
+                {!(profile.id === DEFAULT_SANDBOX_PROFILE_ID && admin) &&
                   fact(
                     t('profile.rows.instruction'),
                     <Flexbox align={'center'} gap={8} horizontal justify={'flex-end'} wrap={'wrap'}>
