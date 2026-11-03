@@ -31,6 +31,12 @@ export const sandboxJobs = pgTable(
     error: text('error'),
     outputTail: text('output_tail'),
     files: jsonb('files').$type<SandboxJobFile[]>(),
+    /**
+     * KeyVaults ciphertext of the env map this job's sandbox was created
+     * with. Null when there were no variables, or the job started before
+     * snapshots. Used only to mask output; never returned to the client.
+     */
+    envSnapshot: text('env_snapshot'),
     startedAt: timestamptz('started_at').notNull().defaultNow(),
     deadlineAt: timestamptz('deadline_at').notNull(),
     finishedAt: timestamptz('finished_at'),

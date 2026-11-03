@@ -70,9 +70,12 @@ instructions, Secret environment variables).
   toward the browser, a DTO, an error, or a log (names and hints only). Only
   `invokeSandboxTool` resolves and sends them, after the gate; job checks and
   Prepare image pass none and must never replace a sandbox over
-  `chathub-env`. Mask every tool result and every saved job output with
-  `maskSandboxSecrets`. Shared writes are admin only; `SandboxProfileEnvModel`
-  is not user-scoped, so pass the owner explicitly.
+  `chathub-env`. Mask every tool result and every saved job output, including
+  kept file names, with `maskSandboxSecrets`. A job is masked with the env
+  snapshot stored at `startJob` plus the current values; a user's row that
+  cannot be decrypted does not fall back to the shared value. Shared writes
+  are admin only; `SandboxProfileEnvModel` is not user-scoped, so pass the
+  owner explicitly.
 - Hub tRPC lives in the `sandboxHub.` namespace, which is in the client's
   `VERIFIED_ACCOUNT_RPC_NAMESPACES`. A new scope-checked namespace must be
   added there too, or every call fails as a mismatched user.

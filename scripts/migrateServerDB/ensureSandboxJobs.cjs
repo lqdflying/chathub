@@ -44,7 +44,8 @@ END $$;
 CREATE INDEX IF NOT EXISTS "sandbox_jobs_user_session_idx"
   ON "sandbox_jobs" USING btree ("user_id","session_key","started_at");
 CREATE INDEX IF NOT EXISTS "sandbox_jobs_user_status_idx"
-  ON "sandbox_jobs" USING btree ("user_id","status");`;
+  ON "sandbox_jobs" USING btree ("user_id","status");
+ALTER TABLE "sandbox_jobs" ADD COLUMN IF NOT EXISTS "env_snapshot" text;`;
 
 /** @param {{ query: (sql: string) => Promise<unknown> }} client node-pg Pool or compatible */
 const ensureSandboxJobsTable = async (client) => {

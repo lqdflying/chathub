@@ -75,12 +75,15 @@ vi.mock('@/database/models/sandboxProfileEnv', () => ({
 const {
   SandboxEnvError,
   deleteSandboxEnv,
+  encryptSandboxEnvSnapshot,
   listSandboxEnvs,
   maskSandboxSecrets,
+  readSandboxEnvSnapshot,
   resolveSandboxEnv,
   sandboxEnvFingerprint,
   sandboxEnvHint,
   sandboxEnvNameProblem,
+  sandboxJobMaskEnv,
   setSandboxEnv,
 } = await import('../env');
 
@@ -162,6 +165,50 @@ describe('sandbox env storage', () => {
     warn.mockRestore();
   });
 
+  it('does not send the shared value when the user override cannot be decrypted', async () => {
+    await set('API_TOKEN', 'shared-secret-value', { shared: true });
+    await set('API_TOKEN', 'my-own-secret-value', { userId: 'u1' });
+    const mine = mocks.rows.find((row) => row.userId === 'u1');
+    expect(mine).toBeDefined();
+    mine!.value = 'aa:bb:cc';
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    expect(await resolveSandboxEnv(db, 'u1', 'data')).toEqual({});
+    expect(await resolveSandboxEnv(db, 'u2', 'data')).toEqual({
+      API_TOKEN: 'shared-secret-value',
+    });
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('secret');
+    warn.mockRestore();
+  });
+
+  it('skips a malformed ciphertext instead of failing the resolve', async () => {
+    await set('API_TOKEN', 'shared-secret-value', { shared: true });
+    await set('API_TOKEN', 'my-own-secret-value', { userId: 'u1' });
+    await set('REGION', 'eu-west-1', { shared: true });
+    const mine = mocks.rows.find((row) => row.userId === 'u1' && row.name === 'API_TOKEN');
+    mine!.value = 'not-a-ciphertext';
+
+    expect(await resolveSandboxEnv(db, 'u1', 'data')).toEqual({ REGION: 'eu-west-1' });
+  });
+
+  it('keeps a later variable that fits after skipping one that does not', async () => {
+    const big = 'x'.repeat(8 * 1024);
+    for (const name of ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']) {
+      await set(name, big, { userId: 'u1' });
+    }
+    await set('Z', 'ok', { userId: 'u1' });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const env = await resolveSandboxEnv(db, 'u1', 'data');
+    expect(env.A).toBe(big);
+    expect(env.G).toBe(big);
+    expect(env.H).toBeUndefined();
+    expect(env.Z).toBe('ok');
+    expect(JSON.stringify(warn.mock.calls)).toContain('H');
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('xxxxxxxx');
+    warn.mockRestore();
+  });
+
   it('refuses bad input and enforces the per-owner count', async () => {
     await expect(set('PATH', 'x', { shared: true })).rejects.toBeInstanceOf(SandboxEnvError);
     await expect(set('TOKEN', '', { shared: true })).rejects.toThrow('Enter a value.');
@@ -231,26 +278,41 @@ describe('sandboxEnvFingerprint', () => {
 
 describe('maskSandboxSecrets', () => {
   it('masks values in every string, longest first', () => {
-    const env = { LONG: 'secret-value-123', SHORT: 'secret', TINY: 'abc' };
+    const env = { LONG: 'secret-value-123', OTHER: 'plain-value', TINY: 'abc' };
     const result = maskSandboxSecrets(
       {
         files: [{ content: 'token=secret-value-123\n' }],
-        nested: { stderr: 'secret seen', untouched: 42 },
+        nested: { stderr: 'plain-value seen', untouched: 42 },
         stdout: 'abc stays',
       },
       env,
     );
     expect(result).toEqual({
       files: [{ content: 'token=[secret:LONG]\n' }],
-      nested: { stderr: '[secret:SHORT] seen', untouched: 42 },
+      nested: { stderr: '[secret:OTHER] seen', untouched: 42 },
       stdout: 'abc stays',
     });
   });
 
+  it('does not write a value back into its mask', () => {
+    expect(maskSandboxSecrets('secret', { PASSWORD: 'secret' })).toBe('[redacted]');
+    expect(maskSandboxSecrets('API_TOKEN', { API_TOKEN: 'API_TOKEN' })).toBe('[redacted]');
+    // The name is not in the value, so the labeled token is safe.
+    expect(maskSandboxSecrets('redacted', { TOKEN: 'redacted' })).toBe('[secret:TOKEN]');
+    // Both `[secret:redacted]` and `[redacted]` contain the value.
+    const marked = maskSandboxSecrets('redacted', { redacted: 'redacted' });
+    expect(marked).toBe('\uFFFC');
+    expect(marked).not.toContain('redacted');
+    expect(maskSandboxSecrets(marked, { redacted: 'redacted' })).toBe(marked);
+    const once = maskSandboxSecrets('a secret here', { SHORT: 'secret' });
+    expect(once).toBe('a [redacted] here');
+    expect(maskSandboxSecrets(once, { SHORT: 'secret' })).toBe(once);
+  });
+
   it('does not mask a mask again', () => {
-    const env = { SHORT: 'secret' };
-    const once = maskSandboxSecrets('a secret here', env);
-    expect(once).toBe('a [secret:SHORT] here');
+    const env = { TOKEN: 'plain-value' };
+    const once = maskSandboxSecrets('a plain-value here', env);
+    expect(once).toBe('a [secret:TOKEN] here');
     expect(maskSandboxSecrets(once, env)).toBe(once);
   });
 
@@ -270,5 +332,38 @@ describe('maskSandboxSecrets', () => {
   it('leaves non-plain objects alone', () => {
     const bytes = new Uint8Array([1, 2, 3]);
     expect(maskSandboxSecrets({ bytes }, { LONG: 'secret-value' }).bytes).toBe(bytes);
+  });
+});
+
+describe('job env snapshot', () => {
+  beforeEach(() => {
+    mocks.key = 'Kix2AhTLdBi4V3KgkdtUlHOpTsuOe4BcnYeV9DAdqjo=';
+  });
+
+  it('round-trips the map and refuses a snapshot that cannot be read', async () => {
+    expect(await encryptSandboxEnvSnapshot({})).toBeNull();
+    const cipher = await encryptSandboxEnvSnapshot({ API_TOKEN: 'old-token-value' });
+    expect(cipher).toEqual(expect.any(String));
+    expect(cipher).not.toContain('old-token-value');
+    expect(await readSandboxEnvSnapshot(cipher)).toEqual({ API_TOKEN: 'old-token-value' });
+    expect(await readSandboxEnvSnapshot(null)).toEqual({});
+    await expect(readSandboxEnvSnapshot('not-a-ciphertext')).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+    });
+  });
+
+  it('keeps a replaced value so both can be masked', () => {
+    const env = sandboxJobMaskEnv(
+      { API_TOKEN: 'old-token-value', REGION: 'eu' },
+      { API_TOKEN: 'new-token-value' },
+    );
+    expect(env).toEqual({
+      API_TOKEN: 'new-token-value',
+      API_TOKEN_PREVIOUS: 'old-token-value',
+      REGION: 'eu',
+    });
+    expect(maskSandboxSecrets('old-token-value and new-token-value', env)).toBe(
+      '[secret:API_TOKEN_PREVIOUS] and [secret:API_TOKEN]',
+    );
   });
 });

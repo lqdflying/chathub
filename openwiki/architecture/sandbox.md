@@ -313,13 +313,16 @@ own `[docker] sandbox_env`. OpenSandbox's read endpoints do not return them.
   `SHELL`, `USER`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, and the prefixes
   `OPENSANDBOX_`, `EXECD_`, `CHATHUB_`. A value is 1 B to 8 KiB; at most 32
   shared variables per profile and 32 per user per profile; a sandbox gets at
-  most 64 KiB in total (names past the cap, in name order, are left out and
-  logged by name).
+  most 64 KiB in total. Names are considered in order; a name that does not
+  fit is left out (and logged by name) and later names are still included
+  when they fit.
 - **Resolution.** `invokeSandboxTool` calls `resolveSandboxEnv` after the
   profile gate and before it builds the provider, on the browser and durable
-  paths alike. A value that no longer decrypts (the key changed) is left out
-  and only its name is logged. A failed read fails the call rather than start
-  a sandbox without its variables. ChatHub's own server secrets are never
+  paths alike. A value that no longer decrypts (the key changed, or the
+  stored text is not ciphertext) is left out and only its name is logged. A
+  user's row that cannot be decrypted also drops a shared value of that
+  name. A failed read of the table fails the call rather than start a
+  sandbox without its variables. ChatHub's own server secrets are never
   sent.
 - **Applying a change.** Each new sandbox gets a `chathub-env` label: the
   first 16 hex characters of HMAC-SHA256(`KEY_VAULTS_SECRET`, the sorted
@@ -330,11 +333,17 @@ own `[docker] sandbox_env`. OpenSandbox's read endpoints do not return them.
   pass no variables, skip the comparison, and never replace a sandbox.
 - **Masking.** Before a tool result goes back to the model, every string in
   it has each value of 6 or more characters replaced with `[secret:NAME]`
-  (longest value first, in one pass, so masking twice changes nothing). A
-  job's error and output are masked the same way before they are saved, and a
-  running job's live log before it is returned. Exported and kept files are
-  not masked. The built-in instruction tells the model to use variables by
-  name and never print them.
+  when that label does not itself contain a value, otherwise `[redacted]`,
+  otherwise U+FFFC (longest value first, in one pass, so masking twice
+  changes nothing). `startJob` stores a KeyVaults ciphertext of the env map
+  on `sandbox_jobs.env_snapshot`. A job's error, output, and kept file names
+  are masked with that snapshot plus the current values before they are
+  saved, and a running job's live log before it is returned. A check with
+  nothing to mask does not decrypt. If the snapshot cannot be read, the
+  output is not saved. A job with no snapshot (it started before snapshots,
+  or with no variables) is masked with the current values only. Exported and
+  kept file bytes are not masked. The built-in instruction tells the model
+  to use variables by name and never print them.
 - **Risk.** Masking stops accidents, not a deliberate read: anything in the
   sandbox, including the model, can read the variables, and so can the
   OpenSandbox host's operator. Every user of a profile can therefore read a

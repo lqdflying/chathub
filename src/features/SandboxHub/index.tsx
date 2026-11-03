@@ -10,7 +10,7 @@ import type {
 import { Alert, Button } from '@lobehub/ui';
 import { createStyles } from 'antd-style';
 import { Plus } from 'lucide-react';
-import { memo, useCallback, useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
@@ -89,6 +89,8 @@ const SandboxHub = memo(() => {
   });
   const [envList, setEnvList] = useState<SandboxEnvList>();
   const [envFailed, setEnvFailed] = useState(false);
+  /** Bumped when a list or a save starts, so a late list cannot undo a save. */
+  const envRequest = useRef(0);
   const [envDialog, setEnvDialog] = useState<{ id?: string; open: boolean }>({ open: false });
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string>();
@@ -166,13 +168,14 @@ const SandboxHub = memo(() => {
       .catch(() => undefined);
     setEnvList(undefined);
     setEnvFailed(false);
+    const request = ++envRequest.current;
     sandboxHubService
       .listEnvs(scope)
       .then((next) => {
-        if (!cancelled) setEnvList(next);
+        if (!cancelled && envRequest.current === request) setEnvList(next);
       })
       .catch(() => {
-        if (!cancelled) setEnvFailed(true);
+        if (!cancelled && envRequest.current === request) setEnvFailed(true);
       });
     // Without an answer the instructions stay read-only.
     sandboxHubService
@@ -194,19 +197,23 @@ const SandboxHub = memo(() => {
   /** The dialog reports a failed change itself, so these rethrow. */
   const saveEnv = async (section: EnvSection, name: string, value: string) => {
     if (!scope || !envDialog.id) return;
+    const request = ++envRequest.current;
     const next =
       section === 'shared'
         ? await sandboxHubService.setSharedEnv(scope, envDialog.id, name, value)
         : await sandboxHubService.setMyEnv(scope, envDialog.id, name, value);
+    if (envRequest.current !== request) return;
     setEnvList(next);
     setEnvFailed(false);
   };
   const deleteEnv = async (section: EnvSection, name: string) => {
     if (!scope || !envDialog.id) return;
+    const request = ++envRequest.current;
     const next =
       section === 'shared'
         ? await sandboxHubService.deleteSharedEnv(scope, envDialog.id, name)
         : await sandboxHubService.deleteMyEnv(scope, envDialog.id, name);
+    if (envRequest.current !== request) return;
     setEnvList(next);
     setEnvFailed(false);
   };

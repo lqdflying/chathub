@@ -161,8 +161,11 @@ export const deleteSandboxEnv = async ({
 /**
  * The variables one user's sandbox of one profile is created with: the
  * shared values, then the user's own on top. A value that cannot be
- * decrypted (the key changed) is left out; only its name is logged. Values
- * past the total size cap are left out the same way.
+ * decrypted (the key changed, or the stored text is not ciphertext) is left
+ * out; only its name is logged. A user's row that cannot be decrypted also
+ * drops a shared value of that name, so the shared secret is not sent in its
+ * place. A name that does not fit in the total size cap is left out, and
+ * later names are still included when they fit.
  */
 export const resolveSandboxEnv = async (
   db: LobeChatDatabase,
@@ -179,27 +182,100 @@ export const resolveSandboxEnv = async (
   // Shared first, so a user's own value of the same name wins.
   const ordered = [...rows].sort((a, b) => Number(!!a.userId) - Number(!!b.userId));
   for (const row of ordered) {
-    const { plaintext, wasAuthentic } = await gateKeeper.decrypt(row.value);
-    if (!wasAuthentic) {
+    let decrypted: { plaintext: string; wasAuthentic: boolean };
+    try {
+      decrypted = await gateKeeper.decrypt(row.value);
+    } catch {
+      decrypted = { plaintext: '', wasAuthentic: false };
+    }
+    if (!decrypted.wasAuthentic) {
       console.warn('[sandbox] an environment variable could not be decrypted and was left out', {
         name: row.name,
         profileId,
       });
+      // The user's override is what they asked to send. Do not fall back to shared.
+      if (row.userId) delete env[row.name];
       continue;
     }
-    env[row.name] = plaintext;
+    env[row.name] = decrypted.plaintext;
   }
 
   let total = 0;
   for (const name of Object.keys(env).sort()) {
-    total += bytes(name) + bytes(env[name]) + 2;
-    if (total > SANDBOX_ENV_TOTAL_MAX_BYTES) {
+    const next = bytes(name) + bytes(env[name]) + 2;
+    if (total + next > SANDBOX_ENV_TOTAL_MAX_BYTES) {
       console.warn('[sandbox] environment variables over the size cap were left out', {
         name,
         profileId,
       });
       delete env[name];
+      continue;
     }
+    total += next;
+  }
+  return env;
+};
+
+/** Ciphertext of an env map, or null when there is nothing to store. */
+export const encryptSandboxEnvSnapshot = async (
+  env: Record<string, string>,
+): Promise<string | null> => {
+  if (Object.keys(env).length === 0) return null;
+  const gateKeeper = await KeyVaultsGateKeeper.initWithEnvKey();
+  return gateKeeper.encrypt(JSON.stringify(env));
+};
+
+/**
+ * The env map stored on a job when it started. Null means the job has no
+ * snapshot (it started before snapshots, or with no variables). A snapshot
+ * that cannot be read is an error: the caller must not show output it cannot
+ * mask.
+ */
+export const readSandboxEnvSnapshot = async (
+  snapshot: string | null | undefined,
+): Promise<Record<string, string>> => {
+  if (!snapshot) return {};
+  const unreadable = () =>
+    new SandboxEnvError('PRECONDITION_FAILED', 'The job environment snapshot could not be read.');
+  if (!isSandboxEnvAvailable()) throw unreadable();
+  try {
+    const gateKeeper = await KeyVaultsGateKeeper.initWithEnvKey();
+    const { plaintext, wasAuthentic } = await gateKeeper.decrypt(snapshot);
+    if (!wasAuthentic) throw unreadable();
+    const parsed: unknown = JSON.parse(plaintext);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw unreadable();
+    const env: Record<string, string> = {};
+    for (const [name, value] of Object.entries(parsed)) {
+      if (typeof value !== 'string') throw unreadable();
+      env[name] = value;
+    }
+    return env;
+  } catch (error) {
+    if (error instanceof SandboxEnvError) throw error;
+    throw unreadable();
+  }
+};
+
+/**
+ * Values to hide in one job's output: the ones it started with, then the
+ * current ones. A name whose value changed keeps the old value under
+ * `<name>_PREVIOUS` so both are masked.
+ */
+export const sandboxJobMaskEnv = (
+  snapshot: Record<string, string>,
+  current: Record<string, string>,
+): Record<string, string> => {
+  const env: Record<string, string> = { ...snapshot };
+  for (const [name, value] of Object.entries(current)) {
+    const previous = env[name];
+    if (previous === undefined || previous === value) {
+      env[name] = value;
+      continue;
+    }
+    let alias = `${name}_PREVIOUS`;
+    while (Object.hasOwn(env, alias) && env[alias] !== previous) alias = `${alias}_PREVIOUS`;
+    env[alias] = previous;
+    env[name] = value;
   }
   return env;
 };
@@ -224,16 +300,30 @@ const escapeRegExp = (text: string) => text.replaceAll(/[$()*+.?[\\\]^{|}]/g, '\
 interface Masker {
   names: Map<string, string>;
   pattern: RegExp;
+  secrets: string[];
 }
 
-/** A mask already in the text; matched first so masking twice changes nothing. */
-const MASK_TOKEN = String.raw`\[secret:[A-Z_][\dA-Z_]*]`;
+/** Masks already in the text; matched first so masking twice changes nothing. */
+const MASK_TOKEN = String.raw`\[secret:[A-Z_][\dA-Z_]*]|\[redacted]`;
+
+const tokenHoldsSecret = (token: string, secrets: readonly string[]) =>
+  secrets.some((secret) => token.includes(secret));
+
+/** A label that does not itself contain a value being hidden. */
+const maskLabel = (name: string, secrets: readonly string[]) => {
+  const labeled = `[secret:${name}]`;
+  if (!tokenHoldsSecret(labeled, secrets)) return labeled;
+  const redacted = '[redacted]';
+  if (!tokenHoldsSecret(redacted, secrets)) return redacted;
+  // Shorter than the shortest masked value, so it cannot contain one.
+  return '\uFFFC';
+};
 
 const maskDeep = (value: unknown, masker: Masker): unknown => {
   if (typeof value === 'string') {
     return value.replace(masker.pattern, (match) => {
       const name = masker.names.get(match);
-      return name ? `[secret:${name}]` : match;
+      return name ? maskLabel(name, masker.secrets) : match;
     });
   }
   if (Array.isArray(value)) return value.map((item) => maskDeep(item, masker));
@@ -247,9 +337,10 @@ const maskDeep = (value: unknown, masker: Masker): unknown => {
 
 /**
  * Replaces each variable value (6 characters or more) in every string of a
- * tool result with `[secret:NAME]`, so a value printed by a command does not
- * end up in chat history by accident. Not a defence against deliberate
- * exfiltration: anything in the sandbox can read the variables.
+ * tool result with `[secret:NAME]`, or `[redacted]` when that label would
+ * contain a value, so a value printed by a command does not end up in chat
+ * history by accident. Not a defence against deliberate exfiltration:
+ * anything in the sandbox can read the variables.
  */
 export const maskSandboxSecrets = <T>(value: T, env: Record<string, string>): T => {
   const names = new Map<string, string>();
@@ -257,13 +348,12 @@ export const maskSandboxSecrets = <T>(value: T, env: Record<string, string>): T 
     if (secret.length >= SANDBOX_ENV_MASK_MIN_CHARS && !names.has(secret)) names.set(secret, name);
   }
   if (names.size === 0) return value;
+  const secrets = [...names.keys()];
   // One pass, longest value first: a value that contains another is masked
   // whole, and a replacement (or an earlier mask) is never masked again.
   const pattern = new RegExp(
-    [MASK_TOKEN, ...[...names.keys()].sort((a, b) => b.length - a.length).map(escapeRegExp)].join(
-      '|',
-    ),
+    [MASK_TOKEN, ...secrets.sort((a, b) => b.length - a.length).map(escapeRegExp)].join('|'),
     'g',
   );
-  return maskDeep(value, { names, pattern }) as T;
+  return maskDeep(value, { names, pattern, secrets }) as T;
 };

@@ -14,6 +14,9 @@ const state = vi.hoisted(() => ({
   profileExists: true,
   providerError: undefined as unknown,
   rows: new Map<string, any>(),
+  snapshot: {} as Record<string, string>,
+  snapshotError: undefined as unknown,
+  snapshotReads: 0,
   withWorkspace: vi.fn(),
   workspace: undefined as any,
 }));
@@ -80,6 +83,11 @@ vi.mock('../../registry', () => ({
 vi.mock('../../conversationFiles', () => ({ persistSandboxOutputFiles: state.persist }));
 vi.mock('../../profiles/env', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../profiles/env')>()),
+  readSandboxEnvSnapshot: async () => {
+    state.snapshotReads += 1;
+    if (state.snapshotError) throw state.snapshotError;
+    return state.snapshot;
+  },
   resolveSandboxEnv: async () => state.env,
 }));
 vi.mock('../enqueue', () => ({ enqueueSandboxJobWatch: state.enqueue }));
@@ -144,6 +152,9 @@ describe('Sandbox background jobs', () => {
     state.gate = ok;
     state.env = {};
     state.idleMs = undefined;
+    state.snapshot = {};
+    state.snapshotError = undefined;
+    state.snapshotReads = 0;
     state.profileExists = true;
     state.providerError = undefined;
     state.workspace = fakeWorkspace({ running: true });
@@ -222,6 +233,88 @@ describe('Sandbox background jobs', () => {
       outputTail: 'token [secret:API_TOKEN]\n',
     });
     expect(JSON.stringify(row)).not.toContain('tok-123456789');
+  });
+
+  it('still hides the value the job started with after the hub value changes', async () => {
+    state.snapshot = { API_TOKEN: 'old-token-value' };
+    state.env = { API_TOKEN: 'new-token-value' };
+    state.workspace = fakeWorkspace({
+      error: 'auth failed with old-token-value',
+      exitCode: 1,
+      running: false,
+    });
+    state.workspace.commandLogs.mockResolvedValue({
+      cursor: 1,
+      output: 'old-token-value then new-token-value\n',
+    });
+
+    const { row } = await checkSandboxJob({
+      apiName: 'watchJob',
+      db,
+      now: BEFORE_DEADLINE,
+      row: addJob({ outputDir: null }),
+      userId: 'user-1',
+    });
+
+    expect(row.outputTail).toBe('[secret:API_TOKEN_PREVIOUS] then [secret:API_TOKEN]\n');
+    expect(row.error).toBe('auth failed with [secret:API_TOKEN_PREVIOUS]');
+    expect(JSON.stringify(row)).not.toContain('old-token-value');
+    expect(JSON.stringify(row)).not.toContain('new-token-value');
+  });
+
+  it('masks secrets in kept file names', async () => {
+    state.env = { API_TOKEN: 'tok-123456789' };
+    state.workspace = fakeWorkspace({ exitCode: 0, running: false });
+    state.workspace.listDirectory.mockResolvedValue([
+      { path: '/tmp/workspace/out/tok-123456789.csv', size: 4, type: 'file' },
+    ]);
+
+    const { row } = await checkSandboxJob({
+      apiName: 'watchJob',
+      db,
+      now: BEFORE_DEADLINE,
+      row: addJob(),
+      userId: 'user-1',
+    });
+
+    expect(row.files).toEqual([
+      {
+        fileId: 'file_0',
+        filename: '[secret:API_TOKEN].csv',
+        url: '/f/[secret:API_TOKEN].csv',
+      },
+    ]);
+    expect(JSON.stringify(row)).not.toContain('tok-123456789');
+  });
+
+  it('does not save output when the snapshot cannot be read', async () => {
+    state.env = { API_TOKEN: 'tok-123456789' };
+    state.snapshotError = new Error('unreadable');
+    state.workspace = fakeWorkspace({ error: 'tok-123456789', exitCode: 1, running: false });
+
+    await expect(
+      checkSandboxJob({
+        apiName: 'watchJob',
+        db,
+        now: BEFORE_DEADLINE,
+        row: addJob({ outputDir: null }),
+        userId: 'user-1',
+      }),
+    ).rejects.toThrow('unreadable');
+    expect(state.rows.get('sjob_1').status).toBe('running');
+    expect(state.rows.get('sjob_1').outputTail).toBeNull();
+  });
+
+  it('does not read env values while a running job has no log', async () => {
+    state.env = { API_TOKEN: 'tok-123456789' };
+    await checkSandboxJob({
+      apiName: 'watchJob',
+      db,
+      now: BEFORE_DEADLINE,
+      row: addJob(),
+      userId: 'user-1',
+    });
+    expect(state.snapshotReads).toBe(0);
   });
 
   it('masks variable values in a running job\'s live log', async () => {

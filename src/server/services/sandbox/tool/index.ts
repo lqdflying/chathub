@@ -19,7 +19,12 @@ import { enqueueSandboxJobWatch } from '../jobs/enqueue';
 import { toJobResult } from '../jobs/lifecycle';
 import { cancelSandboxJob, getSandboxJobResult, listSandboxJobs } from '../jobs/service';
 import { resolveSandboxProfileForUser } from '../profiles/catalog';
-import { maskSandboxSecrets, resolveSandboxEnv, sandboxEnvFingerprint } from '../profiles/env';
+import {
+  encryptSandboxEnvSnapshot,
+  maskSandboxSecrets,
+  resolveSandboxEnv,
+  sandboxEnvFingerprint,
+} from '../profiles/env';
 import type { ResolvedSandboxProfile, ResolvedSandboxServer } from '../profiles/schema';
 import { getSandboxProvider } from '../registry';
 import { buildSandboxSessionKey, type SandboxConversationScope } from '../session';
@@ -89,6 +94,7 @@ const describeIssues = (issues: { message: string; path: (number | string)[] }[]
   issues.map((issue) => `${issue.path.join('.') || 'arguments'}: ${issue.message}`).join('; ');
 
 class SandboxToolRunner {
+  private readonly env: Record<string, string>;
   private readonly maxFileBytes = sandboxEnv.SANDBOX_MAX_FILE_BYTES;
   private readonly maxFileCount = sandboxEnv.SANDBOX_MAX_FILE_COUNT;
   private readonly profile: ResolvedSandboxProfile;
@@ -101,6 +107,7 @@ class SandboxToolRunner {
     /** Sandbox Hub variables for this user's sandbox of this profile. */
     env: Record<string, string>,
   ) {
+    this.env = env;
     this.profile = target.profile;
     this.provider = getSandboxProvider(target.profile, target.server, {
       env: { fingerprint: sandboxEnvFingerprint(env), values: env },
@@ -291,6 +298,7 @@ class SandboxToolRunner {
         commandId: started.commandId,
         cwd: started.cwd,
         deadlineAt: new Date(startedAt.getTime() + runtimeMs),
+        envSnapshot: await encryptSandboxEnvSnapshot(this.env),
         outputDir: started.outputDir,
         profileId: this.profile.id,
         sessionKey: this.sessionKey,

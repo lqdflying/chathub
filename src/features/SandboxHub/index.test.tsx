@@ -567,6 +567,33 @@ describe('SandboxHub', () => {
       expect(screen.queryByText('env.overridden')).toBeNull();
     });
 
+    it('keeps a save when the env list returns late', async () => {
+      let resolveList: (value: ReturnType<typeof listed>) => void = () => undefined;
+      mocks.env.list.mockReturnValue(
+        new Promise((resolve) => {
+          resolveList = resolve;
+        }),
+      );
+      mocks.profiles = [profile('data')];
+      await renderHub();
+      openEnv();
+
+      mocks.env.setMine.mockResolvedValue(listed([item('API_TOKEN', '••••9876')], []));
+      fireEvent.click(screen.getByText('env.add'));
+      fireEvent.change(screen.getByLabelText('env.name'), { target: { value: 'API_TOKEN' } });
+      fireEvent.change(screen.getByLabelText('env.value'), { target: { value: 'my-token-9876' } });
+      await act(async () => {
+        fireEvent.click(screen.getByText('env.save'));
+      });
+      expect(screen.getByText('••••9876')).toBeTruthy();
+
+      await act(async () => {
+        resolveList(listed([], []));
+      });
+      expect(screen.getByText('••••9876')).toBeTruthy();
+      expect(screen.queryByText('env.summary:{"mine":0,"shared":0}')).toBeNull();
+    });
+
     it('checks the name before saving and shows a refused save', async () => {
       mocks.profiles = [profile('data')];
       await renderHub();

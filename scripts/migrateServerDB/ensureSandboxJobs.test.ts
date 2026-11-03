@@ -15,6 +15,9 @@ describe('ensureSandboxJobsTable', () => {
       'CREATE INDEX IF NOT EXISTS "sandbox_jobs_user_session_idx"',
     );
     expect(SANDBOX_JOBS_SQL).toContain('CREATE INDEX IF NOT EXISTS "sandbox_jobs_user_status_idx"');
+    expect(SANDBOX_JOBS_SQL).toContain(
+      'ALTER TABLE "sandbox_jobs" ADD COLUMN IF NOT EXISTS "env_snapshot" text',
+    );
   });
 
   it('matches the columns of migration 0066', () => {

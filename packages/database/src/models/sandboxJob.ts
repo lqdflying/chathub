@@ -10,6 +10,8 @@ export interface CreateSandboxJobInput {
   commandId: string;
   cwd?: string;
   deadlineAt: Date;
+  /** Ciphertext of the env map the sandbox was created with. Null when empty. */
+  envSnapshot?: string | null;
   outputDir?: string;
   profileId: string;
   sessionKey: string;
