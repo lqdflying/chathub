@@ -5,9 +5,9 @@ import type {
   SandboxHubProfileSettingsItem,
   SandboxHubSettings,
 } from '@lobechat/types';
-import { Input, Modal, Select, Switch } from 'antd';
-import { createStyles } from 'antd-style';
-import { type ReactNode, memo, useEffect, useState } from 'react';
+import { Alert, Form, type FormGroupItemType, type FormItemProps, Modal } from '@lobehub/ui';
+import { Input, Select, Switch } from 'antd';
+import { memo, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
@@ -20,33 +20,6 @@ import {
   toSettingsInput,
 } from './settingsForm';
 
-const useStyles = createStyles(({ css, token }) => ({
-  error: css`
-    color: ${token.colorError};
-    font-size: 12px;
-    overflow-wrap: anywhere;
-  `,
-  hint: css`
-    color: ${token.colorTextDescription};
-    font-size: 12px;
-    overflow-wrap: anywhere;
-  `,
-  label: css`
-    font-size: 13px;
-    font-weight: 500;
-  `,
-  row: css`
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    gap: 12px;
-  `,
-  warning: css`
-    color: ${token.colorWarningText};
-    font-size: 12px;
-    line-height: 1.6;
-  `,
-}));
-
 interface ProfileSettingsModalProps {
   /** Undefined: add a profile. */
   item?: SandboxHubProfileSettingsItem;
@@ -56,10 +29,12 @@ interface ProfileSettingsModalProps {
   settings: SandboxHubSettings;
 }
 
-/** Add or edit one Sandbox Hub profile. Blank settings inherit the OPENSANDBOX_* defaults. */
+/**
+ * Add or edit one Sandbox Hub profile, laid out as Settings groups. Blank
+ * settings inherit the OPENSANDBOX_* defaults, shown as placeholders.
+ */
 const ProfileSettingsModal = memo<ProfileSettingsModalProps>(
   ({ item, onClose, onSubmit, open, settings }) => {
-    const { styles } = useStyles();
     const { t } = useTranslation('sandboxHub');
     const defaultServer =
       settings.servers.find((server) => server.status === 'ok')?.id ?? settings.servers[0]?.id;
@@ -112,221 +87,214 @@ const ProfileSettingsModal = memo<ProfileSettingsModalProps>(
       }
     };
 
-    const field = (key: FormError['field'], label: string, control: ReactNode, hint?: string) => (
-      <Flexbox gap={4}>
-        <span className={styles.label}>{label}</span>
-        {control}
-        {hint && <span className={styles.hint}>{hint}</span>}
-        {fieldError === key && (
-          <span className={styles.error}>{t(`admin.form.invalid.${key}`)}</span>
-        )}
-      </Flexbox>
+    /** One Settings row; a field error shows on its row. */
+    const row = (
+      field: FormError['field'] | undefined,
+      label: string,
+      children: FormItemProps['children'],
+      desc?: string,
+      extra: Partial<FormItemProps> = {},
+    ): FormItemProps => ({
+      children,
+      desc,
+      label,
+      ...(field && fieldError === field
+        ? { help: t(`admin.form.invalid.${field}`), validateStatus: 'error' as const }
+        : {}),
+      ...extra,
+    });
+
+    const text = (key: keyof ProfileFormState, label: string, placeholder?: string) => (
+      <Input
+        aria-label={label}
+        onChange={(event) => set(key, event.target.value as never)}
+        placeholder={placeholder}
+        value={form[key] as string}
+      />
+    );
+    const minutes = (key: keyof ProfileFormState, label: string, placeholder: string) => (
+      <Input
+        aria-label={label}
+        inputMode={'decimal'}
+        onChange={(event) => set(key, event.target.value as never)}
+        placeholder={placeholder}
+        value={form[key] as string}
+      />
     );
 
-    return (
-      <Modal
-        cancelText={t('admin.form.cancel')}
-        confirmLoading={saving}
-        destroyOnClose
-        okText={t('admin.form.save')}
-        onCancel={onClose}
-        onOk={() => void submit()}
-        open={open}
-        title={item ? t('admin.form.titleEdit', { name: item.name }) : t('admin.form.titleCreate')}
-        width={720}
-      >
-        <Flexbox gap={14}>
-          {item ? (
-            <div className={styles.warning}>{t('admin.form.changeWarning')}</div>
-          ) : (
-            <Flexbox gap={4}>
-              <span className={styles.label}>{t('admin.form.id')}</span>
-              <Input
-                aria-label={t('admin.form.id')}
-                onChange={(event) => set('id', event.target.value)}
-                placeholder={'data'}
-                value={form.id}
-              />
-              <span className={styles.hint}>{t('admin.form.idHint')}</span>
-            </Flexbox>
-          )}
-
-          <div className={styles.row}>
-            {field(
-              'name',
-              t('admin.form.name'),
-              <Input
-                aria-label={t('admin.form.name')}
-                onChange={(event) => set('name', event.target.value)}
-                value={form.name}
-              />,
-            )}
-            {field(
-              'serverId',
-              t('admin.form.server'),
-              <Select
-                aria-label={t('admin.form.server')}
-                onChange={(value: string) => set('serverId', value)}
-                options={settings.servers.map((server) => ({
-                  label:
-                    server.status === 'ok'
-                      ? server.name
-                      : t('admin.form.serverMisconfigured', { name: server.name }),
-                  value: server.id,
-                }))}
-                value={form.serverId || undefined}
-              />,
-              t('admin.form.serverHint'),
-            )}
-          </div>
-
-          {field(
+    const groups: FormGroupItemType[] = [
+      {
+        children: [
+          ...(item
+            ? []
+            : [
+                row(
+                  undefined,
+                  t('admin.form.id'),
+                  text('id', t('admin.form.id'), 'data'),
+                  t('admin.form.idHint'),
+                ),
+              ]),
+          row('name', t('admin.form.name'), text('name', t('admin.form.name'))),
+          row(
             'description',
             t('admin.form.description'),
-            <Input
-              aria-label={t('admin.form.description')}
-              onChange={(event) => set('description', event.target.value)}
-              value={form.description}
+            text('description', t('admin.form.description')),
+          ),
+          row(undefined, t('admin.form.avatar'), text('avatar', t('admin.form.avatar'))),
+          row(
+            'serverId',
+            t('admin.form.server'),
+            <Select
+              aria-label={t('admin.form.server')}
+              onChange={(value: string) => set('serverId', value)}
+              options={settings.servers.map((server) => ({
+                label:
+                  server.status === 'ok'
+                    ? server.name
+                    : t('admin.form.serverMisconfigured', { name: server.name }),
+                value: server.id,
+              }))}
+              style={{ width: '100%' }}
+              value={form.serverId || undefined}
             />,
-          )}
-
-          <Flexbox gap={4}>
-            <span className={styles.label}>{t('admin.form.image')}</span>
-            <Input
-              aria-label={t('admin.form.image')}
-              onChange={(event) => set('image', event.target.value)}
-              placeholder={defaults.image ? inherit(defaults.image) : t('admin.form.imageRequired')}
-              value={form.image}
-            />
-            <span className={styles.hint}>{t('admin.form.imageHint')}</span>
-          </Flexbox>
-
-          <div className={styles.row}>
-            <Flexbox gap={4}>
-              <span className={styles.label}>{t('admin.form.cpu')}</span>
-              <Input
-                aria-label={t('admin.form.cpu')}
-                onChange={(event) => set('cpu', event.target.value)}
-                placeholder={inherit(defaults.cpu)}
-                value={form.cpu}
-              />
-            </Flexbox>
-            <Flexbox gap={4}>
-              <span className={styles.label}>{t('admin.form.memory')}</span>
-              <Input
-                aria-label={t('admin.form.memory')}
-                onChange={(event) => set('memory', event.target.value)}
-                placeholder={inherit(defaults.memory)}
-                value={form.memory}
-              />
-            </Flexbox>
-            <Flexbox gap={4}>
-              <span className={styles.label}>{t('admin.form.avatar')}</span>
-              <Input
-                aria-label={t('admin.form.avatar')}
-                onChange={(event) => set('avatar', event.target.value)}
-                value={form.avatar}
-              />
-            </Flexbox>
-          </div>
-
-          {field(
-            'allowlist',
+            t('admin.form.serverHint'),
+          ),
+        ],
+        key: 'basics',
+        title: t('admin.form.groups.basics'),
+      },
+      {
+        children: [
+          row(
+            undefined,
+            t('admin.form.image'),
+            text(
+              'image',
+              t('admin.form.image'),
+              defaults.image ? inherit(defaults.image) : t('admin.form.imageRequired'),
+            ),
+            t('admin.form.imageHint'),
+            // A long image reference needs the full width.
+            { layout: 'vertical', minWidth: undefined },
+          ),
+          row(
+            undefined,
+            t('admin.form.cpu'),
+            text('cpu', t('admin.form.cpu'), inherit(defaults.cpu)),
+          ),
+          row(
+            undefined,
+            t('admin.form.memory'),
+            text('memory', t('admin.form.memory'), inherit(defaults.memory)),
+          ),
+        ],
+        key: 'resources',
+        title: t('admin.form.groups.resources'),
+      },
+      {
+        children: [
+          row(
+            undefined,
             t('admin.form.network'),
-            <Flexbox gap={6}>
-              <Select
-                aria-label={t('admin.form.network')}
-                onChange={(value: ProfileFormState['network']) => set('network', value)}
-                options={(['inherit', 'open', 'none', 'allowlist'] as const).map((value) => ({
-                  label:
-                    value === 'inherit'
-                      ? inherit(
-                          t(egressLabelKey(defaults.egress), {
-                            count:
-                              defaults.egress.mode === 'allowlist'
-                                ? defaults.egress.targets.length
-                                : 0,
-                          }),
-                        )
-                      : t(`admin.form.networkOption.${value}`),
-                  value,
-                }))}
-                value={form.network}
-              />
-              {form.network === 'allowlist' && (
-                <Input.TextArea
-                  aria-label={t('admin.form.allowlist')}
-                  autoSize={{ maxRows: 8, minRows: 2 }}
-                  onChange={(event) => set('allowlist', event.target.value)}
-                  placeholder={'pypi.org\nfiles.pythonhosted.org'}
-                  value={form.allowlist}
-                />
-              )}
-            </Flexbox>,
-          )}
-
-          <div className={styles.row}>
-            {field(
+            <Select
+              aria-label={t('admin.form.network')}
+              onChange={(value: ProfileFormState['network']) => set('network', value)}
+              options={(['inherit', 'open', 'none', 'allowlist'] as const).map((value) => ({
+                label:
+                  value === 'inherit'
+                    ? inherit(
+                        t(egressLabelKey(defaults.egress), {
+                          count:
+                            defaults.egress.mode === 'allowlist'
+                              ? defaults.egress.targets.length
+                              : 0,
+                        }),
+                      )
+                    : t(`admin.form.networkOption.${value}`),
+                value,
+              }))}
+              style={{ width: '100%' }}
+              value={form.network}
+            />,
+          ),
+          row(
+            'allowlist',
+            t('admin.form.allowlist'),
+            <Input.TextArea
+              aria-label={t('admin.form.allowlist')}
+              autoSize={{ maxRows: 8, minRows: 2 }}
+              onChange={(event) => set('allowlist', event.target.value)}
+              placeholder={'pypi.org\nfiles.pythonhosted.org'}
+              value={form.allowlist}
+            />,
+            undefined,
+            { hidden: form.network !== 'allowlist' },
+          ),
+        ],
+        key: 'network',
+        title: t('admin.form.groups.network'),
+      },
+      {
+        children: [
+          row(
+            'idleMinutes',
+            t('admin.form.idle'),
+            minutes(
               'idleMinutes',
               t('admin.form.idle'),
-              <Input
-                aria-label={t('admin.form.idle')}
-                inputMode={'decimal'}
-                onChange={(event) => set('idleMinutes', event.target.value)}
-                placeholder={inherit(durationLabel(defaults.sessionIdleTimeoutMs))}
-                value={form.idleMinutes}
-              />,
-              t('admin.form.idleHint'),
-            )}
-            {field(
+              inherit(durationLabel(defaults.sessionIdleTimeoutMs)),
+            ),
+            t('admin.form.idleHint'),
+          ),
+          row(
+            'maxLifetimeMinutes',
+            t('admin.form.maxLifetime'),
+            minutes(
               'maxLifetimeMinutes',
               t('admin.form.maxLifetime'),
-              <Input
-                aria-label={t('admin.form.maxLifetime')}
-                inputMode={'decimal'}
-                onChange={(event) => set('maxLifetimeMinutes', event.target.value)}
-                placeholder={inherit(durationLabel(defaults.sessionMaxLifetimeMs))}
-                value={form.maxLifetimeMinutes}
-              />,
-              t('admin.form.minutesZeroNone'),
-            )}
-            {field(
-              'jobMinutes',
-              t('admin.form.job'),
-              <Input
-                aria-label={t('admin.form.job')}
-                inputMode={'decimal'}
-                onChange={(event) => set('jobMinutes', event.target.value)}
-                placeholder={inherit(durationLabel(defaults.jobMaxRuntimeMs))}
-                value={form.jobMinutes}
-              />,
-              t('admin.form.jobHint'),
-            )}
-            {field(
+              inherit(durationLabel(defaults.sessionMaxLifetimeMs)),
+            ),
+            t('admin.form.minutesZeroNone'),
+          ),
+          row(
+            'readySeconds',
+            t('admin.form.ready'),
+            minutes(
               'readySeconds',
               t('admin.form.ready'),
-              <Input
-                aria-label={t('admin.form.ready')}
-                inputMode={'decimal'}
-                onChange={(event) => set('readySeconds', event.target.value)}
-                placeholder={inherit(String(Math.round(defaults.readyTimeoutMs / 1000)))}
-                value={form.readySeconds}
-              />,
-              t('admin.form.readyHint'),
-            )}
-          </div>
-
-          <Flexbox align={'center'} gap={8} horizontal>
+              inherit(String(Math.round(defaults.readyTimeoutMs / 1000))),
+            ),
+            t('admin.form.readyHint'),
+          ),
+          row(
+            'jobMinutes',
+            t('admin.form.job'),
+            minutes(
+              'jobMinutes',
+              t('admin.form.job'),
+              inherit(durationLabel(defaults.jobMaxRuntimeMs)),
+            ),
+            t('admin.form.jobHint'),
+          ),
+        ],
+        key: 'lifetimes',
+        title: t('admin.form.groups.lifetimes'),
+      },
+      {
+        children: [
+          row(
+            undefined,
+            t('admin.form.defaultEnabled'),
             <Switch
               aria-label={t('admin.form.defaultEnabled')}
               checked={form.defaultEnabled}
               onChange={(checked) => set('defaultEnabled', checked)}
-            />
-            <span className={styles.label}>{t('admin.form.defaultEnabled')}</span>
-          </Flexbox>
-
-          <Flexbox gap={4}>
-            <span className={styles.label}>{t('admin.form.instructionBase')}</span>
+            />,
+          ),
+          row(
+            undefined,
+            t('admin.form.instructionBase'),
             <Select
               aria-label={t('admin.form.instructionBase')}
               onChange={(value: ProfileFormState['instructionBase']) =>
@@ -336,18 +304,49 @@ const ProfileSettingsModal = memo<ProfileSettingsModalProps>(
                 label: t(`admin.form.instructionBaseOption.${value}`),
                 value,
               }))}
+              style={{ width: '100%' }}
               value={form.instructionBase}
-            />
+            />,
+          ),
+          row(
+            undefined,
+            t('admin.form.instructionText'),
             <Input.TextArea
               aria-label={t('admin.form.instructionText')}
               autoSize={{ maxRows: 12, minRows: 3 }}
               onChange={(event) => set('instructionText', event.target.value)}
-              placeholder={t('admin.form.instructionTextHint')}
               value={form.instructionText}
-            />
-          </Flexbox>
+            />,
+            t('admin.form.instructionTextHint'),
+            { layout: 'vertical', minWidth: undefined },
+          ),
+        ],
+        key: 'behaviour',
+        title: t('admin.form.groups.behaviour'),
+      },
+    ];
 
-          {serverError && <div className={styles.error}>{serverError}</div>}
+    return (
+      <Modal
+        cancelText={t('admin.form.cancel')}
+        confirmLoading={saving}
+        destroyOnHidden
+        okText={t('admin.form.save')}
+        onCancel={onClose}
+        onOk={() => void submit()}
+        open={open}
+        title={item ? t('admin.form.titleEdit', { name: item.name }) : t('admin.form.titleCreate')}
+        width={760}
+      >
+        <Flexbox gap={12}>
+          {item && <Alert message={t('admin.form.changeWarning')} showIcon type={'warning'} />}
+          <Form
+            itemMinWidth={'max(50%, 240px)'}
+            items={groups}
+            itemsType={'group'}
+            variant={'borderless'}
+          />
+          {serverError && <Alert message={serverError} showIcon type={'error'} />}
         </Flexbox>
       </Modal>
     );

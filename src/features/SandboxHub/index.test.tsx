@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
     update: vi.fn(),
   },
   cancelJob: vi.fn(),
+  confirm: vi.fn(),
   initFailed: false,
   listJobs: vi.fn(),
   load: vi.fn(),
@@ -30,10 +31,91 @@ const mocks = vi.hoisted(() => ({
   userReady: true,
 }));
 
-vi.mock('@lobehub/ui', () => ({
-  Avatar: () => null,
-}));
+// Light stand-ins: a Settings group renders its title, description, header
+// controls and rows; a dropdown renders its items as buttons.
+vi.mock('@lobehub/ui', () => {
+  const button = ({ children, disabled, loading, onClick, ...rest }: any) => (
+    <button
+      aria-label={rest['aria-label']}
+      data-loading={loading ? 'true' : undefined}
+      disabled={disabled}
+      onClick={onClick}
+      type="button"
+    >
+      {children}
+    </button>
+  );
+  const row = (item: any, index: number) =>
+    item.hidden ? null : (
+      <div key={item.key ?? index}>
+        {item.label && <span>{item.label}</span>}
+        {item.desc && <span>{item.desc}</span>}
+        {item.children}
+        {item.help && <span>{item.help}</span>}
+      </div>
+    );
+  return {
+    ActionIcon: ({ disabled, onClick, title }: any) => (
+      <button
+        aria-label={title}
+        disabled={disabled}
+        onClick={(event) => onClick?.(event)}
+        type="button"
+      />
+    ),
+    Alert: ({ message }: any) => <div role="alert">{message}</div>,
+    Avatar: () => null,
+    Button: button,
+    Dropdown: ({ children, menu }: any) => (
+      <div>
+        {children}
+        {menu.items
+          .filter((item: any) => item.type !== 'divider')
+          .map((item: any) => (
+            <button disabled={item.disabled} key={item.key} onClick={item.onClick} type="button">
+              {`menu:${item.label}`}
+            </button>
+          ))}
+      </div>
+    ),
+    Form: ({ items }: any) => (
+      <div>
+        {items.map((group: any, index: number) => (
+          <section key={group.key ?? index}>
+            <div>{group.title}</div>
+            {group.desc && <div>{group.desc}</div>}
+            <div>{group.extra}</div>
+            {Array.isArray(group.children) ? group.children.map(row) : group.children}
+          </section>
+        ))}
+      </div>
+    ),
+    Icon: () => null,
+    Modal: ({ children, footer, okText, onCancel, onOk, open, title }: any) =>
+      open ? (
+        <div role="dialog">
+          <h3>{title}</h3>
+          {children}
+          {footer === undefined ? (
+            <>
+              <button onClick={onOk} type="button">
+                {okText}
+              </button>
+              <button onClick={onCancel} type="button">
+                modal:close
+              </button>
+            </>
+          ) : (
+            footer
+          )}
+        </div>
+      ) : null,
+    Tag: ({ children }: any) => <span>{children}</span>,
+  };
+});
 vi.mock('antd', () => ({
+  // Confirming runs the action, so a test sees the effect of a confirmed delete.
+  App: { useApp: () => ({ modal: { confirm: mocks.confirm } }) },
   Button: ({ children, disabled, onClick, ...rest }: any) => (
     <button aria-label={rest['aria-label']} disabled={disabled} onClick={onClick} type="button">
       {children}
@@ -206,6 +288,7 @@ describe('SandboxHub', () => {
     mocks.setEnabled.mockResolvedValue(undefined);
     mocks.setInstruction.mockResolvedValue(undefined);
     mocks.resetInstruction.mockResolvedValue(undefined);
+    mocks.confirm.mockImplementation(({ onOk }: { onOk?: () => unknown }) => onOk?.());
     mocks.scope = 'user:u1';
     mocks.loadedScope = 'user:u1';
     mocks.userReady = true;
@@ -263,8 +346,8 @@ describe('SandboxHub', () => {
     expect(screen.getAllByText('profile.unavailable')).toHaveLength(2);
 
     expect(screen.queryByText('data instruction text')).toBeNull();
-    fireEvent.click(screen.getAllByText('profile.showInstruction')[0]);
-    expect(screen.getByText('data instruction text')).toBeTruthy();
+    fireEvent.click(screen.getAllByText('profile.instruction.view')[0]);
+    expect(screen.getByRole('dialog').textContent).toContain('data instruction text');
 
     const locked = screen.getByRole('button', { name: /locked name/ }) as HTMLButtonElement;
     expect(locked.disabled).toBe(true);
@@ -295,13 +378,13 @@ describe('SandboxHub', () => {
       await renderHub();
       expect(mocks.access).toHaveBeenCalledWith('user:u1');
       expect(screen.queryByText('profile.instruction.edit')).toBeNull();
-      fireEvent.click(screen.getByText('profile.showInstruction'));
+      fireEvent.click(screen.getByText('profile.instruction.view'));
       expect(screen.getByText('profile.instruction.readOnly')).toBeTruthy();
 
       cleanup();
       mocks.access.mockResolvedValue({ adminsConfigured: false, canEditInstructions: false });
       await renderHub();
-      fireEvent.click(screen.getByText('profile.showInstruction'));
+      fireEvent.click(screen.getByText('profile.instruction.view'));
       expect(screen.getByText('profile.instruction.readOnlyNoAdmins')).toBeTruthy();
     });
 
@@ -370,6 +453,7 @@ describe('SandboxHub', () => {
       expect(screen.getByText('profile.instruction.customized')).toBeTruthy();
       expect(screen.getByText(/profile\.instruction\.updatedAt/)).toBeTruthy();
 
+      fireEvent.click(screen.getByText('profile.instruction.edit'));
       await act(async () => {
         fireEvent.click(screen.getByText('confirm:profile.instruction.reset'));
       });
@@ -418,7 +502,8 @@ describe('SandboxHub', () => {
       expect(screen.getByText('python train.py')).toBeTruthy();
       expect(screen.getByText('jobs.status.running')).toBeTruthy();
       expect(screen.getByText('jobs.status.succeeded')).toBeTruthy();
-      expect(screen.getAllByText('data name').length).toBeGreaterThan(1);
+      // Each job row names its sandbox first.
+      expect(screen.getAllByText(/^data name · jobs\.startedAt/)).toHaveLength(2);
       expect(screen.getByText(/jobs\.exitCode/).textContent).toContain('"code":0');
       // Only the running job can be cancelled.
       expect(screen.getAllByText('confirm:jobs.cancel')).toHaveLength(1);
@@ -485,9 +570,11 @@ describe('SandboxHub', () => {
       expect(screen.getByText(/admin\.issue/).textContent).toContain('no image');
 
       // Order follows the settings: data is first, broken last.
-      const ups = screen.getAllByRole('button', { name: 'admin.moveUp' }) as HTMLButtonElement[];
+      const ups = screen.getAllByRole('button', {
+        name: 'menu:admin.moveUp',
+      }) as HTMLButtonElement[];
       const downs = screen.getAllByRole('button', {
-        name: 'admin.moveDown',
+        name: 'menu:admin.moveDown',
       }) as HTMLButtonElement[];
       expect(ups.map((button) => button.disabled)).toEqual([true, false]);
       expect(downs.map((button) => button.disabled)).toEqual([false, true]);
@@ -515,14 +602,14 @@ describe('SandboxHub', () => {
       expect(mocks.load).toHaveBeenCalledWith('user:u1');
 
       await act(async () => {
-        fireEvent.click(screen.getAllByRole('button', { name: 'admin.moveUp' })[1]);
+        fireEvent.click(screen.getAllByRole('button', { name: 'menu:admin.moveUp' })[1]);
       });
       expect(mocks.admin.move).toHaveBeenCalledWith('user:u1', 'data', 'up');
 
       // general cannot be deleted, so only data has a delete control.
-      expect(screen.getAllByText('confirm:admin.delete')).toHaveLength(1);
+      expect(screen.getAllByText('menu:admin.delete')).toHaveLength(1);
       await act(async () => {
-        fireEvent.click(screen.getByText('confirm:admin.delete'));
+        fireEvent.click(screen.getByText('menu:admin.delete'));
       });
       expect(mocks.admin.delete).toHaveBeenCalledWith('user:u1', 'data');
     });
@@ -589,7 +676,7 @@ describe('SandboxHub', () => {
       await renderAsAdmin();
 
       await act(async () => {
-        fireEvent.click(screen.getByText('admin.settings'));
+        fireEvent.click(screen.getByRole('button', { name: 'admin.settings' }));
       });
       expect(screen.getByRole('dialog').textContent).toContain('admin.form.changeWarning');
       fireEvent.change(screen.getByLabelText('admin.form.idle'), { target: { value: '-5' } });

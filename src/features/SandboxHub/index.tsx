@@ -6,8 +6,9 @@ import type {
   SandboxHubSettings,
   SandboxServerHealth,
 } from '@lobechat/types';
-import { Button } from 'antd';
+import { Alert, Button } from '@lobehub/ui';
 import { createStyles } from 'antd-style';
+import { Plus } from 'lucide-react';
 import { memo, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
@@ -16,44 +17,39 @@ import { sandboxHubService } from '@/services/sandboxHub';
 import { useToolStore } from '@/store/tool';
 import { useUserStore } from '@/store/user';
 
+import InstructionModal from './InstructionModal';
 import JobList from './JobList';
-import ProfileAdminBar from './ProfileAdminBar';
-import ProfileCard, { type InstructionAccess } from './ProfileCard';
+import ProfileSection, { type InstructionAccess, type ProfileAdminProps } from './ProfileSection';
 import ProfileSettingsModal from './ProfileSettingsModal';
 
 /** How often the page re-reads profile settings while an image is being prepared. */
 const PREPARE_POLL_MS = 5000;
 
 const useStyles = createStyles(({ css, token }) => ({
-  card: css`
-    box-sizing: border-box;
-    width: 100%;
-    min-width: 0;
-    padding: 16px;
-    border: 1px dashed ${token.colorWarningBorder};
-    border-radius: ${token.borderRadiusLG}px;
-  `,
-  error: css`
-    color: ${token.colorError};
-    font-size: 13px;
+  desc: css`
+    margin: 0;
+    line-height: 1.5;
+    color: ${token.colorTextDescription};
     overflow-wrap: anywhere;
   `,
   hint: css`
     min-width: 0;
-    overflow-wrap: anywhere;
-    color: ${token.colorTextSecondary};
+    color: ${token.colorTextDescription};
     font-size: 13px;
     line-height: 1.6;
+    overflow-wrap: anywhere;
   `,
   subtitle: css`
     margin: 0;
-    font-size: 16px;
+    font-size: 18px;
     font-weight: 600;
   `,
+  // The Settings panel title (`PanelTitle`), without its sidebar padding.
   title: css`
     margin: 0;
-    font-size: 20px;
+    font-size: 26px;
     font-weight: 600;
+    line-height: 1.3;
   `,
 }));
 
@@ -86,6 +82,7 @@ const SandboxHub = memo(() => {
   const [editor, setEditor] = useState<{ item?: SandboxHubProfileSettingsItem; open: boolean }>({
     open: false,
   });
+  const [instructionProfileId, setInstructionProfileId] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string>();
   const canEdit = !!access?.canEdit;
@@ -181,30 +178,33 @@ const SandboxHub = memo(() => {
   const settingsOrder = hubSettings?.profiles ?? [];
   const offered = new Set(profiles.map((profile) => profile.id));
   const notOffered = settingsOrder.filter((item) => !offered.has(item.id));
+  const instructionProfile = profiles.find((profile) => profile.id === instructionProfileId);
 
-  const adminBar = (item: SandboxHubProfileSettingsItem) => {
-    const index = settingsOrder.findIndex((entry) => entry.id === item.id);
-    return (
-      <ProfileAdminBar
-        busy={busy}
-        first={index <= 0}
-        item={item}
-        last={index === settingsOrder.length - 1}
-        onDelete={() => void adminChange((s) => sandboxHubService.deleteProfile(s, item.id))}
-        onEdit={() => setEditor({ item, open: true })}
-        onMove={(direction) =>
-          void adminChange((s) => sandboxHubService.moveProfile(s, item.id, direction))
-        }
-        onPrepare={() => void adminChange((s) => sandboxHubService.prepareImage(s, item.id))}
-      />
-    );
+  const adminProps = (profileId: string): ProfileAdminProps | undefined => {
+    const index = settingsOrder.findIndex((entry) => entry.id === profileId);
+    if (index < 0) return undefined;
+    const item = settingsOrder[index];
+    return {
+      busy,
+      first: index === 0,
+      item,
+      last: index === settingsOrder.length - 1,
+      onDelete: () => adminChange((s) => sandboxHubService.deleteProfile(s, item.id)),
+      onEdit: () => setEditor({ item, open: true }),
+      onMove: (direction) =>
+        void adminChange((s) => sandboxHubService.moveProfile(s, item.id, direction)),
+      onPrepare: () => void adminChange((s) => sandboxHubService.prepareImage(s, item.id)),
+    };
   };
 
   return (
-    <Flexbox gap={16} style={{ minWidth: 0 }} width={'100%'}>
-      <Flexbox gap={6}>
-        <Flexbox align={'center'} gap={12} horizontal justify={'space-between'}>
-          <h1 className={styles.title}>{t('title')}</h1>
+    <Flexbox gap={24} style={{ minWidth: 0 }} width={'100%'}>
+      <Flexbox gap={8}>
+        <Flexbox align={'flex-start'} gap={16} horizontal justify={'space-between'}>
+          <Flexbox gap={4} style={{ minWidth: 0 }}>
+            <h1 className={styles.title}>{t('title')}</h1>
+            <p className={styles.desc}>{t('description')}</p>
+          </Flexbox>
           {hubSettings && (
             <Button
               disabled={
@@ -212,16 +212,25 @@ const SandboxHub = memo(() => {
                 hubSettings.servers.length === 0 ||
                 settingsOrder.length >= hubSettings.maxProfiles
               }
+              icon={Plus}
               onClick={() => setEditor({ open: true })}
+              style={{ flex: 'none' }}
               type={'primary'}
             >
               {t('admin.addProfile')}
             </Button>
           )}
         </Flexbox>
-        <div className={styles.hint}>{t('description')}</div>
         {hubSettings && <div className={styles.hint}>{t('admin.hint')}</div>}
-        {actionError && <div className={styles.error}>{actionError}</div>}
+        {actionError && (
+          <Alert
+            closable
+            message={actionError}
+            onClose={() => setActionError(undefined)}
+            showIcon
+            type={'error'}
+          />
+        )}
       </Flexbox>
 
       {loading && <div className={styles.hint}>{t('loading')}</div>}
@@ -231,36 +240,39 @@ const SandboxHub = memo(() => {
       )}
 
       {profiles.map((profile) => (
-        <ProfileCard
+        <ProfileSection
           access={access}
-          footer={(() => {
-            const item = settingsOrder.find((entry) => entry.id === profile.id);
-            return item ? adminBar(item) : undefined;
-          })()}
+          admin={adminProps(profile.id)}
           health={health[profile.serverId]}
           key={profile.id}
-          onResetInstruction={() => resetSandboxProfileInstruction(profile.id)}
-          onSaveInstruction={(instruction) => setSandboxProfileInstruction(profile.id, instruction)}
+          onOpenInstruction={() => setInstructionProfileId(profile.id)}
           onToggle={(enabled) => setSandboxProfileEnabled(profile.id, enabled)}
           profile={profile}
         />
       ))}
 
       {notOffered.length > 0 && (
-        <Flexbox gap={8}>
-          <h2 className={styles.subtitle}>{t('admin.notOffered')}</h2>
-          <div className={styles.hint}>{t('admin.notOfferedHint')}</div>
+        <Flexbox gap={12}>
+          <Flexbox gap={4}>
+            <h2 className={styles.subtitle}>{t('admin.notOffered')}</h2>
+            <div className={styles.hint}>{t('admin.notOfferedHint')}</div>
+          </Flexbox>
           {notOffered.map((item) => (
-            <Flexbox className={styles.card} gap={6} key={item.id}>
-              <strong>{item.name}</strong>
-              <div className={styles.hint}>{item.description}</div>
-              {adminBar(item)}
-            </Flexbox>
+            <ProfileSection admin={adminProps(item.id)} key={item.id} />
           ))}
         </Flexbox>
       )}
 
       {scope && profiles.length > 0 && <JobList profiles={profiles} scope={scope} />}
+
+      <InstructionModal
+        access={access}
+        onClose={() => setInstructionProfileId(undefined)}
+        onReset={() => resetSandboxProfileInstruction(instructionProfileId!)}
+        onSave={(instruction) => setSandboxProfileInstruction(instructionProfileId!, instruction)}
+        open={!!instructionProfile}
+        profile={instructionProfile}
+      />
 
       {hubSettings && (
         <ProfileSettingsModal

@@ -11,6 +11,13 @@
       "cpu": "CPU",
       "defaultEnabled": "On for every user by default",
       "description": "Description",
+      "groups": {
+        "basics": "Basics",
+        "behaviour": "Behaviour & instruction",
+        "lifetimes": "Lifetimes",
+        "network": "Network",
+        "resources": "Image & resources"
+      },
       "id": "ID",
       "idHint": "Lowercase letters, digits and single hyphens, up to 16 characters. It cannot change later: it is part of the tool name.",
       "idle": "Idle timeout (minutes)",
@@ -71,10 +78,12 @@
       "unknown": "Image not prepared"
     },
     "issue": "Not offered to users: {{issue}}",
+    "more": "More actions",
     "moveDown": "Move down",
     "moveUp": "Move up",
     "notOffered": "Sandboxes not offered to users",
     "notOfferedHint": "These sandboxes have a settings problem (such as an unknown server or no image). Fix it and they return to the list.",
+    "notOfferedTag": "Not offered",
     "prepare": "Prepare image",
     "settings": "Settings"
   },
@@ -114,18 +123,18 @@
       "minutes": "{{count}} min"
     },
     "egress": {
-      "allowlist": "Network: {{count}} allowed targets",
-      "none": "Network: off",
-      "open": "Network: open"
+      "allowlist": "{{count}} allowed addresses",
+      "none": "Off",
+      "open": "Open"
     },
     "egressTargets": "Allowed: {{targets}}",
-    "hideInstruction": "Hide model instructions",
     "idle": "Removed after {{time}} idle",
     "idlePerCall": "Fresh sandbox for every call",
     "instruction": {
       "cancel": "Cancel",
+      "close": "Close",
       "customized": "Customized",
-      "edit": "Edit instruction",
+      "edit": "Edit",
       "editHint": "Saving applies to every user on this server right away.",
       "editLabel": "Edit the model instruction for {{name}}",
       "placeholderWarning": "Text like {{example}} is a template variable and is replaced with its value before the model sees it.",
@@ -136,13 +145,27 @@
       "save": "Save",
       "saveFailed": "Could not save the instruction. Please try again later.",
       "size": "{{size}} KB / {{max}} KB",
+      "title": "Model instruction: {{name}}",
       "tooLarge": "The instruction is over the {{max}} KB limit.",
-      "updatedAt": "Updated {{time}}"
+      "updatedAt": "Updated {{time}}",
+      "view": "View"
     },
     "maxLifetime": "max {{time}}",
     "resources": "CPU {{cpu}} · Memory {{memory}}",
-    "server": "Server: {{name}}",
-    "showInstruction": "Show model instructions",
+    "rows": {
+      "image": "Image",
+      "imageDesc": "Pull the image on the server ahead of users, so a first call does not time out",
+      "instruction": "Model instruction",
+      "instructionDesc": "Given to the model while this sandbox is on",
+      "lifetime": "Lifetime",
+      "lifetimeDesc": "When an unused sandbox is removed",
+      "network": "Network",
+      "networkDesc": "What the sandbox can reach",
+      "resources": "Resources",
+      "resourcesDesc": "CPU and memory each sandbox gets",
+      "server": "Server",
+      "serverDesc": "Where this sandbox runs"
+    },
     "toggle": "Turn {{name}} on or off",
     "toggleFailed": "Could not save. Try again later.",
     "unavailable": "This sandbox's server is missing its API key, so it cannot run until the operator fixes the configuration."

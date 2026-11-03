@@ -22,7 +22,7 @@ const Layout = memo<LayoutProps>(({ children }) => {
         />
       }
       padding={12}
-      style={{ background: theme.colorBgContainerSecondary }}
+      style={{ background: theme.colorBgContainer }}
       withNav
     >
       {children}
