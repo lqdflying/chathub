@@ -202,3 +202,19 @@ export interface SandboxHubSettings {
   servers: SandboxHubServerItem[];
 }
 
+/** A saved sandbox environment variable as the Hub shows it; the value never leaves the server. */
+export interface SandboxEnvItem {
+  /** `••••` and the last 4 characters of a long value. */
+  hint?: string;
+  name: string;
+  /** ISO time of the last change. */
+  updatedAt: string;
+}
+
+/** Sandbox environment variables the signed-in user can see, per profile. */
+export interface SandboxEnvList {
+  /** False when the server has no KEY_VAULTS_SECRET to encrypt values with. */
+  available: boolean;
+  profiles: Record<string, { mine: SandboxEnvItem[]; shared: SandboxEnvItem[] }>;
+}
+
