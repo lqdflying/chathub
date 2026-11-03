@@ -105,19 +105,26 @@ describe('Sandbox Hub catalog', () => {
       id: 'general',
       name: 'general',
     });
-    const dataStart = composeSandboxInstruction({
-      base: 'general',
-      description: 'data profile',
-      id: 'data',
-      name: 'data',
-    });
     expect(unchanged[0]).toMatchObject({
       instruction: generalStart,
       instructionCustomized: false,
     });
     expect(unchanged[0]).not.toHaveProperty('instructionUpdatedAt');
-    expect(unchanged[1].instruction).toBe(dataStart);
+    expect(
+      unchanged[1].instruction.startsWith('This tool is the "data" sandbox: data profile\n'),
+    ).toBe(true);
+    expect(unchanged[1].instruction).toContain(DEFAULT_SANDBOX_INSTRUCTION);
     expect(generalStart).toBe(DEFAULT_SANDBOX_INSTRUCTION);
+
+    mocks.profiles = [
+      profile('general', { instructionText: 'Node is installed.' }),
+      profile('data'),
+    ];
+    const withSandboxExtra = await getUserSandboxProfiles(db, 'user-1');
+    expect(withSandboxExtra.find((item) => item.id === 'data')?.instruction).toContain(
+      `${DEFAULT_SANDBOX_INSTRUCTION}\nNode is installed.\n`,
+    );
+    mocks.profiles = undefined;
 
     const updatedAt = new Date('2026-11-01T08:00:00.000Z');
     mocks.instructions = new Map([['general', { instruction: 'Edited.', updatedAt }]]);
@@ -154,7 +161,8 @@ describe('Sandbox Hub catalog', () => {
     const offline = profiles.find((item) => item.id === 'offline');
     const custom = profiles.find((item) => item.id === 'custom');
     expect(offline?.instruction).not.toContain('Edited.');
-    expect(offline?.instruction).toContain('files only');
+    expect(offline?.instruction).not.toContain(DEFAULT_SANDBOX_INSTRUCTION);
+    expect(offline?.instruction?.endsWith('Profile instructions:\nfiles only\n')).toBe(true);
     expect(custom?.instruction).toBe('Own text.');
   });
 

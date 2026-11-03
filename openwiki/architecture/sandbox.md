@@ -250,8 +250,10 @@ release or a restart, so it can follow sandbox image updates.
   `DEFAULT_SANDBOX_INSTRUCTION`, plus its extra instruction when one is set.
   Other profiles are composed when they are read (`catalog.ts`), on the
   General instruction: the saved `general` edit when one exists, otherwise
-  that starting text. A deployment with no saved edits sends the same prompt
-  bytes as before.
+  that starting text. A deployment with no saved edits and no extra
+  instruction on Sandbox sends the same prompt bytes as before. When
+  Sandbox has an extra instruction, every `base: general` profile now also
+  gets that text.
 - **Where admins open it.** The shared text opens from **General instruction**
   on any profile's edit form. The Sandbox card does not offer that editor.
   Every other profile still opens its own instruction from the card.
