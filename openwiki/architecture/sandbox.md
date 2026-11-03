@@ -282,6 +282,64 @@ release or a restart, so it can follow sandbox image updates.
   that change the built-in instruction should tell admins to compare and
   reset or merge.
 
+### Secret environment variables
+
+Admins and users can give a profile's sandboxes environment variables (API
+tokens, registry or service credentials, settings an image expects) from the
+Hub's **Environment variables** row. They are sent as OpenSandbox's `env` map
+when a sandbox is created; the Docker runtime merges them over the server's
+own `[docker] sandbox_env`. OpenSandbox's read endpoints do not return them.
+
+- **Who sets what.** Shared variables are per profile and set by Sandbox Hub
+  admins for every user. Each user can add their own per profile, used only in
+  their sandboxes; a user's value replaces a shared one with the same name.
+  The router checks `isSandboxHubAdmin` on every shared write
+  (`setSharedEnv`, `deleteSharedEnv`); `setMyEnv` and `deleteMyEnv` are open
+  to any user for a configured profile.
+- **Storage.** `sandbox_profile_envs` (migration `0068`, repaired by
+  `ensureSandboxProfileEnvs.cjs`): one row per profile and name for shared
+  rows (`user_id` null) and per profile, user and name for a user's rows (two
+  partial unique indexes). `value` is AES-GCM ciphertext from
+  `KeyVaultsGateKeeper`, keyed by `KEY_VAULTS_SECRET`. `hint` is `••••` plus
+  the last 4 characters of a value of 12 or more characters, else `••••`.
+  User rows go with the user; all rows go with the profile.
+- **Never back to the browser.** `listEnvs` and every write return names,
+  hints and times only. Values are typed into a password field, sent once,
+  and dropped from the dialog's state after the save or when it closes.
+  Without `KEY_VAULTS_SECRET` the feature is off: writes are refused and the
+  Hub says why.
+- **Rules** (`profiles/env.ts`, `tools/sandbox/const.ts`). Names match
+  `^[A-Z_][A-Z0-9_]{0,63}$`. Reserved: `PATH`, `HOME`, `HOSTNAME`, `PWD`,
+  `SHELL`, `USER`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, and the prefixes
+  `OPENSANDBOX_`, `EXECD_`, `CHATHUB_`. A value is 1 B to 8 KiB; at most 32
+  shared variables per profile and 32 per user per profile; a sandbox gets at
+  most 64 KiB in total (names past the cap, in name order, are left out and
+  logged by name).
+- **Resolution.** `invokeSandboxTool` calls `resolveSandboxEnv` after the
+  profile gate and before it builds the provider, on the browser and durable
+  paths alike. A value that no longer decrypts (the key changed) is left out
+  and only its name is logged. A failed read fails the call rather than start
+  a sandbox without its variables. ChatHub's own server secrets are never
+  sent.
+- **Applying a change.** Each new sandbox gets a `chathub-env` label: the
+  first 16 hex characters of HMAC-SHA256(`KEY_VAULTS_SECRET`, the sorted
+  name and value pairs), absent without variables. A tool call replaces a
+  reused sandbox whose label differs, like a runtime or network change, so a
+  saved change applies on the conversation's next call and that sandbox's
+  files and running jobs are lost. Background-job checks and Prepare image
+  pass no variables, skip the comparison, and never replace a sandbox.
+- **Masking.** Before a tool result goes back to the model, every string in
+  it has each value of 6 or more characters replaced with `[secret:NAME]`
+  (longest value first, in one pass, so masking twice changes nothing). A
+  job's error and output are masked the same way before they are saved, and a
+  running job's live log before it is returned. Exported and kept files are
+  not masked. The built-in instruction tells the model to use variables by
+  name and never print them.
+- **Risk.** Masking stops accidents, not a deliberate read: anything in the
+  sandbox, including the model, can read the variables, and so can the
+  OpenSandbox host's operator. Every user of a profile can therefore read a
+  shared value through the model. The Hub dialog says so.
+
 ### Profiles file
 
 ```yaml
@@ -596,7 +654,9 @@ sandbox again after a ChatHub restart.
   a policy is configured), or when its `chathub-runtime` label is not the
   hash of the current `OPENSANDBOX_IMAGE` plus `OPENSANDBOX_LAYOUT_VERSION`
   (a sandbox without it, e.g. a Code Interpreter one on `/tmp/chathub-ci`, is
-  replaced too). CPU and memory changes still wait for the next sandbox.
+  replaced too). A tool call also replaces it when its `chathub-env` label
+  does not match the call's Sandbox Hub variables (see *Secret environment
+  variables*). CPU and memory changes still wait for the next sandbox.
 - **After a call**, the sandbox is renewed to the idle deadline
   (`OPENSANDBOX_SESSION_IDLE_TIMEOUT`, default 30 min) and the server reaps
   it if no call comes. Every call restarts the timer. See *Keep or delete*

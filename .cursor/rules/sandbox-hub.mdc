@@ -1,5 +1,5 @@
 ---
-description: Sandbox Hub — admin-managed sandbox profiles, per-user on/off, admin-edited instructions, background jobs, one tool per profile, remote OpenSandbox servers
+description: Sandbox Hub — admin-managed sandbox profiles, per-user on/off, admin-edited instructions, environment variables, background jobs, one tool per profile, remote OpenSandbox servers
 globs: src/server/services/sandbox/**,src/tools/sandbox/**,src/store/tool/slices/sandbox/**,src/features/SandboxHub/**,src/app/[variants]/(main)/sandbox/**,src/server/routers/lambda/sandboxHub.ts
 alwaysApply: false
 ---
@@ -10,8 +10,10 @@ Several purpose-built sandboxes, each its own tool with its own instruction and
 container. Servers stay in `SANDBOX_PROFILES_FILE`. Users only turn profiles on
 or off (`/sandbox`); agents opt in from the tool picker. Admins listed in
 `SANDBOX_HUB_ADMINS` add, edit, order, and delete profiles, prepare images, and
-edit each profile's instruction for every user. Maintainer doc:
-`openwiki/architecture/sandbox.md` (Sandbox Hub profiles, Editable instructions).
+edit each profile's instruction for every user. Admins set shared environment
+variables per profile and users add their own. Maintainer doc:
+`openwiki/architecture/sandbox.md` (Sandbox Hub profiles, Editable
+instructions, Secret environment variables).
 
 ## Invariants (keep)
 
@@ -63,6 +65,14 @@ edit each profile's instruction for every user. Maintainer doc:
   Write the job row only after `withWorkspace` returns. Catch and note any
   database or storage error inside the task: a non-request error that leaves
   the task makes the provider delete the sandbox and kills the job.
+- **Environment variables** (`profiles/env.ts`, `sandbox_profile_envs`):
+  values are encrypted with `KEY_VAULTS_SECRET` and never leave the server
+  toward the browser, a DTO, an error, or a log (names and hints only). Only
+  `invokeSandboxTool` resolves and sends them, after the gate; job checks and
+  Prepare image pass none and must never replace a sandbox over
+  `chathub-env`. Mask every tool result and every saved job output with
+  `maskSandboxSecrets`. Shared writes are admin only; `SandboxProfileEnvModel`
+  is not user-scoped, so pass the owner explicitly.
 - Hub tRPC lives in the `sandboxHub.` namespace, which is in the client's
   `VERIFIED_ACCOUNT_RPC_NAMESPACES`. A new scope-checked namespace must be
   added there too, or every call fails as a mismatched user.
