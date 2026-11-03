@@ -203,5 +203,7 @@
     "toggleFailed": "Could not save. Try again later.",
     "unavailable": "This sandbox's server is missing its API key, so it cannot run until the operator fixes the configuration."
   },
+  "sandboxes": "Sandboxes",
+  "servers": "Servers",
   "title": "Sandbox Hub"
 }

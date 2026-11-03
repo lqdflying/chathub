@@ -110,7 +110,7 @@ export interface InstructionAccess {
   canEdit: boolean;
 }
 
-const HEALTH_COLOR: Record<SandboxServerHealth, string> = {
+export const HEALTH_COLOR: Record<SandboxServerHealth, string> = {
   misconfigured: 'error',
   ok: 'success',
   unauthorized: 'error',
@@ -298,13 +298,6 @@ const ProfileSection = memo<ProfileSectionProps>(
           ]
         : []),
       ...(env && !env.available ? [t('env.unavailable')] : []),
-      ...(health
-        ? [
-            <Tag color={HEALTH_COLOR[health]} key={'health'} size={'small'}>
-              {t(`health.${health}`)}
-            </Tag>,
-          ]
-        : []),
       ...(admin
         ? [
             <Tag color={IMAGE_COLOR[admin.item.imageStatus]} key={'image'} size={'small'}>

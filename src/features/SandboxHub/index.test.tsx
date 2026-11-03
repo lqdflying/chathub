@@ -394,7 +394,9 @@ describe('SandboxHub', () => {
     });
 
     expect(screen.getByText('data name')).toBeTruthy();
-    expect(screen.getAllByText('health.ok')).toHaveLength(3);
+    // The server status shows once, on its server card, not on each sandbox card.
+    expect(screen.getByText('servers')).toBeTruthy();
+    expect(screen.getAllByText('health.ok')).toHaveLength(1);
     expect(screen.getAllByText(/profile\.egress\.allowlist/)[0].textContent).toContain('"count":1');
     expect(screen.getAllByText(/profile\.idle/)[0].textContent).toContain(
       'profile.duration.minutes',
@@ -804,9 +806,13 @@ describe('SandboxHub', () => {
           settingsItem('broken', { issue: 'image: no image and OPENSANDBOX_IMAGE is unset' }),
         ]),
       );
+      mocks.serverStatus.mockResolvedValue({ remote: 'ok', spare: 'misconfigured' });
       await renderAsAdmin();
 
       expect(mocks.admin.settings).toHaveBeenCalledWith('user:u1');
+      // Admins also see a server no sandbox uses.
+      expect(screen.getByText('Spare')).toBeTruthy();
+      expect(screen.getByText('health.misconfigured')).toBeTruthy();
       expect(screen.getByText('admin.addProfile')).toBeTruthy();
       expect(screen.getAllByRole('button', { name: 'admin.more' })).toHaveLength(2);
       expect(screen.getByText('admin.image.ready')).toBeTruthy();

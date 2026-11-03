@@ -7,9 +7,9 @@ import type {
   SandboxHubSettings,
   SandboxServerHealth,
 } from '@lobechat/types';
-import { Alert, Button } from '@lobehub/ui';
+import { Alert, Button, Icon, Tag } from '@lobehub/ui';
 import { createStyles } from 'antd-style';
-import { Plus } from 'lucide-react';
+import { Plus, Server } from 'lucide-react';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
@@ -21,13 +21,26 @@ import { useUserStore } from '@/store/user';
 import EnvModal, { type EnvSection } from './EnvModal';
 import InstructionModal from './InstructionModal';
 import JobList from './JobList';
-import ProfileSection, { type InstructionAccess, type ProfileAdminProps } from './ProfileSection';
+import ProfileSection, {
+  HEALTH_COLOR,
+  type InstructionAccess,
+  type ProfileAdminProps,
+} from './ProfileSection';
 import ProfileSettingsModal from './ProfileSettingsModal';
 
 /** How often the page re-reads profile settings while an image is being prepared. */
 const PREPARE_POLL_MS = 5000;
 
 const useStyles = createStyles(({ css, token }) => ({
+  // Same frame as a sandbox card.
+  card: css`
+    padding-block: 12px;
+    padding-inline: 16px;
+    border: 1px solid ${token.colorBorderSecondary};
+    border-radius: ${token.borderRadiusLG}px;
+
+    background: ${token.colorBgContainer};
+  `,
   desc: css`
     margin: 0;
     line-height: 1.5;
@@ -40,6 +53,21 @@ const useStyles = createStyles(({ css, token }) => ({
     font-size: 13px;
     line-height: 1.6;
     overflow-wrap: anywhere;
+  `,
+  serverIcon: css`
+    flex: none;
+    color: ${token.colorTextDescription};
+  `,
+  serverName: css`
+    flex: 1;
+    min-width: 0;
+    font-weight: 500;
+    overflow-wrap: anywhere;
+  `,
+  servers: css`
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 12px;
   `,
   subtitle: css`
     margin: 0;
@@ -224,6 +252,13 @@ const SandboxHub = memo(() => {
   const notOffered = settingsOrder.filter((item) => !offered.has(item.id));
   const instructionProfile = profiles.find((profile) => profile.id === instructionDialog.id);
   const envProfile = profiles.find((profile) => profile.id === envDialog.id);
+  // Admins see every configured server; other users see the ones their sandboxes use.
+  const servers = new Map<string, string>(
+    hubSettings?.servers.map((server) => [server.id, server.name]),
+  );
+  for (const profile of profiles) {
+    if (!servers.has(profile.serverId)) servers.set(profile.serverId, profile.serverName);
+  }
   const envSummary = (profileId: string) => {
     if (!envList) return undefined;
     const entry = envList.profiles[profileId];
@@ -287,25 +322,46 @@ const SandboxHub = memo(() => {
         )}
       </Flexbox>
 
-      {loading && <div className={styles.hint}>{t('loading')}</div>}
-      {(loadFailed || accountFailed) && <div className={styles.hint}>{t('loadFailed')}</div>}
-      {!loading && !loadFailed && !accountFailed && profiles.length === 0 && (
-        <div className={styles.hint}>{t('empty')}</div>
+      {servers.size > 0 && (
+        <Flexbox gap={12}>
+          <h2 className={styles.subtitle}>{t('servers')}</h2>
+          <div className={styles.servers}>
+            {[...servers].map(([id, name]) => (
+              <Flexbox align={'center'} className={styles.card} gap={8} horizontal key={id}>
+                <Icon className={styles.serverIcon} icon={Server} size={16} />
+                <span className={styles.serverName}>{name}</span>
+                {health[id] && (
+                  <Tag color={HEALTH_COLOR[health[id]]} size={'small'}>
+                    {t(`health.${health[id]}`)}
+                  </Tag>
+                )}
+              </Flexbox>
+            ))}
+          </div>
+        </Flexbox>
       )}
 
-      {profiles.map((profile) => (
-        <ProfileSection
-          access={access}
-          admin={adminProps(profile.id)}
-          env={envSummary(profile.id)}
-          health={health[profile.serverId]}
-          key={profile.id}
-          onOpenEnv={() => setEnvDialog({ id: profile.id, open: true })}
-          onOpenInstruction={() => setInstructionDialog({ id: profile.id, open: true })}
-          onToggle={(enabled) => setSandboxProfileEnabled(profile.id, enabled)}
-          profile={profile}
-        />
-      ))}
+      <Flexbox gap={12}>
+        <h2 className={styles.subtitle}>{t('sandboxes')}</h2>
+        {loading && <div className={styles.hint}>{t('loading')}</div>}
+        {(loadFailed || accountFailed) && <div className={styles.hint}>{t('loadFailed')}</div>}
+        {!loading && !loadFailed && !accountFailed && profiles.length === 0 && (
+          <div className={styles.hint}>{t('empty')}</div>
+        )}
+        {profiles.map((profile) => (
+          <ProfileSection
+            access={access}
+            admin={adminProps(profile.id)}
+            env={envSummary(profile.id)}
+            health={health[profile.serverId]}
+            key={profile.id}
+            onOpenEnv={() => setEnvDialog({ id: profile.id, open: true })}
+            onOpenInstruction={() => setInstructionDialog({ id: profile.id, open: true })}
+            onToggle={(enabled) => setSandboxProfileEnabled(profile.id, enabled)}
+            profile={profile}
+          />
+        ))}
+      </Flexbox>
 
       {notOffered.length > 0 && (
         <Flexbox gap={12}>

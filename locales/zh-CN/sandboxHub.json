@@ -203,5 +203,7 @@
     "toggleFailed": "无法保存，请稍后重试。",
     "unavailable": "该沙盒的服务器缺少 API Key，运营者修复配置前无法使用。"
   },
+  "sandboxes": "沙盒",
+  "servers": "服务器",
   "title": "沙盒中心"
 }
