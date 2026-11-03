@@ -8,7 +8,7 @@ import type {
 } from '@lobechat/types';
 import { Alert, Form, type FormGroupItemType, type FormItemProps, Modal } from '@lobehub/ui';
 import { Input, Select, Switch } from 'antd';
-import { memo, useEffect, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
@@ -52,9 +52,15 @@ const ProfileSettingsModal = memo<ProfileSettingsModalProps>(
     const [serverError, setServerError] = useState<string>();
     const [saving, setSaving] = useState(false);
     const [avatarLoading, setAvatarLoading] = useState(false);
+    const [avatarError, setAvatarError] = useState<string>();
+    /** Invalidates an avatar generate that finishes after the dialog is reopened. */
+    const avatarRequest = useRef(0);
 
     useEffect(() => {
       if (!open) return;
+      avatarRequest.current += 1;
+      setAvatarLoading(false);
+      setAvatarError(undefined);
       setForm(toFormState(item, defaultServer ?? ''));
       setFieldError(undefined);
       setServerError(undefined);
@@ -66,9 +72,10 @@ const ProfileSettingsModal = memo<ProfileSettingsModalProps>(
     // Same cap as the profile schema: a 256px upload is usually under it.
     const setAvatar = (value: string) => {
       if (value.length > 64 * 1024) {
-        setServerError(t('admin.form.avatarTooLarge'));
+        setAvatarError(t('admin.form.avatarTooLarge'));
         return;
       }
+      setAvatarError(undefined);
       set('avatar', value);
     };
 
@@ -78,10 +85,19 @@ const ProfileSettingsModal = memo<ProfileSettingsModalProps>(
         .filter(Boolean)
         .join(', ');
       if (!content) return;
+      const request = ++avatarRequest.current;
+      const current = () => avatarRequest.current === request;
+      setAvatarError(undefined);
       void chatService.fetchPresetTaskResult({
-        onError: () => setServerError(t('admin.form.avatarGenerateFailed')),
-        onFinish: async (emoji) => setAvatar(emoji.trim()),
-        onLoadingChange: setAvatarLoading,
+        onError: () => {
+          if (current()) setAvatarError(t('admin.form.avatarGenerateFailed'));
+        },
+        onFinish: async (emoji) => {
+          if (current()) setAvatar(emoji.trim());
+        },
+        onLoadingChange: (loading) => {
+          if (current()) setAvatarLoading(loading);
+        },
         params: merge(
           systemAgentSelectors.agentMeta(useUserStore.getState()),
           chainPickEmoji(content),
@@ -202,6 +218,7 @@ const ProfileSettingsModal = memo<ProfileSettingsModalProps>(
               />
             </Flexbox>,
             t('admin.form.avatarHint'),
+            { help: avatarError, validateStatus: avatarError ? 'error' : undefined },
           ),
           row(
             'serverId',

@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   },
   cancelJob: vi.fn(),
   confirm: vi.fn(),
+  fetchPreset: vi.fn(),
   env: {
     deleteMine: vi.fn(),
     deleteShared: vi.fn(),
@@ -64,7 +65,7 @@ vi.mock('@lobehub/ui', () => {
   return {
     ActionIcon: ({ disabled, onClick, ...rest }: any) => (
       <button
-        aria-label={rest['aria-label']}
+        aria-label={rest['aria-label'] ?? rest.title}
         disabled={disabled}
         onClick={(event) => onClick?.(event)}
         type="button"
@@ -244,15 +245,25 @@ vi.mock('@/services/sandboxHub', () => ({
     updateProfile: mocks.admin.update,
   },
 }));
-vi.mock('@/store/user', () => ({
-  useUserStore: (selector: (state: any) => unknown) =>
-    selector({
-      isUserStateInit: mocks.userReady,
-      userStateInitializationFailure: mocks.initFailed
-        ? { reason: 'request-failed', scope: 'user:u1' }
-        : undefined,
-      userStateScope: mocks.scope,
-    }),
+vi.mock('@/store/user', () => {
+  const useUserStore = Object.assign(
+    (selector: (state: any) => unknown) =>
+      selector({
+        isUserStateInit: mocks.userReady,
+        userStateInitializationFailure: mocks.initFailed
+          ? { reason: 'request-failed', scope: 'user:u1' }
+          : undefined,
+        userStateScope: mocks.scope,
+      }),
+    { getState: () => ({}) },
+  );
+  return { useUserStore };
+});
+vi.mock('@/store/user/slices/settings/selectors', () => ({
+  systemAgentSelectors: { agentMeta: () => ({}) },
+}));
+vi.mock('@/services/chat', () => ({
+  chatService: { fetchPresetTaskResult: (...args: unknown[]) => mocks.fetchPreset(...args) },
 }));
 vi.mock('@/store/tool', () => ({
   useToolStore: (selector: (state: any) => unknown) =>
@@ -938,6 +949,46 @@ describe('SandboxHub', () => {
       );
       expect(screen.getByText('Server "spare" is missing its API key.')).toBeTruthy();
       expect(screen.getByRole('dialog')).toBeTruthy();
+    });
+
+    it('does not apply an avatar generate that finishes after another profile is opened', async () => {
+      let finish: (emoji: string) => void = () => undefined;
+      mocks.fetchPreset.mockImplementation((options: { onFinish: (emoji: string) => void }) => {
+        finish = options.onFinish;
+      });
+      mocks.profiles = [profile('alpha'), profile('beta')];
+      mocks.admin.settings.mockResolvedValue(
+        hubSettings([
+          settingsItem('alpha', { avatar: '🅰️' }),
+          settingsItem('beta', { avatar: '🅱️' }),
+        ]),
+      );
+      await renderAsAdmin();
+
+      fireEvent.click(screen.getAllByRole('button', { name: 'admin.settings' })[0]);
+      fireEvent.click(screen.getByRole('button', { name: 'autoGenerate' }));
+      fireEvent.click(screen.getByText('modal:close'));
+      fireEvent.click(screen.getAllByRole('button', { name: 'admin.settings' })[1]);
+      await act(async () => {
+        finish('🧪');
+      });
+
+      expect((screen.getByLabelText('admin.form.avatar') as HTMLInputElement).value).toBe('🅱️');
+    });
+
+    it('shows an oversized avatar on the field and clears it when a valid one is chosen', async () => {
+      mocks.profiles = [profile('data')];
+      await renderAsAdmin();
+      fireEvent.click(screen.getByRole('button', { name: 'admin.settings' }));
+
+      fireEvent.change(screen.getByLabelText('admin.form.avatar'), {
+        target: { value: 'x'.repeat(64 * 1024 + 1) },
+      });
+      expect(screen.getByText('admin.form.avatarTooLarge')).toBeTruthy();
+
+      fireEvent.change(screen.getByLabelText('admin.form.avatar'), { target: { value: '🧪' } });
+      expect(screen.queryByText('admin.form.avatarTooLarge')).toBeNull();
+      expect((screen.getByLabelText('admin.form.avatar') as HTMLInputElement).value).toBe('🧪');
     });
   });
 });
