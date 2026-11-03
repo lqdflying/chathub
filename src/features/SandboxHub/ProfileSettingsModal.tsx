@@ -342,7 +342,7 @@ const ProfileSettingsModal = memo<ProfileSettingsModalProps>(
         onOk={() => void submit()}
         open={open}
         title={item ? t('admin.form.titleEdit', { name: item.name }) : t('admin.form.titleCreate')}
-        width={480}
+        width={640}
       >
         <Flexbox gap={12}>
           {item && <Alert message={t('admin.form.changeWarning')} showIcon type={'warning'} />}
