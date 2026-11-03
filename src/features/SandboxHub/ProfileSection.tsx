@@ -165,13 +165,13 @@ const AdminActions = memo<ProfileAdminProps>(
 
     return (
       <>
+        {/* No title: a touch leaves the tooltip open, and it paints above the edit sheet. */}
         <ActionIcon
           aria-label={t('admin.settings')}
           disabled={busy}
           icon={Settings2}
           onClick={onEdit}
           size={'small'}
-          title={t('admin.settings')}
         />
         <Dropdown
           menu={{
@@ -218,12 +218,7 @@ const AdminActions = memo<ProfileAdminProps>(
           placement={'bottomRight'}
           trigger={['click']}
         >
-          <ActionIcon
-            aria-label={t('admin.more')}
-            icon={MoreHorizontal}
-            size={'small'}
-            title={t('admin.more')}
-          />
+          <ActionIcon aria-label={t('admin.more')} icon={MoreHorizontal} size={'small'} />
         </Dropdown>
       </>
     );

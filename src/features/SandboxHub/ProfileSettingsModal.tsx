@@ -8,6 +8,7 @@ import type {
 } from '@lobechat/types';
 import { Alert, Form, type FormGroupItemType, type FormItemProps, Modal } from '@lobehub/ui';
 import { Input, Select, Switch } from 'antd';
+import { createStyles } from 'antd-style';
 import { memo, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
@@ -27,6 +28,19 @@ import {
   toSettingsInput,
 } from './settingsForm';
 
+/** Tighter than the settings-page form this dialog reuses (48px groups, 16px rows). */
+const useStyles = createStyles(({ css, prefixCls }) => ({
+  form: css`
+    && .${prefixCls}-form-item.${prefixCls}-form-item {
+      padding-block: 8px;
+
+      .${prefixCls}-row {
+        gap: 8px;
+      }
+    }
+  `,
+}));
+
 interface ProfileSettingsModalProps {
   /** Undefined: add a profile. */
   item?: SandboxHubProfileSettingsItem;
@@ -42,6 +56,7 @@ interface ProfileSettingsModalProps {
  */
 const ProfileSettingsModal = memo<ProfileSettingsModalProps>(
   ({ item, onClose, onSubmit, open, settings }) => {
+    const { styles } = useStyles();
     const { t } = useTranslation('sandboxHub');
     const defaultServer =
       settings.servers.find((server) => server.status === 'ok')?.id ?? settings.servers[0]?.id;
@@ -148,7 +163,7 @@ const ProfileSettingsModal = memo<ProfileSettingsModalProps>(
       children,
       desc,
       label,
-      // Label above the control. The settings column leaves a wide empty gap.
+      // Label above the field so the input uses the dialog width.
       layout: 'vertical',
       minWidth: undefined,
       ...(field && fieldError === field
@@ -418,10 +433,18 @@ const ProfileSettingsModal = memo<ProfileSettingsModalProps>(
         open={open}
         title={item ? t('admin.form.titleEdit', { name: item.name }) : t('admin.form.titleCreate')}
         width={640}
+        // Above the default tooltip layer, so a leftover label cannot cover the sheet.
+        zIndex={1100}
       >
         <Flexbox gap={12}>
           {item && <Alert message={t('admin.form.changeWarning')} showIcon type={'warning'} />}
-          <Form items={groups} itemsType={'group'} variant={'borderless'} />
+          <Form
+            className={styles.form}
+            gap={16}
+            items={groups}
+            itemsType={'group'}
+            variant={'borderless'}
+          />
           {serverError && <Alert message={serverError} showIcon type={'error'} />}
         </Flexbox>
       </Modal>
