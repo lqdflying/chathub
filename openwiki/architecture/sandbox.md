@@ -250,6 +250,7 @@ release or a restart, so it can follow sandbox image updates.
   `DEFAULT_SANDBOX_INSTRUCTION` for `general`, or the profile file's text.
   It applies while no edit is saved, so a deployment without edits sends the
   same prompt bytes as before.
+- **Where admins open it.** The shared Sandbox instruction opens from **General instruction** on a profile's edit form. The Sandbox card does not offer that editor. Every other profile still opens its own instruction from the card.
 - **Edits are shared.** Admins save a full replacement text per profile in
   `sandbox_profile_instructions` (one row per profile id, `updated_by` set to
   null if that user is deleted). It applies to every user at once. Editing

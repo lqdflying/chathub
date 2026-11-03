@@ -17,6 +17,7 @@
       "cpu": "CPU",
       "defaultEnabled": "On for every user by default",
       "description": "Description",
+      "generalInstruction": "General instruction",
       "groups": {
         "basics": "Basics",
         "behaviour": "Behaviour & instruction",
@@ -38,7 +39,7 @@
         "none": "Only the text below"
       },
       "instructionText": "Extra instruction",
-      "instructionTextHint": "What is special about this sandbox, such as the tools installed. To edit the full instruction, open the sandbox card and choose Edit.",
+      "instructionTextHint": "What is special about this sandbox, such as the tools installed. General instruction opens the shared Sandbox text. For any other sandbox, Edit on its card still changes that sandbox's full instruction.",
       "invalid": {
         "allowlist": "Add at least one address.",
         "description": "Enter a description.",

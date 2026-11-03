@@ -19,6 +19,7 @@ export default {
       cpu: 'CPU',
       defaultEnabled: '默认对所有用户开启',
       description: '描述',
+      generalInstruction: '通用说明',
       groups: {
         basics: '基本信息',
         behaviour: '行为与说明',
@@ -42,7 +43,7 @@ export default {
       },
       instructionText: '附加说明',
       instructionTextHint:
-        '此沙盒特有的说明，例如已安装的工具。完整说明请打开沙盒卡片并选择“编辑”。',
+        '此沙盒特有的说明，例如已安装的工具。通用说明用上面的按钮。其他沙盒的完整说明仍在各自卡片上选择“编辑”。',
       invalid: {
         allowlist: '请至少填写一个地址。',
         description: '请填写描述。',

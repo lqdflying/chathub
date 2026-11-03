@@ -17,6 +17,7 @@ import { Flexbox } from 'react-layout-kit';
 import { sandboxHubService } from '@/services/sandboxHub';
 import { useToolStore } from '@/store/tool';
 import { useUserStore } from '@/store/user';
+import { DEFAULT_SANDBOX_PROFILE_ID } from '@/tools/sandbox/const';
 
 import EnvModal, { type EnvSection } from './EnvModal';
 import InstructionModal from './InstructionModal';
@@ -402,6 +403,11 @@ const SandboxHub = memo(() => {
         <ProfileSettingsModal
           item={editor.item}
           onClose={() => setEditor({ open: false })}
+          onOpenGeneralInstruction={
+            profiles.some((profile) => profile.id === DEFAULT_SANDBOX_PROFILE_ID)
+              ? () => setInstructionDialog({ id: DEFAULT_SANDBOX_PROFILE_ID, open: true })
+              : undefined
+          }
           onSubmit={saveProfile}
           open={editor.open}
           settings={hubSettings}

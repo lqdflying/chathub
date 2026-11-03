@@ -137,6 +137,7 @@ const InstructionModal = memo<InstructionModalProps>(
         open={open}
         title={t('profile.instruction.title', { name: profile?.name ?? '' })}
         width={760}
+        zIndex={1200}
       >
         {canEdit ? (
           <Flexbox gap={10}>

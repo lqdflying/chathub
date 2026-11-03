@@ -785,6 +785,28 @@ describe('SandboxHub', () => {
       });
     };
 
+    it('opens the general instruction from the edit form, not the Sandbox card', async () => {
+      mocks.profiles = [
+        profile('general', { instruction: 'general contract', name: 'Sandbox' }),
+        profile('data'),
+      ];
+      mocks.admin.settings.mockResolvedValue(
+        hubSettings([settingsItem('general', { name: 'Sandbox' }), settingsItem('data')]),
+      );
+      await renderAsAdmin();
+
+      fireEvent.click(screen.getByRole('button', { name: /profile\.details.*Sandbox/ }));
+      expect(screen.queryByText('profile.instruction.edit')).toBeNull();
+
+      fireEvent.click(screen.getAllByRole('button', { name: 'admin.settings' })[0]);
+      fireEvent.click(screen.getByText('admin.form.generalInstruction'));
+      expect(
+        screen
+          .getAllByRole('dialog')
+          .some((dialog) => dialog.textContent?.includes('general contract')),
+      ).toBe(true);
+    });
+
     it('is not loaded for users who are not admins', async () => {
       mocks.profiles = [profile('data')];
       await act(async () => {
