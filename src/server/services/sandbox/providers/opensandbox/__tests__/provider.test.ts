@@ -854,6 +854,78 @@ describe('OpenSandboxProvider', () => {
       expect(calls.creates).toBe(0);
       expect(calls.commandIds).toEqual(['sbx-old']);
     });
+
+    it('creates the sandbox with its environment variables and their label', async () => {
+      const calls = install();
+
+      await python(
+        profileProvider({ env: { fingerprint: 'abc123', values: { API_TOKEN: 't0ken-value' } } }),
+        { sessionKey: 'topic-a' },
+      );
+
+      expect(calls.createBody?.env).toEqual({ API_TOKEN: 't0ken-value' });
+      expect(calls.createBody?.metadata).toMatchObject({ 'chathub-env': 'abc123' });
+    });
+
+    it('sends no env and no env label without variables', async () => {
+      const calls = install();
+
+      await python(profileProvider({ env: { values: {} } }), { sessionKey: 'topic-a' });
+
+      expect(calls.createBody).not.toHaveProperty('env');
+      expect(calls.createBody?.metadata).not.toHaveProperty('chathub-env');
+    });
+
+    it('replaces a reused sandbox whose variables changed, only when variables are given', async () => {
+      const parked = (env?: string) => ({
+        existing: [
+          {
+            createdAt: ago(60_000),
+            id: 'sbx-old',
+            metadata: {
+              ...session('topic-a'),
+              'chathub-profile': 'data',
+              'chathub-runtime': runtimeFingerprint('registry.example/data:3'),
+              ...(env ? { 'chathub-env': env } : {}),
+            },
+          },
+        ],
+      });
+      const call = (env?: { fingerprint?: string; values: Record<string, string> }) =>
+        python(profileProvider(env ? { env } : {}), { sessionKey: 'topic-a' });
+
+      // Values changed, or all removed: a fresh sandbox.
+      let calls = install(parked('old'));
+      await call({ fingerprint: 'new', values: { A: '1' } });
+      expect(calls.deletedIds).toContain('sbx-old');
+      expect(calls.creates).toBe(1);
+
+      calls = install(parked('old'));
+      await call({ values: {} });
+      expect(calls.deletedIds).toContain('sbx-old');
+      expect(calls.creates).toBe(1);
+
+      // Variables added to a sandbox that had none: a fresh sandbox.
+      calls = install(parked());
+      await call({ fingerprint: 'new', values: { A: '1' } });
+      expect(calls.creates).toBe(1);
+
+      // Unchanged, or none before and now: reused.
+      calls = install(parked('same'));
+      await call({ fingerprint: 'same', values: { A: '1' } });
+      expect(calls.creates).toBe(0);
+      expect(calls.commandIds).toEqual(['sbx-old']);
+
+      calls = install(parked());
+      await call({ values: {} });
+      expect(calls.creates).toBe(0);
+
+      // Not given (a background-job check): never compared.
+      calls = install(parked('old'));
+      await call();
+      expect(calls.creates).toBe(0);
+      expect(calls.deleted).toBe(0);
+    });
   });
 
   it('stops reading a forged-small output once it passes the file cap', async () => {

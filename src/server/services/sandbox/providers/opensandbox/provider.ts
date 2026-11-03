@@ -47,6 +47,11 @@ export const RUNTIME_METADATA_KEY = 'chathub-runtime';
 // Informational (operator cleanup, debugging): reuse never requires it, so
 // sandboxes created before profiles existed are still reused.
 export const PROFILE_METADATA_KEY = 'chathub-profile';
+// Container label with an HMAC of the Sandbox Hub environment variables the
+// sandbox was created with (absent: none). A tool call whose variables differ
+// replaces the sandbox; calls that pass no variables (job checks) skip it.
+export const ENV_METADATA_KEY = 'chathub-env';
+const NO_ENV_FINGERPRINT = 'none';
 export const SANDBOX_METADATA_NAME = 'chathub-sandbox';
 // Name label of the throwaway sandbox "Prepare image" creates; never reused.
 export const SANDBOX_PREPARE_METADATA_NAME = 'chathub-sandbox-prepare';
@@ -105,12 +110,20 @@ const networkCompatible = (recorded: string | undefined, fingerprint: string) =>
 const keepsSandbox = (error: SandboxError) =>
   error instanceof SandboxRequestError || error.code === 'Timeout' || error.code === 'Cancelled';
 
+/** Environment variables a sandbox is created with, and their label value. */
+export interface SandboxEnvSpec {
+  /** Undefined when there are no variables. */
+  fingerprint?: string;
+  values: Record<string, string>;
+}
+
 export class OpenSandboxProvider implements SandboxProvider {
   readonly id = 'opensandbox';
   private apiKey?: string;
   private baseUrl?: string;
   private cpu: string;
   private egressAllow: string[];
+  private env?: SandboxEnvSpec;
   private image?: string;
   private imageAuth?: { password: string; username: string };
   private maxFileBytes: number;
@@ -134,6 +147,11 @@ export class OpenSandboxProvider implements SandboxProvider {
     cpu?: string;
     /** Allowed egress targets; empty = no policy unless `networkDisabled`. */
     egressAllow?: string[];
+    /**
+     * Sandbox Hub variables for a new sandbox. Given (even empty), a reused
+     * sandbox created with other values is replaced; omitted, that is not checked.
+     */
+    env?: SandboxEnvSpec;
     image?: string;
     /** Registry login for the image, from the server's `registries`. */
     imageAuth?: { password: string; username: string };
@@ -161,6 +179,7 @@ export class OpenSandboxProvider implements SandboxProvider {
         .split(',')
         .map((item) => item.trim())
         .filter(Boolean);
+    this.env = options?.env;
     this.memory = options?.memory ?? sandboxEnv.OPENSANDBOX_MEMORY;
     this.networkDisabled = options?.networkDisabled ?? false;
     this.profileId = options?.profileId;
@@ -264,6 +283,7 @@ export class OpenSandboxProvider implements SandboxProvider {
     try {
       const readySignal = combineSignals(AbortSignal.timeout(this.readyTimeout), options.signal);
       const fingerprints = {
+        env: this.env ? (this.env.fingerprint ?? NO_ENV_FINGERPRINT) : undefined,
         network: networkPolicyFingerprint(this.networkPolicy(options)),
         runtime: runtimeFingerprint(this.image),
       };
@@ -412,8 +432,10 @@ export class OpenSandboxProvider implements SandboxProvider {
     const created = await client.createSandbox(
       {
         entrypoint: SANDBOX_ENTRYPOINT,
+        ...(this.env && Object.keys(this.env.values).length > 0 ? { env: this.env.values } : {}),
         image: this.imageSpec(),
         metadata: {
+          ...(this.env?.fingerprint ? { [ENV_METADATA_KEY]: this.env.fingerprint } : {}),
           [NETWORK_METADATA_KEY]: networkPolicyFingerprint(networkPolicy),
           [RUNTIME_METADATA_KEY]: runtimeFingerprint(this.image!),
           ...(this.profileId ? { [PROFILE_METADATA_KEY]: this.profileId } : {}),
@@ -447,7 +469,8 @@ export class OpenSandboxProvider implements SandboxProvider {
    * Finds this conversation's running sandbox and pushes its expiry past the
    * coming call. One that does not respond, is too close to its optional max
    * lifetime to finish the call, or was created with a different network
-   * policy, image, or layout, is deleted, and the caller creates a fresh one.
+   * policy, image, layout, or (when given) environment variables, is
+   * deleted, and the caller creates a fresh one.
    * Other Running sandboxes with the same session key are deleted after one
    * is chosen. A failed lookup does not delete anything: reuse must never be
    * why a call fails.
@@ -456,7 +479,7 @@ export class OpenSandboxProvider implements SandboxProvider {
     client: OpenSandboxClient,
     sessionKey: string,
     runBudgetMs: number,
-    fingerprints: { network: string; runtime: string },
+    fingerprints: { env?: string; network: string; runtime: string },
     signal: AbortSignal,
   ): Promise<{
     lookupFailed?: boolean;
@@ -481,7 +504,9 @@ export class OpenSandboxProvider implements SandboxProvider {
       if (
         this.retireAt(createdAt) - Date.now() < runBudgetMs ||
         !networkCompatible(metadata?.[NETWORK_METADATA_KEY], fingerprints.network) ||
-        metadata?.[RUNTIME_METADATA_KEY] !== fingerprints.runtime
+        metadata?.[RUNTIME_METADATA_KEY] !== fingerprints.runtime ||
+        (fingerprints.env !== undefined &&
+          (metadata?.[ENV_METADATA_KEY] ?? NO_ENV_FINGERPRINT) !== fingerprints.env)
       ) {
         retired = true;
         await this.deleteQuietly(client, id);

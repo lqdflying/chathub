@@ -235,9 +235,15 @@ interface Masker {
   pattern: RegExp;
 }
 
+/** A mask already in the text; matched first so masking twice changes nothing. */
+const MASK_TOKEN = String.raw`\[secret:[A-Z_][\dA-Z_]*]`;
+
 const maskDeep = (value: unknown, masker: Masker): unknown => {
   if (typeof value === 'string') {
-    return value.replace(masker.pattern, (match) => `[secret:${masker.names.get(match)}]`);
+    return value.replace(masker.pattern, (match) => {
+      const name = masker.names.get(match);
+      return name ? `[secret:${name}]` : match;
+    });
   }
   if (Array.isArray(value)) return value.map((item) => maskDeep(item, masker));
   if (value && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
@@ -261,12 +267,11 @@ export const maskSandboxSecrets = <T>(value: T, env: Record<string, string>): T 
   }
   if (names.size === 0) return value;
   // One pass, longest value first: a value that contains another is masked
-  // whole, and a replacement is never masked again.
+  // whole, and a replacement (or an earlier mask) is never masked again.
   const pattern = new RegExp(
-    [...names.keys()]
-      .sort((a, b) => b.length - a.length)
-      .map(escapeRegExp)
-      .join('|'),
+    [MASK_TOKEN, ...[...names.keys()].sort((a, b) => b.length - a.length).map(escapeRegExp)].join(
+      '|',
+    ),
     'g',
   );
   return maskDeep(value, { names, pattern }) as T;

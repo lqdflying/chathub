@@ -247,6 +247,13 @@ describe('maskSandboxSecrets', () => {
     });
   });
 
+  it('does not mask a mask again', () => {
+    const env = { SHORT: 'secret' };
+    const once = maskSandboxSecrets('a secret here', env);
+    expect(once).toBe('a [secret:SHORT] here');
+    expect(maskSandboxSecrets(once, env)).toBe(once);
+  });
+
   it('treats values as literal text', () => {
     expect(maskSandboxSecrets('pw=a.b*c(d)$', { PASSWORD: 'a.b*c(d)$' })).toBe(
       'pw=[secret:PASSWORD]',

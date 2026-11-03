@@ -7,6 +7,7 @@ type Row = Record<string, any>;
 
 const state = vi.hoisted(() => ({
   enqueue: vi.fn(),
+  env: {} as Record<string, string>,
   gate: undefined as any,
   idleMs: undefined as number | undefined,
   persist: vi.fn(),
@@ -77,6 +78,10 @@ vi.mock('../../registry', () => ({
   }),
 }));
 vi.mock('../../conversationFiles', () => ({ persistSandboxOutputFiles: state.persist }));
+vi.mock('../../profiles/env', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../profiles/env')>()),
+  resolveSandboxEnv: async () => state.env,
+}));
 vi.mock('../enqueue', () => ({ enqueueSandboxJobWatch: state.enqueue }));
 
 const { sandboxJobWatchDelayMs } = await import('../constants');
@@ -137,6 +142,7 @@ describe('Sandbox background jobs', () => {
     vi.clearAllMocks();
     state.rows = new Map();
     state.gate = ok;
+    state.env = {};
     state.idleMs = undefined;
     state.profileExists = true;
     state.providerError = undefined;
@@ -192,6 +198,46 @@ describe('Sandbox background jobs', () => {
     ]);
     expect(row.error).toBe('Not kept: 1 more file(s) over the 2-file limit');
     expect(state.workspace.markSynced).toHaveBeenCalledWith(['file_0', 'file_1']);
+  });
+
+  it('masks variable values in the output before saving it', async () => {
+    state.env = { API_TOKEN: 'tok-123456789' };
+    state.workspace = fakeWorkspace({
+      error: 'auth failed with tok-123456789',
+      exitCode: 1,
+      running: false,
+    });
+    state.workspace.commandLogs.mockResolvedValue({ cursor: 1, output: 'token tok-123456789\n' });
+
+    const { row } = await checkSandboxJob({
+      apiName: 'watchJob',
+      db,
+      now: BEFORE_DEADLINE,
+      row: addJob({ outputDir: null }),
+      userId: 'user-1',
+    });
+
+    expect(state.rows.get('sjob_1')).toMatchObject({
+      error: 'auth failed with [secret:API_TOKEN]',
+      outputTail: 'token [secret:API_TOKEN]\n',
+    });
+    expect(JSON.stringify(row)).not.toContain('tok-123456789');
+  });
+
+  it('masks variable values in a running job\'s live log', async () => {
+    state.env = { API_TOKEN: 'tok-123456789' };
+    state.workspace.commandLogs.mockResolvedValue({ cursor: 1, output: 'using tok-123456789\n' });
+
+    const { log } = await checkSandboxJob({
+      apiName: 'getJobResult',
+      db,
+      now: BEFORE_DEADLINE,
+      row: addJob(),
+      userId: 'user-1',
+      withLog: true,
+    });
+
+    expect(log).toBe('using [secret:API_TOKEN]\n');
   });
 
   it('finishes a job when reading its log times out', async () => {

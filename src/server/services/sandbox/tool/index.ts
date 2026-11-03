@@ -19,6 +19,7 @@ import { enqueueSandboxJobWatch } from '../jobs/enqueue';
 import { toJobResult } from '../jobs/lifecycle';
 import { cancelSandboxJob, getSandboxJobResult, listSandboxJobs } from '../jobs/service';
 import { resolveSandboxProfileForUser } from '../profiles/catalog';
+import { maskSandboxSecrets, resolveSandboxEnv, sandboxEnvFingerprint } from '../profiles/env';
 import type { ResolvedSandboxProfile, ResolvedSandboxServer } from '../profiles/schema';
 import { getSandboxProvider } from '../registry';
 import { buildSandboxSessionKey, type SandboxConversationScope } from '../session';
@@ -97,9 +98,13 @@ class SandboxToolRunner {
   constructor(
     private readonly params: InvokeSandboxToolParams,
     target: { profile: ResolvedSandboxProfile; server: ResolvedSandboxServer },
+    /** Sandbox Hub variables for this user's sandbox of this profile. */
+    env: Record<string, string>,
   ) {
     this.profile = target.profile;
-    this.provider = getSandboxProvider(target.profile, target.server);
+    this.provider = getSandboxProvider(target.profile, target.server, {
+      env: { fingerprint: sandboxEnvFingerprint(env), values: env },
+    });
     this.sessionKey = buildSandboxSessionKey({ ...params, profileId: target.profile.id });
   }
 
@@ -540,7 +545,7 @@ const throwIfCallerCancelled = (signal?: AbortSignal) => {
  * model sees (serialized as the tool message content). A caller abort is
  * rethrown even when the workspace swallowed it and resolved (Python output
  * collection and the sync record do that). Every other failure comes back as
- * `success: false`.
+ * `success: false`. Sandbox Hub variable values in the result are masked.
  */
 export const invokeSandboxTool = async (
   params: InvokeSandboxToolParams,
@@ -565,19 +570,28 @@ export const invokeSandboxTool = async (
   });
   if (!target.ok) return isPython ? pythonFailure(target.message) : failure(target.message);
 
-  const runner = new SandboxToolRunner(params, target);
+  let env: Record<string, string>;
+  try {
+    env = await resolveSandboxEnv(params.db, params.userId, target.profile.id);
+  } catch {
+    // Without them a new sandbox would start without its variables.
+    const message = 'The sandbox environment variables could not be read. Try again.';
+    return isPython ? pythonFailure(message) : failure(message);
+  }
+
+  const runner = new SandboxToolRunner(params, target, env);
   try {
     // The schema for each API name produces that API's arguments.
     const call = runner[apiName].bind(runner) as (args: unknown) => Promise<SandboxToolResult>;
     const result = await call(parsed.data);
     throwIfCallerCancelled(params.signal);
-    return result;
+    return maskSandboxSecrets(result, env);
   } catch (error) {
     if (params.signal?.aborted || (error instanceof SandboxError && error.code === 'Cancelled')) {
       throw error;
     }
     const message =
       error instanceof SandboxError || error instanceof Error ? error.message : 'Sandbox failed.';
-    return isPython ? pythonFailure(message) : failure(message);
+    return maskSandboxSecrets(isPython ? pythonFailure(message) : failure(message), env);
   }
 };

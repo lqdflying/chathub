@@ -15,6 +15,7 @@ import { SANDBOX_CONTROL_DIR, sandboxToolIdentifier } from '@/tools/sandbox/cons
 import { persistSandboxOutputFiles } from '../conversationFiles';
 import { loadSandboxFiles } from '../exportFiles';
 import { resolveSandboxProfileForUser } from '../profiles/catalog';
+import { maskSandboxSecrets, resolveSandboxEnv } from '../profiles/env';
 import { findSandboxProfile } from '../profiles/hub';
 import { findSandboxServer } from '../profiles/load';
 import { getSandboxProvider } from '../registry';
@@ -324,7 +325,8 @@ const inJobSandbox = async <T>({
  * when the command has ended, stops it when asked, when its profile was
  * turned off, or past its deadline, and marks it lost when its sandbox is
  * gone. Database writes happen after the sandbox call, so a database error
- * never makes the provider discard a healthy sandbox.
+ * never makes the provider discard a healthy sandbox. Sandbox Hub variable
+ * values are masked in the output before it is saved or returned.
  */
 export const checkSandboxJob = async ({
   apiName,
@@ -343,6 +345,8 @@ export const checkSandboxJob = async ({
   userId: string;
   withLog?: boolean;
 }): Promise<{ log?: string; row: SandboxJobRow }> => {
+  // Read before the sandbox call: a failure here then changes nothing.
+  const env = await resolveSandboxEnv(db, userId, row.profileId);
   let opened;
   try {
     opened = await inJobSandbox({
@@ -378,16 +382,19 @@ export const checkSandboxJob = async ({
   const checkedAt = new Date(now);
   if (observed.kind === 'running') {
     await model.markChecked(row.id, checkedAt);
-    return { log: observed.log, row: { ...row, lastCheckedAt: checkedAt } };
+    return {
+      log: observed.log && maskSandboxSecrets(observed.log, env),
+      row: { ...row, lastCheckedAt: checkedAt },
+    };
   }
 
   const notes = observed.skipped.length > 0 ? `Not kept: ${observed.skipped.join('; ')}` : '';
   const error = [observed.ending.error, notes].filter(Boolean).join('\n');
   const saved = await model.finish(row.id, {
     ...observed.ending,
-    ...(error ? { error } : {}),
+    ...(error ? { error: maskSandboxSecrets(error, env) } : {}),
     files: observed.files,
-    outputTail: observed.outputTail,
+    outputTail: observed.outputTail && maskSandboxSecrets(observed.outputTail, env),
   });
   return { row: saved ?? (await model.find(row.id)) ?? row };
 };

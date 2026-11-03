@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => ({
   keepsSessions: true,
   listInputs: vi.fn(),
   persist: vi.fn(),
+  providerArgs: [] as unknown[][],
+  resolveEnv: vi.fn(),
   withWorkspace: vi.fn(),
 }));
 
@@ -20,12 +22,19 @@ vi.mock('@/envs/sandbox', () => ({
   },
 }));
 vi.mock('../../registry', () => ({
-  getSandboxProvider: () => ({
-    get keepsSessions() {
-      return mocks.keepsSessions;
-    },
-    withWorkspace: mocks.withWorkspace,
-  }),
+  getSandboxProvider: (...args: unknown[]) => {
+    mocks.providerArgs.push(args);
+    return {
+      get keepsSessions() {
+        return mocks.keepsSessions;
+      },
+      withWorkspace: mocks.withWorkspace,
+    };
+  },
+}));
+vi.mock('../../profiles/env', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../profiles/env')>()),
+  resolveSandboxEnv: mocks.resolveEnv,
 }));
 vi.mock('../../profiles/catalog', () => ({
   resolveSandboxProfileForUser: async ({ identifier }: { identifier: string }) => {
@@ -107,6 +116,8 @@ describe('invokeSandboxTool', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.keepsSessions = true;
+    mocks.providerArgs = [];
+    mocks.resolveEnv.mockResolvedValue({});
     workspace = fakeWorkspace();
     mocks.listInputs.mockResolvedValue(inputs);
     mocks.persist.mockImplementation(async ({ files }: { files: Array<{ filename: string }> }) =>
@@ -126,6 +137,52 @@ describe('invokeSandboxTool', () => {
     });
     expect(await call('readFile', {})).toMatchObject({
       error: expect.stringContaining('Invalid arguments for readFile: path:'),
+      success: false,
+    });
+    expect(mocks.withWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("creates the sandbox with the user's variables and masks their values in the result", async () => {
+    mocks.resolveEnv.mockResolvedValue({ API_TOKEN: 'tok-123456789' });
+    workspace = fakeWorkspace({
+      exec: vi.fn(async () => ({
+        durationMs: 5,
+        exitCode: 1,
+        killed: false,
+        stderr: 'denied for tok-123456789',
+        stdout: 'API_TOKEN=tok-123456789\n',
+        timedOut: false,
+      })),
+    });
+
+    const result = await call('runCommand', { command: 'printenv API_TOKEN' });
+
+    expect(mocks.resolveEnv).toHaveBeenCalledWith({}, 'user-1', 'general');
+    expect(mocks.providerArgs[0][2]).toEqual({
+      env: { fingerprint: undefined, values: { API_TOKEN: 'tok-123456789' } },
+    });
+    expect(JSON.stringify(result)).not.toContain('tok-123456789');
+    expect(result).toMatchObject({
+      stderr: 'denied for [secret:API_TOKEN]',
+      stdout: 'API_TOKEN=[secret:API_TOKEN]\n',
+    });
+  });
+
+  it('masks variable values in a failure message', async () => {
+    mocks.resolveEnv.mockResolvedValue({ API_TOKEN: 'tok-123456789' });
+    mocks.withWorkspace.mockRejectedValue(new Error('bad header tok-123456789'));
+
+    expect(await call('runCommand', { command: 'true' })).toEqual({
+      error: 'bad header [secret:API_TOKEN]',
+      success: false,
+    });
+  });
+
+  it('does not start a sandbox when the variables cannot be read', async () => {
+    mocks.resolveEnv.mockRejectedValue(new Error('db down'));
+
+    expect(await call('runCommand', { command: 'true' })).toEqual({
+      error: 'The sandbox environment variables could not be read. Try again.',
       success: false,
     });
     expect(mocks.withWorkspace).not.toHaveBeenCalled();
