@@ -180,12 +180,19 @@ describe('invokeSandboxTool', () => {
 
   it('does not start a sandbox when the variables cannot be read', async () => {
     mocks.resolveEnv.mockRejectedValue(new Error('db down'));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
     expect(await call('runCommand', { command: 'true' })).toEqual({
       error: 'The sandbox environment variables could not be read. Try again.',
       success: false,
     });
     expect(mocks.withWorkspace).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      '[sandbox] could not read environment variables; the call was refused',
+      { errorClass: 'Error', profileId: 'general' },
+    );
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('db down');
+    warn.mockRestore();
   });
 
   it('runs a foreground command with conversation files and a clamped time limit', async () => {

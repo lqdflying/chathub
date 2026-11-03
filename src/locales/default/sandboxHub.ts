@@ -117,7 +117,7 @@ export default {
     save: '保存',
     shared: '共享变量',
     sharedHint: '由管理员设置，对该沙盒的所有用户生效。',
-    sharedReadOnly: '由沙盒中心管理员设置。只显示名称，值不会发送到浏览器。',
+    sharedReadOnly: '由沙盒中心管理员设置。只显示名称和简短提示，完整的值不会发送到浏览器。',
     summary: '{{shared}} 个共享 · {{mine}} 个我的',
     title: '“{{name}}”的环境变量',
     tooLarge: '值不能超过 {{max}} KB。',

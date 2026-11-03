@@ -47,6 +47,9 @@ export class SandboxEnvError extends Error {
 
 const bytes = (value: string) => Buffer.byteLength(value, 'utf8');
 
+const unreadableSnapshot = () =>
+  new SandboxEnvError('PRECONDITION_FAILED', 'The job environment snapshot could not be read.');
+
 /** Why a variable name is refused, or undefined when it is allowed. */
 export const sandboxEnvNameProblem = (name: string): string | undefined => {
   if (!SANDBOX_ENV_NAME_PATTERN.test(name)) {
@@ -235,24 +238,22 @@ export const readSandboxEnvSnapshot = async (
   snapshot: string | null | undefined,
 ): Promise<Record<string, string>> => {
   if (!snapshot) return {};
-  const unreadable = () =>
-    new SandboxEnvError('PRECONDITION_FAILED', 'The job environment snapshot could not be read.');
-  if (!isSandboxEnvAvailable()) throw unreadable();
+  if (!isSandboxEnvAvailable()) throw unreadableSnapshot();
   try {
     const gateKeeper = await KeyVaultsGateKeeper.initWithEnvKey();
     const { plaintext, wasAuthentic } = await gateKeeper.decrypt(snapshot);
-    if (!wasAuthentic) throw unreadable();
+    if (!wasAuthentic) throw unreadableSnapshot();
     const parsed: unknown = JSON.parse(plaintext);
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw unreadable();
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw unreadableSnapshot();
     const env: Record<string, string> = {};
     for (const [name, value] of Object.entries(parsed)) {
-      if (typeof value !== 'string') throw unreadable();
+      if (typeof value !== 'string') throw unreadableSnapshot();
       env[name] = value;
     }
     return env;
   } catch (error) {
     if (error instanceof SandboxEnvError) throw error;
-    throw unreadable();
+    throw unreadableSnapshot();
   }
 };
 

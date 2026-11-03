@@ -581,8 +581,12 @@ export const invokeSandboxTool = async (
   let env: Record<string, string>;
   try {
     env = await resolveSandboxEnv(params.db, params.userId, target.profile.id);
-  } catch {
+  } catch (error) {
     // Without them a new sandbox would start without its variables.
+    console.warn('[sandbox] could not read environment variables; the call was refused', {
+      errorClass: error instanceof Error ? error.name : typeof error,
+      profileId: target.profile.id,
+    });
     const message = 'The sandbox environment variables could not be read. Try again.';
     return isPython ? pythonFailure(message) : failure(message);
   }

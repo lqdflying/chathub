@@ -111,7 +111,7 @@
     "save": "Save",
     "shared": "Shared variables",
     "sharedHint": "Set by admins for every user of this sandbox.",
-    "sharedReadOnly": "Set by Sandbox Hub admins. Only names are shown; values are never sent to the browser.",
+    "sharedReadOnly": "Set by Sandbox Hub admins. Names and a short hint are shown; the full value is never sent to the browser.",
     "summary": "{{shared}} shared · {{mine}} yours",
     "title": "Environment variables for \"{{name}}\"",
     "tooLarge": "A value can be at most {{max}} KB.",
