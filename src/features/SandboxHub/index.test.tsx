@@ -499,19 +499,22 @@ describe('SandboxHub', () => {
       expect(screen.getByText('profile.instruction.readOnlyNoAdmins')).toBeTruthy();
     });
 
-    it('lets an admin edit and save the instruction', async () => {
+    it('lets an admin edit and save the extra instruction', async () => {
       mocks.access.mockResolvedValue({ adminsConfigured: true, canEditInstructions: true });
+      mocks.admin.settings.mockResolvedValue(
+        hubSettings([settingsItem('data', { instructionText: 'data extra' })]),
+      );
+      mocks.admin.update.mockResolvedValue(hubSettings());
       mocks.profiles = [profile('data')];
       await renderHub();
 
-      // Reset only appears once the text has been edited.
       expect(screen.queryByText('profile.instruction.reset')).toBeNull();
       openDetails();
       fireEvent.click(screen.getByText('profile.instruction.edit'));
       expect(screen.getByRole('dialog').getAttribute('data-mask-closable')).toBe('false');
       expect(screen.getByRole('dialog').getAttribute('data-keyboard')).toBe('false');
       const editor = screen.getByRole('textbox') as HTMLTextAreaElement;
-      expect(editor.value).toBe('data instruction text');
+      expect(editor.value).toBe('data extra');
 
       const save = () => screen.getByText('profile.instruction.save') as HTMLButtonElement;
       expect(save().disabled).toBe(true);
@@ -522,13 +525,18 @@ describe('SandboxHub', () => {
       await act(async () => {
         fireEvent.click(save());
       });
-      expect(mocks.setInstruction).toHaveBeenCalledWith('data', 'Today is {{date}}.');
+      expect(mocks.admin.update).toHaveBeenCalledWith(
+        'user:u1',
+        'data',
+        expect.objectContaining({ instructionText: 'Today is {{date}}.' }),
+      );
+      expect(mocks.setInstruction).not.toHaveBeenCalled();
       expect(screen.queryByRole('textbox')).toBeNull();
     });
 
     it('keeps the draft and shows an error when saving fails', async () => {
       mocks.access.mockResolvedValue({ adminsConfigured: true, canEditInstructions: true });
-      mocks.setInstruction.mockRejectedValue(new Error('FORBIDDEN'));
+      mocks.admin.update.mockRejectedValue(new Error('FORBIDDEN'));
       mocks.profiles = [profile('data')];
       await renderHub();
       openDetails();
@@ -556,25 +564,25 @@ describe('SandboxHub', () => {
       );
     });
 
-    it('shows when an edit was made and resets it after confirmation', async () => {
+    it('clears the extra instruction after confirmation', async () => {
       mocks.access.mockResolvedValue({ adminsConfigured: true, canEditInstructions: true });
-      mocks.profiles = [
-        profile('data', {
-          instruction: 'Edited.',
-          instructionCustomized: true,
-          instructionUpdatedAt: '2026-11-01T08:00:00.000Z',
-        }),
-      ];
+      mocks.admin.settings.mockResolvedValue(
+        hubSettings([settingsItem('data', { instructionText: 'Edited.' })]),
+      );
+      mocks.admin.update.mockResolvedValue(hubSettings());
+      mocks.profiles = [profile('data')];
       await renderHub();
       openDetails();
-      expect(screen.getByText('profile.instruction.customized')).toBeTruthy();
-      expect(screen.getByText(/profile\.instruction\.updatedAt/)).toBeTruthy();
-
       fireEvent.click(screen.getByText('profile.instruction.edit'));
       await act(async () => {
         fireEvent.click(screen.getByText('confirm:profile.instruction.reset'));
       });
-      expect(mocks.resetInstruction).toHaveBeenCalledWith('data');
+      expect(mocks.admin.update).toHaveBeenCalledWith(
+        'user:u1',
+        'data',
+        expect.objectContaining({ instructionText: null }),
+      );
+      expect(mocks.resetInstruction).not.toHaveBeenCalled();
     });
   });
 

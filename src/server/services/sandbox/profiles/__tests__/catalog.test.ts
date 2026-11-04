@@ -163,7 +163,8 @@ describe('Sandbox Hub catalog', () => {
     expect(offline?.instruction).not.toContain('Edited.');
     expect(offline?.instruction).not.toContain(DEFAULT_SANDBOX_INSTRUCTION);
     expect(offline?.instruction?.endsWith('Profile instructions:\nfiles only\n')).toBe(true);
-    expect(custom?.instruction).toBe('Own text.');
+    expect(custom?.instruction).toContain(SANDBOX_SHARED_INSTRUCTION);
+    expect(custom?.instruction).not.toContain('Own text.');
   });
 
   it('keeps the starting instructions when the instructions table is missing', async () => {

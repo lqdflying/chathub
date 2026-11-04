@@ -252,8 +252,8 @@ release or a restart, so it can follow sandbox image updates.
   is only that profile's own text. The default Sandbox is not a separate
   case. With no extra text of its own, its starting extra text is the
   default image's tool list, and other profiles do not receive that list.
-  A saved instruction on a profile replaces that profile's whole starting
-  text and does not change the General instruction.
+  The card's Edit changes only that profile's extra text. It does not
+  replace the General instruction, for either instruction base.
 - **Where admins open it.** The shared text opens from **General instruction**
   on the Sandbox Hub header, next to **Add sandbox**. It is not inside a
   profile's settings. The Sandbox card does not offer that editor unless

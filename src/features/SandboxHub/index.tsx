@@ -293,6 +293,7 @@ const SandboxHub = memo(() => {
   const settingsOrder = hubSettings?.profiles ?? [];
   const offered = new Set(profiles.map((profile) => profile.id));
   const notOffered = settingsOrder.filter((item) => !offered.has(item.id));
+  const extraItem = hubSettings?.profiles.find((item) => item.id === instructionDialog.id);
   const instructionProfile: SandboxProfileItem | undefined =
     instructionDialog.id === SANDBOX_SHARED_INSTRUCTION_ID && hubSettings
       ? ({
@@ -301,7 +302,37 @@ const SandboxHub = memo(() => {
           instructionUpdatedAt: hubSettings.generalInstructionUpdatedAt,
           name: t('admin.form.generalInstruction'),
         } as SandboxProfileItem)
-      : profiles.find((profile) => profile.id === instructionDialog.id);
+      : canEdit && extraItem
+        ? ({
+            instruction: extraItem.instructionText ?? '',
+            instructionCustomized: !!extraItem.instructionText?.trim(),
+            name: extraItem.name,
+          } as SandboxProfileItem)
+        : profiles.find((profile) => profile.id === instructionDialog.id);
+  const saveExtraInstruction = async (profileId: string, instructionText: string) => {
+    const item = hubSettings?.profiles.find((entry) => entry.id === profileId);
+    if (!item || !scope) return;
+    setHubSettings(
+      await sandboxHubService.updateProfile(scope, item.id, {
+        avatar: item.avatar,
+        cpu: item.cpu,
+        defaultEnabled: item.defaultEnabled,
+        description: item.description,
+        egress: item.egress,
+        image: item.image,
+        instructionBase: item.instructionBase,
+        instructionText: instructionText.trim() ? instructionText : null,
+        jobMaxRuntimeMs: item.jobMaxRuntimeMs,
+        memory: item.memory,
+        name: item.name,
+        readyTimeoutMs: item.readyTimeoutMs,
+        serverId: item.serverId,
+        sessionIdleTimeoutMs: item.sessionIdleTimeoutMs,
+        sessionMaxLifetimeMs: item.sessionMaxLifetimeMs,
+      }),
+    );
+    await loadSandboxProfiles(scope).catch(() => undefined);
+  };
   const refreshAfterSharedInstruction = async (change: () => Promise<unknown>) => {
     await change();
     if (!scope || instructionDialog.id !== SANDBOX_SHARED_INSTRUCTION_ID) return;
@@ -457,12 +488,18 @@ const SandboxHub = memo(() => {
         access={access}
         onClose={() => setInstructionDialog((current) => ({ ...current, open: false }))}
         onReset={() =>
-          refreshAfterSharedInstruction(() => resetSandboxProfileInstruction(instructionDialog.id!))
+          instructionDialog.id === SANDBOX_SHARED_INSTRUCTION_ID
+            ? refreshAfterSharedInstruction(() =>
+                resetSandboxProfileInstruction(instructionDialog.id!),
+              )
+            : saveExtraInstruction(instructionDialog.id!, '')
         }
         onSave={(instruction) =>
-          refreshAfterSharedInstruction(() =>
-            setSandboxProfileInstruction(instructionDialog.id!, instruction),
-          )
+          instructionDialog.id === SANDBOX_SHARED_INSTRUCTION_ID
+            ? refreshAfterSharedInstruction(() =>
+                setSandboxProfileInstruction(instructionDialog.id!, instruction),
+              )
+            : saveExtraInstruction(instructionDialog.id!, instruction)
         }
         open={instructionDialog.open && !!instructionProfile}
         profile={instructionProfile}

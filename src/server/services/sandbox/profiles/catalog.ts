@@ -91,7 +91,6 @@ const startingInstructions = (
 export const toSandboxProfileItem = (
   profile: ResolvedSandboxProfile,
   enabled: boolean,
-  saved: SavedSandboxInstruction | undefined,
   starting: string,
 ): SandboxProfileItem => {
   const server = findSandboxServer(profile.serverId);
@@ -105,9 +104,11 @@ export const toSandboxProfileItem = (
     enabled,
     id: profile.id,
     identifier: profile.identifier,
-    instruction: saved?.instruction ?? starting,
-    instructionCustomized: !!saved,
-    ...(saved ? { instructionUpdatedAt: saved.updatedAt.toISOString() } : {}),
+    // A profile never stores a full replacement. The card edits Extra
+    // instruction, and this string is General instruction plus that text,
+    // or only that text when the base is none.
+    instruction: starting,
+    instructionCustomized: false,
     memory: profile.memory,
     name: profile.name,
     serverId: profile.serverId,
@@ -133,7 +134,6 @@ export const getUserSandboxProfiles = async (
     toSandboxProfileItem(
       profile,
       choices.get(profile.id) ?? profile.defaultEnabled,
-      instructions.get(profile.id),
       starting.get(profile.id) ?? '',
     ),
   );
