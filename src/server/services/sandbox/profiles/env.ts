@@ -387,13 +387,23 @@ const maskDeep = (value: unknown, masker: Masker): unknown => {
  * Replaces each variable value (6 characters or more) in every string of a
  * tool result with `[secret:NAME]`, or `[redacted]` when that label would
  * contain a value, so a value printed by a command does not end up in chat
- * history by accident. Not a defence against deliberate exfiltration:
- * anything in the sandbox can read the variables.
+ * history by accident. `fileSecrets` (texts and lines of secret files) are
+ * labelled `[secret:FILE]`. Not a defence against deliberate exfiltration:
+ * anything in the sandbox can read the variables and files.
  */
-export const maskSandboxSecrets = <T>(value: T, env: Record<string, string>): T => {
+export const maskSandboxSecrets = <T>(
+  value: T,
+  env: Record<string, string>,
+  fileSecrets: readonly string[] = [],
+): T => {
   const names = new Map<string, string>();
   for (const [name, secret] of Object.entries(env)) {
     if (secret.length >= SANDBOX_ENV_MASK_MIN_CHARS && !names.has(secret)) names.set(secret, name);
+  }
+  for (const secret of fileSecrets) {
+    if (secret.length >= SANDBOX_ENV_MASK_MIN_CHARS && !names.has(secret)) {
+      names.set(secret, 'FILE');
+    }
   }
   if (names.size === 0) return value;
   const secrets = [...names.keys()];

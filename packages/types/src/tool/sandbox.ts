@@ -227,3 +227,28 @@ export interface SandboxEnvList {
   available: boolean;
   profiles: Record<string, { mine: SandboxEnvItem[]; shared: SandboxEnvItem[] }>;
 }
+
+/**
+ * A saved Sandbox Hub secret file as the Hub shows it. Content comes back only
+ * for a file that is not sensitive and is UTF-8 text.
+ */
+export interface SandboxFileItem {
+  /** Present only when the file is not sensitive and is UTF-8 text. */
+  content?: string;
+  /** Permission bits as three octal digits, e.g. "600". */
+  mode: string;
+  /** Absolute path in the sandbox. */
+  path: string;
+  sensitive: boolean;
+  /** Bytes. */
+  size: number;
+  /** ISO time of the last change. */
+  updatedAt: string;
+}
+
+/** Sandbox Hub secret files the signed-in user can see, per profile. */
+export interface SandboxFileList {
+  /** False when the server has no KEY_VAULTS_SECRET to encrypt content with. */
+  available: boolean;
+  profiles: Record<string, { mine: SandboxFileItem[]; shared: SandboxFileItem[] }>;
+}

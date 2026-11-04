@@ -97,6 +97,36 @@ export const isReservedSandboxEnvName = (name: string) =>
   SANDBOX_ENV_RESERVED_NAMES.has(name) ||
   SANDBOX_ENV_RESERVED_PREFIXES.some((prefix) => name.startsWith(prefix));
 
+/** Largest Sandbox Hub secret file (bytes). */
+export const SANDBOX_FILE_MAX_BYTES = 64 * 1024;
+export const SANDBOX_FILE_PATH_MAX_LENGTH = 255;
+/** Permission bits as three octal digits, e.g. 600. */
+export const SANDBOX_FILE_MODE_PATTERN = /^[0-7]{3}$/;
+export const SANDBOX_FILE_DEFAULT_MODE = '600';
+export const SANDBOX_FILE_MODE_PRESETS = ['600', '640', '644', '660', '400'] as const;
+const SANDBOX_FILE_PATH_CHARS = /^\/[\w+./@-]+$/;
+/** The workspace holds conversation files and ChatHub's control folder. */
+const SANDBOX_FILE_BLOCKED_ROOTS = [SANDBOX_WORKDIR, '/proc', '/sys', '/dev'];
+
+/**
+ * Why a secret file's destination is refused: `format` (not an absolute,
+ * normalized path of allowed characters) or `blocked` (inside the workspace
+ * or a system folder). Undefined when allowed.
+ */
+export const sandboxFilePathProblem = (path: string): 'blocked' | 'format' | undefined => {
+  if (path.length > SANDBOX_FILE_PATH_MAX_LENGTH || !SANDBOX_FILE_PATH_CHARS.test(path)) {
+    return 'format';
+  }
+  const segments = path.split('/').slice(1);
+  if (segments.some((segment) => !segment || segment === '.' || segment === '..')) {
+    return 'format';
+  }
+  if (SANDBOX_FILE_BLOCKED_ROOTS.some((root) => path === root || path.startsWith(`${root}/`))) {
+    return 'blocked';
+  }
+  return undefined;
+};
+
 const SANDBOX_PROFILE_SEPARATOR = '--';
 const SANDBOX_PROFILE_ID_PATTERN = /^[a-z][\da-z]*(?:-[\da-z]+)*$/;
 const SANDBOX_PROFILE_PREFIX = `${SandboxIdentifier}${SANDBOX_PROFILE_SEPARATOR}`;
