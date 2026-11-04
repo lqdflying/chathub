@@ -424,6 +424,28 @@ const ProfileSettingsModal = memo<ProfileSettingsModalProps>(
             )}
           </section>
           <section className={styles.section}>
+            <div className={styles.title}>{t('admin.form.groups.persistent')}</div>
+            {field(
+              t('admin.form.persistentEnabled'),
+              <Switch
+                aria-label={t('admin.form.persistentEnabled')}
+                checked={form.persistentEnabled}
+                onChange={(checked) => set('persistentEnabled', checked)}
+                style={{ alignSelf: 'flex-start' }}
+              />,
+              { hint: t('admin.form.persistentEnabledHint') },
+            )}
+            {form.persistentEnabled &&
+              field(
+                t('admin.form.persistentFolder'),
+                text('persistentFolder', t('admin.form.persistentFolder'), '/persist'),
+                {
+                  error: invalid('persistentFolder'),
+                  hint: t('admin.form.persistentFolderHint'),
+                },
+              )}
+          </section>
+          <section className={styles.section}>
             <div className={styles.title}>{t('admin.form.groups.behaviour')}</div>
             {field(
               t('admin.form.instructionBase'),

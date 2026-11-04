@@ -168,6 +168,7 @@ export const resolveProfileConfig = (
       jobMaxRuntimeMs: config.jobMaxRuntimeMs ?? envJobMaxRuntime(env),
       memory: config.memory ?? env.OPENSANDBOX_MEMORY,
       name: config.name,
+      ...(config.persistentFolder ? { persistentFolder: config.persistentFolder } : {}),
       readyTimeoutMs: config.readyTimeoutMs ?? env.OPENSANDBOX_READY_TIMEOUT,
       serverId: config.server,
       sessionIdleTimeoutMs: config.sessionIdleTimeoutMs ?? env.OPENSANDBOX_SESSION_IDLE_TIMEOUT,

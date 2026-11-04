@@ -1375,6 +1375,19 @@ describe('SandboxHub', () => {
       fireEvent.change(field('admin.form.allowlist'), {
         target: { value: 'registry.npmjs.org' },
       });
+      // The persistent folder path appears once it is turned on, at /persist.
+      expect(screen.queryByLabelText('admin.form.persistentFolder')).toBeNull();
+      fireEvent.click(screen.getByLabelText('admin.form.persistentEnabled'));
+      expect(field('admin.form.persistentFolder').value).toBe('/persist');
+      fireEvent.change(field('admin.form.persistentFolder'), { target: { value: '/usr/x' } });
+      await act(async () => {
+        fireEvent.click(screen.getByText('admin.form.save'));
+      });
+      expect(screen.getByText('admin.form.invalid.persistentFolder')).toBeTruthy();
+      expect(mocks.admin.create).not.toHaveBeenCalled();
+      fireEvent.change(field('admin.form.persistentFolder'), {
+        target: { value: '/root/persist' },
+      });
       expect(field('admin.form.cpu').placeholder).toContain('"value":"1"');
       expect(field('admin.form.idle').getAttribute('inputmode')).toBe('decimal');
       expect(field('admin.form.name').getAttribute('inputmode')).toBeNull();
@@ -1394,6 +1407,7 @@ describe('SandboxHub', () => {
         jobMaxRuntimeMs: null,
         memory: null,
         name: 'Web',
+        persistentFolder: '/root/persist',
         readyTimeoutMs: null,
         serverId: 'remote',
         sessionIdleTimeoutMs: 3_600_000,

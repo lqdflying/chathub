@@ -109,6 +109,7 @@ const storedRow = (id: string, extra: Record<string, unknown> = {}) => ({
   jobMaxRuntimeMs: null,
   memory: null,
   name: id,
+  persistentFolder: null,
   readyTimeoutMs: null,
   serverId: 'default',
   sessionIdleTimeoutMs: null,
@@ -152,6 +153,7 @@ describe('Sandbox Hub profile administration', () => {
       jobMaxRuntimeMs: null,
       memory: null,
       name: 'Data',
+      persistentFolder: null,
       readyTimeoutMs: null,
       serverId: 'default',
       sessionIdleTimeoutMs: 3_600_000,
@@ -181,6 +183,23 @@ describe('Sandbox Hub profile administration', () => {
     });
     await createSandboxHubProfile(db, 'a', 'data', input({ image: 'data:1' }));
     expect(state.rows).toHaveLength(2);
+  });
+
+  it('stores a persistent folder and refuses one inside the workspace or a system folder', async () => {
+    await createSandboxHubProfile(db, 'a', 'data', input({ persistentFolder: ' /persist ' }));
+    expect(state.rows[1].persistentFolder).toBe('/persist');
+
+    for (const persistentFolder of ['/tmp/workspace/keep', '/usr/share', '/root', 'persist']) {
+      await expect(
+        updateSandboxHubProfile(db, 'a', 'data', input({ persistentFolder })),
+      ).rejects.toMatchObject({
+        code: 'BAD_REQUEST',
+        message: expect.stringContaining('persistentFolder'),
+      });
+    }
+
+    await updateSandboxHubProfile(db, 'a', 'data', input({ persistentFolder: '' }));
+    expect(state.rows[1].persistentFolder).toBeNull();
   });
 
   it('refuses a duplicate id and more than 16 profiles', async () => {

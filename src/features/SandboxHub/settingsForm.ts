@@ -4,6 +4,8 @@ import type {
   SandboxProfileEgress,
 } from '@lobechat/types';
 
+import { SANDBOX_PERSISTENT_FOLDER_DEFAULT, sandboxMountPathProblem } from '@/tools/sandbox/const';
+
 export type NetworkChoice = 'allowlist' | 'inherit' | 'none' | 'open';
 
 /** The profile editor's fields as typed; numbers stay text until saved. */
@@ -23,6 +25,9 @@ export interface ProfileFormState {
   memory: string;
   name: string;
   network: NetworkChoice;
+  persistentEnabled: boolean;
+  /** Mount path; kept while the switch is off so turning it on restores it. */
+  persistentFolder: string;
   readySeconds: string;
   serverId: string;
 }
@@ -54,6 +59,8 @@ export const toFormState = (
     memory: item?.memory ?? '',
     name: item?.name ?? '',
     network: Array.isArray(egress) ? 'allowlist' : (egress ?? 'inherit'),
+    persistentEnabled: !!item?.persistentFolder,
+    persistentFolder: item?.persistentFolder ?? SANDBOX_PERSISTENT_FOLDER_DEFAULT,
     readySeconds: msToUnit(item?.readyTimeoutMs, 1000),
     serverId: item?.serverId ?? defaultServerId,
   };
@@ -61,7 +68,7 @@ export const toFormState = (
 
 export type FormError =
   | { field: 'allowlist' | 'idleMinutes' | 'jobMinutes' | 'maxLifetimeMinutes' | 'readySeconds' }
-  | { field: 'description' | 'name' | 'serverId' };
+  | { field: 'description' | 'name' | 'persistentFolder' | 'serverId' };
 
 /** A blank field inherits (null); otherwise a non-negative number of `unitMs`. */
 const parseDuration = (value: string, unitMs: number): number | null | undefined => {
@@ -115,6 +122,11 @@ export const toSettingsInput = (
     egress = targets;
   }
 
+  const persistentFolder = form.persistentEnabled ? form.persistentFolder.trim() : '';
+  if (form.persistentEnabled && sandboxMountPathProblem(persistentFolder)) {
+    return { error: { field: 'persistentFolder' }, ok: false };
+  }
+
   return {
     input: {
       avatar: form.avatar.trim() || null,
@@ -128,6 +140,7 @@ export const toSettingsInput = (
       jobMaxRuntimeMs: durations.jobMinutes,
       memory: form.memory.trim() || null,
       name: form.name.trim(),
+      persistentFolder: persistentFolder || null,
       readyTimeoutMs: durations.readySeconds,
       serverId: form.serverId,
       sessionIdleTimeoutMs: durations.idleMinutes,

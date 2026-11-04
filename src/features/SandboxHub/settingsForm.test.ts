@@ -42,6 +42,8 @@ describe('profile settings form', () => {
       memory: '',
       name: 'Data',
       network: 'allowlist',
+      persistentEnabled: false,
+      persistentFolder: '/persist',
       readySeconds: '120',
       serverId: 'remote',
     });
@@ -67,6 +69,7 @@ describe('profile settings form', () => {
         jobMaxRuntimeMs: 21_600_000,
         memory: null,
         name: 'Data',
+        persistentFolder: null,
         readyTimeoutMs: 120_000,
         serverId: 'remote',
         sessionIdleTimeoutMs: 3_600_000,
@@ -74,6 +77,22 @@ describe('profile settings form', () => {
       },
       ok: true,
     });
+  });
+
+  it('keeps a persistent folder path only while it is turned on', () => {
+    const saved = toFormState({ ...item, persistentFolder: '/root/persist' }, 'default');
+    expect(saved).toMatchObject({ persistentEnabled: true, persistentFolder: '/root/persist' });
+    const on = toSettingsInput(saved);
+    expect(on.ok && on.input.persistentFolder).toBe('/root/persist');
+    const off = toSettingsInput({ ...saved, persistentEnabled: false });
+    expect(off.ok && off.input.persistentFolder).toBeNull();
+
+    for (const path of ['persist', '/tmp/workspace/x', '/usr/local', '/root', '/']) {
+      expect(toSettingsInput({ ...saved, persistentFolder: path })).toEqual({
+        error: { field: 'persistentFolder' },
+        ok: false,
+      });
+    }
   });
 
   it('maps network choices and blank numbers', () => {

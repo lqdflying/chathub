@@ -15,6 +15,10 @@ describe('ensureSandboxHubProfilesTable', () => {
       "conname = 'sandbox_hub_profiles_updated_by_users_id_fk'",
     );
     expect(SANDBOX_HUB_PROFILES_SQL).toContain('ON DELETE set null');
+    // Migration 0073.
+    expect(SANDBOX_HUB_PROFILES_SQL).toContain(
+      'ALTER TABLE "sandbox_hub_profiles" ADD COLUMN IF NOT EXISTS "persistent_folder" text;',
+    );
   });
 
   it('matches the columns of migration 0067', () => {

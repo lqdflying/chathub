@@ -511,6 +511,13 @@
       "when": 1788410000000,
       "tag": "0072_sandbox_job_file_snapshot",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1788420000000,
+      "tag": "0073_sandbox_hub_profile_persistent_folder",
+      "breakpoints": true
     }
   ],
   "version": "6"

@@ -4,6 +4,7 @@ import {
   DEFAULT_SANDBOX_PROFILE_ID,
   SANDBOX_PROFILE_ID_MAX_LENGTH,
   isValidSandboxProfileId,
+  sandboxMountPathProblem,
 } from '@/tools/sandbox/const';
 
 export { SANDBOX_INSTRUCTION_MAX_BYTES } from '@/tools/sandbox/const';
@@ -98,6 +99,17 @@ export const sandboxProfileConfigSchema = z
     jobMaxRuntimeMs: nonNegativeMs.optional(),
     memory: z.string().min(1).max(16).optional(),
     name: z.string().min(1).max(64),
+    /**
+     * Mount path of each user's persistent folder (one Docker named volume per
+     * user and profile). Unset = no persistent folder.
+     */
+    persistentFolder: z
+      .string()
+      .refine((path) => !sandboxMountPathProblem(path), {
+        message:
+          'persistentFolder must be an absolute path outside the workspace and system folders, e.g. /persist',
+      })
+      .optional(),
     readyTimeoutMs: positiveMs.optional(),
     server: z.string().min(1).default(DEFAULT_SANDBOX_SERVER_ID),
     sessionIdleTimeoutMs: nonNegativeMs.optional(),
@@ -183,6 +195,8 @@ export interface ResolvedSandboxProfile {
   jobMaxRuntimeMs: number;
   memory: string;
   name: string;
+  /** Mount path of each user's persistent folder; absent = none. */
+  persistentFolder?: string;
   readyTimeoutMs: number;
   serverId: string;
   sessionIdleTimeoutMs: number;

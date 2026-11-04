@@ -117,6 +117,7 @@ const profileSettingsInput = z.object({
   jobMaxRuntimeMs: optionalMs,
   memory: optionalText(16),
   name: z.string().max(64),
+  persistentFolder: optionalText(255),
   readyTimeoutMs: optionalMs,
   serverId: z.string().min(1).max(32),
   sessionIdleTimeoutMs: optionalMs,

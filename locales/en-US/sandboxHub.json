@@ -13,7 +13,7 @@
       "avatarTooLarge": "The image is over 64 KB. Choose a smaller one.",
       "avatarUploaded": "An image is uploaded. Type an emoji or URL to replace it.",
       "cancel": "Cancel",
-      "changeWarning": "Changing the image, network or server replaces this sandbox's open containers on their next call, and its running background jobs are lost.",
+      "changeWarning": "Changing the image, network, server or persistent folder replaces this sandbox's open containers on their next call, and its running background jobs are lost.",
       "cpu": "CPU",
       "defaultEnabled": "On for every user by default",
       "description": "Description",
@@ -23,6 +23,7 @@
         "behaviour": "Behaviour & instruction",
         "lifetimes": "Lifetimes",
         "network": "Network",
+        "persistent": "Persistent folder",
         "resources": "Image & resources"
       },
       "id": "ID",
@@ -47,6 +48,7 @@
         "jobMinutes": "Enter minutes (0 or more), or leave it blank for the default.",
         "maxLifetimeMinutes": "Enter minutes (0 or more), or leave it blank for the default.",
         "name": "Enter a name.",
+        "persistentFolder": "Use an absolute path such as /persist, outside the workspace (/tmp/workspace) and system folders, and not /root or /home itself.",
         "readySeconds": "Enter seconds (more than 0), or leave it blank for the default.",
         "serverId": "Choose a server."
       },
@@ -69,6 +71,10 @@
         "open": "Open"
       },
       "none": "none",
+      "persistentEnabled": "Keep a folder for each user",
+      "persistentEnabledHint": "Each user gets their own folder in this sandbox (a Docker named volume on the server). Files there are kept when the sandbox is removed or replaced.",
+      "persistentFolder": "Mount path",
+      "persistentFolderHint": "An absolute path in the sandbox, e.g. /persist. Changing the path keeps the files.",
       "ready": "Start-up wait (seconds)",
       "readyHint": "How long to wait for a new sandbox. Prepare the image first when a large image is slow to pull.",
       "save": "Save",

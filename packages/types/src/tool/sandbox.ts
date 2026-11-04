@@ -89,6 +89,8 @@ export interface SandboxProfileItem {
   instructionUpdatedAt?: string;
   memory: string;
   name: string;
+  /** Mount path of this user's persistent folder; absent = none. */
+  persistentFolder?: string;
   serverId: string;
   serverName: string;
   sessionIdleTimeoutMs: number;
@@ -160,6 +162,8 @@ export interface SandboxHubProfileSettingsInput {
   jobMaxRuntimeMs?: number | null;
   memory?: string | null;
   name: string;
+  /** Mount path of each user's persistent folder; null = off. */
+  persistentFolder?: string | null;
   readyTimeoutMs?: number | null;
   serverId: string;
   sessionIdleTimeoutMs?: number | null;

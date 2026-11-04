@@ -102,6 +102,7 @@ export const toSandboxProfileItem = (
     instructionCustomized: false,
     memory: profile.memory,
     name: profile.name,
+    ...(profile.persistentFolder ? { persistentFolder: profile.persistentFolder } : {}),
     serverId: profile.serverId,
     serverName: server?.name ?? profile.serverId,
     sessionIdleTimeoutMs: profile.sessionIdleTimeoutMs,

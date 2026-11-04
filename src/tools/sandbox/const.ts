@@ -129,6 +129,48 @@ export const sandboxFilePathProblem = (path: string): 'blocked' | 'format' | und
   return undefined;
 };
 
+/** Default mount path of a profile's persistent folder. */
+export const SANDBOX_PERSISTENT_FOLDER_DEFAULT = '/persist';
+/** Folders the image needs; a persistent folder may not be one of them or inside one. */
+const SANDBOX_MOUNT_BLOCKED_TREES = [
+  '/bin',
+  '/boot',
+  '/etc',
+  '/lib',
+  '/lib32',
+  '/lib64',
+  '/libx32',
+  '/run',
+  '/sbin',
+  '/tmp',
+  '/usr',
+  '/var',
+];
+/** Folders a persistent folder may sit under but not replace. */
+const SANDBOX_MOUNT_BLOCKED_EXACT = new Set(['/home', '/mnt', '/opt', '/root', '/srv']);
+
+/**
+ * Why a persistent folder's mount path is refused: `format` (not an
+ * absolute, normalized path) or `blocked` (the workspace, a system folder,
+ * or a folder the image needs). Undefined when allowed, e.g. /persist,
+ * /root/persist, /data or /mnt/data.
+ */
+export const sandboxMountPathProblem = (path: string): 'blocked' | 'format' | undefined => {
+  const fileProblem = sandboxFilePathProblem(path);
+  if (fileProblem) return fileProblem;
+  if (
+    SANDBOX_MOUNT_BLOCKED_EXACT.has(path) ||
+    SANDBOX_MOUNT_BLOCKED_TREES.some((root) => path === root || path.startsWith(`${root}/`))
+  ) {
+    return 'blocked';
+  }
+  return undefined;
+};
+
+/** True when `path` is the folder `root` or inside it. */
+export const isPathInside = (path: string, root: string) =>
+  path === root || path.startsWith(`${root}/`);
+
 const SANDBOX_PROFILE_SEPARATOR = '--';
 const SANDBOX_PROFILE_ID_PATTERN = /^[a-z][\da-z]*(?:-[\da-z]+)*$/;
 const SANDBOX_PROFILE_PREFIX = `${SandboxIdentifier}${SANDBOX_PROFILE_SEPARATOR}`;

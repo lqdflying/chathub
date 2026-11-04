@@ -44,7 +44,9 @@ DO $$ BEGIN
       ON DELETE set null
       ON UPDATE no action;
   END IF;
-END $$;`;
+END $$;
+
+ALTER TABLE "sandbox_hub_profiles" ADD COLUMN IF NOT EXISTS "persistent_folder" text;`;
 
 /** @param {{ query: (sql: string) => Promise<unknown> }} client node-pg Pool or compatible */
 const ensureSandboxHubProfilesTable = async (client) => {

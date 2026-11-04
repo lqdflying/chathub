@@ -85,6 +85,8 @@ export const sandboxHubProfiles = pgTable('sandbox_hub_profiles', {
   defaultEnabled: boolean('default_enabled').notNull().default(false),
   instructionBase: text('instruction_base').$type<'general' | 'none'>().notNull().default('general'),
   instructionText: text('instruction_text'),
+  /** Mount path of each user's persistent folder (a Docker named volume); null = off. */
+  persistentFolder: text('persistent_folder'),
   imageStatus: text('image_status').$type<SandboxImageStatus>().notNull().default('unknown'),
   imageStatusMessage: text('image_status_message'),
   /** The image the status refers to; a different current image means unknown. */

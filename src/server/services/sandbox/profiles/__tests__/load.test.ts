@@ -202,6 +202,28 @@ profiles:
     ]);
   });
 
+  it('reads a per-profile persistent folder and rejects one in a system folder', () => {
+    const catalog = withFile({
+      '/etc/chathub/sandbox-profiles.yaml': `version: 1
+profiles:
+  - {id: general, name: Sandbox, description: General}
+  - {id: data, name: Data, description: Keeps files, persistentFolder: /persist}
+`,
+    });
+    expect(catalog.profiles.map((profile) => profile.persistentFolder)).toEqual([
+      undefined,
+      '/persist',
+    ]);
+
+    const broken = withFile({
+      '/etc/chathub/sandbox-profiles.yaml': `version: 1
+profiles:
+  - {id: data, name: Data, description: Bad, persistentFolder: /usr/local}
+`,
+    });
+    expect(broken.errors.join(' ')).toContain('persistentFolder');
+  });
+
   it('accepts a servers-only file and lists every server, used or not', () => {
     const catalog = withFile({
       '/etc/chathub/sandbox-profiles.yaml': `version: 1

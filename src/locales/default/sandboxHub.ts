@@ -15,7 +15,7 @@ export default {
       avatarUploaded: '已上传图片，输入表情或地址可替换它。',
       cancel: '取消',
       changeWarning:
-        '修改镜像、网络或服务器后，此沙盒已打开的容器会在下次调用时被替换，正在运行的后台任务会丢失。',
+        '修改镜像、网络、服务器或持久文件夹后，此沙盒已打开的容器会在下次调用时被替换，正在运行的后台任务会丢失。',
       cpu: 'CPU',
       defaultEnabled: '默认对所有用户开启',
       description: '描述',
@@ -25,6 +25,7 @@ export default {
         behaviour: '行为与说明',
         lifetimes: '生命周期',
         network: '网络',
+        persistent: '持久文件夹',
         resources: '镜像与资源',
       },
       id: 'ID',
@@ -51,6 +52,8 @@ export default {
         jobMinutes: '请输入不小于 0 的分钟数，或留空使用默认值。',
         maxLifetimeMinutes: '请输入不小于 0 的分钟数，或留空使用默认值。',
         name: '请填写名称。',
+        persistentFolder:
+          '请使用绝对路径，例如 /persist；不能是工作区（/tmp/workspace）、系统目录，或 /root、/home 本身。',
         readySeconds: '请输入大于 0 的秒数，或留空使用默认值。',
         serverId: '请选择服务器。',
       },
@@ -73,6 +76,11 @@ export default {
         open: '不限',
       },
       none: '无',
+      persistentEnabled: '为每位用户保留一个文件夹',
+      persistentEnabledHint:
+        '每位用户在此沙盒中都有自己的文件夹（服务器上的 Docker 命名卷），沙盒被回收或替换后其中的文件仍会保留。',
+      persistentFolder: '挂载路径',
+      persistentFolderHint: '沙盒中的绝对路径，例如 /persist。更改路径不会丢失文件。',
       ready: '启动等待（秒）',
       readyHint: '等待新沙盒就绪的时间。大镜像首次拉取较慢时请先“准备镜像”。',
       save: '保存',

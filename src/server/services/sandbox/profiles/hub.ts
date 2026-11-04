@@ -37,6 +37,7 @@ export type SandboxHubProfileFields = Pick<
   | 'jobMaxRuntimeMs'
   | 'memory'
   | 'name'
+  | 'persistentFolder'
   | 'readyTimeoutMs'
   | 'serverId'
   | 'sessionIdleTimeoutMs'
@@ -62,6 +63,7 @@ export const seedToHubSettings = ({
   jobMaxRuntimeMs: config.jobMaxRuntimeMs ?? null,
   memory: config.memory ?? null,
   name: config.name,
+  persistentFolder: config.persistentFolder ?? null,
   readyTimeoutMs: config.readyTimeoutMs ?? null,
   serverId: config.server,
   sessionIdleTimeoutMs: config.sessionIdleTimeoutMs ?? null,
@@ -97,6 +99,7 @@ export const hubFieldsToConfig = (
     ...(isSet(row.jobMaxRuntimeMs) ? { jobMaxRuntimeMs: row.jobMaxRuntimeMs } : {}),
     ...(row.memory ? { memory: row.memory } : {}),
     name: row.name,
+    ...(row.persistentFolder ? { persistentFolder: row.persistentFolder } : {}),
     ...(isSet(row.readyTimeoutMs) ? { readyTimeoutMs: row.readyTimeoutMs } : {}),
     server: row.serverId,
     ...(isSet(row.sessionIdleTimeoutMs) ? { sessionIdleTimeoutMs: row.sessionIdleTimeoutMs } : {}),
