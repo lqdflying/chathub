@@ -57,16 +57,16 @@ vi.mock('@/database/models/sandboxJob', () => ({
       [...state.rows.values()]
         .filter((row) => row.userId === this.userId)
         .sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime());
-    listOther = async () => this.owned().filter((row) => row.status !== 'succeeded');
-    listSucceeded = async (limit: number, offset: number) =>
+    listRunning = async () => this.owned().filter((row) => row.status === 'running');
+    listFinished = async (limit: number, offset: number) =>
       this.owned()
-        .filter((row) => row.status === 'succeeded')
+        .filter((row) => row.status !== 'running')
         .slice(offset, offset + limit);
-    countSucceeded = async () => this.owned().filter((row) => row.status === 'succeeded').length;
-    deleteSucceeded = async () => {
+    countFinished = async () => this.owned().filter((row) => row.status !== 'running').length;
+    deleteFinished = async () => {
       let deleted = 0;
       for (const [id, row] of state.rows) {
-        if (row.userId === this.userId && row.status === 'succeeded') {
+        if (row.userId === this.userId && row.status !== 'running') {
           state.rows.delete(id);
           deleted += 1;
         }
@@ -120,7 +120,7 @@ const {
   getSandboxJobResult,
   listSandboxHubJobs,
   listSandboxJobs,
-  purgeSucceededSandboxJobs,
+  purgeFinishedSandboxJobs,
   watchSandboxJob,
 } = await import('../service');
 const { handleSandboxJobWatch } = await import('../watcher');
@@ -575,7 +575,7 @@ describe('Sandbox background jobs', () => {
     expect(state.workspace.interrupt).toHaveBeenCalledTimes(1);
   });
 
-  it('pages succeeded hub jobs and purges only those', async () => {
+  it('pages finished hub jobs and purges those, including a failed one', async () => {
     addJob({ id: 'run', startedAt: new Date('2026-11-03T00:00:00Z'), status: 'running' });
     for (let index = 0; index < 21; index += 1) {
       addJob({
@@ -585,6 +585,11 @@ describe('Sandbox background jobs', () => {
       });
     }
     addJob({
+      id: 'failed',
+      startedAt: new Date('2026-11-03T05:00:00Z'),
+      status: 'failed',
+    });
+    addJob({
       id: 'other-user',
       startedAt: new Date('2026-11-03T04:00:00Z'),
       status: 'succeeded',
@@ -592,13 +597,17 @@ describe('Sandbox background jobs', () => {
     });
 
     const page = await listSandboxHubJobs({ db, page: 2, userId: 'user-1' });
-    expect(page.other.map((job) => job.id)).toEqual(['run']);
-    expect(page.succeeded).toMatchObject({ page: 2, pageSize: 20, total: 21 });
-    expect(page.succeeded.items.map((job) => job.id)).toEqual(['s0']);
+    expect(page.running.map((job) => job.id)).toEqual(['run']);
+    expect(page.finished).toMatchObject({ page: 2, pageSize: 20, total: 22 });
+    expect(page.finished.items.map((job) => job.id)).toEqual(['s1', 's0']);
+    expect(
+      (await listSandboxHubJobs({ db, page: 1, userId: 'user-1' })).finished.items[0]?.id,
+    ).toBe('failed');
 
-    expect((await purgeSucceededSandboxJobs({ db, userId: 'user-1' })).deleted).toBe(21);
+    expect((await purgeFinishedSandboxJobs({ db, userId: 'user-1' })).deleted).toBe(22);
     expect(state.rows.has('run')).toBe(true);
     expect(state.rows.has('other-user')).toBe(true);
+    expect(state.rows.has('failed')).toBe(false);
     expect(state.rows.has('s0')).toBe(false);
   });
 

@@ -43,8 +43,8 @@ class SandboxHubService {
   listHubJobs = (accountScope: string, page = 1): Promise<SandboxHubJobList> =>
     lambdaClient.sandboxHub.listHubJobs.query({ accountScope, page });
 
-  purgeSucceededJobs = (accountScope: string): Promise<{ deleted: number }> =>
-    lambdaClient.sandboxHub.purgeSucceededJobs.mutate({ accountScope });
+  purgeFinishedJobs = (accountScope: string): Promise<{ deleted: number }> =>
+    lambdaClient.sandboxHub.purgeFinishedJobs.mutate({ accountScope });
 
   listProfiles = (accountScope: string): Promise<SandboxProfileItem[]> =>
     lambdaClient.sandboxHub.listProfiles.query({ accountScope });

@@ -67,37 +67,37 @@ export class SandboxJobModel {
       .orderBy(desc(sandboxJobs.startedAt))
       .limit(limit);
 
-  /** This user's jobs that are not succeeded, newest first. */
-  listOther = async (): Promise<SandboxJobRow[]> =>
+  /** This user's running jobs, newest first. */
+  listRunning = async (): Promise<SandboxJobRow[]> =>
     this.db
       .select()
       .from(sandboxJobs)
-      .where(and(eq(sandboxJobs.userId, this.userId), ne(sandboxJobs.status, 'succeeded')))
+      .where(and(eq(sandboxJobs.userId, this.userId), eq(sandboxJobs.status, 'running')))
       .orderBy(desc(sandboxJobs.startedAt));
 
-  /** This user's succeeded jobs, newest first. */
-  listSucceeded = async (limit: number, offset: number): Promise<SandboxJobRow[]> =>
+  /** This user's finished jobs, newest first. */
+  listFinished = async (limit: number, offset: number): Promise<SandboxJobRow[]> =>
     this.db
       .select()
       .from(sandboxJobs)
-      .where(and(eq(sandboxJobs.userId, this.userId), eq(sandboxJobs.status, 'succeeded')))
+      .where(and(eq(sandboxJobs.userId, this.userId), ne(sandboxJobs.status, 'running')))
       .orderBy(desc(sandboxJobs.startedAt))
       .limit(limit)
       .offset(offset);
 
-  countSucceeded = async (): Promise<number> => {
+  countFinished = async (): Promise<number> => {
     const [row] = await this.db
       .select({ value: count() })
       .from(sandboxJobs)
-      .where(and(eq(sandboxJobs.userId, this.userId), eq(sandboxJobs.status, 'succeeded')));
+      .where(and(eq(sandboxJobs.userId, this.userId), ne(sandboxJobs.status, 'running')));
     return Number(row?.value ?? 0);
   };
 
-  /** Deletes this user's succeeded jobs. Returns how many were removed. */
-  deleteSucceeded = async (): Promise<number> => {
+  /** Deletes this user's finished jobs. Returns how many were removed. */
+  deleteFinished = async (): Promise<number> => {
     const rows = await this.db
       .delete(sandboxJobs)
-      .where(and(eq(sandboxJobs.userId, this.userId), eq(sandboxJobs.status, 'succeeded')))
+      .where(and(eq(sandboxJobs.userId, this.userId), ne(sandboxJobs.status, 'running')))
       .returning({ id: sandboxJobs.id });
     return rows.length;
   };

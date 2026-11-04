@@ -29,5 +29,5 @@ export const SANDBOX_JOB_WATCH_MAX_ATTEMPTS = 10;
 /** Jobs the conversation `listJobs` tool shows. */
 export const SANDBOX_JOB_LIST_LIMIT = 20;
 
-/** Succeeded jobs on one Sandbox Hub page. */
+/** Finished jobs on one Sandbox Hub page. */
 export const SANDBOX_HUB_JOB_PAGE_SIZE = 20;

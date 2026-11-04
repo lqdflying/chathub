@@ -21,7 +21,7 @@ const mocks = vi.hoisted(() => ({
   isAdmin: vi.fn(),
   list: vi.fn(),
   listHubJobs: vi.fn(),
-  purgeSucceededJobs: vi.fn(),
+  purgeFinishedJobs: vi.fn(),
   setEnabled: vi.fn(),
   startingInstruction: vi.fn(),
   upsertInstruction: vi.fn(),
@@ -63,7 +63,7 @@ vi.mock('@/server/services/sandbox/profiles/hubAdmin', async (importOriginal) =>
 vi.mock('@/server/services/sandbox/jobs/service', () => ({
   cancelSandboxJob: mocks.cancelJob,
   listSandboxHubJobs: mocks.listHubJobs,
-  purgeSucceededSandboxJobs: mocks.purgeSucceededJobs,
+  purgeFinishedSandboxJobs: mocks.purgeFinishedJobs,
 }));
 vi.mock('@/server/services/sandbox/profiles/catalog', () => ({
   getSandboxStartingInstruction: mocks.startingInstruction,
@@ -242,21 +242,21 @@ describe('sandboxHubRouter', () => {
     const scope = { accountScope: 'user:account-a' };
     const jobs = [{ id: 'sjob_1', status: 'running' }];
 
-    it('lists hub jobs, purges succeeded jobs, and cancels only the caller jobs', async () => {
+    it('lists hub jobs, purges finished jobs, and cancels only the caller jobs', async () => {
       const listed = {
-        other: jobs,
-        succeeded: { items: [], page: 2, pageSize: 20, total: 0 },
+        finished: { items: [], page: 2, pageSize: 20, total: 0 },
+        running: jobs,
       };
       mocks.listHubJobs.mockResolvedValue(listed);
-      mocks.purgeSucceededJobs.mockResolvedValue({ deleted: 3 });
+      mocks.purgeFinishedJobs.mockResolvedValue({ deleted: 3 });
       mocks.cancelJob.mockResolvedValue({ id: 'sjob_1', status: 'cancelled' });
       const api = caller('user:account-a');
 
       await expect(api.listHubJobs({ ...scope, page: 2 })).resolves.toEqual(listed);
       expect(mocks.listHubJobs).toHaveBeenCalledWith({ db: {}, page: 2, userId: 'account-a' });
 
-      await expect(api.purgeSucceededJobs(scope)).resolves.toEqual({ deleted: 3 });
-      expect(mocks.purgeSucceededJobs).toHaveBeenCalledWith({ db: {}, userId: 'account-a' });
+      await expect(api.purgeFinishedJobs(scope)).resolves.toEqual({ deleted: 3 });
+      expect(mocks.purgeFinishedJobs).toHaveBeenCalledWith({ db: {}, userId: 'account-a' });
 
       await expect(api.cancelJob({ ...scope, jobId: 'sjob_1' })).resolves.toBeUndefined();
       expect(mocks.cancelJob).toHaveBeenCalledWith({
@@ -276,11 +276,11 @@ describe('sandboxHubRouter', () => {
       await expect(
         caller('user:account-b').cancelJob({ ...scope, jobId: 'sjob_1' }),
       ).rejects.toMatchObject({ code: 'FORBIDDEN' });
-      await expect(caller('user:account-b').purgeSucceededJobs(scope)).rejects.toMatchObject({
+      await expect(caller('user:account-b').purgeFinishedJobs(scope)).rejects.toMatchObject({
         code: 'FORBIDDEN',
       });
       expect(mocks.cancelJob).not.toHaveBeenCalled();
-      expect(mocks.purgeSucceededJobs).not.toHaveBeenCalled();
+      expect(mocks.purgeFinishedJobs).not.toHaveBeenCalled();
     });
   });
 

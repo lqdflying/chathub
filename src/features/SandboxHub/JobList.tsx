@@ -69,14 +69,13 @@ interface JobListProps {
 }
 
 const emptyJobs = (): SandboxHubJobList => ({
-  other: [],
-  succeeded: { items: [], page: 1, pageSize: 20, total: 0 },
+  finished: { items: [], page: 1, pageSize: 20, total: 0 },
+  running: [],
 });
 
 /**
- * This user's background jobs: unfinished and unsuccessful ones, then
- * succeeded ones 20 per page with Purge. Cancel for running ones. Hidden
- * until there is one.
+ * This user's background jobs: running ones, then finished ones 20 per page
+ * with Purge. Cancel for running ones. Hidden until there is one.
  */
 const JobList = memo<JobListProps>(({ profiles, scope }) => {
   const { styles } = useStyles();
@@ -96,7 +95,7 @@ const JobList = memo<JobListProps>(({ profiles, scope }) => {
       try {
         const next = await sandboxHubService.listHubJobs(scope, nextPage);
         setJobs(next);
-        setPage(next.succeeded.page);
+        setPage(next.finished.page);
         setLoadFailed(false);
       } catch {
         setLoadFailed(true);
@@ -128,7 +127,7 @@ const JobList = memo<JobListProps>(({ profiles, scope }) => {
     setPurging(true);
     setPurgeFailed(false);
     try {
-      await sandboxHubService.purgeSucceededJobs(scope);
+      await sandboxHubService.purgeFinishedJobs(scope);
       await load(1);
     } catch {
       setPurgeFailed(true);
@@ -149,8 +148,8 @@ const JobList = memo<JobListProps>(({ profiles, scope }) => {
       .join(' ');
   };
 
-  const { other, succeeded } = jobs;
-  if (!loadFailed && other.length === 0 && succeeded.total === 0) return null;
+  const { finished, running } = jobs;
+  if (!loadFailed && running.length === 0 && finished.total === 0) return null;
 
   const profileName = (id: string) => profiles.find((profile) => profile.id === id)?.name ?? id;
   const notices = [
@@ -158,7 +157,7 @@ const JobList = memo<JobListProps>(({ profiles, scope }) => {
     ...(cancelFailed ? [t('jobs.cancelFailed')] : []),
     ...(purgeFailed ? [t('jobs.purgeFailed')] : []),
   ];
-  const pages = Math.max(1, Math.ceil(succeeded.total / succeeded.pageSize));
+  const pages = Math.max(1, Math.ceil(finished.total / finished.pageSize));
 
   const row = (job: SandboxJobItem) => {
     const duration = durationLabel(job);
@@ -222,16 +221,16 @@ const JobList = memo<JobListProps>(({ profiles, scope }) => {
           title={t('jobs.refresh')}
         />
       </Flexbox>
-      {other.length > 0 && (
+      {running.length > 0 && (
         <Flexbox gap={8}>
-          <span className={styles.sectionTitle}>{t('jobs.other')}</span>
-          {other.map(row)}
+          <span className={styles.sectionTitle}>{t('jobs.running')}</span>
+          {running.map(row)}
         </Flexbox>
       )}
-      {succeeded.total > 0 && (
+      {finished.total > 0 && (
         <Flexbox gap={8}>
           <Flexbox align={'center'} gap={8} horizontal justify={'space-between'}>
-            <span className={styles.sectionTitle}>{t('jobs.succeeded')}</span>
+            <span className={styles.sectionTitle}>{t('jobs.finished')}</span>
             <Popconfirm
               cancelText={t('profile.instruction.cancel')}
               okText={t('jobs.purge')}
@@ -243,7 +242,7 @@ const JobList = memo<JobListProps>(({ profiles, scope }) => {
               </Button>
             </Popconfirm>
           </Flexbox>
-          {succeeded.items.map(row)}
+          {finished.items.map(row)}
           {pages > 1 && (
             <Flexbox align={'center'} gap={8} horizontal>
               <Button disabled={page <= 1} onClick={() => void load(page - 1)} size={'small'}>

@@ -8,7 +8,7 @@ import { serverDatabase, verifiedAccountScope } from '@/libs/trpc/lambda/middlew
 import {
   cancelSandboxJob,
   listSandboxHubJobs,
-  purgeSucceededSandboxJobs,
+  purgeFinishedSandboxJobs,
 } from '@/server/services/sandbox/jobs/service';
 import { hasSandboxHubAdmins, isSandboxHubAdmin } from '@/server/services/sandbox/profiles/admins';
 import {
@@ -239,7 +239,7 @@ export const sandboxHubRouter = router({
     return listSandboxEnvs(ctx.serverDB, ctx.userId);
   }),
 
-  /** Hub list: non-succeeded jobs, plus one page of succeeded jobs. */
+  /** Hub list: running jobs, plus one page of finished jobs. */
   listHubJobs: sandboxHubProcedure
     .input(accountScopeInput.extend({ page: z.number().int().min(1).optional() }))
     .query(async ({ ctx, input }) => {
@@ -280,12 +280,12 @@ export const sandboxHubRouter = router({
     return getSandboxHubSettings(ctx.serverDB);
   }),
 
-  /** Deletes every succeeded background job for this user. */
-  purgeSucceededJobs: sandboxHubProcedure
+  /** Deletes every finished background job for this user. Running jobs stay. */
+  purgeFinishedJobs: sandboxHubProcedure
     .input(accountScopeInput)
     .mutation(async ({ ctx, input }) => {
       assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
-      return purgeSucceededSandboxJobs({ db: ctx.serverDB, userId: ctx.userId });
+      return purgeFinishedSandboxJobs({ db: ctx.serverDB, userId: ctx.userId });
     }),
 
   /** Admin only: drops the edited instruction so the starting text applies again. */

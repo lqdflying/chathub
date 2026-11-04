@@ -116,15 +116,15 @@ export interface SandboxJobFile {
   url?: string;
 }
 
-/** Hub background jobs: everything still in progress or unsuccessful, plus one page of successes. */
+/** Hub background jobs: every running job, plus one page of finished jobs. */
 export interface SandboxHubJobList {
-  other: SandboxJobItem[];
-  succeeded: {
+  finished: {
     items: SandboxJobItem[];
     page: number;
     pageSize: number;
     total: number;
   };
+  running: SandboxJobItem[];
 }
 
 /** A background job as the Sandbox Hub lists it. */

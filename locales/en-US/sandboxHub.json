@@ -143,15 +143,16 @@
     "description": "Long tasks the assistant started with startJob. When one ends its result is saved; ask the assistant in that conversation to read it.",
     "duration": "Ran {{time}}",
     "exitCode": "Exit code {{code}}",
+    "finished": "Finished",
     "loadFailed": "Could not load background jobs. Please try again later.",
     "next": "Next",
-    "other": "Jobs",
     "page": "{{page}} / {{pages}}",
     "previous": "Previous",
     "purge": "Purge",
-    "purgeConfirm": "Delete all succeeded jobs? This cannot be undone.",
-    "purgeFailed": "Could not delete the succeeded jobs. Please try again later.",
+    "purgeConfirm": "Delete all finished jobs? This cannot be undone.",
+    "purgeFailed": "Could not delete the finished jobs. Please try again later.",
     "refresh": "Refresh",
+    "running": "Running",
     "startedAt": "Started {{time}}",
     "status": {
       "cancelled": "Cancelled",
@@ -161,7 +162,6 @@
       "succeeded": "Succeeded",
       "timed_out": "Timed out"
     },
-    "succeeded": "Succeeded",
     "title": "Background jobs"
   },
   "loadFailed": "Could not load the sandboxes. Try again later.",

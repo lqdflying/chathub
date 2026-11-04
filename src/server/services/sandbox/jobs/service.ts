@@ -77,7 +77,7 @@ export const listSandboxJobs = async ({
   return rows.map(toJobItem);
 };
 
-/** Hub list: every non-succeeded job, plus one page of succeeded jobs. */
+/** Hub list: every running job, plus one page of finished jobs. */
 export const listSandboxHubJobs = async ({
   db,
   page = 1,
@@ -90,33 +90,33 @@ export const listSandboxHubJobs = async ({
   const model = new SandboxJobModel(db, userId);
   const pageSize = SANDBOX_HUB_JOB_PAGE_SIZE;
   const requested = Number.isFinite(page) && page >= 1 ? Math.floor(page) : 1;
-  const total = await model.countSucceeded();
+  const total = await model.countFinished();
   const pages = Math.max(1, Math.ceil(total / pageSize));
   const current = Math.min(requested, pages);
-  const [other, succeeded] = await Promise.all([
-    model.listOther(),
-    model.listSucceeded(pageSize, (current - 1) * pageSize),
+  const [running, finished] = await Promise.all([
+    model.listRunning(),
+    model.listFinished(pageSize, (current - 1) * pageSize),
   ]);
   return {
-    other: other.map(toJobItem),
-    succeeded: {
-      items: succeeded.map(toJobItem),
+    finished: {
+      items: finished.map(toJobItem),
       page: current,
       pageSize,
       total,
     },
+    running: running.map(toJobItem),
   };
 };
 
-/** Deletes every succeeded job for this user. */
-export const purgeSucceededSandboxJobs = async ({
+/** Deletes every finished job for this user. Running jobs stay. */
+export const purgeFinishedSandboxJobs = async ({
   db,
   userId,
 }: {
   db: LobeChatDatabase;
   userId: string;
 }): Promise<{ deleted: number }> => ({
-  deleted: await new SandboxJobModel(db, userId).deleteSucceeded(),
+  deleted: await new SandboxJobModel(db, userId).deleteFinished(),
 });
 
 /**
