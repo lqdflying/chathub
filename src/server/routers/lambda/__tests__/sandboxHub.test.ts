@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { getServerDB } from '@/database/core/db-adaptor';
+import { SANDBOX_SHARED_INSTRUCTION_ID } from '@/tools/sandbox/const';
+import { SANDBOX_SHARED_INSTRUCTION } from '@/tools/sandbox/systemRole';
 
 import { sandboxHubRouter } from '../sandboxHub';
 
@@ -24,7 +26,6 @@ const mocks = vi.hoisted(() => ({
   listHubJobs: vi.fn(),
   purgeFinishedJobs: vi.fn(),
   setEnabled: vi.fn(),
-  startingInstruction: vi.fn(),
   upsertInstruction: vi.fn(),
 }));
 
@@ -67,7 +68,6 @@ vi.mock('@/server/services/sandbox/jobs/service', () => ({
   purgeFinishedSandboxJobs: mocks.purgeFinishedJobs,
 }));
 vi.mock('@/server/services/sandbox/profiles/catalog', () => ({
-  getSandboxStartingInstruction: mocks.startingInstruction,
   getUserSandboxProfiles: mocks.list,
 }));
 vi.mock('@/server/services/sandbox/profiles/env', async (importOriginal) => {
@@ -109,7 +109,6 @@ describe('sandboxHubRouter', () => {
     mocks.list.mockResolvedValue([{ enabled: true, id: 'general' }]);
     mocks.health.mockResolvedValue({ default: 'ok' });
     mocks.findProfile.mockImplementation((id: string) => (id === 'data' ? { id } : undefined));
-    mocks.startingInstruction.mockResolvedValue('Starting text.');
     mocks.isAdmin.mockResolvedValue(false);
   });
 
@@ -169,11 +168,15 @@ describe('sandboxHubRouter', () => {
     it('refuses edits and resets from non-admins', async () => {
       const api = caller('user:account-a');
       await expect(
-        api.setInstruction({ ...scope, instruction: 'New text.', profileId: 'data' }),
+        api.setInstruction({
+          ...scope,
+          instruction: 'New text.',
+          profileId: SANDBOX_SHARED_INSTRUCTION_ID,
+        }),
       ).rejects.toMatchObject({ code: 'FORBIDDEN' });
-      await expect(api.resetInstruction({ ...scope, profileId: 'data' })).rejects.toMatchObject({
-        code: 'FORBIDDEN',
-      });
+      await expect(
+        api.resetInstruction({ ...scope, profileId: SANDBOX_SHARED_INSTRUCTION_ID }),
+      ).rejects.toMatchObject({ code: 'FORBIDDEN' });
       expect(mocks.upsertInstruction).not.toHaveBeenCalled();
       expect(mocks.deleteInstruction).not.toHaveBeenCalled();
     });
@@ -184,64 +187,83 @@ describe('sandboxHubRouter', () => {
         caller('user:account-b').setInstruction({
           ...scope,
           instruction: 'New text.',
-          profileId: 'data',
+          profileId: SANDBOX_SHARED_INSTRUCTION_ID,
         }),
       ).rejects.toMatchObject({ code: 'FORBIDDEN' });
       expect(mocks.isAdmin).not.toHaveBeenCalled();
     });
 
-    it('saves and resets an admin edit for a configured profile', async () => {
+    it('saves and resets the General instruction', async () => {
       mocks.isAdmin.mockResolvedValue(true);
       const api = caller('user:account-a');
 
       await expect(
-        api.setInstruction({ ...scope, instruction: 'New text.', profileId: 'data' }),
+        api.setInstruction({
+          ...scope,
+          instruction: 'New text.',
+          profileId: SANDBOX_SHARED_INSTRUCTION_ID,
+        }),
       ).resolves.toEqual([{ enabled: true, id: 'general' }]);
-      expect(mocks.upsertInstruction).toHaveBeenCalledWith('data', 'New text.', 'account-a');
+      expect(mocks.upsertInstruction).toHaveBeenCalledWith(
+        SANDBOX_SHARED_INSTRUCTION_ID,
+        'New text.',
+        'account-a',
+      );
 
-      await api.resetInstruction({ ...scope, profileId: 'data' });
-      expect(mocks.deleteInstruction).toHaveBeenCalledWith('data');
+      await api.resetInstruction({ ...scope, profileId: SANDBOX_SHARED_INSTRUCTION_ID });
+      expect(mocks.deleteInstruction).toHaveBeenCalledWith(SANDBOX_SHARED_INSTRUCTION_ID);
     });
 
-    it('treats saving the starting text as a reset', async () => {
+    it('treats saving the built-in General instruction as a reset', async () => {
       mocks.isAdmin.mockResolvedValue(true);
-      mocks.startingInstruction.mockResolvedValue('Starting text.');
       await caller('user:account-a').setInstruction({
         ...scope,
-        instruction: 'Starting text.',
-        profileId: 'data',
+        instruction: SANDBOX_SHARED_INSTRUCTION,
+        profileId: SANDBOX_SHARED_INSTRUCTION_ID,
       });
       expect(mocks.upsertInstruction).not.toHaveBeenCalled();
-      expect(mocks.deleteInstruction).toHaveBeenCalledWith('data');
+      expect(mocks.deleteInstruction).toHaveBeenCalledWith(SANDBOX_SHARED_INSTRUCTION_ID);
 
       await caller('user:account-a').setInstruction({
         ...scope,
         instruction: 'OLD fixture text',
-        profileId: 'data',
+        profileId: SANDBOX_SHARED_INSTRUCTION_ID,
       });
-      expect(mocks.upsertInstruction).toHaveBeenCalledWith('data', 'OLD fixture text', 'account-a');
+      expect(mocks.upsertInstruction).toHaveBeenCalledWith(
+        SANDBOX_SHARED_INSTRUCTION_ID,
+        'OLD fixture text',
+        'account-a',
+      );
     });
 
-    it('rejects unknown profiles, empty text and text over 32 KiB', async () => {
+    it('rejects a profile id, empty text, and text over 32 KiB', async () => {
       mocks.isAdmin.mockResolvedValue(true);
       const api = caller('user:account-a');
 
       await expect(
-        api.setInstruction({ ...scope, instruction: 'x', profileId: 'nope' }),
-      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
-      await expect(api.resetInstruction({ ...scope, profileId: 'nope' })).rejects.toMatchObject({
-        code: 'NOT_FOUND',
+        api.setInstruction({ ...scope, instruction: 'x', profileId: 'data' }),
+      ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+      await expect(api.resetInstruction({ ...scope, profileId: 'data' })).rejects.toMatchObject({
+        code: 'BAD_REQUEST',
       });
       await expect(
-        api.setInstruction({ ...scope, instruction: '  \n ', profileId: 'data' }),
+        api.setInstruction({
+          ...scope,
+          instruction: '  \n ',
+          profileId: SANDBOX_SHARED_INSTRUCTION_ID,
+        }),
       ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
       // 32 KiB is fine; one more byte (a multi-byte character counts by bytes) is not.
-      await api.setInstruction({ ...scope, instruction: 'x'.repeat(32 * 1024), profileId: 'data' });
+      await api.setInstruction({
+        ...scope,
+        instruction: 'x'.repeat(32 * 1024),
+        profileId: SANDBOX_SHARED_INSTRUCTION_ID,
+      });
       await expect(
         api.setInstruction({
           ...scope,
           instruction: `${'x'.repeat(32 * 1024 - 1)}\u00E9`,
-          profileId: 'data',
+          profileId: SANDBOX_SHARED_INSTRUCTION_ID,
         }),
       ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
       expect(mocks.upsertInstruction).toHaveBeenCalledTimes(1);

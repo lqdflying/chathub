@@ -205,7 +205,8 @@ export const SANDBOX_API: BuiltinToolManifest['api'] = [
 
 /** Title, description and avatar of the built-in `general` profile. */
 export const SANDBOX_DEFAULT_META = {
-  avatar: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMiIgaGVpZ2h0PSIzMiIgdmlld0JveD0iMCAwIDMyIDMyIiBmaWxsPSJub25lIj48cmVjdCB4PSIyIiB5PSI0IiB3aWR0aD0iMjgiIGhlaWdodD0iMjQiIHJ4PSI1IiBmaWxsPSIjMUYyOTM3Ii8+PHBhdGggZD0iTTIgOWE1IDUgMCAwIDEgNS01aDE4YTUgNSAwIDAgMSA1IDV2MUgyVjlaIiBmaWxsPSIjMzc0MTUxIi8+PGNpcmNsZSBjeD0iNi41IiBjeT0iNyIgcj0iMS4yIiBmaWxsPSIjRjg3MTcxIi8+PGNpcmNsZSBjeD0iMTAiIGN5PSI3IiByPSIxLjIiIGZpbGw9IiNGQkJGMjQiLz48Y2lyY2xlIGN4PSIxMy41IiBjeT0iNyIgcj0iMS4yIiBmaWxsPSIjMzREMzk5Ii8+PHBhdGggZD0iTTggMTVsNSA0LTUgNCIgc3Ryb2tlPSIjMzREMzk5IiBzdHJva2Utd2lkdGg9IjIuMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+PHBhdGggZD0iTTE1LjUgMjNoOCIgc3Ryb2tlPSIjRTVFN0VCIiBzdHJva2Utd2lkdGg9IjIuMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+PC9zdmc+Cg==',
+  avatar:
+    'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMiIgaGVpZ2h0PSIzMiIgdmlld0JveD0iMCAwIDMyIDMyIiBmaWxsPSJub25lIj48cmVjdCB4PSIyIiB5PSI0IiB3aWR0aD0iMjgiIGhlaWdodD0iMjQiIHJ4PSI1IiBmaWxsPSIjMUYyOTM3Ii8+PHBhdGggZD0iTTIgOWE1IDUgMCAwIDEgNS01aDE4YTUgNSAwIDAgMSA1IDV2MUgyVjlaIiBmaWxsPSIjMzc0MTUxIi8+PGNpcmNsZSBjeD0iNi41IiBjeT0iNyIgcj0iMS4yIiBmaWxsPSIjRjg3MTcxIi8+PGNpcmNsZSBjeD0iMTAiIGN5PSI3IiByPSIxLjIiIGZpbGw9IiNGQkJGMjQiLz48Y2lyY2xlIGN4PSIxMy41IiBjeT0iNyIgcj0iMS4yIiBmaWxsPSIjMzREMzk5Ii8+PHBhdGggZD0iTTggMTVsNSA0LTUgNCIgc3Ryb2tlPSIjMzREMzk5IiBzdHJva2Utd2lkdGg9IjIuMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+PHBhdGggZD0iTTE1LjUgMjNoOCIgc3Ryb2tlPSIjRTVFN0VCIiBzdHJva2Utd2lkdGg9IjIuMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+PC9zdmc+Cg==',
   description: 'Run commands, code, git, and Node.js in a Linux sandbox, and work with its files',
   title: 'Sandbox',
 };
@@ -240,11 +241,14 @@ export const SandboxManifest: BuiltinToolManifest = createSandboxManifest({
 });
 
 /**
- * The tool a Sandbox Hub profile puts in front of the model. The env-built
- * `general` profile yields exactly `SandboxManifest`.
+ * The tool a Sandbox Hub profile puts in front of the model. Its systemRole
+ * is that profile's composed instruction, not `SandboxManifest.systemRole`.
  */
 export const createSandboxProfileManifest = (
-  profile: Pick<SandboxProfileItem, 'avatar' | 'description' | 'identifier' | 'instruction' | 'name'>,
+  profile: Pick<
+    SandboxProfileItem,
+    'avatar' | 'description' | 'identifier' | 'instruction' | 'name'
+  >,
 ) =>
   createSandboxManifest({
     avatar: profile.avatar,

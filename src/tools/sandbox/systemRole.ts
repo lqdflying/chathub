@@ -31,41 +31,10 @@ Python (runPython):
 - New or changed files in the working directory are returned as files, including files in subdirectories. Hidden folders, __pycache__, node_modules, site-packages, and venv are not checked. Top-level files come first. A returned file keeps its basename. When two files this call returns share a basename, each nested one is renamed with its folders, for example plots_2024_summary.png. If the changed subdirectory files do not all fit in the file limit, none of them are returned and hint lists them; export the ones the user needs with exportFile.
 - If the call times out, the tool returns only the timeout error. Printed output from that call is not included.
 - The packages argument does not install anything. A missing import is not proof the package cannot be installed: run pip install with runCommand, or inside the code. It counts against the time limit and lasts only while that sandbox lives. If pip fails, say what is missing.
+- matplotlib uses the Agg backend. plt.show() saves each open figure as plot_N.png in the working directory, and it is returned as a file.
 `;
 
-/** Tools on the default Sandbox image. That profile's own extra text, not the General instruction. */
-export const GENERAL_SANDBOX_FEATURES = `The image usually has python3 with common data libraries, Node.js with npm, pnpm, and yarn, git, curl, wget, jq, ripgrep (rg), sqlite3, zip, build tools, ffmpeg and ffprobe, pandoc, LibreOffice (soffice), pdflatex and xelatex, and Chromium. Check with command -v before relying on one.
-
-Command-line tools (when installed):
-- Office files to PDF or another format: soffice --headless --convert-to pdf --outdir <dir> <file>.
-- Rendered HTML of a web page: chromium --headless --no-sandbox --disable-dev-shm-usage --dump-dom <url> prints the DOM after the page's scripts run. Commands run as root, so --no-sandbox is required. Playwright is not installed; use Chromium directly.
-- pandoc converts between Markdown, HTML, docx, and other formats. Pass --pdf-engine=xelatex when it writes a PDF. For Chinese text, also pass -V CJKmainfont="AR PL SungtiL GB".
-- LaTeX: pdflatex for Latin text; for Chinese, compile with xelatex, \\documentclass[fontset=none]{ctexart}, and \\setCJKmainfont{AR PL SungtiL GB}.
-- ffmpeg and ffprobe convert, cut, and inspect audio and video.
-
-Python libraries (when installed):
-- numpy, pandas, matplotlib, scipy, scikit-learn, polars, duckdb, and similar packages may already be present; import them directly.
-- If you are using matplotlib, these are reply-style choices, not sandbox errors:
-  - do not use seaborn
-  - give each chart its own distinct plot (no subplots)
-  - do not set specific colors unless the user asks
-  - matplotlib uses the Agg backend; plt.show() saves plot_N.png in the working directory
-- If you are accessing the internet, use the Python standard library (urllib, http.client) or requests if it is installed in the sandbox.
-- If you are generating files, prefer these libraries when they are installed in the sandbox:
-  - pdf --> reportlab
-  - docx --> python-docx
-  - xlsx --> openpyxl
-  - pptx --> python-pptx
-  - csv --> pandas
-  - ods --> odfpy
-  - odt --> odfpy
-  - odp --> odfpy. A slide page needs masterpagename, for example Page(name="page1", masterpagename="Default").
-- If you are generating a pdf
-  - You MUST prioritize generating text content using reportlab.platypus rather than canvas
-  - If you are generating text in Chinese, you MUST use STSong. To use the font, you must call pdfmetrics.registerFont(TTFont('STSong', 'STSong.ttf')) and apply the style to all text elements
-`;
-
-/** Static fallback before Hub profiles load. The Hub composes each profile itself. */
-export const systemRole = `${SANDBOX_SHARED_INSTRUCTION}\n${GENERAL_SANDBOX_FEATURES}`;
+/** Kept on SandboxManifest. Runtime tools use each Hub profile's composed instruction. */
+export const systemRole = SANDBOX_SHARED_INSTRUCTION;
 
 export const DEFAULT_SANDBOX_INSTRUCTION = systemRole;

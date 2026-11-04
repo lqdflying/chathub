@@ -6,6 +6,7 @@ import { sandboxHubService } from '@/services/sandboxHub';
 import { useUserStore } from '@/store/user';
 import { builtinTools as staticBuiltinTools } from '@/tools';
 import { createSandboxProfileManifest } from '@/tools/sandbox';
+import { SANDBOX_SHARED_INSTRUCTION_ID } from '@/tools/sandbox/const';
 import { setNamespace } from '@/utils/storeDebug';
 
 import type { ToolStore } from '../../store';
@@ -46,11 +47,16 @@ export interface SandboxHubAction {
    */
   ensureSandboxProfiles: () => Promise<void>;
   loadSandboxProfiles: (scope: string) => Promise<void>;
-  /** Admin only: restores a profile's starting instruction for every user. */
-  resetSandboxProfileInstruction: (profileId: string) => Promise<void>;
+  /** Admin only: restores the General instruction for every user. */
+  resetSandboxProfileInstruction: (
+    profileId: typeof SANDBOX_SHARED_INSTRUCTION_ID,
+  ) => Promise<void>;
   setSandboxProfileEnabled: (profileId: string, enabled: boolean) => Promise<void>;
-  /** Admin only: replaces a profile's instruction for every user. */
-  setSandboxProfileInstruction: (profileId: string, instruction: string) => Promise<void>;
+  /** Admin only: replaces the General instruction for every user. */
+  setSandboxProfileInstruction: (
+    profileId: typeof SANDBOX_SHARED_INSTRUCTION_ID,
+    instruction: string,
+  ) => Promise<void>;
   /** Loads the Hub profiles for the signed-in account once its user state is ready. */
   useFetchSandboxProfiles: (enabled: boolean) => void;
 }

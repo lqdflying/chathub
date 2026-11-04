@@ -249,31 +249,30 @@ release or a restart, so it can follow sandbox image updates.
 - **Starting text.** Every profile uses the same rule (`compose.ts`).
   `base: general` is the General instruction (`SANDBOX_SHARED_INSTRUCTION`,
   or the saved `_shared` row) plus that profile's own extra text. `base: none`
-  is only that profile's own text. The default Sandbox is not a separate
-  case. With no extra text of its own, its starting extra text is the
-  default image's tool list, and other profiles do not receive that list.
+  is only that profile's own text. Extra text comes only from the profile's
+  saved `instructionText`. There is no built-in tool list in code.
   The card's Edit changes only that profile's extra text. It does not
   replace the General instruction, for either instruction base.
 - **Where admins open it.** The shared text opens from **General instruction**
-  on the Sandbox Hub header, next to **Add sandbox**. It is not inside a
-  profile's settings. The Sandbox card does not offer that editor unless
-  profile settings failed to load. Every other profile still opens its own
-  instruction from the card. Each profile's settings keep Instruction base
-  and Extra instruction.
-- **Edits are shared.** Admins save a full replacement text per profile in
-  `sandbox_profile_instructions` (one row per profile id, `updated_by` set to
-  null if that user is deleted). It applies to every user at once. Saving the
+  on the Sandbox Hub header, next to **Add sandbox**. Every profile, including
+  Sandbox, opens **Edit** on its card for that profile's extra text. Each
+  profile's settings keep Instruction base and the same Extra instruction.
+- **Edits are shared.** The General instruction is the `_shared` row in
+  `sandbox_profile_instructions` (`updated_by` set to null if that user is
+  deleted). A profile's extra text is `instruction_text` on
+  `sandbox_hub_profiles`. Both apply to every user at once. Saving the
   General instruction changes every profile whose base is `general` on its
-  next turn. A profile with its own saved edit keeps that text until reset.
+  next turn. Other rows in `sandbox_profile_instructions` are not read.
 - **Admins** are listed in `SANDBOX_HUB_ADMINS`: comma-separated user ids or
   emails (emails match case-insensitively against the account email). Unset
   means nobody can edit, and the Hub shows instructions read-only with a hint
   naming the variable. The table is not user-scoped, so the router checks
   `isSandboxHubAdmin` on every write.
-- **Writes.** `setInstruction` needs a configured profile and 1 B to 32 KiB of
-  non-blank text; saving the starting text again deletes the row (the same
-  as `resetInstruction`). Both return the updated profile list, which the
-  tool store applies to its Sandbox manifests.
+- **Writes.** `setInstruction` and `resetInstruction` accept only `_shared`
+  and 1 B to 32 KiB of non-blank text. Saving the built-in General
+  instruction deletes the row. Card Edit writes `instructionText` through
+  `updateProfile`. `setInstruction` returns the updated profile list, which
+  the tool store applies to its Sandbox manifests.
 - **Reads.** `getUserSandboxProfiles` (Hub list, browser tools) and
   `getUserSandboxManifests` (durable worker) read all saved texts with one
   query per request. A missing table (migration not run) means no edits; any
@@ -288,10 +287,10 @@ release or a restart, so it can follow sandbox image updates.
   the text contains `{{`. A placeholder that changes (`{{date}}`, and
   `{{time}}` on providers that expand it) changes the cached prefix on its
   own, not only the one miss from the save.
-- **Code changes to the starting text** (for example `systemRole.ts`) do not
-  reach a deployment whose admin saved an edit of that profile. Release notes
-  that change the built-in instruction should tell admins to compare and
-  reset or merge.
+- **Code changes to `SANDBOX_SHARED_INSTRUCTION`** do not reach a deployment
+  that has a saved `_shared` row. Release notes that change that text should
+  tell admins to compare and reset or merge the General instruction. A
+  profile's extra text is not a hold-back of that built-in text.
 
 ### Secret environment variables
 
@@ -479,8 +478,9 @@ unset variable is `misconfigured` and its profiles cannot run; **any** error
 configures no servers or profiles at all (logged once) instead of silently
 running the rest; instructions are capped at 32 KiB. The same stored fields
 always produce the same instruction bytes. A Hub read composes them again, so
-an admin edit of the starting text applies on the next call without a restart.
-A saved instruction edit overrides that starting text until an admin resets it.
+an admin edit applies on the next call without a restart. A saved `_shared`
+row replaces `SANDBOX_SHARED_INSTRUCTION` until an admin resets the General
+instruction. A profile's extra text is composed with that result.
 Server-wide OpenSandbox settings (gVisor/Kata runtime, egress mode,
 `network_mode`, max timeout) need separate servers, so put such profiles on
 their own server entry.

@@ -39,7 +39,7 @@
         "none": "Only the text below"
       },
       "instructionText": "Extra instruction",
-      "instructionTextHint": "What is special about this sandbox, such as the tools installed. Added after the General instruction puts this text after that shared instruction. Only the text below does not use the General instruction. To replace the full instruction, open the card and choose Edit.",
+      "instructionTextHint": "What is special about this sandbox, such as the tools installed. Added after the General instruction puts this text after that shared instruction. Only the text below does not use the General instruction. Edit on the card changes this same text.",
       "invalid": {
         "allowlist": "Add at least one address.",
         "description": "Enter a description.",
@@ -220,6 +220,7 @@
     "idlePerCall": "Fresh sandbox for every call",
     "instruction": {
       "cancel": "Cancel",
+      "clearExtraConfirm": "Remove this sandbox's extra instruction? This applies to every user.",
       "close": "Close",
       "customized": "Customized",
       "edit": "Edit",

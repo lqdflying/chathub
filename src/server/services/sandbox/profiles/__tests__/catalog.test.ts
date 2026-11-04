@@ -76,9 +76,8 @@ vi.mock('../hub', () => ({
 }));
 
 const { composeSandboxInstruction } = await import('../compose');
-const { DEFAULT_SANDBOX_INSTRUCTION, SANDBOX_SHARED_INSTRUCTION } = await import(
-  '@/tools/sandbox/systemRole'
-);
+const { DEFAULT_SANDBOX_INSTRUCTION, SANDBOX_SHARED_INSTRUCTION } =
+  await import('@/tools/sandbox/systemRole');
 const { createSandboxProfileManifest } = await import('@/tools/sandbox');
 
 const {
@@ -102,27 +101,23 @@ describe('Sandbox Hub catalog', () => {
   it('builds every general-base profile on the saved General instruction', async () => {
     const unchanged = await getUserSandboxProfiles(db, 'user-1');
     expect(unchanged[0].instruction).toContain(SANDBOX_SHARED_INSTRUCTION);
-    expect(unchanged[0].instruction).toContain('LibreOffice');
+    expect(unchanged[0].instruction).not.toContain('Profile instructions:');
     expect(unchanged[0].instructionCustomized).toBe(false);
     expect(
       unchanged[1].instruction.startsWith('This tool is the "data" sandbox: data profile\n'),
     ).toBe(true);
     expect(unchanged[1].instruction).toContain(SANDBOX_SHARED_INSTRUCTION);
-    expect(unchanged[1].instruction).not.toContain('LibreOffice');
+    expect(unchanged[1].instruction).not.toContain('Profile instructions:');
+    expect(SANDBOX_SHARED_INSTRUCTION).toContain('plot_N.png');
     expect(SANDBOX_SHARED_INSTRUCTION).not.toContain('.oci');
-    expect(DEFAULT_SANDBOX_INSTRUCTION).toContain('LibreOffice');
 
     mocks.profiles = [
       profile('general', { instructionText: 'Node is installed.' }),
       profile('data'),
     ];
     const withSandboxExtra = await getUserSandboxProfiles(db, 'user-1');
-    expect(withSandboxExtra.find((item) => item.id === 'general')?.instruction).toContain(
-      'Node is installed.',
-    );
-    expect(withSandboxExtra.find((item) => item.id === 'general')?.instruction).not.toContain(
-      'LibreOffice',
-    );
+    const sandboxExtra = withSandboxExtra.find((item) => item.id === 'general')?.instruction ?? '';
+    expect(sandboxExtra.match(/Node is installed\./g)).toHaveLength(1);
     expect(withSandboxExtra.find((item) => item.id === 'data')?.instruction).not.toContain(
       'Node is installed.',
     );
@@ -134,10 +129,10 @@ describe('Sandbox Hub catalog', () => {
     const sandbox = edited[0];
     const data = edited[1];
     expect(sandbox.instruction).toContain('Shared rule.');
-    expect(sandbox.instruction).toContain('LibreOffice');
+    expect(sandbox.instruction).not.toContain(SANDBOX_SHARED_INSTRUCTION);
     expect(sandbox.instructionCustomized).toBe(false);
     expect(data.instruction).toContain('Shared rule.');
-    expect(data.instruction).not.toContain('LibreOffice');
+    expect(data.instruction).not.toContain(SANDBOX_SHARED_INSTRUCTION);
     expect(data.instructionCustomized).toBe(false);
     expect(createSandboxProfileManifest(data).systemRole).toBe(data.instruction);
 

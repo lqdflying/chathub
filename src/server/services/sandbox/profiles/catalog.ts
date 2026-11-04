@@ -7,15 +7,8 @@ import {
   type SavedSandboxInstruction,
 } from '@/database/models/sandboxProfileInstruction';
 import { createSandboxProfileManifest } from '@/tools/sandbox';
-import {
-  DEFAULT_SANDBOX_PROFILE_ID,
-  parseSandboxToolIdentifier,
-  SANDBOX_SHARED_INSTRUCTION_ID,
-} from '@/tools/sandbox/const';
-import {
-  GENERAL_SANDBOX_FEATURES,
-  SANDBOX_SHARED_INSTRUCTION,
-} from '@/tools/sandbox/systemRole';
+import { SANDBOX_SHARED_INSTRUCTION_ID, parseSandboxToolIdentifier } from '@/tools/sandbox/const';
+import { SANDBOX_SHARED_INSTRUCTION } from '@/tools/sandbox/systemRole';
 
 import { composeSandboxInstruction } from './compose';
 import { getSandboxProfileCatalog } from './hub';
@@ -69,22 +62,20 @@ const startingInstructions = (
   const general =
     saved.get(SANDBOX_SHARED_INSTRUCTION_ID)?.instruction ?? SANDBOX_SHARED_INSTRUCTION;
   return new Map(
-    profiles.map((profile) => {
-      const own = profile.instructionText?.trim();
-      const text =
-        profile.id === DEFAULT_SANDBOX_PROFILE_ID && !own ? GENERAL_SANDBOX_FEATURES : own;
-      return [
-        profile.id,
-        composeSandboxInstruction({
-          base: profile.instructionBase,
-          description: profile.description,
-          general,
-          id: profile.id,
-          name: profile.name,
-          text,
-        }),
-      ] as const;
-    }),
+    profiles.map(
+      (profile) =>
+        [
+          profile.id,
+          composeSandboxInstruction({
+            base: profile.instructionBase,
+            description: profile.description,
+            general,
+            id: profile.id,
+            name: profile.name,
+            text: profile.instructionText,
+          }),
+        ] as const,
+    ),
   );
 };
 
@@ -137,13 +128,6 @@ export const getUserSandboxProfiles = async (
       starting.get(profile.id) ?? '',
     ),
   );
-};
-
-/** The text a profile uses before any saved edit of its own. */
-export const getSandboxStartingInstruction = async (db: LobeChatDatabase, profileId: string) => {
-  const { profiles } = await getSandboxProfileCatalog(db);
-  const saved = await readInstructions(db);
-  return startingInstructions(profiles, saved).get(profileId);
 };
 
 /** Profiles the user can put in front of the model: enabled in the Hub and runnable. */

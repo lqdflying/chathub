@@ -10,7 +10,7 @@ Several purpose-built sandboxes, each its own tool with its own instruction and
 container. Servers stay in `SANDBOX_PROFILES_FILE`. Users only turn profiles on
 or off (`/sandbox`); agents opt in from the tool picker. Admins listed in
 `SANDBOX_HUB_ADMINS` add, edit, order, and delete profiles, prepare images, and
-edit each profile's instruction for every user. Admins set shared environment
+edit the General instruction and each profile's extra instruction for every user. Admins set shared environment
 variables and files per profile and users add their own. Maintainer doc:
 `openwiki/architecture/sandbox.md` (Sandbox Hub profiles, Editable
 instructions, Secret environment variables, Secret files).
@@ -18,10 +18,9 @@ instructions, Secret environment variables, Secret files).
 ## Invariants (keep)
 
 - **`general` is the old Sandbox.** It keeps `lobe-sandbox`, the legacy
-  alias, the built-in instruction (as its starting text), and the pre-profile
-  session key. Without a profiles file or a saved edit its manifest is
-  byte-identical to the old static
-  `SandboxManifest` (golden test in `payload.sandbox.test.ts`).
+  alias, and the pre-profile session key. Its model instruction is the
+  composed profile text (header, General instruction, and extra text when
+  set), not a byte copy of `SandboxManifest.systemRole`.
 - **Profile ids:** `^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$`, ≤ 16 chars, never `_`.
   Longer ids push `lobe-sandbox--<id>____<api>____builtin` past 64 chars, where
   `ToolNameResolver` hashes names and the worker (`split('____')`) breaks.

@@ -11,10 +11,7 @@ import {
   purgeFinishedSandboxJobs,
 } from '@/server/services/sandbox/jobs/service';
 import { hasSandboxHubAdmins, isSandboxHubAdmin } from '@/server/services/sandbox/profiles/admins';
-import {
-  getSandboxStartingInstruction,
-  getUserSandboxProfiles,
-} from '@/server/services/sandbox/profiles/catalog';
+import { getUserSandboxProfiles } from '@/server/services/sandbox/profiles/catalog';
 import {
   SandboxEnvError,
   deleteSandboxEnv,
@@ -374,19 +371,16 @@ export const sandboxHubRouter = router({
       return purgeFinishedSandboxJobs({ db: ctx.serverDB, userId: ctx.userId });
     }),
 
-  /** Admin only: drops the edited instruction so the starting text applies again. */
+  /** Admin only: drops a saved General instruction so the built-in text applies again. */
   resetInstruction: sandboxHubProcedure
     .input(
       accountScopeInput.extend({
-        profileId: z.union([profileIdInput, z.literal(SANDBOX_SHARED_INSTRUCTION_ID)]),
+        profileId: z.literal(SANDBOX_SHARED_INSTRUCTION_ID),
       }),
     )
     .mutation(async ({ ctx, input }) => {
       assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
       await assertSandboxHubAdmin(ctx);
-      if (input.profileId !== SANDBOX_SHARED_INSTRUCTION_ID) {
-        await findProfileOrThrow(ctx.serverDB, input.profileId);
-      }
       await new SandboxProfileInstructionModel(ctx.serverDB).delete(input.profileId);
       return getUserSandboxProfiles(ctx.serverDB, ctx.userId);
     }),
@@ -398,28 +392,21 @@ export const sandboxHubRouter = router({
   }),
 
   /**
-   * Admin only: replaces a profile's instruction for every user. Saving the
-   * starting text again is the same as a reset, so it does not show as edited.
+   * Admin only: replaces the General instruction. Saving the built-in text
+   * again deletes the row, so it does not show as edited.
    */
   setInstruction: sandboxHubProcedure
     .input(
       accountScopeInput.extend({
         instruction: instructionInput,
-        profileId: z.union([profileIdInput, z.literal(SANDBOX_SHARED_INSTRUCTION_ID)]),
+        profileId: z.literal(SANDBOX_SHARED_INSTRUCTION_ID),
       }),
     )
     .mutation(async ({ ctx, input }) => {
       assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
       await assertSandboxHubAdmin(ctx);
-      const starting =
-        input.profileId === SANDBOX_SHARED_INSTRUCTION_ID
-          ? SANDBOX_SHARED_INSTRUCTION
-          : await getSandboxStartingInstruction(ctx.serverDB, input.profileId);
-      if (input.profileId !== SANDBOX_SHARED_INSTRUCTION_ID) {
-        await findProfileOrThrow(ctx.serverDB, input.profileId);
-      }
       const model = new SandboxProfileInstructionModel(ctx.serverDB);
-      if (starting !== undefined && input.instruction === starting) {
+      if (input.instruction === SANDBOX_SHARED_INSTRUCTION) {
         await model.delete(input.profileId);
       } else {
         await model.upsert(input.profileId, input.instruction, ctx.userId);

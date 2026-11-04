@@ -119,16 +119,16 @@ describe('Sandbox Hub tool-store slice', () => {
     service.setInstruction.mockResolvedValue([
       item('general', { instruction: 'Edited.', instructionCustomized: true }),
     ]);
-    await useToolStore.getState().setSandboxProfileInstruction('general', 'Edited.');
-    expect(service.setInstruction).toHaveBeenCalledWith('user:a', 'general', 'Edited.');
+    await useToolStore.getState().setSandboxProfileInstruction('_shared', 'Edited.');
+    expect(service.setInstruction).toHaveBeenCalledWith('user:a', '_shared', 'Edited.');
     const edited = useToolStore
       .getState()
       .builtinTools.find((entry) => entry.identifier === 'lobe-sandbox');
     expect(edited?.manifest.systemRole).toBe('Edited.');
 
     service.resetInstruction.mockResolvedValue([item('general')]);
-    await useToolStore.getState().resetSandboxProfileInstruction('general');
-    expect(service.resetInstruction).toHaveBeenCalledWith('user:a', 'general');
+    await useToolStore.getState().resetSandboxProfileInstruction('_shared');
+    expect(service.resetInstruction).toHaveBeenCalledWith('user:a', '_shared');
     const reset = useToolStore
       .getState()
       .builtinTools.find((entry) => entry.identifier === 'lobe-sandbox');
@@ -136,7 +136,7 @@ describe('Sandbox Hub tool-store slice', () => {
 
     service.setInstruction.mockRejectedValue(new Error('FORBIDDEN'));
     await expect(
-      useToolStore.getState().setSandboxProfileInstruction('general', 'Nope.'),
+      useToolStore.getState().setSandboxProfileInstruction('_shared', 'Nope.'),
     ).rejects.toThrow('FORBIDDEN');
   });
 

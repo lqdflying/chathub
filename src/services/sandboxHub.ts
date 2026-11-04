@@ -10,6 +10,7 @@ import type {
 } from '@lobechat/types';
 
 import { lambdaClient } from '@/libs/trpc/client';
+import { SANDBOX_SHARED_INSTRUCTION_ID } from '@/tools/sandbox/const';
 
 /** One file write: base64 `content` replaces the file; without it only mode and Sensitive change. */
 export interface SandboxFileWriteInput {
@@ -88,7 +89,10 @@ class SandboxHubService {
   profileSettings = (accountScope: string): Promise<SandboxHubSettings> =>
     lambdaClient.sandboxHub.profileSettings.query({ accountScope });
 
-  resetInstruction = (accountScope: string, profileId: string): Promise<SandboxProfileItem[]> =>
+  resetInstruction = (
+    accountScope: string,
+    profileId: typeof SANDBOX_SHARED_INSTRUCTION_ID,
+  ): Promise<SandboxProfileItem[]> =>
     lambdaClient.sandboxHub.resetInstruction.mutate({ accountScope, profileId });
 
   serverStatus = (accountScope: string): Promise<Record<string, SandboxServerHealth>> =>
@@ -96,7 +100,7 @@ class SandboxHubService {
 
   setInstruction = (
     accountScope: string,
-    profileId: string,
+    profileId: typeof SANDBOX_SHARED_INSTRUCTION_ID,
     instruction: string,
   ): Promise<SandboxProfileItem[]> =>
     lambdaClient.sandboxHub.setInstruction.mutate({ accountScope, instruction, profileId });

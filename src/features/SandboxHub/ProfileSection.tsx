@@ -443,27 +443,27 @@ const ProfileSection = memo<ProfileSectionProps>(
                   </>,
                 )}
                 {fact(
-                    t('profile.rows.instruction'),
-                    <Flexbox align={'center'} gap={8} horizontal justify={'flex-end'} wrap={'wrap'}>
-                      {profile.instructionCustomized && (
-                        <Tag color={'processing'} size={'small'}>
-                          {t('profile.instruction.customized')}
-                        </Tag>
-                      )}
-                      {profile.instructionUpdatedAt && (
-                        <span className={styles.groupDesc}>
-                          {t('profile.instruction.updatedAt', {
-                            time: dayjs(profile.instructionUpdatedAt).format('YYYY-MM-DD HH:mm'),
-                          })}
-                        </span>
-                      )}
-                      <Button onClick={() => closeAnd(onOpenInstruction)} size={'small'}>
-                        {access?.canEdit
-                          ? t('profile.instruction.edit')
-                          : t('profile.instruction.view')}
-                      </Button>
-                    </Flexbox>,
-                  )}
+                  t('profile.rows.instruction'),
+                  <Flexbox align={'center'} gap={8} horizontal justify={'flex-end'} wrap={'wrap'}>
+                    {profile.instructionCustomized && (
+                      <Tag color={'processing'} size={'small'}>
+                        {t('profile.instruction.customized')}
+                      </Tag>
+                    )}
+                    {profile.instructionUpdatedAt && (
+                      <span className={styles.groupDesc}>
+                        {t('profile.instruction.updatedAt', {
+                          time: dayjs(profile.instructionUpdatedAt).format('YYYY-MM-DD HH:mm'),
+                        })}
+                      </span>
+                    )}
+                    <Button onClick={() => closeAnd(onOpenInstruction)} size={'small'}>
+                      {access?.canEdit
+                        ? t('profile.instruction.edit')
+                        : t('profile.instruction.view')}
+                    </Button>
+                  </Flexbox>,
+                )}
                 {onOpenEnv &&
                   fact(
                     t('env.row'),

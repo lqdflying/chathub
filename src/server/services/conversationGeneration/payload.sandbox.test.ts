@@ -1,10 +1,9 @@
 /** @vitest-environment node */
-import { ToolNameResolver } from '@lobechat/context-engine';
-import { pluginPrompts } from '@lobechat/prompts';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { SandboxProfileCatalog } from '@/server/services/sandbox/profiles/schema';
 import { SandboxManifest } from '@/tools/sandbox';
+import { SANDBOX_SHARED_INSTRUCTION } from '@/tools/sandbox/systemRole';
 
 const state = vi.hoisted(() => ({
   catalog: undefined as unknown as SandboxProfileCatalog,
@@ -108,24 +107,6 @@ const systemText = (result: Awaited<ReturnType<typeof build>>) =>
 const toolNames = (result: Awaited<ReturnType<typeof build>>) =>
   (result.payload.tools ?? []).map((tool: any) => tool.function.name).sort();
 
-/** The worker's tool block for the static SandboxManifest, as built before Sandbox Hub. */
-const legacySandboxBlock = () => {
-  const resolver = new ToolNameResolver();
-  return pluginPrompts({
-    tools: [
-      {
-        apis: (SandboxManifest.api || []).map((api) => ({
-          desc: api.description,
-          name: resolver.generate(SandboxManifest.identifier, api.name, SandboxManifest.type),
-        })),
-        identifier: SandboxManifest.identifier,
-        name: SandboxManifest.identifier,
-        systemRole: SandboxManifest.systemRole,
-      },
-    ],
-  });
-};
-
 describe('buildConversationChatPayload with Sandbox Hub profiles', () => {
   beforeEach(() => {
     state.catalog = loadSandboxProfiles({ env });
@@ -133,21 +114,21 @@ describe('buildConversationChatPayload with Sandbox Hub profiles', () => {
     state.instructions = new Map();
   });
 
-  it('builds the same Sandbox tools and instruction bytes as the static manifest', async () => {
+  it('sends the General instruction with the Sandbox tools', async () => {
     const result = await build(['lobe-sandbox']);
-    expect(systemText(result)).toContain(legacySandboxBlock());
+    expect(systemText(result)).toContain(SANDBOX_SHARED_INSTRUCTION);
     expect(toolNames(result)).toEqual(
       (SandboxManifest.api || []).map((api) => `lobe-sandbox____${api.name}____builtin`).sort(),
     );
   });
 
-  it('sends an admin-edited instruction in place of the starting text', async () => {
+  it('sends a saved General instruction in place of the built-in one', async () => {
     state.instructions = new Map([
-      ['general', { instruction: 'Use the sandbox image v3.', updatedAt: new Date() }],
+      ['_shared', { instruction: 'Use the sandbox image v3.', updatedAt: new Date() }],
     ]);
     const text = systemText(await build(['lobe-sandbox']));
     expect(text).toContain('Use the sandbox image v3.');
-    expect(text).not.toContain(SandboxManifest.systemRole);
+    expect(text).not.toContain(SANDBOX_SHARED_INSTRUCTION);
   });
 
   it('drops the tool and its instruction when the profile is turned off in the Hub', async () => {

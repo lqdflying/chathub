@@ -48,6 +48,8 @@ const byteLength = (text: string) => new TextEncoder().encode(text).length;
 
 interface InstructionModalProps {
   access?: InstructionAccess;
+  /** Card Edit clears extra text. The General instruction restores its starting text. */
+  clearExtra?: boolean;
   onClose: () => void;
   onReset: () => Promise<void>;
   onSave: (instruction: string) => Promise<void>;
@@ -57,7 +59,7 @@ interface InstructionModalProps {
 
 /** A profile's model instruction: read-only for users, editable for Sandbox Hub admins. */
 const InstructionModal = memo<InstructionModalProps>(
-  ({ access, onClose, onReset, onSave, open, profile }) => {
+  ({ access, clearExtra, onClose, onReset, onSave, open, profile }) => {
     const { styles } = useStyles();
     const { t } = useTranslation('sandboxHub');
     const [draft, setDraft] = useState('');
@@ -98,7 +100,11 @@ const InstructionModal = memo<InstructionModalProps>(
               cancelText={t('profile.instruction.cancel')}
               okText={t('profile.instruction.reset')}
               onConfirm={() => run(onReset)}
-              title={t('profile.instruction.resetConfirm')}
+              title={t(
+                clearExtra
+                  ? 'profile.instruction.clearExtraConfirm'
+                  : 'profile.instruction.resetConfirm',
+              )}
             >
               <Button danger disabled={saving}>
                 {t('profile.instruction.reset')}

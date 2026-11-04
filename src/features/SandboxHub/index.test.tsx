@@ -224,10 +224,14 @@ vi.mock('antd', () => ({
       />
     </div>
   ),
-  Popconfirm: ({ children, okText, onConfirm }: any) => (
+  Popconfirm: ({ children, okText, onConfirm, title }: any) => (
     <span>
       {children}
-      <button onClick={onConfirm} type="button">{`confirm:${okText}`}</button>
+      <button
+        data-confirm-title={title}
+        onClick={onConfirm}
+        type="button"
+      >{`confirm:${okText}`}</button>
     </span>
   ),
   Switch: ({ checked, disabled, onChange, ...rest }: any) => (
@@ -534,6 +538,22 @@ describe('SandboxHub', () => {
       expect(screen.queryByRole('textbox')).toBeNull();
     });
 
+    it('reports a failed save when Hub settings are not loaded', async () => {
+      mocks.access.mockResolvedValue({ adminsConfigured: true, canEditInstructions: true });
+      mocks.admin.settings.mockRejectedValue(new Error('x'));
+      mocks.profiles = [profile('data')];
+      await renderHub();
+      openDetails();
+      fireEvent.click(screen.getByText('profile.instruction.edit'));
+      fireEvent.change(screen.getByRole('textbox'), { target: { value: 'New text.' } });
+      await act(async () => {
+        fireEvent.click(screen.getByText('profile.instruction.save'));
+      });
+      expect(screen.getByText('profile.instruction.saveFailed')).toBeTruthy();
+      expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('New text.');
+      expect(mocks.admin.update).not.toHaveBeenCalled();
+    });
+
     it('keeps the draft and shows an error when saving fails', async () => {
       mocks.access.mockResolvedValue({ adminsConfigured: true, canEditInstructions: true });
       mocks.admin.update.mockRejectedValue(new Error('FORBIDDEN'));
@@ -574,6 +594,9 @@ describe('SandboxHub', () => {
       await renderHub();
       openDetails();
       fireEvent.click(screen.getByText('profile.instruction.edit'));
+      expect(
+        screen.getByText('confirm:profile.instruction.reset').getAttribute('data-confirm-title'),
+      ).toBe('profile.instruction.clearExtraConfirm');
       await act(async () => {
         fireEvent.click(screen.getByText('confirm:profile.instruction.reset'));
       });
@@ -1193,12 +1216,13 @@ describe('SandboxHub', () => {
         profile('general', { instruction: 'general contract', name: 'Sandbox' }),
         profile('data', { name: 'Claude Code' }),
       ];
-      mocks.admin.settings.mockResolvedValue(
-        hubSettings([
+      mocks.admin.settings.mockResolvedValue({
+        ...hubSettings([
           settingsItem('general', { name: 'Sandbox' }),
           settingsItem('data', { name: 'Claude Code' }),
         ]),
-      );
+        generalInstructionCustomized: true,
+      });
       await renderAsAdmin();
 
       fireEvent.click(screen.getByRole('button', { name: /profile\.details.*Sandbox/ }));
@@ -1210,6 +1234,9 @@ describe('SandboxHub', () => {
           .getAllByRole('dialog')
           .some((dialog) => dialog.textContent?.includes('Shared contract.')),
       ).toBe(true);
+      expect(
+        screen.getByText('confirm:profile.instruction.reset').getAttribute('data-confirm-title'),
+      ).toBe('profile.instruction.resetConfirm');
       fireEvent.click(screen.getByText('profile.instruction.cancel'));
 
       fireEvent.click(screen.getAllByRole('button', { name: 'admin.settings' })[1]);

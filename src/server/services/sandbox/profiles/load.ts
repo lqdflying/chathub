@@ -95,7 +95,7 @@ const envServer = (env: SandboxProfilesEnv): ResolvedSandboxServer | undefined =
 const formatZodError = (error: ZodError) =>
   error.issues.map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`);
 
-/** Today's single sandbox, from OPENSANDBOX_* only. Byte-identical tool meta and instruction. */
+/** Today's single sandbox, from OPENSANDBOX_* only. Tool meta comes from SandboxManifest. */
 const synthesizeFromEnv = (env: SandboxProfilesEnv): SandboxProfileCatalog => {
   const server = envServer(env);
   const image = env.OPENSANDBOX_IMAGE?.trim();

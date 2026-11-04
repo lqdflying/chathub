@@ -311,7 +311,7 @@ const SandboxHub = memo(() => {
         : profiles.find((profile) => profile.id === instructionDialog.id);
   const saveExtraInstruction = async (profileId: string, instructionText: string) => {
     const item = hubSettings?.profiles.find((entry) => entry.id === profileId);
-    if (!item || !scope) return;
+    if (!item || !scope) throw new Error('Sandbox Hub settings are not loaded');
     setHubSettings(
       await sandboxHubService.updateProfile(scope, item.id, {
         avatar: item.avatar,
@@ -486,18 +486,19 @@ const SandboxHub = memo(() => {
 
       <InstructionModal
         access={access}
+        clearExtra={instructionDialog.id !== SANDBOX_SHARED_INSTRUCTION_ID}
         onClose={() => setInstructionDialog((current) => ({ ...current, open: false }))}
         onReset={() =>
           instructionDialog.id === SANDBOX_SHARED_INSTRUCTION_ID
             ? refreshAfterSharedInstruction(() =>
-                resetSandboxProfileInstruction(instructionDialog.id!),
+                resetSandboxProfileInstruction(SANDBOX_SHARED_INSTRUCTION_ID),
               )
             : saveExtraInstruction(instructionDialog.id!, '')
         }
         onSave={(instruction) =>
           instructionDialog.id === SANDBOX_SHARED_INSTRUCTION_ID
             ? refreshAfterSharedInstruction(() =>
-                setSandboxProfileInstruction(instructionDialog.id!, instruction),
+                setSandboxProfileInstruction(SANDBOX_SHARED_INSTRUCTION_ID, instruction),
               )
             : saveExtraInstruction(instructionDialog.id!, instruction)
         }
