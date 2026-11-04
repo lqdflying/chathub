@@ -21,7 +21,11 @@ import {
   resolveSandboxMaskEnv,
   sandboxJobMaskEnv,
 } from '../profiles/env';
-import { resolveSandboxFileMask } from '../profiles/files';
+import {
+  readSandboxFileSnapshot,
+  resolveSandboxFileMask,
+  sandboxJobFileMask,
+} from '../profiles/files';
 import { findSandboxProfile } from '../profiles/hub';
 import { findSandboxServer } from '../profiles/load';
 import { getSandboxProvider } from '../registry';
@@ -400,9 +404,14 @@ export const checkSandboxJob = async ({
         await resolveSandboxMaskEnv(db, userId, row.profileId),
       )
     : {};
-  // The profile's current sensitive files; a file changed since the job
-  // started is masked with its new content only.
-  const fileMask = needsMask ? await resolveSandboxFileMask(db, userId, row.profileId) : [];
+  // The files the job started with, plus the profile's current sensitive files.
+  // A snapshot that cannot be read throws, so the output is not saved in the clear.
+  const fileMask = needsMask
+    ? sandboxJobFileMask(
+        await readSandboxFileSnapshot(row.fileSnapshot),
+        await resolveSandboxFileMask(db, userId, row.profileId),
+      )
+    : [];
 
   const model = new SandboxJobModel(db, userId);
   const checkedAt = new Date(now);

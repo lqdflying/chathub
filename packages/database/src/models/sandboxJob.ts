@@ -12,6 +12,8 @@ export interface CreateSandboxJobInput {
   deadlineAt: Date;
   /** Ciphertext of the env map the sandbox was created with. Null when empty. */
   envSnapshot?: string | null;
+  /** Ciphertext of the sensitive-file mask the sandbox was created with. Null when empty. */
+  fileSnapshot?: string | null;
   outputDir?: string;
   profileId: string;
   sessionKey: string;

@@ -691,6 +691,35 @@ describe('SandboxHub', () => {
       });
     });
 
+    it('does not save while a chosen file is still being read', async () => {
+      mocks.profiles = [profile('data')];
+      await renderHub();
+      openFiles();
+      fireEvent.click(screen.getByText('files.add'));
+      fireEvent.change(screen.getByLabelText('files.path'), {
+        target: { value: '/root/.oci/key.pem' },
+      });
+      const file = new File(['-----BEGIN KEY-----\n'], 'key.pem');
+      let release: (buffer: ArrayBuffer) => void = () => undefined;
+      const pending = new Promise<ArrayBuffer>((resolve) => {
+        release = resolve;
+      });
+      Object.defineProperty(file, 'arrayBuffer', { value: () => pending });
+
+      await act(async () => {
+        fireEvent.change(screen.getByTestId('upload-input'), { target: { files: [file] } });
+      });
+      const save = screen.getByText('files.save') as HTMLButtonElement;
+      expect(save.disabled).toBe(true);
+      fireEvent.click(save);
+      expect(mocks.files.setMine).not.toHaveBeenCalled();
+
+      await act(async () => {
+        release(await new File(['-----BEGIN KEY-----\n'], 'key.pem').arrayBuffer());
+      });
+      expect((screen.getByText('files.save') as HTMLButtonElement).disabled).toBe(false);
+    });
+
     it('checks the path and mode before saving and shows a refused save', async () => {
       mocks.profiles = [profile('data')];
       await renderHub();
@@ -753,6 +782,31 @@ describe('SandboxHub', () => {
         fireEvent.click(screen.getByText('confirm:files.delete'));
       });
       expect(mocks.files.deleteShared).toHaveBeenCalledWith('user:u1', 'data', '/etc/pip.conf');
+    });
+
+    it('sends cleared visible text and keeps the dialog open when the save is refused', async () => {
+      mocks.access.mockResolvedValue({ adminsConfigured: true, canEditInstructions: true });
+      mocks.profiles = [profile('data')];
+      mocks.files.list.mockResolvedValue(
+        listed([], [file('/etc/pip.conf', { content: '[global]\n', sensitive: false })]),
+      );
+      mocks.files.setShared.mockRejectedValue(new Error('The file is empty.'));
+      await renderHub();
+      openFiles();
+
+      fireEvent.click(screen.getByText('files.replace'));
+      fireEvent.change(screen.getByLabelText('files.content'), { target: { value: '' } });
+      await act(async () => {
+        fireEvent.click(screen.getByText('files.save'));
+      });
+      expect(mocks.files.setShared).toHaveBeenCalledWith('user:u1', 'data', {
+        content: '',
+        mode: '600',
+        path: '/etc/pip.conf',
+        sensitive: false,
+      });
+      expect(screen.getByText('The file is empty.')).toBeTruthy();
+      expect(screen.getByLabelText('files.content')).toBeTruthy();
     });
   });
 
@@ -1100,26 +1154,35 @@ describe('SandboxHub', () => {
       });
     };
 
-    it('opens the general instruction from the edit form, not the Sandbox card', async () => {
+    it('opens the general instruction from the hub header, not a profile edit form', async () => {
       mocks.profiles = [
         profile('general', { instruction: 'general contract', name: 'Sandbox' }),
-        profile('data'),
+        profile('data', { name: 'Claude Code' }),
       ];
       mocks.admin.settings.mockResolvedValue(
-        hubSettings([settingsItem('general', { name: 'Sandbox' }), settingsItem('data')]),
+        hubSettings([
+          settingsItem('general', { name: 'Sandbox' }),
+          settingsItem('data', { name: 'Claude Code' }),
+        ]),
       );
       await renderAsAdmin();
 
       fireEvent.click(screen.getByRole('button', { name: /profile\.details.*Sandbox/ }));
       expect(screen.queryByText('profile.instruction.edit')).toBeNull();
 
-      fireEvent.click(screen.getAllByRole('button', { name: 'admin.settings' })[0]);
       fireEvent.click(screen.getByText('admin.form.generalInstruction'));
       expect(
         screen
           .getAllByRole('dialog')
           .some((dialog) => dialog.textContent?.includes('general contract')),
       ).toBe(true);
+      fireEvent.click(screen.getByText('profile.instruction.cancel'));
+
+      fireEvent.click(screen.getAllByRole('button', { name: 'admin.settings' })[1]);
+      const editor = screen
+        .getAllByRole('dialog')
+        .find((dialog) => dialog.textContent?.includes('admin.form.instructionBase'));
+      expect(editor?.textContent).not.toContain('admin.form.generalInstruction');
     });
 
     it('keeps the Sandbox instruction on the card when settings fail to load', async () => {

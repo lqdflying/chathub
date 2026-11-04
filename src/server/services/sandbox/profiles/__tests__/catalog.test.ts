@@ -115,6 +115,8 @@ describe('Sandbox Hub catalog', () => {
     ).toBe(true);
     expect(unchanged[1].instruction).toContain(DEFAULT_SANDBOX_INSTRUCTION);
     expect(generalStart).toBe(DEFAULT_SANDBOX_INSTRUCTION);
+    expect(DEFAULT_SANDBOX_INSTRUCTION).not.toContain('.oci');
+    expect(DEFAULT_SANDBOX_INSTRUCTION).not.toContain('~/');
 
     mocks.profiles = [
       profile('general', { instructionText: 'Node is installed.' }),

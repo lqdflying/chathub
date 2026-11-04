@@ -87,7 +87,10 @@ instructions, Secret environment variables, Secret files).
   Prepare image pass none and must never replace a sandbox over
   `chathub-files`. Paths stay absolute and out of `/tmp/workspace`, `/proc`,
   `/sys` and `/dev` (`sandboxFilePathProblem`). Mask results and saved job
-  output with the sensitive files' text and long lines.
+  output with the sensitive files' text, long lines, and 32-character slices
+  of those strings. `startJob` snapshots that mask; a job is masked with the
+  snapshot plus the current sensitive files. A missing `KEY_VAULTS_SECRET`
+  when file rows exist refuses the call and does not save job output.
 - Hub tRPC lives in the `sandboxHub.` namespace, which is in the client's
   `VERIFIED_ACCOUNT_RPC_NAMESPACES`. A new scope-checked namespace must be
   added there too, or every call fails as a mismatched user.

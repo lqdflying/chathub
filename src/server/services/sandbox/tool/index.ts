@@ -28,6 +28,7 @@ import {
 } from '../profiles/env';
 import {
   type ResolvedSandboxFiles,
+  encryptSandboxFileSnapshot,
   resolveSandboxFiles,
   sandboxFilesFingerprint,
 } from '../profiles/files';
@@ -103,6 +104,8 @@ class SandboxToolRunner {
   private readonly env: Record<string, string>;
   /** Sensitive values only. Command output and the job snapshot use this. */
   private readonly maskEnv: Record<string, string>;
+  /** Sensitive file texts. Command output and the job snapshot use this. */
+  private readonly fileMask: readonly string[];
   private readonly maxFileBytes = sandboxEnv.SANDBOX_MAX_FILE_BYTES;
   private readonly maxFileCount = sandboxEnv.SANDBOX_MAX_FILE_COUNT;
   private readonly profile: ResolvedSandboxProfile;
@@ -120,6 +123,7 @@ class SandboxToolRunner {
   ) {
     this.env = env;
     this.maskEnv = maskEnv;
+    this.fileMask = files.mask;
     this.profile = target.profile;
     this.provider = getSandboxProvider(target.profile, target.server, {
       env: { fingerprint: sandboxEnvFingerprint(env), values: env },
@@ -312,6 +316,7 @@ class SandboxToolRunner {
         cwd: started.cwd,
         deadlineAt: new Date(startedAt.getTime() + runtimeMs),
         envSnapshot: await encryptSandboxEnvSnapshot(this.maskEnv),
+        fileSnapshot: await encryptSandboxFileSnapshot(this.fileMask),
         outputDir: started.outputDir,
         profileId: this.profile.id,
         sessionKey: this.sessionKey,

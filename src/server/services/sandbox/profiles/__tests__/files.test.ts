@@ -1,6 +1,8 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { formatNumberedLines } from '../../tool/format';
+
 interface Row {
   content: string;
   mode: number;
@@ -88,7 +90,9 @@ vi.mock('@/database/models/sandboxProfileFile', () => ({
 const {
   SandboxFileError,
   deleteSandboxFile,
+  encryptSandboxFileSnapshot,
   listSandboxFiles,
+  readSandboxFileSnapshot,
   resolveSandboxFiles,
   sandboxFilePathMessage,
   sandboxFilesFingerprint,
@@ -272,6 +276,40 @@ describe('sandbox file storage', () => {
     });
     expect((await listSandboxFiles(db, 'u1')).available).toBe(false);
     expect(await resolveSandboxFiles(db, 'u1', 'data')).toEqual({ items: [], mask: [] });
+  });
+
+  it('refuses to resolve files when the key is missing and rows exist', async () => {
+    await set('/root/x', 'secret-value-here', { shared: true });
+    mocks.key = undefined;
+    await expect(resolveSandboxFiles(db, 'u1', 'data')).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+    });
+  });
+
+  it('masks a numbered line cut from a longer sensitive file', async () => {
+    const line = Array.from({ length: 1250 }, (_, index) => index.toString(36).padStart(4, '0')).join(
+      '',
+    );
+    await set('/root/secret', line, { shared: true });
+    const { mask } = await resolveSandboxFiles(db, 'u1', 'data');
+    const shown = formatNumberedLines(line, {}).content;
+    const masked = maskSandboxSecrets(shown, {}, mask);
+
+    expect(shown).toContain(line.slice(0, 32));
+    expect(shown).toContain('…[line truncated]');
+    expect(masked).toContain('[secret:FILE]');
+    expect(masked).not.toContain(line.slice(0, 32));
+    expect(masked).not.toContain(line.slice(1968, 2000));
+  });
+
+  it('round-trips a job file snapshot', async () => {
+    const cipher = await encryptSandboxFileSnapshot(['user=ocid1.user.oc1..aaaaexample']);
+    expect(await readSandboxFileSnapshot(cipher)).toEqual(['user=ocid1.user.oc1..aaaaexample']);
+    expect(await encryptSandboxFileSnapshot([])).toBeNull();
+    expect(await readSandboxFileSnapshot(null)).toEqual([]);
+    await expect(readSandboxFileSnapshot('not-a-ciphertext')).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+    });
   });
 
   it('deletes by owner and reports a missing one', async () => {

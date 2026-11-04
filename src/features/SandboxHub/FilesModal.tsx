@@ -71,9 +71,13 @@ const useStyles = createStyles(({ css, token }) => ({
 interface Draft {
   /** A chosen local file, already read. */
   chosen?: { bytes: Uint8Array; name: string };
+  /** The textarea or a chosen file changed. An emptied replace then sends that content. */
+  contentTouched?: boolean;
   mode: string;
   path: string;
-  /** Replacing a saved file: its path is fixed and empty content keeps the old one. */
+  /** A local file is still being read. Save stays off until it finishes. */
+  reading?: boolean;
+  /** Replacing a saved file: its path is fixed, and untouched content keeps the old bytes. */
   replacing: boolean;
   section: EnvSection;
   sensitive: boolean;
@@ -163,31 +167,53 @@ const FilesModal = memo<FilesModalProps>(
     const canSave =
       !!draft &&
       !busy &&
+      !draft.reading &&
       !!draft.path &&
-      (hasContent || draft.replacing) &&
+      (draft.replacing || hasContent || !!draft.contentTouched) &&
       !pathProblem &&
       !modeProblem &&
       !tooLarge;
 
     const mineByPath = new Set(entry?.mine.map((item) => item.path));
 
-    const save = (section: EnvSection, current: Draft) =>
-      run(
+    const save = (section: EnvSection, current: Draft) => {
+      const bytes = current.chosen?.bytes ?? new TextEncoder().encode(current.text);
+      const includeContent = !current.replacing || !!current.chosen || !!current.contentTouched;
+      return run(
         () =>
           onSave(section, {
-            ...(hasContent ? { content: toBase64(content) } : {}),
+            ...(includeContent ? { content: toBase64(bytes) } : {}),
             mode: current.mode,
             path: current.path,
             sensitive: current.sensitive,
           }),
         () => setDraft(undefined),
       );
+    };
 
     const choose = async (file: File) => {
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      setDraft((current) =>
-        current ? { ...current, chosen: { bytes, name: file.name } } : current,
-      );
+      if (file.size > SANDBOX_FILE_MAX_BYTES) {
+        setError(t('files.tooLarge', { max: SANDBOX_FILE_MAX_BYTES / 1024 }));
+        return;
+      }
+      setError(undefined);
+      setDraft((current) => (current ? { ...current, reading: true } : current));
+      try {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        setDraft((current) =>
+          current
+            ? {
+                ...current,
+                chosen: { bytes, name: file.name },
+                contentTouched: true,
+                reading: false,
+              }
+            : current,
+        );
+      } catch (failure) {
+        setDraft((current) => (current ? { ...current, reading: false } : current));
+        setError(failure instanceof Error ? failure.message : String(failure));
+      }
     };
 
     const editor = (section: EnvSection) => {
@@ -245,7 +271,9 @@ const FilesModal = memo<FilesModalProps>(
                 aria-label={t('files.content')}
                 autoSize={{ maxRows: 12, minRows: 4 }}
                 className={styles.text}
-                onChange={(event) => setDraft({ ...draft, text: event.target.value })}
+                onChange={(event) =>
+                  setDraft({ ...draft, contentTouched: true, text: event.target.value })
+                }
                 placeholder={
                   draft.replacing && draft.sensitive
                     ? t('files.contentKeepPlaceholder')

@@ -7,7 +7,7 @@ import type {
   SandboxHubSettings,
 } from '@lobechat/types';
 import { Alert, Modal } from '@lobehub/ui';
-import { Button, Input, Select, Switch } from 'antd';
+import { Input, Select, Switch } from 'antd';
 import { createStyles } from 'antd-style';
 import { type ReactNode, memo, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -92,8 +92,6 @@ interface ProfileSettingsModalProps {
   /** Undefined: add a profile. */
   item?: SandboxHubProfileSettingsItem;
   onClose: () => void;
-  /** Opens the shared Sandbox instruction. Absent when that profile is not loaded. */
-  onOpenGeneralInstruction?: () => void;
   onSubmit: (id: string, input: SandboxHubProfileSettingsInput) => Promise<void>;
   open: boolean;
   settings: SandboxHubSettings;
@@ -105,7 +103,7 @@ interface ProfileSettingsModalProps {
  * on a wide screen and stack on a phone.
  */
 const ProfileSettingsModal = memo<ProfileSettingsModalProps>(
-  ({ item, onClose, onOpenGeneralInstruction, onSubmit, open, settings }) => {
+  ({ item, onClose, onSubmit, open, settings }) => {
     const { styles } = useStyles();
     const { t } = useTranslation('sandboxHub');
     const defaultServer =
@@ -427,13 +425,6 @@ const ProfileSettingsModal = memo<ProfileSettingsModalProps>(
           </section>
           <section className={styles.section}>
             <div className={styles.title}>{t('admin.form.groups.behaviour')}</div>
-            {onOpenGeneralInstruction && (
-              <div className={styles.wide}>
-                <Button onClick={onOpenGeneralInstruction}>
-                  {t('admin.form.generalInstruction')}
-                </Button>
-              </div>
-            )}
             {field(
               t('admin.form.instructionBase'),
               <Select

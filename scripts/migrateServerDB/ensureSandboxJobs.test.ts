@@ -18,6 +18,9 @@ describe('ensureSandboxJobsTable', () => {
     expect(SANDBOX_JOBS_SQL).toContain(
       'ALTER TABLE "sandbox_jobs" ADD COLUMN IF NOT EXISTS "env_snapshot" text',
     );
+    expect(SANDBOX_JOBS_SQL).toContain(
+      'ALTER TABLE "sandbox_jobs" ADD COLUMN IF NOT EXISTS "file_snapshot" text',
+    );
   });
 
   it('matches the columns of migration 0066', () => {

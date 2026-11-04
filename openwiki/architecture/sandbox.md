@@ -255,8 +255,11 @@ release or a restart, so it can follow sandbox image updates.
   Sandbox has an extra instruction, every `base: general` profile now also
   gets that text.
 - **Where admins open it.** The shared text opens from **General instruction**
-  on any profile's edit form. The Sandbox card does not offer that editor.
-  Every other profile still opens its own instruction from the card.
+  on the Sandbox Hub header, next to **Add sandbox**. It is not inside a
+  profile's settings. The Sandbox card does not offer that editor unless
+  profile settings failed to load. Every other profile still opens its own
+  instruction from the card. Each profile's settings keep Instruction base
+  and Extra instruction.
 - **Edits are shared.** Admins save a full replacement text per profile in
   `sandbox_profile_instructions` (one row per profile id, `updated_by` set to
   null if that user is deleted). It applies to every user at once. Saving the
@@ -399,10 +402,12 @@ with execd's file upload, right after the sandbox starts.
   variables: shared files, then the user's own by path. A file that no
   longer decrypts is left out and only its path is logged; a user's
   unreadable file does not fall back to the shared one. A failed read
-  refuses the call. In `createSandbox`, right after execd answers, the
-  provider uploads each file with its own request (execd creates missing
-  parent folders and applies the mode), before the workspace exists and
-  before any command. A failed upload (for example an execd Landlock rule
+  refuses the call. Without `KEY_VAULTS_SECRET`, a profile that already has
+  file rows also refuses the call; no rows is still an empty set. In
+  `createSandbox`, right after execd answers, the provider uploads each file
+  with its own request (execd creates missing parent folders and applies the
+  mode), before the workspace exists and before any command. A failed upload
+  (for example an execd Landlock rule
   that only allows writes under `/tmp`) removes the new sandbox and fails the
   call with the path. Owner and group are execd's (root in the default
   image).
@@ -412,12 +417,17 @@ with execd's file upload, right after the sandbox starts.
   reused sandbox whose label differs, so a change applies on the next call
   and that sandbox's files and running jobs are lost. Job checks and Prepare
   image pass no files and never compare.
-- **Masking.** For each sensitive text file, its whole text and every line of
-  16 or more characters are masked as `[secret:FILE]` in tool results, in
-  saved job output and in a running job's live log. Jobs are masked with the
-  profile's current files (there is no file snapshot). Binary files are not
-  masked. The built-in instruction tells the model to use the files in
-  place and never print them.
+- **Masking.** For each sensitive text file, its whole text, every line of
+  16 or more characters, and 32-character slices of those strings stepped by
+  16 are masked as `[secret:FILE]` in tool results, in saved job output and
+  in a running job's live log. A truncated line still matches a slice that
+  fits in the kept text; fewer than 16 characters at the cut can remain.
+  `startJob` stores a ciphertext of that mask on `sandbox_jobs.file_snapshot`.
+  A job is masked with the snapshot plus the current files. A null snapshot
+  (a job from before the column, or one that started with no sensitive text)
+  uses the current files only. A snapshot that will not decrypt throws, so
+  the output is not saved. Binary files are not masked. The built-in
+  instruction tells the model to use the files in place and never print them.
 - **Risk.** As for variables, masking stops accidents, not a deliberate
   read: anything in the sandbox and the host's operator can read the files,
   and every user of a profile can read a shared file through the model. The

@@ -347,9 +347,13 @@ const escapeRegExp = (text: string) => text.replaceAll(/[$()*+.?[\\\]^{|}]/g, '\
 
 interface Masker {
   names: Map<string, string>;
-  pattern: RegExp;
+  /** Absent when there are too many secrets for one expression; search is used instead. */
+  pattern?: RegExp;
   secrets: string[];
 }
+
+/** Above this, one alternation is large enough that a search is the safer match. */
+const REGEX_SECRET_LIMIT = 64;
 
 /** Masks already in the text; matched first so masking twice changes nothing. */
 const MASK_TOKEN = String.raw`\[secret:[A-Z_][\dA-Z_]*]|\[redacted]`;
@@ -367,13 +371,63 @@ const maskLabel = (name: string, secrets: readonly string[]) => {
   return '\uFFFC';
 };
 
-const maskDeep = (value: unknown, masker: Masker): unknown => {
-  if (typeof value === 'string') {
-    return value.replace(masker.pattern, (match) => {
-      const name = masker.names.get(match);
-      return name ? maskLabel(name, masker.secrets) : match;
-    });
+const overlaps = (start: number, end: number, ranges: { end: number; start: number }[]) =>
+  ranges.some((range) => start < range.end && end > range.start);
+
+/**
+ * Masks by search when a file's slices would make one expression too large.
+ * Overlapping hits merge, so a truncated line is covered up to the last slice
+ * that still fits. Text already inside `[secret:…]` or `[redacted]` is left.
+ */
+const maskWithSearch = (input: string, masker: Masker) => {
+  const blocked: { end: number; start: number }[] = [];
+  for (const match of input.matchAll(/\[secret:[A-Z_][\dA-Z_]*]|\[redacted]/g)) {
+    const start = match.index ?? 0;
+    blocked.push({ end: start + match[0].length, start });
   }
+  const hits: { end: number; name: string; start: number }[] = [];
+  for (const secret of masker.secrets) {
+    const name = masker.names.get(secret);
+    if (!name) continue;
+    let from = 0;
+    while (from <= input.length - secret.length) {
+      const at = input.indexOf(secret, from);
+      if (at < 0) break;
+      const end = at + secret.length;
+      if (!overlaps(at, end, blocked)) hits.push({ end, name, start: at });
+      from = at + 1;
+    }
+  }
+  hits.sort((a, b) => a.start - b.start || b.end - a.end);
+  const merged: { end: number; name: string; start: number }[] = [];
+  for (const hit of hits) {
+    const last = merged.at(-1);
+    if (last && hit.start < last.end) {
+      last.end = Math.max(last.end, hit.end);
+      continue;
+    }
+    merged.push({ ...hit });
+  }
+  let out = '';
+  let cursor = 0;
+  for (const hit of merged) {
+    out += input.slice(cursor, hit.start);
+    out += maskLabel(hit.name, masker.secrets);
+    cursor = hit.end;
+  }
+  return out + input.slice(cursor);
+};
+
+const maskString = (input: string, masker: Masker) => {
+  if (!masker.pattern) return maskWithSearch(input, masker);
+  return input.replace(masker.pattern, (match) => {
+    const name = masker.names.get(match);
+    return name ? maskLabel(name, masker.secrets) : match;
+  });
+};
+
+const maskDeep = (value: unknown, masker: Masker): unknown => {
+  if (typeof value === 'string') return maskString(value, masker);
   if (Array.isArray(value)) return value.map((item) => maskDeep(item, masker));
   if (value && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
     return Object.fromEntries(
@@ -406,12 +460,11 @@ export const maskSandboxSecrets = <T>(
     }
   }
   if (names.size === 0) return value;
-  const secrets = [...names.keys()];
-  // One pass, longest value first: a value that contains another is masked
-  // whole, and a replacement (or an earlier mask) is never masked again.
-  const pattern = new RegExp(
-    [MASK_TOKEN, ...secrets.sort((a, b) => b.length - a.length).map(escapeRegExp)].join('|'),
-    'g',
-  );
+  const secrets = [...names.keys()].sort((a, b) => b.length - a.length);
+  // Longest value first. A short list uses one expression. A file's slices use
+  // search so the expression does not grow with the file, and a replacement
+  // is never masked again.
+  if (secrets.length > REGEX_SECRET_LIMIT) return maskDeep(value, { names, secrets }) as T;
+  const pattern = new RegExp([MASK_TOKEN, ...secrets.map(escapeRegExp)].join('|'), 'g');
   return maskDeep(value, { names, pattern, secrets }) as T;
 };

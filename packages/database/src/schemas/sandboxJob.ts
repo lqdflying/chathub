@@ -37,6 +37,12 @@ export const sandboxJobs = pgTable(
      * snapshots. Used only to mask output; never returned to the client.
      */
     envSnapshot: text('env_snapshot'),
+    /**
+     * KeyVaults ciphertext of the sensitive-file mask this job's sandbox was
+     * created with. Null when there were no files, or the job started before
+     * snapshots. Used only to mask output; never returned to the client.
+     */
+    fileSnapshot: text('file_snapshot'),
     startedAt: timestamptz('started_at').notNull().defaultNow(),
     deadlineAt: timestamptz('deadline_at').notNull(),
     finishedAt: timestamptz('finished_at'),

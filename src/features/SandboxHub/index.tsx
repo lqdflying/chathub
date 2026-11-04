@@ -347,19 +347,29 @@ const SandboxHub = memo(() => {
             <p className={styles.desc}>{t('description')}</p>
           </Flexbox>
           {hubSettings && (
-            <Button
-              disabled={
-                busy ||
-                hubSettings.servers.length === 0 ||
-                settingsOrder.length >= hubSettings.maxProfiles
-              }
-              icon={Plus}
-              onClick={() => setEditor({ open: true })}
-              style={{ flex: 'none' }}
-              type={'primary'}
-            >
-              {t('admin.addProfile')}
-            </Button>
+            <Flexbox gap={8} horizontal style={{ flex: 'none' }}>
+              {profiles.some((profile) => profile.id === DEFAULT_SANDBOX_PROFILE_ID) && (
+                <Button
+                  onClick={() =>
+                    setInstructionDialog({ id: DEFAULT_SANDBOX_PROFILE_ID, open: true })
+                  }
+                >
+                  {t('admin.form.generalInstruction')}
+                </Button>
+              )}
+              <Button
+                disabled={
+                  busy ||
+                  hubSettings.servers.length === 0 ||
+                  settingsOrder.length >= hubSettings.maxProfiles
+                }
+                icon={Plus}
+                onClick={() => setEditor({ open: true })}
+                type={'primary'}
+              >
+                {t('admin.addProfile')}
+              </Button>
+            </Flexbox>
           )}
         </Flexbox>
         {hubSettings && <div className={styles.hint}>{t('admin.hint')}</div>}
@@ -468,11 +478,6 @@ const SandboxHub = memo(() => {
         <ProfileSettingsModal
           item={editor.item}
           onClose={() => setEditor({ open: false })}
-          onOpenGeneralInstruction={
-            profiles.some((profile) => profile.id === DEFAULT_SANDBOX_PROFILE_ID)
-              ? () => setInstructionDialog({ id: DEFAULT_SANDBOX_PROFILE_ID, open: true })
-              : undefined
-          }
           onSubmit={saveProfile}
           open={editor.open}
           settings={hubSettings}

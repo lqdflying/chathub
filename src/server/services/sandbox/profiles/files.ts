@@ -18,6 +18,9 @@ import { isMissingTable } from './missingTable';
 export const SANDBOX_FILE_MAX_PER_OWNER = 16;
 /** Lines of a sensitive file this long or longer are masked on their own. */
 export const SANDBOX_FILE_MASK_LINE_MIN_CHARS = 16;
+/** Slices of a longer secret, so a truncated line still matches. */
+const SANDBOX_FILE_MASK_SLICE_CHARS = 32;
+const SANDBOX_FILE_MASK_SLICE_STEP = 16;
 
 const MISSING_FILES_TABLE = /relation "sandbox_profile_files" does not exist/i;
 
@@ -234,7 +237,19 @@ export const deleteSandboxFile = async ({
   if (!deleted) throw new SandboxFileError('NOT_FOUND', `${path} is not set.`);
 };
 
-/** The text and long lines of a sensitive file, for masking command output. */
+/** 32-character windows of a longer secret, stepped by 16. */
+const addMaskSlices = (strings: Set<string>, value: string) => {
+  if (value.length <= SANDBOX_FILE_MASK_SLICE_CHARS) return;
+  for (
+    let start = 0;
+    start + SANDBOX_FILE_MASK_SLICE_CHARS <= value.length;
+    start += SANDBOX_FILE_MASK_SLICE_STEP
+  ) {
+    strings.add(value.slice(start, start + SANDBOX_FILE_MASK_SLICE_CHARS));
+  }
+};
+
+/** The text, long lines, and slices of a sensitive file, for masking command output. */
 const maskStrings = (bytes: Uint8Array): string[] => {
   const text = decodeText(bytes);
   if (text === undefined) return [];
@@ -243,6 +258,7 @@ const maskStrings = (bytes: Uint8Array): string[] => {
     const trimmed = line.trim();
     if (trimmed.length >= SANDBOX_FILE_MASK_LINE_MIN_CHARS) strings.add(trimmed);
   }
+  for (const value of [...strings]) addMaskSlices(strings, value);
   return [...strings].filter(Boolean);
 };
 
@@ -258,9 +274,17 @@ export const resolveSandboxFiles = async (
   userId: string,
   profileId: string,
 ): Promise<ResolvedSandboxFiles> => {
-  if (!isSandboxEnvAvailable()) return { items: [], mask: [] };
   const model = new SandboxProfileFileModel(db);
   const rows = await readOrNone(() => model.listForSandbox(profileId, userId));
+  if (!isSandboxEnvAvailable()) {
+    if (rows.length > 0) {
+      throw new SandboxFileError(
+        'PRECONDITION_FAILED',
+        'Sandbox files need KEY_VAULTS_SECRET on the server to encrypt their content.',
+      );
+    }
+    return { items: [], mask: [] };
+  }
   if (rows.length === 0) return { items: [], mask: [] };
 
   const gateKeeper = await KeyVaultsGateKeeper.initWithEnvKey();
@@ -299,6 +323,49 @@ export const resolveSandboxFileMask = async (
   const { mask } = await resolveSandboxFiles(db, userId, profileId);
   return mask;
 };
+
+const unreadableFileSnapshot = () =>
+  new SandboxFileError('PRECONDITION_FAILED', 'The job file snapshot could not be read.');
+
+/** Ciphertext of a file mask, or null when there is nothing to store. */
+export const encryptSandboxFileSnapshot = async (
+  mask: readonly string[],
+): Promise<string | null> => {
+  if (mask.length === 0) return null;
+  const gateKeeper = await KeyVaultsGateKeeper.initWithEnvKey();
+  return gateKeeper.encrypt(JSON.stringify(mask));
+};
+
+/**
+ * The file mask stored on a job when it started. Null means the job has no
+ * snapshot (it started before snapshots, or with no files). A snapshot that
+ * cannot be read is an error: the caller must not show output it cannot mask.
+ */
+export const readSandboxFileSnapshot = async (
+  snapshot: string | null | undefined,
+): Promise<string[]> => {
+  if (!snapshot) return [];
+  if (!isSandboxEnvAvailable()) throw unreadableFileSnapshot();
+  try {
+    const gateKeeper = await KeyVaultsGateKeeper.initWithEnvKey();
+    const { plaintext, wasAuthentic } = await gateKeeper.decrypt(snapshot);
+    if (!wasAuthentic) throw unreadableFileSnapshot();
+    const parsed: unknown = JSON.parse(plaintext);
+    if (!Array.isArray(parsed) || parsed.some((item) => typeof item !== 'string')) {
+      throw unreadableFileSnapshot();
+    }
+    return parsed;
+  } catch (error) {
+    if (error instanceof SandboxFileError) throw error;
+    throw unreadableFileSnapshot();
+  }
+};
+
+/** File texts to hide in one job's output: the ones it started with, then the current ones. */
+export const sandboxJobFileMask = (
+  snapshot: readonly string[],
+  current: readonly string[],
+): string[] => [...new Set([...snapshot, ...current])];
 
 /**
  * A label telling whether a sandbox was created with these files, without

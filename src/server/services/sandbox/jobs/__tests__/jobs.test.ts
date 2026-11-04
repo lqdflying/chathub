@@ -9,6 +9,8 @@ const state = vi.hoisted(() => ({
   enqueue: vi.fn(),
   env: {} as Record<string, string>,
   fileMask: [] as string[],
+  fileSnapshot: [] as string[],
+  fileSnapshotError: undefined as unknown,
   gate: undefined as any,
   idleMs: undefined as number | undefined,
   persist: vi.fn(),
@@ -112,7 +114,12 @@ vi.mock('../../profiles/env', async (importOriginal) => ({
   resolveSandboxEnv: async () => state.env,
   resolveSandboxMaskEnv: async () => state.env,
 }));
-vi.mock('../../profiles/files', () => ({
+vi.mock('../../profiles/files', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../profiles/files')>()),
+  readSandboxFileSnapshot: async () => {
+    if (state.fileSnapshotError) throw state.fileSnapshotError;
+    return state.fileSnapshot;
+  },
   resolveSandboxFileMask: async () => state.fileMask,
 }));
 vi.mock('../enqueue', () => ({ enqueueSandboxJobWatch: state.enqueue }));
@@ -183,6 +190,8 @@ describe('Sandbox background jobs', () => {
     state.gate = ok;
     state.env = {};
     state.fileMask = [];
+    state.fileSnapshot = [];
+    state.fileSnapshotError = undefined;
     state.idleMs = undefined;
     state.snapshot = {};
     state.snapshotError = undefined;
@@ -260,6 +269,49 @@ describe('Sandbox background jobs', () => {
     });
 
     expect(state.rows.get('sjob_1').outputTail).toBe('config: [secret:FILE]\n');
+  });
+
+  it('still hides the file the job started with after that file changes', async () => {
+    state.fileSnapshot = ['old-file-secret-text'];
+    state.fileMask = ['new-file-secret-text'];
+    state.workspace = fakeWorkspace({ exitCode: 0, running: false });
+    state.workspace.commandLogs.mockResolvedValue({
+      cursor: 1,
+      output: 'old-file-secret-text then new-file-secret-text\n',
+    });
+
+    const { row } = await checkSandboxJob({
+      apiName: 'watchJob',
+      db,
+      now: BEFORE_DEADLINE,
+      row: addJob({ outputDir: null }),
+      userId: 'user-1',
+    });
+
+    expect(row.outputTail).toBe('[secret:FILE] then [secret:FILE]\n');
+    expect(row.outputTail).not.toContain('old-file-secret-text');
+    expect(row.outputTail).not.toContain('new-file-secret-text');
+  });
+
+  it('does not save output when the file snapshot cannot be read', async () => {
+    state.fileSnapshotError = new Error('unreadable');
+    state.workspace = fakeWorkspace({ exitCode: 0, running: false });
+    state.workspace.commandLogs.mockResolvedValue({
+      cursor: 1,
+      output: 'old-file-secret-text\n',
+    });
+
+    await expect(
+      checkSandboxJob({
+        apiName: 'watchJob',
+        db,
+        now: BEFORE_DEADLINE,
+        row: addJob({ outputDir: null }),
+        userId: 'user-1',
+      }),
+    ).rejects.toThrow('unreadable');
+    expect(state.rows.get('sjob_1').status).toBe('running');
+    expect(state.rows.get('sjob_1').outputTail).toBeNull();
   });
 
   it('masks variable values in the output before saving it', async () => {
