@@ -223,6 +223,30 @@ describe('sandbox file storage', () => {
     warn.mockRestore();
   });
 
+  it('keeps secret files out of the persistent folder', async () => {
+    await expect(
+      setSandboxFile({
+        content: b64('x'),
+        db,
+        mode: '600',
+        owner: { userId: 'u1' },
+        path: '/persist/.netrc',
+        persistentFolder: '/persist',
+        profileId: 'data',
+        updatedBy: 'u1',
+      }),
+    ).rejects.toThrow(/persistent folder/);
+
+    // Saved before the folder was turned on: not written, only logged.
+    await set('/persist/token', 'secret-token-value', { userId: 'u1' });
+    await set('/root/.netrc', 'machine x', { userId: 'u1' });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const { items } = await resolveSandboxFiles(db, 'u1', 'data', '/persist');
+    expect(items.map((item) => item.path)).toEqual(['/root/.netrc']);
+    expect(JSON.stringify(warn.mock.calls)).toContain('/persist/token');
+    warn.mockRestore();
+  });
+
   it('changes only mode and Sensitive when no content is sent', async () => {
     await set('/root/.oci/config', CONFIG, { userId: 'u1' });
     await set('/root/.oci/config', undefined, { userId: 'u1' }, { mode: '400' });

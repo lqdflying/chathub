@@ -4,6 +4,7 @@ import {
   OpenSandboxProvider,
   type SandboxEnvSpec,
   type SandboxFilesSpec,
+  type SandboxVolumeSpec,
 } from './providers/opensandbox/provider';
 import { registryLoginFor } from './registryAuth';
 import type { SandboxProvider } from './types';
@@ -11,13 +12,14 @@ import type { SandboxProvider } from './types';
 /**
  * OpenSandbox is the only backend; the DifySandbox provider was removed.
  * Without a profile this is the OPENSANDBOX_* sandbox, as before Sandbox Hub.
- * `env` and `files` are for tool calls only: given, a new sandbox gets these
- * variables and files, and a reused one created with others is replaced.
+ * `env`, `files` and `volume` are for tool calls only: given, a new sandbox
+ * gets these variables, files and persistent folder, and a reused one
+ * created with others is replaced.
  */
 export const getSandboxProvider = (
   profile?: ResolvedSandboxProfile,
   server?: ResolvedSandboxServer,
-  options: { env?: SandboxEnvSpec; files?: SandboxFilesSpec } = {},
+  options: { env?: SandboxEnvSpec; files?: SandboxFilesSpec; volume?: SandboxVolumeSpec } = {},
 ): SandboxProvider => {
   if (!profile || !server) return new OpenSandboxProvider();
   const login = registryLoginFor(profile.image, server.registries);
@@ -28,6 +30,7 @@ export const getSandboxProvider = (
     egressAllow: profile.egress.mode === 'allowlist' ? profile.egress.targets : [],
     ...(options.env ? { env: options.env } : {}),
     ...(options.files ? { files: options.files } : {}),
+    ...(options.volume ? { volume: options.volume } : {}),
     image: profile.image,
     ...(login ? { imageAuth: { password: login.password, username: login.username } } : {}),
     memory: profile.memory,

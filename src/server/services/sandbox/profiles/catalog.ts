@@ -72,6 +72,7 @@ const startingInstructions = (
             general,
             id: profile.id,
             name: profile.name,
+            persistentFolder: profile.persistentFolder,
             text: profile.instructionText,
           }),
         ] as const,

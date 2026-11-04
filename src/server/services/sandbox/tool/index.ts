@@ -32,6 +32,7 @@ import {
   resolveSandboxFiles,
   sandboxFilesFingerprint,
 } from '../profiles/files';
+import { persistentVolumeSpec } from '../profiles/persistent';
 import type { ResolvedSandboxProfile, ResolvedSandboxServer } from '../profiles/schema';
 import { getSandboxProvider } from '../registry';
 import { buildSandboxSessionKey, type SandboxConversationScope } from '../session';
@@ -128,6 +129,7 @@ class SandboxToolRunner {
     this.provider = getSandboxProvider(target.profile, target.server, {
       env: { fingerprint: sandboxEnvFingerprint(env), values: env },
       files: { fingerprint: sandboxFilesFingerprint(files.items), items: files.items },
+      volume: persistentVolumeSpec(target.profile, params.userId),
     });
     this.sessionKey = buildSandboxSessionKey({ ...params, profileId: target.profile.id });
   }
@@ -613,7 +615,12 @@ export const invokeSandboxTool = async (
 
   let files: ResolvedSandboxFiles;
   try {
-    files = await resolveSandboxFiles(params.db, params.userId, target.profile.id);
+    files = await resolveSandboxFiles(
+      params.db,
+      params.userId,
+      target.profile.id,
+      target.profile.persistentFolder,
+    );
   } catch (error) {
     // Without them a new sandbox would start without its files.
     console.warn('[sandbox] could not read Sandbox Hub files; the call was refused', {

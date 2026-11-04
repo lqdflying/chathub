@@ -806,6 +806,8 @@ describe('OpenSandboxProvider', () => {
       const calls = install({ states: ['Pending', 'Running'] });
       const result = await profileProvider({
         imageAuth: { password: 'secret', username: 'robot' },
+        // Prepare image never mounts anyone's persistent folder.
+        volume: { fingerprint: 'v', mount: { claimName: 'chathub-abc', mountPath: '/persist' } },
       }).prepareImage(AbortSignal.timeout(10_000));
 
       expect(result.durationMs).toBeGreaterThanOrEqual(0);
@@ -816,6 +818,7 @@ describe('OpenSandboxProvider', () => {
       });
       expect(calls.createBody?.metadata).not.toHaveProperty('chathub-session');
       expect(calls.createBody).not.toHaveProperty('networkPolicy');
+      expect(calls.createBody).not.toHaveProperty('volumes');
       expect(calls.deleted).toBe(1);
 
       const failed = install({ states: ['Failed'] });
@@ -878,6 +881,94 @@ describe('OpenSandboxProvider', () => {
 
       expect(calls.createBody).not.toHaveProperty('env');
       expect(calls.createBody?.metadata).not.toHaveProperty('chathub-env');
+    });
+
+    it('mounts the persistent folder volume at create, with its label', async () => {
+      const calls = install();
+      const volume = {
+        fingerprint: 'v0lume',
+        mount: { claimName: 'chathub-abc', mountPath: '/persist' },
+      };
+
+      await python(profileProvider({ volume }), { sessionKey: 'topic-a' });
+
+      expect(calls.createBody?.volumes).toEqual([
+        {
+          mountPath: '/persist',
+          name: 'chathub-persist',
+          pvc: { claimName: 'chathub-abc', createIfNotExists: true },
+          readOnly: false,
+        },
+      ]);
+      expect(calls.createBody?.metadata).toMatchObject({ 'chathub-volume': 'v0lume' });
+
+      const without = install();
+      await python(profileProvider({ volume: {} }), { sessionKey: 'topic-b' });
+      expect(without.createBody).not.toHaveProperty('volumes');
+      expect(without.createBody?.metadata).not.toHaveProperty('chathub-volume');
+    });
+
+    it('says a volume error comes from the persistent folder', async () => {
+      install({
+        create: () =>
+          json(
+            {
+              code: 'VOLUME::PVC_SUBPATH_UNSUPPORTED_DRIVER',
+              message: 'volumes are not supported',
+            },
+            400,
+          ),
+      });
+
+      await expect(
+        python(
+          profileProvider({
+            volume: {
+              fingerprint: 'v',
+              mount: { claimName: 'chathub-abc', mountPath: '/persist' },
+            },
+          }),
+          { sessionKey: 'topic-a' },
+        ),
+      ).rejects.toThrow(/persistent folder at \/persist/);
+    });
+
+    it('replaces a reused sandbox whose persistent folder changed, only when it is given', async () => {
+      const parked = (volume?: string) => ({
+        existing: [
+          {
+            createdAt: ago(60_000),
+            id: 'sbx-old',
+            metadata: {
+              ...session('topic-a'),
+              'chathub-profile': 'data',
+              'chathub-runtime': runtimeFingerprint('registry.example/data:3'),
+              ...(volume ? { 'chathub-volume': volume } : {}),
+            },
+          },
+        ],
+      });
+      const call = (volume?: { fingerprint?: string }) =>
+        python(profileProvider(volume ? { volume } : {}), { sessionKey: 'topic-a' });
+
+      let calls = install(parked('old'));
+      await call({ fingerprint: 'new' });
+      expect(calls.deletedIds).toContain('sbx-old');
+
+      // Turned off: a sandbox with the folder is replaced.
+      calls = install(parked('old'));
+      await call({});
+      expect(calls.deletedIds).toContain('sbx-old');
+
+      calls = install(parked('same'));
+      await call({ fingerprint: 'same' });
+      expect(calls.creates).toBe(0);
+
+      // Not given (a background-job check): never compared.
+      calls = install(parked('old'));
+      await call();
+      expect(calls.creates).toBe(0);
+      expect(calls.deleted).toBe(0);
     });
 
     it('writes Hub files into a new sandbox before its first command, with their label', async () => {

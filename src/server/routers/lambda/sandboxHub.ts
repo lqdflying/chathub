@@ -183,11 +183,11 @@ const fileContentInput = z
 const fileChange = async (
   ctx: { serverDB: Parameters<typeof listSandboxFiles>[0]; userId: string },
   profileId: string,
-  change: () => Promise<void>,
+  change: (profile: { persistentFolder?: string }) => Promise<void>,
 ) => {
-  await findProfileOrThrow(ctx.serverDB, profileId);
+  const profile = await findProfileOrThrow(ctx.serverDB, profileId);
   try {
-    await change();
+    await change(profile);
   } catch (error) {
     if (error instanceof SandboxFileError) {
       throw new TRPCError({ code: error.code, message: error.message });
@@ -446,13 +446,14 @@ export const sandboxHubRouter = router({
    */
   setMyFile: sandboxHubProcedure.input(setFileInput).mutation(async ({ ctx, input }) => {
     assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
-    return fileChange(ctx, input.profileId, () =>
+    return fileChange(ctx, input.profileId, (profile) =>
       setSandboxFile({
         content: input.content,
         db: ctx.serverDB,
         mode: input.mode,
         owner: { userId: ctx.userId },
         path: input.path,
+        persistentFolder: profile.persistentFolder,
         profileId: input.profileId,
         sensitive: input.sensitive,
         updatedBy: ctx.userId,
@@ -511,13 +512,14 @@ export const sandboxHubRouter = router({
   setSharedFile: sandboxHubProcedure.input(setFileInput).mutation(async ({ ctx, input }) => {
     assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
     await assertSandboxHubAdmin(ctx);
-    return fileChange(ctx, input.profileId, () =>
+    return fileChange(ctx, input.profileId, (profile) =>
       setSandboxFile({
         content: input.content,
         db: ctx.serverDB,
         mode: input.mode,
         owner: { shared: true },
         path: input.path,
+        persistentFolder: profile.persistentFolder,
         profileId: input.profileId,
         sensitive: input.sensitive,
         updatedBy: ctx.userId,

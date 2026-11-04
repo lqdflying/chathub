@@ -12,6 +12,7 @@ import {
   type SandboxWorkspace,
 } from '../../types';
 import {
+  type CreateSandboxRequest,
   type ExecdEndpoint,
   OpenSandboxClient,
   OpenSandboxHttpError,
@@ -56,6 +57,14 @@ const NO_ENV_FINGERPRINT = 'none';
 // sandbox after it was created (absent: none). Compared like `chathub-env`.
 export const FILES_METADATA_KEY = 'chathub-files';
 const NO_FILES_FINGERPRINT = 'none';
+// Container label with an HMAC of the persistent folder's volume and mount
+// path (absent: none). Compared like `chathub-env`.
+export const VOLUME_METADATA_KEY = 'chathub-volume';
+const NO_VOLUME_FINGERPRINT = 'none';
+/** The persistent folder's name in the create request's `volumes` list. */
+export const PERSISTENT_VOLUME_NAME = 'chathub-persist';
+// Name label of the throwaway sandbox that empties a persistent folder; never reused.
+export const SANDBOX_MAINTENANCE_METADATA_NAME = 'chathub-sandbox-maintenance';
 export const SANDBOX_METADATA_NAME = 'chathub-sandbox';
 // Name label of the throwaway sandbox "Prepare image" creates; never reused.
 export const SANDBOX_PREPARE_METADATA_NAME = 'chathub-sandbox-prepare';
@@ -121,6 +130,28 @@ export interface SandboxFilesSpec {
   items: Array<{ content: Uint8Array; mode: number; path: string }>;
 }
 
+/**
+ * The persistent folder a new sandbox mounts, and its label value. Given
+ * without `mount` when the profile has none, so a reused sandbox that has
+ * one is replaced.
+ */
+export interface SandboxVolumeSpec {
+  /** Undefined without a mount. */
+  fingerprint?: string;
+  mount?: { claimName: string; mountPath: string };
+}
+
+/** The create request's entry for a persistent folder volume. */
+export const persistentVolume = (
+  mount: { claimName: string; mountPath: string },
+  createIfNotExists: boolean,
+) => ({
+  mountPath: mount.mountPath,
+  name: PERSISTENT_VOLUME_NAME,
+  pvc: { claimName: mount.claimName, createIfNotExists },
+  readOnly: false,
+});
+
 /** Environment variables a sandbox is created with, and their label value. */
 export interface SandboxEnvSpec {
   /** Undefined when there are no variables. */
@@ -136,6 +167,7 @@ export class OpenSandboxProvider implements SandboxProvider {
   private egressAllow: string[];
   private env?: SandboxEnvSpec;
   private files?: SandboxFilesSpec;
+  private volume?: SandboxVolumeSpec;
   private image?: string;
   private imageAuth?: { password: string; username: string };
   private maxFileBytes: number;
@@ -182,6 +214,12 @@ export class OpenSandboxProvider implements SandboxProvider {
     rebaseExecdEndpoint?: boolean;
     sessionIdleTimeout?: number;
     sessionMaxLifetime?: number;
+    /**
+     * The persistent folder a new sandbox mounts. Given (even without a
+     * mount), a reused sandbox created with another one is replaced;
+     * omitted, that is not checked.
+     */
+    volume?: SandboxVolumeSpec;
   }) {
     this.baseUrl = (options?.baseUrl ?? sandboxEnv.OPENSANDBOX_SERVER_URL)?.replace(/\/+$/, '');
     // A profile server passes `apiKey` even when that server has none.
@@ -199,6 +237,7 @@ export class OpenSandboxProvider implements SandboxProvider {
         .filter(Boolean);
     this.env = options?.env;
     this.files = options?.files;
+    this.volume = options?.volume;
     this.memory = options?.memory ?? sandboxEnv.OPENSANDBOX_MEMORY;
     this.networkDisabled = options?.networkDisabled ?? false;
     this.profileId = options?.profileId;
@@ -306,6 +345,7 @@ export class OpenSandboxProvider implements SandboxProvider {
         files: this.files ? (this.files.fingerprint ?? NO_FILES_FINGERPRINT) : undefined,
         network: networkPolicyFingerprint(this.networkPolicy(options)),
         runtime: runtimeFingerprint(this.image),
+        volume: this.volume ? (this.volume.fingerprint ?? NO_VOLUME_FINGERPRINT) : undefined,
       };
       const lookup = sessionKey
         ? await this.reuseSandbox(client, sessionKey, runBudgetMs, fingerprints, readySignal)
@@ -449,30 +489,34 @@ export class OpenSandboxProvider implements SandboxProvider {
   ) {
     const requestedAt = Date.now();
     const networkPolicy = this.networkPolicy(options);
-    const created = await client.createSandbox(
-      {
-        entrypoint: SANDBOX_ENTRYPOINT,
-        ...(this.env && Object.keys(this.env.values).length > 0 ? { env: this.env.values } : {}),
-        image: this.imageSpec(),
-        metadata: {
-          ...(this.env?.fingerprint ? { [ENV_METADATA_KEY]: this.env.fingerprint } : {}),
-          ...(this.files?.fingerprint ? { [FILES_METADATA_KEY]: this.files.fingerprint } : {}),
-          [NETWORK_METADATA_KEY]: networkPolicyFingerprint(networkPolicy),
-          [RUNTIME_METADATA_KEY]: runtimeFingerprint(this.image!),
-          ...(this.profileId ? { [PROFILE_METADATA_KEY]: this.profileId } : {}),
-          ...(sessionKey ? { [SESSION_METADATA_KEY]: sessionKey } : {}),
-          name: SANDBOX_METADATA_NAME,
-        },
-        networkPolicy,
-        resourceLimits: { cpu: this.cpu, memory: this.memory },
-        // Covers this call only. A session sandbox is extended by the idle
-        // timeout after each call, so a crash mid-call still frees it soon.
-        timeout: Math.max(
-          MIN_TTL_SECONDS,
-          Math.ceil((this.readyTimeout + budgetMs) / 1000) + TTL_MARGIN_SECONDS,
-        ),
+    const mount = this.volume?.mount;
+    const body: CreateSandboxRequest = {
+      entrypoint: SANDBOX_ENTRYPOINT,
+      ...(this.env && Object.keys(this.env.values).length > 0 ? { env: this.env.values } : {}),
+      image: this.imageSpec(),
+      metadata: {
+        ...(this.env?.fingerprint ? { [ENV_METADATA_KEY]: this.env.fingerprint } : {}),
+        ...(this.files?.fingerprint ? { [FILES_METADATA_KEY]: this.files.fingerprint } : {}),
+        ...(this.volume?.fingerprint ? { [VOLUME_METADATA_KEY]: this.volume.fingerprint } : {}),
+        [NETWORK_METADATA_KEY]: networkPolicyFingerprint(networkPolicy),
+        [RUNTIME_METADATA_KEY]: runtimeFingerprint(this.image!),
+        ...(this.profileId ? { [PROFILE_METADATA_KEY]: this.profileId } : {}),
+        ...(sessionKey ? { [SESSION_METADATA_KEY]: sessionKey } : {}),
+        name: SANDBOX_METADATA_NAME,
       },
-      signal,
+      networkPolicy,
+      resourceLimits: { cpu: this.cpu, memory: this.memory },
+      // Covers this call only. A session sandbox is extended by the idle
+      // timeout after each call, so a crash mid-call still frees it soon.
+      timeout: Math.max(
+        MIN_TTL_SECONDS,
+        Math.ceil((this.readyTimeout + budgetMs) / 1000) + TTL_MARGIN_SECONDS,
+      ),
+      // The user's own volume; OpenSandbox creates it on first use and keeps it.
+      ...(mount ? { volumes: [persistentVolume(mount, true)] } : {}),
+    };
+    const created = await this.createWithVolumeHint(mount?.mountPath, () =>
+      client.createSandbox(body, signal),
     );
     try {
       await this.waitUntilRunning(client, created.id, created.state, signal);
@@ -485,6 +529,27 @@ export class OpenSandboxProvider implements SandboxProvider {
       // sandbox whose Sandbox Hub files could not be written is removed too.
       await this.deleteQuietly(client, created.id);
       throw error;
+    }
+  }
+
+  /**
+   * Runs a create request. When it mounts a persistent folder and the server
+   * refuses a volume (a runtime without volumes, such as fast sandboxes, or a
+   * server too old for Docker named volumes), the error says so.
+   */
+  private async createWithVolumeHint<T>(
+    mountPath: string | undefined,
+    create: () => Promise<T>,
+  ): Promise<T> {
+    try {
+      return await create();
+    } catch (error) {
+      if (!mountPath || !(error instanceof OpenSandboxHttpError)) throw error;
+      if (!/volume|pvc|mount/i.test(error.message)) throw error;
+      throw new SandboxError(
+        'Unavailable',
+        `${error.message} (this sandbox mounts a persistent folder at ${mountPath}; the OpenSandbox server must support Docker named volumes)`,
+      );
     }
   }
 
@@ -526,7 +591,13 @@ export class OpenSandboxProvider implements SandboxProvider {
     client: OpenSandboxClient,
     sessionKey: string,
     runBudgetMs: number,
-    fingerprints: { env?: string; files?: string; network: string; runtime: string },
+    fingerprints: {
+      env?: string;
+      files?: string;
+      network: string;
+      runtime: string;
+      volume?: string;
+    },
     signal: AbortSignal,
   ): Promise<{
     lookupFailed?: boolean;
@@ -555,7 +626,9 @@ export class OpenSandboxProvider implements SandboxProvider {
         (fingerprints.env !== undefined &&
           (metadata?.[ENV_METADATA_KEY] ?? NO_ENV_FINGERPRINT) !== fingerprints.env) ||
         (fingerprints.files !== undefined &&
-          (metadata?.[FILES_METADATA_KEY] ?? NO_FILES_FINGERPRINT) !== fingerprints.files)
+          (metadata?.[FILES_METADATA_KEY] ?? NO_FILES_FINGERPRINT) !== fingerprints.files) ||
+        (fingerprints.volume !== undefined &&
+          (metadata?.[VOLUME_METADATA_KEY] ?? NO_VOLUME_FINGERPRINT) !== fingerprints.volume)
       ) {
         retired = true;
         await this.deleteQuietly(client, id);

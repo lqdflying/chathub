@@ -162,6 +162,41 @@ describe('Sandbox Hub catalog', () => {
     expect(custom?.instruction).not.toContain('Own text.');
   });
 
+  it('tells the model about a persistent folder only on profiles that have one', async () => {
+    const without = composeSandboxInstruction({
+      base: 'general',
+      description: 'd',
+      id: 'data',
+      name: 'Data',
+    });
+    const line = '/persist is your persistent folder: files saved there are kept for you';
+    expect(without).not.toContain('persistent folder');
+
+    mocks.profiles = [
+      profile('general'),
+      profile('data', { persistentFolder: '/persist' }),
+      profile('offline', {
+        instructionBase: 'none',
+        instructionText: 'files only',
+        persistentFolder: '/persist',
+      }),
+    ];
+    const profiles = await getUserSandboxProfiles(db, 'user-1');
+    const byId = new Map(profiles.map((item) => [item.id, item]));
+    expect(byId.get('general')?.instruction).not.toContain('persistent folder');
+    expect(byId.get('general')?.persistentFolder).toBeUndefined();
+    expect(byId.get('data')?.persistentFolder).toBe('/persist');
+    // In the profile's own header, before the General instruction.
+    const data = byId.get('data')?.instruction ?? '';
+    expect(data.indexOf(line)).toBeGreaterThan(-1);
+    expect(data.indexOf(line)).toBeLessThan(data.indexOf(SANDBOX_SHARED_INSTRUCTION));
+    expect(byId.get('offline')?.instruction).toContain(line);
+    // The header without a folder is exactly as before.
+    expect(composeSandboxInstruction({ base: 'none', description: 'd', id: 'x', name: 'X' })).toBe(
+      'This tool is the "X" sandbox: d\nIt is a separate container from any other sandbox tool in this conversation. Files move between sandboxes only through exportFile and conversation files.\n',
+    );
+  });
+
   it('keeps the starting instructions when the instructions table is missing', async () => {
     mocks.instructionError = { cause: { code: '42P01' } };
     const [general] = await getUserSandboxProfiles(db, 'user-1');

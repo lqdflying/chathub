@@ -19,6 +19,15 @@ export interface OpenSandboxNetworkPolicy {
   egress: Array<{ action: 'allow' | 'deny'; target: string }>;
 }
 
+/** OpenSandbox `Volume` with the `pvc` backend: a Docker named volume on the Docker runtime. */
+export interface OpenSandboxVolume {
+  mountPath: string;
+  /** Unique within the sandbox. */
+  name: string;
+  pvc: { claimName: string; createIfNotExists: boolean };
+  readOnly: boolean;
+}
+
 export interface CreateSandboxRequest {
   entrypoint: string[];
   /** Sandbox Hub environment variables; secret, never logged by ChatHub. */
@@ -29,6 +38,7 @@ export interface CreateSandboxRequest {
   networkPolicy?: OpenSandboxNetworkPolicy;
   resourceLimits: Record<string, string>;
   timeout: number;
+  volumes?: OpenSandboxVolume[];
 }
 
 export interface OpenSandboxStreamEvent {

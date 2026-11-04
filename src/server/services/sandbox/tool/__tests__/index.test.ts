@@ -59,7 +59,11 @@ vi.mock('../../profiles/catalog', () => ({
     }
     return {
       ok: true,
-      profile: { id: profileId, name: profileId },
+      profile: {
+        id: profileId,
+        name: profileId,
+        ...(profileId === 'data' ? { persistentFolder: '/persist' } : {}),
+      },
       server: { id: 'default', status: 'ok', url: 'http://opensandbox:8090' },
     };
   },
@@ -168,6 +172,7 @@ describe('invokeSandboxTool', () => {
     expect(mocks.providerArgs[0][2]).toEqual({
       env: { fingerprint: undefined, values: { API_TOKEN: 'tok-123456789' } },
       files: { fingerprint: undefined, items: [] },
+      volume: {},
     });
     expect(JSON.stringify(result)).not.toContain('tok-123456789');
     expect(result).toMatchObject({
@@ -210,10 +215,30 @@ describe('invokeSandboxTool', () => {
 
     const result = await call('runCommand', { command: 'cat /root/.oci/config' });
 
-    expect(mocks.resolveFiles).toHaveBeenCalledWith({}, 'user-1', 'general');
+    expect(mocks.resolveFiles).toHaveBeenCalledWith({}, 'user-1', 'general', undefined);
     expect(mocks.providerArgs[0][2]).toMatchObject({ files: { items: [item] } });
     expect(JSON.stringify(result)).not.toContain('ocid1');
     expect(result).toMatchObject({ stdout: '[secret:FILE]' });
+  });
+
+  it("mounts the user's persistent folder for a profile that has one", async () => {
+    await invokeSandboxTool({
+      apiName: 'runCommand',
+      args: { command: 'ls /persist' },
+      db: {} as any,
+      identifier: 'lobe-sandbox--data',
+      sessionId: 'agent-1',
+      topicId: 'topic-1',
+      userId: 'user-1',
+    });
+
+    expect(mocks.resolveFiles).toHaveBeenCalledWith({}, 'user-1', 'data', '/persist');
+    expect(mocks.providerArgs[0][2]).toMatchObject({
+      volume: {
+        fingerprint: expect.stringMatching(/^[\da-f]{16}$/),
+        mount: { claimName: expect.stringMatching(/^chathub-[\da-f]{40}$/), mountPath: '/persist' },
+      },
+    });
   });
 
   it('does not start a sandbox when the files cannot be read', async () => {

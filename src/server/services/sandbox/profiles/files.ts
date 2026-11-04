@@ -9,6 +9,7 @@ import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
 import {
   SANDBOX_FILE_MAX_BYTES,
   SANDBOX_FILE_MODE_PATTERN,
+  isPathInside,
   sandboxFilePathProblem,
 } from '@/tools/sandbox/const';
 
@@ -160,6 +161,7 @@ export const setSandboxFile = async ({
   mode,
   owner,
   path,
+  persistentFolder,
   profileId,
   sensitive = true,
   updatedBy,
@@ -171,6 +173,8 @@ export const setSandboxFile = async ({
   mode: string;
   owner: SandboxFileOwner;
   path: string;
+  /** The profile's persistent folder; a secret file may not be written into it. */
+  persistentFolder?: string;
   profileId: string;
   sensitive?: boolean;
   updatedBy: string;
@@ -178,6 +182,12 @@ export const setSandboxFile = async ({
   requireAvailable();
   const pathProblem = sandboxFilePathMessage(path);
   if (pathProblem) throw new SandboxFileError('BAD_REQUEST', pathProblem);
+  if (persistentFolder && isPathInside(path, persistentFolder)) {
+    throw new SandboxFileError(
+      'BAD_REQUEST',
+      `${path} is inside this sandbox's persistent folder (${persistentFolder}), where it would be kept on the server unencrypted.`,
+    );
+  }
   if (!SANDBOX_FILE_MODE_PATTERN.test(mode)) {
     throw new SandboxFileError('BAD_REQUEST', 'Use three octal digits for the mode, e.g. 600.');
   }
@@ -273,6 +283,8 @@ export const resolveSandboxFiles = async (
   db: LobeChatDatabase,
   userId: string,
   profileId: string,
+  /** A file inside it is not written: it would be kept in the volume unencrypted. */
+  persistentFolder?: string,
 ): Promise<ResolvedSandboxFiles> => {
   const model = new SandboxProfileFileModel(db);
   const rows = await readOrNone(() => model.listForSandbox(profileId, userId));
@@ -308,6 +320,13 @@ export const resolveSandboxFiles = async (
   const mask: string[] = [];
   for (const path of [...byPath.keys()].sort()) {
     const { bytes, row } = byPath.get(path)!;
+    if (persistentFolder && isPathInside(path, persistentFolder)) {
+      console.warn('[sandbox] a secret file inside the persistent folder was not written', {
+        path,
+        profileId,
+      });
+      continue;
+    }
     items.push({ content: bytes, mode: row.mode, path });
     if (row.sensitive) mask.push(...maskStrings(bytes));
   }

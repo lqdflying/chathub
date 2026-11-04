@@ -7,6 +7,8 @@ interface ComposeInput {
   general?: string;
   id: string;
   name: string;
+  /** Mount path of each user's persistent folder; absent = none. */
+  persistentFolder?: string;
   /** This profile's own extra text. */
   text?: string;
 }
@@ -26,12 +28,18 @@ export const composeSandboxInstruction = ({
   description,
   general = SANDBOX_SHARED_INSTRUCTION,
   name,
+  persistentFolder,
   text,
 }: ComposeInput) => {
   const operatorText = text?.trim();
+  // Depends only on the profile's settings, so the prompt stays cache-stable.
+  const persistent = persistentFolder
+    ? `${persistentFolder} is your persistent folder: files saved there are kept for you between sandboxes of this tool; everything else in the sandbox is lost when it is removed.
+`
+    : '';
   const header = `This tool is the "${name}" sandbox: ${description.trim()}
 It is a separate container from any other sandbox tool in this conversation. Files move between sandboxes only through exportFile and conversation files.
-`;
+${persistent}`;
   const parts = [header];
   if (base === 'general') parts.push(general);
   if (operatorText) parts.push(`Profile instructions:\n${operatorText}\n`);
