@@ -142,15 +142,15 @@ and cannot undo the hash). `parseSandboxToolIdentifier` /
 `sandboxToolIdentifier` live in `src/tools/sandbox/const.ts`.
 
 **Without a profiles file** one `general` profile and one `default` server
-are built from `OPENSANDBOX_*` with the built-in title, description, avatar
-and instruction. Its manifest is byte-identical to the old static
-`SandboxManifest`, and its session key is unchanged, so existing agents,
-prompts and parked sandboxes behave exactly as before.
+are built from `OPENSANDBOX_*` with the built-in title, description, and
+avatar. Its identifier and session key are unchanged, so existing agents
+and parked sandboxes keep working. Its instruction is the composed profile
+text (header and General instruction), not `SandboxManifest.systemRole`.
 
 **Tools reach the model** the same way on both paths: the static builtin list
 no longer has the Sandbox; the user's enabled, runnable profiles are appended
-last (where the static manifest was), so tool order and prompt bytes for an
-existing `lobe-sandbox` agent stay identical. The worker does this in
+last (where the static manifest was), so tool order for an existing
+`lobe-sandbox` agent stays the same. The worker does this in
 `conversationGeneration/payload.ts`; the browser in the tool-store slice
 (loaded in `StoreInitialization`, awaited before a browser-path send that
 lists a Sandbox tool). A profile turned off in the Hub has no manifest, so
@@ -449,7 +449,7 @@ servers:                     # optional; "default" falls back to OPENSANDBOX_SER
         usernameEnv: REGISTRY_USERNAME
         passwordEnv: REGISTRY_PASSWORD
 profiles:                    # optional, 0..16: imported into the Hub once, then ignored
-  - id: general              # keeps lobe-sandbox; the built-in instruction is its starting text
+  - id: general              # keeps lobe-sandbox; starts on the General instruction
     name: Sandbox
     description: General Linux sandbox
   - id: data
