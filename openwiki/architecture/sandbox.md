@@ -363,6 +363,67 @@ own `[docker] sandbox_env`. OpenSandbox's read endpoints do not return them.
   OpenSandbox host's operator. Every user of a profile can therefore read a
   shared value through the model. The Hub dialog says so.
 
+### Secret files
+
+Some tools read credentials from files rather than variables, for example
+the OCI CLI's `~/.oci/config` and its key. OpenSandbox's create request
+cannot carry file contents (its `volumes` only mount storage already on the
+host), so the Hub stores files and ChatHub writes them into each new sandbox
+with execd's file upload, right after the sandbox starts.
+
+- **Who sets what.** As for variables: admins set shared files per profile
+  (`setSharedFile`, `deleteSharedFile`, admin checked); any user sets their
+  own (`setMyFile`, `deleteMyFile`). A user's file replaces a shared file at
+  the same path in that user's sandboxes. The Hub's profile details have a
+  **Files** row under **Environment variables** with its own dialog.
+- **Storage.** `sandbox_profile_files` (migration `0071`, repaired by
+  `ensureSandboxProfileFiles.cjs`): one row per profile and path for shared
+  rows (`user_id` null) and per profile, user and path for a user's rows.
+  `content` is `KeyVaultsGateKeeper` ciphertext of the bytes in base64;
+  `mode` is octal written as decimal (600 = `rw-------`), as execd takes it;
+  `size` and `sensitive` (default true) are kept beside it. Rows go with the
+  user and with the profile. Without `KEY_VAULTS_SECRET` the feature is off.
+- **Rules** (`profiles/files.ts`, `tools/sandbox/const.ts`). The path is
+  absolute, normalized (no empty, `.` or `..` parts, no trailing `/`), at most
+  255 characters of `A-Z a-z 0-9 . _ - @ +` and `/`, and not inside
+  `/tmp/workspace` (conversation files and ChatHub's control folder),
+  `/proc`, `/sys` or `/dev`. The mode is three octal digits (the Hub offers
+  600, 640, 644, 660 and 400; default 600). A file is 1 B to 64 KiB; at most
+  16 shared files per profile and 16 per user per profile. The content goes
+  through the tRPC mutation as base64.
+- **Sensitive.** A sensitive file never leaves the server toward the
+  browser. One that is not sensitive returns its text (UTF-8 only) in
+  `listFiles` so it can be edited. A Replace without content changes only
+  the mode and Sensitive flag.
+- **Writing.** `invokeSandboxTool` calls `resolveSandboxFiles` after the
+  variables: shared files, then the user's own by path. A file that no
+  longer decrypts is left out and only its path is logged; a user's
+  unreadable file does not fall back to the shared one. A failed read
+  refuses the call. In `createSandbox`, right after execd answers, the
+  provider uploads each file with its own request (execd creates missing
+  parent folders and applies the mode), before the workspace exists and
+  before any command. A failed upload (for example an execd Landlock rule
+  that only allows writes under `/tmp`) removes the new sandbox and fails the
+  call with the path. Owner and group are execd's (root in the default
+  image).
+- **Applying a change.** Each new sandbox gets a `chathub-files` label: the
+  first 16 hex characters of HMAC-SHA256(`KEY_VAULTS_SECRET`, each path,
+  mode and content SHA-256), absent without files. A tool call replaces a
+  reused sandbox whose label differs, so a change applies on the next call
+  and that sandbox's files and running jobs are lost. Job checks and Prepare
+  image pass no files and never compare.
+- **Masking.** For each sensitive text file, its whole text and every line of
+  16 or more characters are masked as `[secret:FILE]` in tool results, in
+  saved job output and in a running job's live log. Jobs are masked with the
+  profile's current files (there is no file snapshot). Binary files are not
+  masked. The built-in instruction tells the model to use the files in
+  place and never print them.
+- **Risk.** As for variables, masking stops accidents, not a deliberate
+  read: anything in the sandbox and the host's operator can read the files,
+  and every user of a profile can read a shared file through the model. The
+  Hub dialog says so. The files are copies, not mounts: the model can change
+  or delete them, and they come back only with the next new sandbox.
+
 ### Profiles file
 
 ```yaml
@@ -677,9 +738,10 @@ sandbox again after a ChatHub restart.
   a policy is configured), or when its `chathub-runtime` label is not the
   hash of the current `OPENSANDBOX_IMAGE` plus `OPENSANDBOX_LAYOUT_VERSION`
   (a sandbox without it, e.g. a Code Interpreter one on `/tmp/chathub-ci`, is
-  replaced too). A tool call also replaces it when its `chathub-env` label
-  does not match the call's Sandbox Hub variables (see *Secret environment
-  variables*). CPU and memory changes still wait for the next sandbox.
+  replaced too). A tool call also replaces it when its `chathub-env` or
+  `chathub-files` label does not match the call's Sandbox Hub variables or
+  files (see *Secret environment variables* and *Secret files*). CPU and
+  memory changes still wait for the next sandbox.
 - **After a call**, the sandbox is renewed to the idle deadline
   (`OPENSANDBOX_SESSION_IDLE_TIMEOUT`, default 30 min) and the server reaps
   it if no call comes. Every call restarts the timer. See *Keep or delete*

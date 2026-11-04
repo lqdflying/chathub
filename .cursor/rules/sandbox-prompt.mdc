@@ -30,9 +30,9 @@ product-level sandbox contract. It already follows this design — do not
 - Inject ChatHub LLM keys or other server secrets into the sandbox
   (`OPENAI_API_KEY` on the ChatHub container is **not** in the sandbox; a
   network SDK needs a key and egress allowed by the operator). Keys reach a
-  sandbox only as Sandbox Hub environment variables that an admin (shared) or
-  the user (their own) typed in the Hub; the prompt names them generically
-  and never lists names or values.
+  sandbox only as Sandbox Hub environment variables or files that an admin
+  (shared) or the user (their own) set in the Hub; the prompt names them
+  generically and never lists names, paths or values.
 - Invent a topic prompt. `topics.metadata` has no instruction field.
 
 ## Files vs Knowledge Base

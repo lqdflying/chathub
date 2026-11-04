@@ -1,5 +1,5 @@
 ---
-description: Sandbox Hub — admin-managed sandbox profiles, per-user on/off, admin-edited instructions, environment variables, background jobs, one tool per profile, remote OpenSandbox servers
+description: Sandbox Hub — admin-managed sandbox profiles, per-user on/off, admin-edited instructions, environment variables, secret files, background jobs, one tool per profile, remote OpenSandbox servers
 globs: src/server/services/sandbox/**,src/tools/sandbox/**,src/store/tool/slices/sandbox/**,src/features/SandboxHub/**,src/app/[variants]/(main)/sandbox/**,src/server/routers/lambda/sandboxHub.ts
 alwaysApply: false
 ---
@@ -11,9 +11,9 @@ container. Servers stay in `SANDBOX_PROFILES_FILE`. Users only turn profiles on
 or off (`/sandbox`); agents opt in from the tool picker. Admins listed in
 `SANDBOX_HUB_ADMINS` add, edit, order, and delete profiles, prepare images, and
 edit each profile's instruction for every user. Admins set shared environment
-variables per profile and users add their own. Maintainer doc:
+variables and files per profile and users add their own. Maintainer doc:
 `openwiki/architecture/sandbox.md` (Sandbox Hub profiles, Editable
-instructions, Secret environment variables).
+instructions, Secret environment variables, Secret files).
 
 ## Invariants (keep)
 
@@ -78,6 +78,16 @@ instructions, Secret environment variables).
   be decrypted does not fall back to the shared value. Shared writes are
   admin only; `SandboxProfileEnvModel` is not user-scoped, so pass the owner
   explicitly.
+- **Secret files** (`profiles/files.ts`, `sandbox_profile_files`): the same
+  rules as variables. Content is encrypted; a sensitive file never leaves the
+  server toward the browser, a DTO, an error or a log (paths, modes and sizes
+  only). Only `invokeSandboxTool` resolves files and passes them to the
+  provider, which writes them in `createSandbox` after execd answers and
+  before any command; a failed write removes the new sandbox. Job checks and
+  Prepare image pass none and must never replace a sandbox over
+  `chathub-files`. Paths stay absolute and out of `/tmp/workspace`, `/proc`,
+  `/sys` and `/dev` (`sandboxFilePathProblem`). Mask results and saved job
+  output with the sensitive files' text and long lines.
 - Hub tRPC lives in the `sandboxHub.` namespace, which is in the client's
   `VERIFIED_ACCOUNT_RPC_NAMESPACES`. A new scope-checked namespace must be
   added there too, or every call fails as a mismatched user.
