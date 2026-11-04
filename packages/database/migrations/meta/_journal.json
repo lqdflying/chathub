@@ -497,6 +497,13 @@
       "when": 1788390000000,
       "tag": "0070_sandbox_profile_env_sensitive",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1788400000000,
+      "tag": "0071_sandbox_profile_files",
+      "breakpoints": true
     }
   ],
   "version": "6"

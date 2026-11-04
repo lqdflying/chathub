@@ -22,6 +22,7 @@ const prefixes = {
   picbedImages: 'pbi',
   plugins: 'plg',
   sandboxEnvs: 'senv',
+  sandboxFiles: 'sfil',
   sandboxJobs: 'sjob',
   sessionGroups: 'sg',
   sessions: 'ssn',

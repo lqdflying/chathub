@@ -136,3 +136,43 @@ export const sandboxProfileEnvs = pgTable(
 
 export type SandboxProfileEnvRow = typeof sandboxProfileEnvs.$inferSelect;
 
+/**
+ * Sandbox Hub: secret files written into a profile's sandboxes right after
+ * they are created. A row without `user_id` is shared by every user of the
+ * profile (set by admins); a row with one belongs to that user and replaces a
+ * shared file at the same path in their sandboxes only. `content` is
+ * KeyVaultsGateKeeper ciphertext of the file's bytes in base64.
+ */
+export const sandboxProfileFiles = pgTable(
+  'sandbox_profile_files',
+  {
+    id: text('id').primaryKey(),
+    profileId: text('profile_id').notNull(),
+    userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
+    /** Absolute path in the sandbox. */
+    path: text('path').notNull(),
+    /** Permission bits, octal written as decimal (600 = rw-------), as execd takes them. */
+    mode: integer('mode').notNull(),
+    content: text('content').notNull(),
+    /** Size of the file in bytes. */
+    size: integer('size').notNull(),
+    /** When true, the Hub never shows the content and command output hides it. */
+    sensitive: boolean('sensitive').default(true).notNull(),
+    updatedBy: text('updated_by').references(() => users.id, { onDelete: 'set null' }),
+    accessedAt: timestamps.accessedAt,
+    createdAt: timestamps.createdAt,
+    updatedAt: timestamps.updatedAt,
+  },
+  (table) => [
+    uniqueIndex('sandbox_profile_files_shared_uniq')
+      .on(table.profileId, table.path)
+      .where(sql`${table.userId} is null`),
+    uniqueIndex('sandbox_profile_files_user_uniq')
+      .on(table.profileId, table.userId, table.path)
+      .where(sql`${table.userId} is not null`),
+    index('sandbox_profile_files_user_idx').on(table.userId),
+  ],
+);
+
+export type SandboxProfileFileRow = typeof sandboxProfileFiles.$inferSelect;
+
