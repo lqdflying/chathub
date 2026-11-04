@@ -488,7 +488,7 @@ hand is lost unless it was exported. A profile can give each user a
   - The fast-sandbox runtime rejects volumes, so a profile with a folder fails
     there with an error naming the folder.
   - Needs an OpenSandbox server whose Docker runtime auto-creates named
-    volumes (server/v0.1.11 or later).
+    volumes (`opensandbox/server:release-1.1.0` or later).
 - **Operator cleanup.** List them with `docker volume ls --filter
   label=opensandbox.io/volume-managed-by=server --filter name=chathub-` and
   remove one with `docker volume rm`.

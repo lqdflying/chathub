@@ -28,8 +28,11 @@ instructions, Secret environment variables, Secret files, Persistent folders).
 - **Sandbox tools are appended last** to the builtin list (worker payload and
   tool-store slice), where the static manifest used to be. Do not reorder:
   it changes prompt bytes for every existing agent.
-- **One gate:** every call goes through `resolveSandboxProfileForUser`. Do not
-  add a path that invokes the provider without it.
+- **One gate:** every tool call and every job check goes through
+  `resolveSandboxProfileForUser`. Do not add another path that invokes the
+  provider without it. Empty is the exception: it does not call that gate, so
+  a user can empty their own volume while the profile switch is off. Do not
+  route Empty through the tool gate.
 - **Server details never reach the browser:** the user profile list has no URL,
   key, or image. The admin editor includes the image name. Keys come from
   `apiKeyEnv`; a literal key in the file is rejected.

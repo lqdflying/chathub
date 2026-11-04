@@ -57,8 +57,8 @@ const NO_ENV_FINGERPRINT = 'none';
 // sandbox after it was created (absent: none). Compared like `chathub-env`.
 export const FILES_METADATA_KEY = 'chathub-files';
 const NO_FILES_FINGERPRINT = 'none';
-// Container label with an HMAC of the persistent folder's volume and mount
-// path (absent: none). Compared like `chathub-env`.
+// Container label with an unkeyed SHA-256 of the persistent folder's claim
+// name and mount path (absent: none). Compared like `chathub-env`.
 export const VOLUME_METADATA_KEY = 'chathub-volume';
 const NO_VOLUME_FINGERPRINT = 'none';
 /** The persistent folder's name in the create request's `volumes` list. */
