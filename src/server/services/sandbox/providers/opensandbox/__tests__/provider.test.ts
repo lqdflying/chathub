@@ -876,6 +876,100 @@ describe('OpenSandboxProvider', () => {
       expect(calls.createBody?.metadata).not.toHaveProperty('chathub-env');
     });
 
+    it('writes Hub files into a new sandbox before its first command, with their label', async () => {
+      const calls = install();
+      const files = {
+        fingerprint: 'f1le5',
+        items: [
+          {
+            content: new Uint8Array(Buffer.from('[DEFAULT]\n')),
+            mode: 600,
+            path: '/root/.oci/config',
+          },
+          { content: new Uint8Array(Buffer.from('key')), mode: 400, path: '/root/.oci/key.pem' },
+        ],
+      };
+
+      await python(profileProvider({ files }), { sessionKey: 'topic-a' });
+
+      expect(calls.uploads.slice(0, 2)).toEqual([
+        { content: '[DEFAULT]\n', path: '/root/.oci/config' },
+        { content: 'key', path: '/root/.oci/key.pem' },
+      ]);
+      expect(calls.uploadModes.slice(0, 2)).toEqual([600, 400]);
+      expect(calls.createBody?.metadata).toMatchObject({ 'chathub-files': 'f1le5' });
+
+      // A reused sandbox already has them.
+      const before = calls.uploads.length;
+      await python(profileProvider({ files }), { sessionKey: 'topic-a' });
+      expect(calls.creates).toBe(1);
+      expect(calls.uploads.slice(before).map((upload) => upload.path)).not.toContain(
+        '/root/.oci/config',
+      );
+    });
+
+    it('removes a new sandbox whose Hub file could not be written and fails the call', async () => {
+      const calls = install({
+        route: (rest) =>
+          rest === '/files/upload' ? json({ message: 'permission denied' }, 403) : undefined,
+      });
+
+      await expect(
+        python(
+          profileProvider({
+            files: {
+              fingerprint: 'f1le5',
+              items: [{ content: new Uint8Array([1]), mode: 600, path: '/root/.oci/config' }],
+            },
+          }),
+          { sessionKey: 'topic-a' },
+        ),
+      ).rejects.toThrow(/\/root\/\.oci\/config/);
+      expect(calls.deletedIds).toContain('sbx-1');
+      expect(calls.commandIds).toEqual([]);
+    });
+
+    it('replaces a reused sandbox whose files changed, only when files are given', async () => {
+      const parked = (files?: string) => ({
+        existing: [
+          {
+            createdAt: ago(60_000),
+            id: 'sbx-old',
+            metadata: {
+              ...session('topic-a'),
+              'chathub-profile': 'data',
+              'chathub-runtime': runtimeFingerprint('registry.example/data:3'),
+              ...(files ? { 'chathub-files': files } : {}),
+            },
+          },
+        ],
+      });
+      const call = (files?: { fingerprint?: string; items: [] }) =>
+        python(profileProvider(files ? { files } : {}), { sessionKey: 'topic-a' });
+
+      let calls = install(parked('old'));
+      await call({ fingerprint: 'new', items: [] });
+      expect(calls.deletedIds).toContain('sbx-old');
+
+      calls = install(parked('old'));
+      await call({ items: [] });
+      expect(calls.deletedIds).toContain('sbx-old');
+
+      calls = install(parked('same'));
+      await call({ fingerprint: 'same', items: [] });
+      expect(calls.creates).toBe(0);
+
+      calls = install(parked());
+      await call({ items: [] });
+      expect(calls.creates).toBe(0);
+
+      // Not given (a background-job check): never compared.
+      calls = install(parked('old'));
+      await call();
+      expect(calls.creates).toBe(0);
+      expect(calls.deleted).toBe(0);
+    });
+
     it('replaces a reused sandbox whose variables changed, only when variables are given', async () => {
       const parked = (env?: string) => ({
         existing: [

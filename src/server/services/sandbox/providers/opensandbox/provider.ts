@@ -52,6 +52,10 @@ export const PROFILE_METADATA_KEY = 'chathub-profile';
 // replaces the sandbox; calls that pass no variables (job checks) skip it.
 export const ENV_METADATA_KEY = 'chathub-env';
 const NO_ENV_FINGERPRINT = 'none';
+// Container label with an HMAC of the Sandbox Hub files written into the
+// sandbox after it was created (absent: none). Compared like `chathub-env`.
+export const FILES_METADATA_KEY = 'chathub-files';
+const NO_FILES_FINGERPRINT = 'none';
 export const SANDBOX_METADATA_NAME = 'chathub-sandbox';
 // Name label of the throwaway sandbox "Prepare image" creates; never reused.
 export const SANDBOX_PREPARE_METADATA_NAME = 'chathub-sandbox-prepare';
@@ -110,6 +114,13 @@ const networkCompatible = (recorded: string | undefined, fingerprint: string) =>
 const keepsSandbox = (error: SandboxError) =>
   error instanceof SandboxRequestError || error.code === 'Timeout' || error.code === 'Cancelled';
 
+/** Files written into a new sandbox before its first command, and their label value. */
+export interface SandboxFilesSpec {
+  /** Undefined when there are no files. */
+  fingerprint?: string;
+  items: Array<{ content: Uint8Array; mode: number; path: string }>;
+}
+
 /** Environment variables a sandbox is created with, and their label value. */
 export interface SandboxEnvSpec {
   /** Undefined when there are no variables. */
@@ -124,6 +135,7 @@ export class OpenSandboxProvider implements SandboxProvider {
   private cpu: string;
   private egressAllow: string[];
   private env?: SandboxEnvSpec;
+  private files?: SandboxFilesSpec;
   private image?: string;
   private imageAuth?: { password: string; username: string };
   private maxFileBytes: number;
@@ -152,6 +164,12 @@ export class OpenSandboxProvider implements SandboxProvider {
      * sandbox created with other values is replaced; omitted, that is not checked.
      */
     env?: SandboxEnvSpec;
+    /**
+     * Sandbox Hub files for a new sandbox, written right after it starts.
+     * Given (even empty), a reused sandbox created with other files is
+     * replaced; omitted, that is not checked.
+     */
+    files?: SandboxFilesSpec;
     image?: string;
     /** Registry login for the image, from the server's `registries`. */
     imageAuth?: { password: string; username: string };
@@ -180,6 +198,7 @@ export class OpenSandboxProvider implements SandboxProvider {
         .map((item) => item.trim())
         .filter(Boolean);
     this.env = options?.env;
+    this.files = options?.files;
     this.memory = options?.memory ?? sandboxEnv.OPENSANDBOX_MEMORY;
     this.networkDisabled = options?.networkDisabled ?? false;
     this.profileId = options?.profileId;
@@ -284,6 +303,7 @@ export class OpenSandboxProvider implements SandboxProvider {
       const readySignal = combineSignals(AbortSignal.timeout(this.readyTimeout), options.signal);
       const fingerprints = {
         env: this.env ? (this.env.fingerprint ?? NO_ENV_FINGERPRINT) : undefined,
+        files: this.files ? (this.files.fingerprint ?? NO_FILES_FINGERPRINT) : undefined,
         network: networkPolicyFingerprint(this.networkPolicy(options)),
         runtime: runtimeFingerprint(this.image),
       };
@@ -436,6 +456,7 @@ export class OpenSandboxProvider implements SandboxProvider {
         image: this.imageSpec(),
         metadata: {
           ...(this.env?.fingerprint ? { [ENV_METADATA_KEY]: this.env.fingerprint } : {}),
+          ...(this.files?.fingerprint ? { [FILES_METADATA_KEY]: this.files.fingerprint } : {}),
           [NETWORK_METADATA_KEY]: networkPolicyFingerprint(networkPolicy),
           [RUNTIME_METADATA_KEY]: runtimeFingerprint(this.image!),
           ...(this.profileId ? { [PROFILE_METADATA_KEY]: this.profileId } : {}),
@@ -457,11 +478,37 @@ export class OpenSandboxProvider implements SandboxProvider {
       await this.waitUntilRunning(client, created.id, created.state, signal);
       const execd = await client.getExecdEndpoint(created.id, signal);
       await this.waitForExecd(client, execd, signal);
+      await this.writeHubFiles(client, execd, signal);
       return { createdAt: created.createdAt ?? requestedAt, execd, id: created.id };
     } catch (error) {
-      // The caller never learns the id, so the sandbox is removed here.
+      // The caller never learns the id, so the sandbox is removed here. A
+      // sandbox whose Sandbox Hub files could not be written is removed too.
       await this.deleteQuietly(client, created.id);
       throw error;
+    }
+  }
+
+  /**
+   * Writes the Sandbox Hub files into a sandbox that was just created, one
+   * request per file so a failure names its path. execd creates missing
+   * parent folders and applies each file's mode.
+   */
+  private async writeHubFiles(
+    client: OpenSandboxClient,
+    execd: ExecdEndpoint,
+    signal: AbortSignal,
+  ) {
+    for (const file of this.files?.items ?? []) {
+      try {
+        await client.uploadFiles(execd, [file], signal);
+      } catch (error) {
+        if (signal.aborted) throw error;
+        const reason = error instanceof Error ? error.message : String(error);
+        throw new SandboxError(
+          'ExecutionFailed',
+          `Could not write the Sandbox Hub file ${file.path} into the new sandbox: ${reason}`,
+        );
+      }
     }
   }
 
@@ -479,7 +526,7 @@ export class OpenSandboxProvider implements SandboxProvider {
     client: OpenSandboxClient,
     sessionKey: string,
     runBudgetMs: number,
-    fingerprints: { env?: string; network: string; runtime: string },
+    fingerprints: { env?: string; files?: string; network: string; runtime: string },
     signal: AbortSignal,
   ): Promise<{
     lookupFailed?: boolean;
@@ -506,7 +553,9 @@ export class OpenSandboxProvider implements SandboxProvider {
         !networkCompatible(metadata?.[NETWORK_METADATA_KEY], fingerprints.network) ||
         metadata?.[RUNTIME_METADATA_KEY] !== fingerprints.runtime ||
         (fingerprints.env !== undefined &&
-          (metadata?.[ENV_METADATA_KEY] ?? NO_ENV_FINGERPRINT) !== fingerprints.env)
+          (metadata?.[ENV_METADATA_KEY] ?? NO_ENV_FINGERPRINT) !== fingerprints.env) ||
+        (fingerprints.files !== undefined &&
+          (metadata?.[FILES_METADATA_KEY] ?? NO_FILES_FINGERPRINT) !== fingerprints.files)
       ) {
         retired = true;
         await this.deleteQuietly(client, id);

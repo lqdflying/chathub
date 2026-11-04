@@ -8,6 +8,7 @@ type Row = Record<string, any>;
 const state = vi.hoisted(() => ({
   enqueue: vi.fn(),
   env: {} as Record<string, string>,
+  fileMask: [] as string[],
   gate: undefined as any,
   idleMs: undefined as number | undefined,
   persist: vi.fn(),
@@ -111,6 +112,9 @@ vi.mock('../../profiles/env', async (importOriginal) => ({
   resolveSandboxEnv: async () => state.env,
   resolveSandboxMaskEnv: async () => state.env,
 }));
+vi.mock('../../profiles/files', () => ({
+  resolveSandboxFileMask: async () => state.fileMask,
+}));
 vi.mock('../enqueue', () => ({ enqueueSandboxJobWatch: state.enqueue }));
 
 const { sandboxJobWatchDelayMs } = await import('../constants');
@@ -178,6 +182,7 @@ describe('Sandbox background jobs', () => {
     state.rows = new Map();
     state.gate = ok;
     state.env = {};
+    state.fileMask = [];
     state.idleMs = undefined;
     state.snapshot = {};
     state.snapshotError = undefined;
@@ -236,6 +241,25 @@ describe('Sandbox background jobs', () => {
     ]);
     expect(row.error).toBe('Not kept: 1 more file(s) over the 2-file limit');
     expect(state.workspace.markSynced).toHaveBeenCalledWith(['file_0', 'file_1']);
+  });
+
+  it('masks sensitive Hub file text in the output before saving it', async () => {
+    state.fileMask = ['user=ocid1.user.oc1..aaaaexample'];
+    state.workspace = fakeWorkspace({ exitCode: 0, running: false });
+    state.workspace.commandLogs.mockResolvedValue({
+      cursor: 1,
+      output: 'config: user=ocid1.user.oc1..aaaaexample\n',
+    });
+
+    await checkSandboxJob({
+      apiName: 'watchJob',
+      db,
+      now: BEFORE_DEADLINE,
+      row: addJob({ outputDir: null }),
+      userId: 'user-1',
+    });
+
+    expect(state.rows.get('sjob_1').outputTail).toBe('config: [secret:FILE]\n');
   });
 
   it('masks variable values in the output before saving it', async () => {

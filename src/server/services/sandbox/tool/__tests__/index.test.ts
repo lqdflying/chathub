@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   persist: vi.fn(),
   providerArgs: [] as unknown[][],
   resolveEnv: vi.fn(),
+  resolveFiles: vi.fn(),
   withWorkspace: vi.fn(),
 }));
 
@@ -36,6 +37,10 @@ vi.mock('../../profiles/env', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../profiles/env')>()),
   resolveSandboxEnv: mocks.resolveEnv,
   resolveSandboxMaskEnv: mocks.resolveEnv,
+}));
+vi.mock('../../profiles/files', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../profiles/files')>()),
+  resolveSandboxFiles: mocks.resolveFiles,
 }));
 vi.mock('../../profiles/catalog', () => ({
   resolveSandboxProfileForUser: async ({ identifier }: { identifier: string }) => {
@@ -119,6 +124,7 @@ describe('invokeSandboxTool', () => {
     mocks.keepsSessions = true;
     mocks.providerArgs = [];
     mocks.resolveEnv.mockResolvedValue({});
+    mocks.resolveFiles.mockResolvedValue({ items: [], mask: [] });
     workspace = fakeWorkspace();
     mocks.listInputs.mockResolvedValue(inputs);
     mocks.persist.mockImplementation(async ({ files }: { files: Array<{ filename: string }> }) =>
@@ -161,6 +167,7 @@ describe('invokeSandboxTool', () => {
     expect(mocks.resolveEnv).toHaveBeenCalledWith({}, 'user-1', 'general');
     expect(mocks.providerArgs[0][2]).toEqual({
       env: { fingerprint: undefined, values: { API_TOKEN: 'tok-123456789' } },
+      files: { fingerprint: undefined, items: [] },
     });
     expect(JSON.stringify(result)).not.toContain('tok-123456789');
     expect(result).toMatchObject({
@@ -177,6 +184,52 @@ describe('invokeSandboxTool', () => {
       error: 'bad header [secret:API_TOKEN]',
       success: false,
     });
+  });
+
+  it("passes the user's files to the sandbox and masks a sensitive file's text", async () => {
+    const config = '[DEFAULT]\nuser=ocid1.user.oc1..aaaaexample\n';
+    const item = {
+      content: new Uint8Array(Buffer.from(config)),
+      mode: 600,
+      path: '/root/.oci/config',
+    };
+    mocks.resolveFiles.mockResolvedValue({
+      items: [item],
+      mask: [config, 'user=ocid1.user.oc1..aaaaexample'],
+    });
+    workspace = fakeWorkspace({
+      exec: vi.fn(async () => ({
+        durationMs: 5,
+        exitCode: 0,
+        killed: false,
+        stderr: '',
+        stdout: `${config}`,
+        timedOut: false,
+      })),
+    });
+
+    const result = await call('runCommand', { command: 'cat /root/.oci/config' });
+
+    expect(mocks.resolveFiles).toHaveBeenCalledWith({}, 'user-1', 'general');
+    expect(mocks.providerArgs[0][2]).toMatchObject({ files: { items: [item] } });
+    expect(JSON.stringify(result)).not.toContain('ocid1');
+    expect(result).toMatchObject({ stdout: '[secret:FILE]' });
+  });
+
+  it('does not start a sandbox when the files cannot be read', async () => {
+    mocks.resolveFiles.mockRejectedValue(new Error('db down'));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    expect(await call('runCommand', { command: 'true' })).toEqual({
+      error: 'The sandbox files could not be read. Try again.',
+      success: false,
+    });
+    expect(mocks.withWorkspace).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      '[sandbox] could not read Sandbox Hub files; the call was refused',
+      { errorClass: 'Error', profileId: 'general' },
+    );
+    warn.mockRestore();
   });
 
   it('does not start a sandbox when the variables cannot be read', async () => {

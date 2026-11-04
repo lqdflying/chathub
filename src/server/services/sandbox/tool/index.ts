@@ -26,6 +26,11 @@ import {
   resolveSandboxMaskEnv,
   sandboxEnvFingerprint,
 } from '../profiles/env';
+import {
+  type ResolvedSandboxFiles,
+  resolveSandboxFiles,
+  sandboxFilesFingerprint,
+} from '../profiles/files';
 import type { ResolvedSandboxProfile, ResolvedSandboxServer } from '../profiles/schema';
 import { getSandboxProvider } from '../registry';
 import { buildSandboxSessionKey, type SandboxConversationScope } from '../session';
@@ -110,12 +115,15 @@ class SandboxToolRunner {
     /** Sandbox Hub variables for this user's sandbox of this profile. */
     env: Record<string, string>,
     maskEnv: Record<string, string>,
+    /** Sandbox Hub files written into a new sandbox before its first command. */
+    files: ResolvedSandboxFiles,
   ) {
     this.env = env;
     this.maskEnv = maskEnv;
     this.profile = target.profile;
     this.provider = getSandboxProvider(target.profile, target.server, {
       env: { fingerprint: sandboxEnvFingerprint(env), values: env },
+      files: { fingerprint: sandboxFilesFingerprint(files.items), items: files.items },
     });
     this.sessionKey = buildSandboxSessionKey({ ...params, profileId: target.profile.id });
   }
@@ -598,19 +606,36 @@ export const invokeSandboxTool = async (
     return isPython ? pythonFailure(message) : failure(message);
   }
 
-  const runner = new SandboxToolRunner(params, target, env, maskEnv);
+  let files: ResolvedSandboxFiles;
+  try {
+    files = await resolveSandboxFiles(params.db, params.userId, target.profile.id);
+  } catch (error) {
+    // Without them a new sandbox would start without its files.
+    console.warn('[sandbox] could not read Sandbox Hub files; the call was refused', {
+      errorClass: error instanceof Error ? error.name : typeof error,
+      profileId: target.profile.id,
+    });
+    const message = 'The sandbox files could not be read. Try again.';
+    return isPython ? pythonFailure(message) : failure(message);
+  }
+
+  const runner = new SandboxToolRunner(params, target, env, maskEnv, files);
   try {
     // The schema for each API name produces that API's arguments.
     const call = runner[apiName].bind(runner) as (args: unknown) => Promise<SandboxToolResult>;
     const result = await call(parsed.data);
     throwIfCallerCancelled(params.signal);
-    return maskSandboxSecrets(result, maskEnv);
+    return maskSandboxSecrets(result, maskEnv, files.mask);
   } catch (error) {
     if (params.signal?.aborted || (error instanceof SandboxError && error.code === 'Cancelled')) {
       throw error;
     }
     const message =
       error instanceof SandboxError || error instanceof Error ? error.message : 'Sandbox failed.';
-    return maskSandboxSecrets(isPython ? pythonFailure(message) : failure(message), maskEnv);
+    return maskSandboxSecrets(
+      isPython ? pythonFailure(message) : failure(message),
+      maskEnv,
+      files.mask,
+    );
   }
 };

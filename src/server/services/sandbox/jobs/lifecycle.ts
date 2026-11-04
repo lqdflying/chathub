@@ -21,6 +21,7 @@ import {
   resolveSandboxMaskEnv,
   sandboxJobMaskEnv,
 } from '../profiles/env';
+import { resolveSandboxFileMask } from '../profiles/files';
 import { findSandboxProfile } from '../profiles/hub';
 import { findSandboxServer } from '../profiles/load';
 import { getSandboxProvider } from '../registry';
@@ -399,13 +400,16 @@ export const checkSandboxJob = async ({
         await resolveSandboxMaskEnv(db, userId, row.profileId),
       )
     : {};
+  // The profile's current sensitive files; a file changed since the job
+  // started is masked with its new content only.
+  const fileMask = needsMask ? await resolveSandboxFileMask(db, userId, row.profileId) : [];
 
   const model = new SandboxJobModel(db, userId);
   const checkedAt = new Date(now);
   if (observed.kind === 'running') {
     await model.markChecked(row.id, checkedAt);
     return {
-      log: observed.log && maskSandboxSecrets(observed.log, env),
+      log: observed.log && maskSandboxSecrets(observed.log, env, fileMask),
       row: { ...row, lastCheckedAt: checkedAt },
     };
   }
@@ -414,9 +418,9 @@ export const checkSandboxJob = async ({
   const error = [observed.ending.error, notes].filter(Boolean).join('\n');
   const saved = await model.finish(row.id, {
     ...observed.ending,
-    ...(error ? { error: maskSandboxSecrets(error, env) } : {}),
-    files: maskSandboxSecrets(observed.files, env),
-    outputTail: observed.outputTail && maskSandboxSecrets(observed.outputTail, env),
+    ...(error ? { error: maskSandboxSecrets(error, env, fileMask) } : {}),
+    files: maskSandboxSecrets(observed.files, env, fileMask),
+    outputTail: observed.outputTail && maskSandboxSecrets(observed.outputTail, env, fileMask),
   });
   return { row: saved ?? (await model.find(row.id)) ?? row };
 };
