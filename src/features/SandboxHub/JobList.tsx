@@ -68,15 +68,16 @@ interface JobListProps {
   scope: string;
 }
 
-/**
- * The user's recent background jobs as a Settings group, with Cancel for
- * running ones. Hidden until there is one.
- */
 const emptyJobs = (): SandboxHubJobList => ({
   other: [],
   succeeded: { items: [], page: 1, pageSize: 20, total: 0 },
 });
 
+/**
+ * This user's background jobs: unfinished and unsuccessful ones, then
+ * succeeded ones 20 per page with Purge. Cancel for running ones. Hidden
+ * until there is one.
+ */
 const JobList = memo<JobListProps>(({ profiles, scope }) => {
   const { styles } = useStyles();
   const { t } = useTranslation('sandboxHub');

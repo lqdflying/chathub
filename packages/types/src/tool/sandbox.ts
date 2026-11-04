@@ -116,7 +116,6 @@ export interface SandboxJobFile {
   url?: string;
 }
 
-/** A background job as the Sandbox Hub lists it. */
 /** Hub background jobs: everything still in progress or unsuccessful, plus one page of successes. */
 export interface SandboxHubJobList {
   other: SandboxJobItem[];
@@ -128,6 +127,7 @@ export interface SandboxHubJobList {
   };
 }
 
+/** A background job as the Sandbox Hub lists it. */
 export interface SandboxJobItem {
   /** First line of the command, shortened. */
   command: string;

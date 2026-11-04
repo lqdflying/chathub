@@ -4,7 +4,6 @@ import type {
   SandboxHubJobList,
   SandboxHubProfileSettingsInput,
   SandboxHubSettings,
-  SandboxJobItem,
   SandboxProfileItem,
   SandboxServerHealth,
 } from '@lobechat/types';
@@ -15,7 +14,7 @@ class SandboxHubService {
   access = (accountScope: string): Promise<SandboxHubAccess> =>
     lambdaClient.sandboxHub.access.query({ accountScope });
 
-  cancelJob = (accountScope: string, jobId: string): Promise<SandboxJobItem[]> =>
+  cancelJob = (accountScope: string, jobId: string): Promise<void> =>
     lambdaClient.sandboxHub.cancelJob.mutate({ accountScope, jobId });
 
   createProfile = (
@@ -43,9 +42,6 @@ class SandboxHubService {
 
   listHubJobs = (accountScope: string, page = 1): Promise<SandboxHubJobList> =>
     lambdaClient.sandboxHub.listHubJobs.query({ accountScope, page });
-
-  listJobs = (accountScope: string): Promise<SandboxJobItem[]> =>
-    lambdaClient.sandboxHub.listJobs.query({ accountScope });
 
   purgeSucceededJobs = (accountScope: string): Promise<{ deleted: number }> =>
     lambdaClient.sandboxHub.purgeSucceededJobs.mutate({ accountScope });

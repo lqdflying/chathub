@@ -8,7 +8,6 @@ import { serverDatabase, verifiedAccountScope } from '@/libs/trpc/lambda/middlew
 import {
   cancelSandboxJob,
   listSandboxHubJobs,
-  listSandboxJobs,
   purgeSucceededSandboxJobs,
 } from '@/server/services/sandbox/jobs/service';
 import { hasSandboxHubAdmins, isSandboxHubAdmin } from '@/server/services/sandbox/profiles/admins';
@@ -169,7 +168,7 @@ export const sandboxHubRouter = router({
     };
   }),
 
-  /** Stops one of this user's running background jobs and returns the updated job list. */
+  /** Stops one of this user's running background jobs. */
   cancelJob: sandboxHubProcedure
     .input(accountScopeInput.extend({ jobId: z.string().trim().min(1).max(64) }))
     .mutation(async ({ ctx, input }) => {
@@ -181,12 +180,10 @@ export const sandboxHubRouter = router({
         userId: ctx.userId,
       });
       if (!job) throw new TRPCError({ code: 'NOT_FOUND', message: 'Sandbox job not found' });
-      return listSandboxJobs({ db: ctx.serverDB, userId: ctx.userId });
     }),
 
-  
   /** Admin only: adds a profile after the existing ones. */
-createProfile: sandboxHubProcedure
+  createProfile: sandboxHubProcedure
     .input(accountScopeInput.extend({ id: profileIdInput, settings: profileSettingsInput }))
     .mutation(async ({ ctx, input }) => {
       assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
@@ -196,10 +193,8 @@ createProfile: sandboxHubProcedure
       );
     }),
 
-  
-  
-/** Removes one of this user's own variables for a profile. */
-deleteMyEnv: sandboxHubProcedure
+  /** Removes one of this user's own variables for a profile. */
+  deleteMyEnv: sandboxHubProcedure
     .input(accountScopeInput.extend({ name: envNameInput, profileId: profileIdInput }))
     .mutation(async ({ ctx, input }) => {
       assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
@@ -213,10 +208,8 @@ deleteMyEnv: sandboxHubProcedure
       );
     }),
 
-  
-  
-/** Admin only: removes a profile, its instruction edit and every user's choice for it. */
-deleteProfile: sandboxHubProcedure
+  /** Admin only: removes a profile, its instruction edit and every user's choice for it. */
+  deleteProfile: sandboxHubProcedure
     .input(accountScopeInput.extend({ id: profileIdInput }))
     .mutation(async ({ ctx, input }) => {
       assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
@@ -224,10 +217,8 @@ deleteProfile: sandboxHubProcedure
       return adminChange(ctx.serverDB, () => deleteSandboxHubProfile(ctx.serverDB, input.id));
     }),
 
-  
-  
-/** Admin only: removes a variable shared with every user of a profile. */
-deleteSharedEnv: sandboxHubProcedure
+  /** Admin only: removes a variable shared with every user of a profile. */
+  deleteSharedEnv: sandboxHubProcedure
     .input(accountScopeInput.extend({ name: envNameInput, profileId: profileIdInput }))
     .mutation(async ({ ctx, input }) => {
       assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
@@ -242,46 +233,28 @@ deleteSharedEnv: sandboxHubProcedure
       );
     }),
 
-  
-  
-/** Names and hints of the shared variables and this user's own, per profile; never values. */
-listEnvs: sandboxHubProcedure.input(accountScopeInput).query(async ({ ctx, input }) => {
+  /** Shared variables and this user's own. A value is included only when it is not sensitive. */
+  listEnvs: sandboxHubProcedure.input(accountScopeInput).query(async ({ ctx, input }) => {
     assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
     return listSandboxEnvs(ctx.serverDB, ctx.userId);
   }),
 
-  
-  
-/** Hub list: non-succeeded jobs, plus one page of succeeded jobs. */
-listHubJobs: sandboxHubProcedure
+  /** Hub list: non-succeeded jobs, plus one page of succeeded jobs. */
+  listHubJobs: sandboxHubProcedure
     .input(accountScopeInput.extend({ page: z.number().int().min(1).optional() }))
     .query(async ({ ctx, input }) => {
       assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
       return listSandboxHubJobs({ db: ctx.serverDB, page: input.page, userId: ctx.userId });
     }),
 
-  
-  
-
-/** This user's recent background jobs across conversations, newest first. */
-listJobs: sandboxHubProcedure.input(accountScopeInput).query(async ({ ctx, input }) => {
-    assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
-    return listSandboxJobs({ db: ctx.serverDB, userId: ctx.userId });
-  }),
-
-  
-  
-
-/** Operator profiles merged with this user's Hub choices. */
-listProfiles: sandboxHubProcedure.input(accountScopeInput).query(async ({ ctx, input }) => {
+  /** Operator profiles merged with this user's Hub choices. */
+  listProfiles: sandboxHubProcedure.input(accountScopeInput).query(async ({ ctx, input }) => {
     assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
     return getUserSandboxProfiles(ctx.serverDB, ctx.userId);
   }),
 
-  
-  
-/** Admin only: moves a profile one place; order is tool and prompt order. */
-moveProfile: sandboxHubProcedure
+  /** Admin only: moves a profile one place; order is tool and prompt order. */
+  moveProfile: sandboxHubProcedure
     .input(accountScopeInput.extend({ direction: z.enum(['down', 'up']), id: profileIdInput }))
     .mutation(async ({ ctx, input }) => {
       assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
@@ -291,10 +264,8 @@ moveProfile: sandboxHubProcedure
       );
     }),
 
-  
-  
-/** Admin only: pulls a profile's image on its server ahead of users. */
-prepareImage: sandboxHubProcedure
+  /** Admin only: pulls a profile's image on its server ahead of users. */
+  prepareImage: sandboxHubProcedure
     .input(accountScopeInput.extend({ id: profileIdInput }))
     .mutation(async ({ ctx, input }) => {
       assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
@@ -302,18 +273,15 @@ prepareImage: sandboxHubProcedure
       return adminChange(ctx.serverDB, () => prepareSandboxHubProfileImage(ctx.serverDB, input.id));
     }),
 
-  
-  
-/** Admin only: every profile's settings, the servers to pick from, and the inherited defaults. */
-profileSettings: sandboxHubProcedure.input(accountScopeInput).query(async ({ ctx, input }) => {
+  /** Admin only: every profile's settings, the servers to pick from, and the inherited defaults. */
+  profileSettings: sandboxHubProcedure.input(accountScopeInput).query(async ({ ctx, input }) => {
     assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
     await assertSandboxHubAdmin(ctx);
     return getSandboxHubSettings(ctx.serverDB);
   }),
 
-  
   /** Deletes every succeeded background job for this user. */
-purgeSucceededJobs: sandboxHubProcedure
+  purgeSucceededJobs: sandboxHubProcedure
     .input(accountScopeInput)
     .mutation(async ({ ctx, input }) => {
       assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
