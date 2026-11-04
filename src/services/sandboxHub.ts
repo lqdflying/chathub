@@ -1,5 +1,6 @@
 import type {
   SandboxEnvList,
+  SandboxFileList,
   SandboxHubAccess,
   SandboxHubJobList,
   SandboxHubProfileSettingsInput,
@@ -9,6 +10,14 @@ import type {
 } from '@lobechat/types';
 
 import { lambdaClient } from '@/libs/trpc/client';
+
+/** One file write: base64 `content` replaces the file; without it only mode and Sensitive change. */
+export interface SandboxFileWriteInput {
+  content?: string;
+  mode: string;
+  path: string;
+  sensitive: boolean;
+}
 
 class SandboxHubService {
   access = (accountScope: string): Promise<SandboxHubAccess> =>
@@ -27,6 +36,13 @@ class SandboxHubService {
   deleteMyEnv = (accountScope: string, profileId: string, name: string): Promise<SandboxEnvList> =>
     lambdaClient.sandboxHub.deleteMyEnv.mutate({ accountScope, name, profileId });
 
+  deleteMyFile = (
+    accountScope: string,
+    profileId: string,
+    path: string,
+  ): Promise<SandboxFileList> =>
+    lambdaClient.sandboxHub.deleteMyFile.mutate({ accountScope, path, profileId });
+
   deleteProfile = (accountScope: string, id: string): Promise<SandboxHubSettings> =>
     lambdaClient.sandboxHub.deleteProfile.mutate({ accountScope, id });
 
@@ -37,8 +53,18 @@ class SandboxHubService {
   ): Promise<SandboxEnvList> =>
     lambdaClient.sandboxHub.deleteSharedEnv.mutate({ accountScope, name, profileId });
 
+  deleteSharedFile = (
+    accountScope: string,
+    profileId: string,
+    path: string,
+  ): Promise<SandboxFileList> =>
+    lambdaClient.sandboxHub.deleteSharedFile.mutate({ accountScope, path, profileId });
+
   listEnvs = (accountScope: string): Promise<SandboxEnvList> =>
     lambdaClient.sandboxHub.listEnvs.query({ accountScope });
+
+  listFiles = (accountScope: string): Promise<SandboxFileList> =>
+    lambdaClient.sandboxHub.listFiles.query({ accountScope });
 
   listHubJobs = (accountScope: string, page = 1): Promise<SandboxHubJobList> =>
     lambdaClient.sandboxHub.listHubJobs.query({ accountScope, page });
@@ -84,6 +110,13 @@ class SandboxHubService {
   ): Promise<SandboxEnvList> =>
     lambdaClient.sandboxHub.setMyEnv.mutate({ accountScope, name, profileId, sensitive, value });
 
+  setMyFile = (
+    accountScope: string,
+    profileId: string,
+    file: SandboxFileWriteInput,
+  ): Promise<SandboxFileList> =>
+    lambdaClient.sandboxHub.setMyFile.mutate({ accountScope, profileId, ...file });
+
   setProfileEnabled = (
     accountScope: string,
     profileId: string,
@@ -105,6 +138,13 @@ class SandboxHubService {
       sensitive,
       value,
     });
+
+  setSharedFile = (
+    accountScope: string,
+    profileId: string,
+    file: SandboxFileWriteInput,
+  ): Promise<SandboxFileList> =>
+    lambdaClient.sandboxHub.setSharedFile.mutate({ accountScope, profileId, ...file });
 
   updateProfile = (
     accountScope: string,

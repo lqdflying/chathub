@@ -19,6 +19,13 @@ const mocks = vi.hoisted(() => ({
   cancelJob: vi.fn(),
   confirm: vi.fn(),
   fetchPreset: vi.fn(),
+  files: {
+    deleteMine: vi.fn(),
+    deleteShared: vi.fn(),
+    list: vi.fn(),
+    setMine: vi.fn(),
+    setShared: vi.fn(),
+  },
   env: {
     deleteMine: vi.fn(),
     deleteShared: vi.fn(),
@@ -206,7 +213,17 @@ vi.mock('antd', () => ({
       ))}
     </select>
   ),
-  Upload: ({ children }: any) => <div>{children}</div>,
+  // Choosing a file calls beforeUpload with it, as antd does.
+  Upload: ({ beforeUpload, children }: any) => (
+    <div>
+      {children}
+      <input
+        data-testid="upload-input"
+        onChange={(event) => beforeUpload?.(event.target.files?.[0])}
+        type="file"
+      />
+    </div>
+  ),
   Popconfirm: ({ children, okText, onConfirm }: any) => (
     <span>
       {children}
@@ -245,9 +262,12 @@ vi.mock('@/services/sandboxHub', () => ({
     cancelJob: mocks.cancelJob,
     createProfile: mocks.admin.create,
     deleteMyEnv: mocks.env.deleteMine,
+    deleteMyFile: mocks.files.deleteMine,
     deleteProfile: mocks.admin.delete,
     deleteSharedEnv: mocks.env.deleteShared,
+    deleteSharedFile: mocks.files.deleteShared,
     listEnvs: mocks.env.list,
+    listFiles: mocks.files.list,
     listHubJobs: mocks.listHubJobs,
     purgeFinishedJobs: mocks.purgeFinishedJobs,
     moveProfile: mocks.admin.move,
@@ -255,7 +275,9 @@ vi.mock('@/services/sandboxHub', () => ({
     profileSettings: mocks.admin.settings,
     serverStatus: mocks.serverStatus,
     setMyEnv: mocks.env.setMine,
+    setMyFile: mocks.files.setMine,
     setSharedEnv: mocks.env.setShared,
+    setSharedFile: mocks.files.setShared,
     updateProfile: mocks.admin.update,
   },
 }));
@@ -356,6 +378,7 @@ describe('SandboxHub', () => {
       running: [],
     });
     mocks.env.list.mockResolvedValue({ available: true, profiles: {} });
+    mocks.files.list.mockResolvedValue({ available: true, profiles: {} });
     mocks.admin.settings.mockResolvedValue(hubSettings());
     mocks.setEnabled.mockResolvedValue(undefined);
     mocks.setInstruction.mockResolvedValue(undefined);
@@ -550,6 +573,186 @@ describe('SandboxHub', () => {
         fireEvent.click(screen.getByText('confirm:profile.instruction.reset'));
       });
       expect(mocks.resetInstruction).toHaveBeenCalledWith('data');
+    });
+  });
+
+  describe('secret files', () => {
+    const file = (path: string, extra: Record<string, unknown> = {}) => ({
+      mode: '600',
+      path,
+      sensitive: true,
+      size: 1536,
+      updatedAt: '2026-11-02T08:00:00.000Z',
+      ...extra,
+    });
+    const listed = (mine: ReturnType<typeof file>[], shared: ReturnType<typeof file>[]) => ({
+      available: true,
+      profiles: { data: { mine, shared } },
+    });
+    const renderHub = async () => {
+      await act(async () => {
+        render(<SandboxHub />);
+      });
+    };
+    const openFiles = () => {
+      fireEvent.click(screen.getByRole('button', { name: /profile\.details.*data name/ }));
+      fireEvent.click(screen.getByText('files.manage'));
+    };
+    const b64 = (text: string) => Buffer.from(text).toString('base64');
+
+    it('shows the counts and lets a user paste, replace and delete their own file', async () => {
+      mocks.profiles = [profile('data')];
+      mocks.files.list.mockResolvedValue(listed([], [file('/root/.oci/config')]));
+      await renderHub();
+
+      expect(mocks.files.list).toHaveBeenCalledWith('user:u1');
+      fireEvent.click(screen.getByRole('button', { name: /profile\.details.*data name/ }));
+      expect(screen.getByText('files.summary:{"mine":0,"shared":1}')).toBeTruthy();
+      fireEvent.click(screen.getByText('files.manage'));
+      expect(screen.getByText('files.warning')).toBeTruthy();
+      // Not an admin: shared paths only, no controls for them.
+      expect(screen.getByText('files.sharedReadOnly')).toBeTruthy();
+      expect(screen.getAllByText('files.add')).toHaveLength(1);
+      expect(screen.queryByText('files.replace')).toBeNull();
+
+      mocks.files.setMine.mockResolvedValue(
+        listed([file('/root/.oci/config', { mode: '400' })], [file('/root/.oci/config')]),
+      );
+      fireEvent.click(screen.getByText('files.add'));
+      expect(screen.getByRole('dialog').getAttribute('data-mask-closable')).toBe('false');
+      fireEvent.change(screen.getByLabelText('files.path'), {
+        target: { value: '/root/.oci/config' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: '400' }));
+      fireEvent.change(screen.getByLabelText('files.content'), {
+        target: { value: '[DEFAULT]\nregion=eu-frankfurt-1\n' },
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByText('files.save'));
+      });
+      expect(mocks.files.setMine).toHaveBeenCalledWith('user:u1', 'data', {
+        content: b64('[DEFAULT]\nregion=eu-frankfurt-1\n'),
+        mode: '400',
+        path: '/root/.oci/config',
+        sensitive: true,
+      });
+      expect(screen.queryByLabelText('files.content')).toBeNull();
+      expect(screen.getByText('files.overridden')).toBeTruthy();
+
+      // Replacing a sensitive file keeps its path; empty content changes only the mode.
+      fireEvent.click(screen.getByText('files.replace'));
+      expect((screen.getByLabelText('files.path') as HTMLInputElement).value).toBe(
+        '/root/.oci/config',
+      );
+      expect((screen.getByLabelText('files.content') as HTMLTextAreaElement).value).toBe('');
+      fireEvent.click(screen.getByRole('button', { name: '600' }));
+      await act(async () => {
+        fireEvent.click(screen.getByText('files.save'));
+      });
+      expect(mocks.files.setMine).toHaveBeenLastCalledWith('user:u1', 'data', {
+        mode: '600',
+        path: '/root/.oci/config',
+        sensitive: true,
+      });
+
+      mocks.files.deleteMine.mockResolvedValue(listed([], [file('/root/.oci/config')]));
+      await act(async () => {
+        fireEvent.click(screen.getByText('confirm:files.delete'));
+      });
+      expect(mocks.files.deleteMine).toHaveBeenCalledWith('user:u1', 'data', '/root/.oci/config');
+      expect(screen.queryByText('files.overridden')).toBeNull();
+    });
+
+    it('uploads a chosen local file as base64', async () => {
+      mocks.profiles = [profile('data')];
+      mocks.files.setMine.mockResolvedValue(listed([file('/root/.oci/key.pem')], []));
+      await renderHub();
+      openFiles();
+
+      fireEvent.click(screen.getByText('files.add'));
+      fireEvent.change(screen.getByLabelText('files.path'), {
+        target: { value: '/root/.oci/key.pem' },
+      });
+      await act(async () => {
+        fireEvent.change(screen.getByTestId('upload-input'), {
+          target: { files: [new File(['-----BEGIN KEY-----\nabc\n'], 'key.pem')] },
+        });
+      });
+      expect(screen.getByText(/files\.chosen.*key\.pem/)).toBeTruthy();
+      expect(screen.queryByLabelText('files.content')).toBeNull();
+      await act(async () => {
+        fireEvent.click(screen.getByText('files.save'));
+      });
+      expect(mocks.files.setMine).toHaveBeenCalledWith('user:u1', 'data', {
+        content: b64('-----BEGIN KEY-----\nabc\n'),
+        mode: '600',
+        path: '/root/.oci/key.pem',
+        sensitive: true,
+      });
+    });
+
+    it('checks the path and mode before saving and shows a refused save', async () => {
+      mocks.profiles = [profile('data')];
+      await renderHub();
+      openFiles();
+      fireEvent.click(screen.getByText('files.add'));
+      fireEvent.change(screen.getByLabelText('files.content'), { target: { value: 'x' } });
+      const save = () => screen.getByText('files.save') as HTMLButtonElement;
+
+      fireEvent.change(screen.getByLabelText('files.path'), { target: { value: 'root/.oci' } });
+      expect(screen.getByText('files.invalidPath')).toBeTruthy();
+      expect(save().disabled).toBe(true);
+      fireEvent.change(screen.getByLabelText('files.path'), {
+        target: { value: '/tmp/workspace/x' },
+      });
+      expect(screen.getByText('files.blockedPath')).toBeTruthy();
+      fireEvent.change(screen.getByLabelText('files.path'), { target: { value: '/root/x' } });
+      fireEvent.change(screen.getByLabelText('files.mode'), { target: { value: '9' } });
+      expect(screen.getByText('files.invalidMode')).toBeTruthy();
+      expect(save().disabled).toBe(true);
+
+      mocks.files.setMine.mockRejectedValue(new Error('At most 16 files can be set here.'));
+      fireEvent.change(screen.getByLabelText('files.mode'), { target: { value: '644' } });
+      await act(async () => {
+        fireEvent.click(save());
+      });
+      expect(screen.getByText('At most 16 files can be set here.')).toBeTruthy();
+      expect(screen.getByLabelText('files.content')).toBeTruthy();
+    });
+
+    it('lets an admin edit a shared file that is not sensitive', async () => {
+      mocks.access.mockResolvedValue({ adminsConfigured: true, canEditInstructions: true });
+      mocks.profiles = [profile('data')];
+      mocks.files.list.mockResolvedValue(
+        listed([], [file('/etc/pip.conf', { content: '[global]\n', sensitive: false })]),
+      );
+      mocks.files.setShared.mockResolvedValue(
+        listed([], [file('/etc/pip.conf', { content: 'x', sensitive: false })]),
+      );
+      mocks.files.deleteShared.mockResolvedValue(listed([], []));
+      await renderHub();
+      openFiles();
+
+      expect(screen.getByText('files.sharedHint')).toBeTruthy();
+      expect(screen.getByText('files.notSensitive')).toBeTruthy();
+      fireEvent.click(screen.getByText('files.replace'));
+      const content = screen.getByLabelText('files.content') as HTMLTextAreaElement;
+      expect(content.value).toBe('[global]\n');
+      fireEvent.change(content, { target: { value: '[global]\nindex-url = https://x\n' } });
+      await act(async () => {
+        fireEvent.click(screen.getByText('files.save'));
+      });
+      expect(mocks.files.setShared).toHaveBeenCalledWith('user:u1', 'data', {
+        content: b64('[global]\nindex-url = https://x\n'),
+        mode: '600',
+        path: '/etc/pip.conf',
+        sensitive: false,
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByText('confirm:files.delete'));
+      });
+      expect(mocks.files.deleteShared).toHaveBeenCalledWith('user:u1', 'data', '/etc/pip.conf');
     });
   });
 

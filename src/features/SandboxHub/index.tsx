@@ -2,6 +2,7 @@
 
 import type {
   SandboxEnvList,
+  SandboxFileList,
   SandboxHubProfileSettingsInput,
   SandboxHubProfileSettingsItem,
   SandboxHubSettings,
@@ -14,12 +15,13 @@ import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
-import { sandboxHubService } from '@/services/sandboxHub';
+import { type SandboxFileWriteInput, sandboxHubService } from '@/services/sandboxHub';
 import { useToolStore } from '@/store/tool';
 import { useUserStore } from '@/store/user';
 import { DEFAULT_SANDBOX_PROFILE_ID } from '@/tools/sandbox/const';
 
 import EnvModal, { type EnvSection } from './EnvModal';
+import FilesModal from './FilesModal';
 import InstructionModal from './InstructionModal';
 import JobList from './JobList';
 import ProfileSection, {
@@ -121,6 +123,11 @@ const SandboxHub = memo(() => {
   /** Bumped when a list or a save starts, so a late list cannot undo a save. */
   const envRequest = useRef(0);
   const [envDialog, setEnvDialog] = useState<{ id?: string; open: boolean }>({ open: false });
+  const [fileList, setFileList] = useState<SandboxFileList>();
+  const [filesFailed, setFilesFailed] = useState(false);
+  /** Bumped when a list or a save starts, so a late list cannot undo a save. */
+  const filesRequest = useRef(0);
+  const [filesDialog, setFilesDialog] = useState<{ id?: string; open: boolean }>({ open: false });
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string>();
   const canEdit = !!access?.canEdit;
@@ -206,6 +213,17 @@ const SandboxHub = memo(() => {
       .catch(() => {
         if (!cancelled && envRequest.current === request) setEnvFailed(true);
       });
+    setFileList(undefined);
+    setFilesFailed(false);
+    const filesRequestId = ++filesRequest.current;
+    sandboxHubService
+      .listFiles(scope)
+      .then((next) => {
+        if (!cancelled && filesRequest.current === filesRequestId) setFileList(next);
+      })
+      .catch(() => {
+        if (!cancelled && filesRequest.current === filesRequestId) setFilesFailed(true);
+      });
     // Without an answer the instructions stay read-only.
     sandboxHubService
       .access(scope)
@@ -247,12 +265,36 @@ const SandboxHub = memo(() => {
     setEnvFailed(false);
   };
 
+  const saveFile = async (section: EnvSection, file: SandboxFileWriteInput) => {
+    if (!scope || !filesDialog.id) return;
+    const request = ++filesRequest.current;
+    const next =
+      section === 'shared'
+        ? await sandboxHubService.setSharedFile(scope, filesDialog.id, file)
+        : await sandboxHubService.setMyFile(scope, filesDialog.id, file);
+    if (filesRequest.current !== request) return;
+    setFileList(next);
+    setFilesFailed(false);
+  };
+  const deleteFile = async (section: EnvSection, path: string) => {
+    if (!scope || !filesDialog.id) return;
+    const request = ++filesRequest.current;
+    const next =
+      section === 'shared'
+        ? await sandboxHubService.deleteSharedFile(scope, filesDialog.id, path)
+        : await sandboxHubService.deleteMyFile(scope, filesDialog.id, path);
+    if (filesRequest.current !== request) return;
+    setFileList(next);
+    setFilesFailed(false);
+  };
+
   const loading = !accountFailed && (!scope || (loadedScope !== scope && !loadFailed));
   const settingsOrder = hubSettings?.profiles ?? [];
   const offered = new Set(profiles.map((profile) => profile.id));
   const notOffered = settingsOrder.filter((item) => !offered.has(item.id));
   const instructionProfile = profiles.find((profile) => profile.id === instructionDialog.id);
   const envProfile = profiles.find((profile) => profile.id === envDialog.id);
+  const filesProfile = profiles.find((profile) => profile.id === filesDialog.id);
   // Admins see every configured server; other users see the ones their sandboxes use.
   const servers = new Map<string, string>(
     hubSettings?.servers.map((server) => [server.id, server.name]),
@@ -260,6 +302,15 @@ const SandboxHub = memo(() => {
   for (const profile of profiles) {
     if (!servers.has(profile.serverId)) servers.set(profile.serverId, profile.serverName);
   }
+  const filesSummary = (profileId: string) => {
+    if (!fileList) return undefined;
+    const entry = fileList.profiles[profileId];
+    return {
+      available: fileList.available,
+      mine: entry?.mine.length ?? 0,
+      shared: entry?.shared.length ?? 0,
+    };
+  };
   const envSummary = (profileId: string) => {
     if (!envList) return undefined;
     const entry = envList.profiles[profileId];
@@ -354,9 +405,11 @@ const SandboxHub = memo(() => {
             access={access}
             admin={adminProps(profile.id)}
             env={envSummary(profile.id)}
+            files={filesSummary(profile.id)}
             health={health[profile.serverId]}
             key={profile.id}
             onOpenEnv={() => setEnvDialog({ id: profile.id, open: true })}
+            onOpenFiles={() => setFilesDialog({ id: profile.id, open: true })}
             onOpenInstruction={() => setInstructionDialog({ id: profile.id, open: true })}
             onToggle={(enabled) => setSandboxProfileEnabled(profile.id, enabled)}
             profile={profile}
@@ -397,6 +450,18 @@ const SandboxHub = memo(() => {
         onSave={saveEnv}
         open={envDialog.open && !!envProfile}
         profileName={envProfile?.name ?? ''}
+      />
+
+      <FilesModal
+        available={fileList?.available ?? true}
+        canEditShared={canEdit}
+        entry={filesDialog.id ? fileList?.profiles[filesDialog.id] : undefined}
+        loadFailed={filesFailed}
+        onClose={() => setFilesDialog((current) => ({ ...current, open: false }))}
+        onDelete={deleteFile}
+        onSave={saveFile}
+        open={filesDialog.open && !!filesProfile}
+        profileName={filesProfile?.name ?? ''}
       />
 
       {hubSettings && (

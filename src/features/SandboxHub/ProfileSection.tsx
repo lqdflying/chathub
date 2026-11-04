@@ -149,9 +149,13 @@ interface ProfileSectionProps {
   /** Present for Sandbox Hub admins. */
   admin?: ProfileAdminProps;
   env?: ProfileEnvSummary;
+  /** Counts for the Files row, in the same shape as the Environment row. */
+  files?: ProfileEnvSummary;
   health?: SandboxServerHealth;
   /** Opens the environment variables dialog. */
   onOpenEnv?: () => void;
+  /** Opens the secret files dialog. */
+  onOpenFiles?: () => void;
   /** Opens the instruction viewer (or editor, for admins). */
   onOpenInstruction?: () => void;
   onToggle?: (enabled: boolean) => Promise<void>;
@@ -234,7 +238,18 @@ AdminActions.displayName = 'SandboxHubAdminActions';
  * opens in a narrow dialog. The switch and admin controls do not open it.
  */
 const ProfileSection = memo<ProfileSectionProps>(
-  ({ access, admin, env, health, onOpenEnv, onOpenInstruction, onToggle, profile }) => {
+  ({
+    access,
+    admin,
+    env,
+    files,
+    health,
+    onOpenEnv,
+    onOpenFiles,
+    onOpenInstruction,
+    onToggle,
+    profile,
+  }) => {
     const { styles } = useStyles();
     const { t } = useTranslation('sandboxHub');
     const [pending, setPending] = useState(false);
@@ -465,6 +480,22 @@ const ProfileSection = memo<ProfileSectionProps>(
                       </span>
                       <Button onClick={() => closeAnd(onOpenEnv)} size={'small'}>
                         {t('env.manage')}
+                      </Button>
+                    </Flexbox>,
+                  )}
+                {onOpenFiles &&
+                  fact(
+                    t('files.row'),
+                    <Flexbox align={'center'} gap={8} horizontal justify={'flex-end'}>
+                      <span>
+                        {files && !files.available
+                          ? t('files.unavailable')
+                          : files
+                            ? t('files.summary', { mine: files.mine, shared: files.shared })
+                            : ''}
+                      </span>
+                      <Button onClick={() => closeAnd(onOpenFiles)} size={'small'}>
+                        {t('files.manage')}
                       </Button>
                     </Flexbox>,
                   )}

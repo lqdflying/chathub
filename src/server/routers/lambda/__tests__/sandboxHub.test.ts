@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   cancelJob: vi.fn(),
   deleteInstruction: vi.fn(),
   env: { delete: vi.fn(), list: vi.fn(), set: vi.fn() },
+  files: { delete: vi.fn(), list: vi.fn(), set: vi.fn() },
   findProfile: vi.fn(),
   health: vi.fn(),
   isAdmin: vi.fn(),
@@ -76,6 +77,15 @@ vi.mock('@/server/services/sandbox/profiles/env', async (importOriginal) => {
     deleteSandboxEnv: mocks.env.delete,
     listSandboxEnvs: mocks.env.list,
     setSandboxEnv: mocks.env.set,
+  };
+});
+vi.mock('@/server/services/sandbox/profiles/files', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/server/services/sandbox/profiles/files')>();
+  return {
+    SandboxFileError: actual.SandboxFileError,
+    deleteSandboxFile: mocks.files.delete,
+    listSandboxFiles: mocks.files.list,
+    setSandboxFile: mocks.files.set,
   };
 });
 vi.mock('@/server/services/sandbox/profiles/hub', () => ({
@@ -435,6 +445,132 @@ describe('sandboxHubRouter', () => {
       await expect(
         api.setMyEnv({ ...scope, name: 'PATH', profileId: 'data', value: 'x' }),
       ).rejects.toMatchObject({ code: 'BAD_REQUEST', message: 'PATH is reserved.' });
+    });
+  });
+
+  describe('secret files', () => {
+    const scope = { accountScope: 'user:account-a' };
+    const list = {
+      available: true,
+      profiles: {
+        data: {
+          mine: [],
+          shared: [
+            {
+              mode: '600',
+              path: '/root/.oci/config',
+              sensitive: true,
+              size: 10,
+              updatedAt: 'now',
+            },
+          ],
+        },
+      },
+    };
+
+    beforeEach(() => {
+      mocks.files.list.mockResolvedValue(list);
+      mocks.files.set.mockResolvedValue(undefined);
+      mocks.files.delete.mockResolvedValue(undefined);
+    });
+
+    it('lists files and lets any user write their own', async () => {
+      const api = caller('user:account-a');
+      await expect(api.listFiles(scope)).resolves.toEqual(list);
+      expect(mocks.files.list).toHaveBeenCalledWith({}, 'account-a');
+
+      const content = Buffer.from('[DEFAULT]').toString('base64');
+      await api.setMyFile({
+        ...scope,
+        content,
+        mode: '600',
+        path: '/root/.oci/config',
+        profileId: 'data',
+      });
+      expect(mocks.files.set).toHaveBeenCalledWith({
+        content,
+        db: {},
+        mode: '600',
+        owner: { userId: 'account-a' },
+        path: '/root/.oci/config',
+        profileId: 'data',
+        sensitive: true,
+        updatedBy: 'account-a',
+      });
+
+      // Without content: a mode change only.
+      await api.setMyFile({ ...scope, mode: '400', path: '/root/.oci/config', profileId: 'data' });
+      expect(mocks.files.set).toHaveBeenLastCalledWith(
+        expect.objectContaining({ content: undefined, mode: '400' }),
+      );
+
+      await api.deleteMyFile({ ...scope, path: '/root/.oci/config', profileId: 'data' });
+      expect(mocks.files.delete).toHaveBeenCalledWith({
+        db: {},
+        owner: { userId: 'account-a' },
+        path: '/root/.oci/config',
+        profileId: 'data',
+      });
+    });
+
+    it('lets only admins write shared files', async () => {
+      const api = caller('user:account-a');
+      const input = { ...scope, content: 'eA==', mode: '600', path: '/root/x', profileId: 'data' };
+      await expect(api.setSharedFile(input)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      await expect(
+        api.deleteSharedFile({ ...scope, path: '/root/x', profileId: 'data' }),
+      ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      expect(mocks.files.set).not.toHaveBeenCalled();
+
+      mocks.isAdmin.mockResolvedValue(true);
+      await api.setSharedFile({ ...input, sensitive: false });
+      expect(mocks.files.set).toHaveBeenCalledWith(
+        expect.objectContaining({ owner: { shared: true }, sensitive: false }),
+      );
+      await api.deleteSharedFile({ ...scope, path: '/root/x', profileId: 'data' });
+      expect(mocks.files.delete).toHaveBeenCalledWith(
+        expect.objectContaining({ owner: { shared: true } }),
+      );
+    });
+
+    it('rejects unknown profiles, oversized content and refused writes', async () => {
+      const api = caller('user:account-a');
+      await expect(
+        api.setMyFile({
+          ...scope,
+          content: 'eA==',
+          mode: '600',
+          path: '/root/x',
+          profileId: 'nope',
+        }),
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+      await expect(
+        api.setMyFile({
+          ...scope,
+          content: 'A'.repeat(90 * 1024),
+          mode: '600',
+          path: '/root/x',
+          profileId: 'data',
+        }),
+      ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+      expect(mocks.files.set).not.toHaveBeenCalled();
+
+      const { SandboxFileError } = await import('@/server/services/sandbox/profiles/files');
+      mocks.files.set.mockRejectedValue(
+        new SandboxFileError('BAD_REQUEST', '/proc/x is inside a system folder.'),
+      );
+      await expect(
+        api.setMyFile({
+          ...scope,
+          content: 'eA==',
+          mode: '600',
+          path: '/proc/x',
+          profileId: 'data',
+        }),
+      ).rejects.toMatchObject({
+        code: 'BAD_REQUEST',
+        message: '/proc/x is inside a system folder.',
+      });
     });
   });
 });

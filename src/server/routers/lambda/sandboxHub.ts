@@ -21,6 +21,12 @@ import {
   listSandboxEnvs,
   setSandboxEnv,
 } from '@/server/services/sandbox/profiles/env';
+import {
+  SandboxFileError,
+  deleteSandboxFile,
+  listSandboxFiles,
+  setSandboxFile,
+} from '@/server/services/sandbox/profiles/files';
 import { findSandboxProfile } from '@/server/services/sandbox/profiles/hub';
 import {
   SandboxHubProfileError,
@@ -34,6 +40,8 @@ import {
 import { getSandboxServerHealth } from '@/server/services/sandbox/profiles/status';
 import {
   SANDBOX_ENV_VALUE_MAX_BYTES,
+  SANDBOX_FILE_MAX_BYTES,
+  SANDBOX_FILE_PATH_MAX_LENGTH,
   SANDBOX_INSTRUCTION_MAX_BYTES,
   isValidSandboxProfileId,
 } from '@/tools/sandbox/const';
@@ -158,6 +166,45 @@ const envChange = async (
   return listSandboxEnvs(ctx.serverDB, ctx.userId);
 };
 
+// The service checks the path, mode and size rules; these only bound the request.
+const filePathInput = z.string().min(1).max(SANDBOX_FILE_PATH_MAX_LENGTH);
+const fileModeInput = z.string().min(1).max(4);
+// Base64 of the largest file, with padding.
+const fileContentInput = z
+  .string()
+  .min(1)
+  .max(Math.ceil(SANDBOX_FILE_MAX_BYTES / 3) * 4);
+
+/**
+ * Writes or deletes one file and returns what the user can see. A sensitive
+ * file never comes back; one that is not sensitive comes back as text. An
+ * error carries the refusal, never stored content.
+ */
+const fileChange = async (
+  ctx: { serverDB: Parameters<typeof listSandboxFiles>[0]; userId: string },
+  profileId: string,
+  change: () => Promise<void>,
+) => {
+  await findProfileOrThrow(ctx.serverDB, profileId);
+  try {
+    await change();
+  } catch (error) {
+    if (error instanceof SandboxFileError) {
+      throw new TRPCError({ code: error.code, message: error.message });
+    }
+    throw error;
+  }
+  return listSandboxFiles(ctx.serverDB, ctx.userId);
+};
+
+const setFileInput = accountScopeInput.extend({
+  content: fileContentInput.optional(),
+  mode: fileModeInput,
+  path: filePathInput,
+  profileId: profileIdInput,
+  sensitive: z.boolean().default(true),
+});
+
 export const sandboxHubRouter = router({
   /** What this user may change in the Hub beyond their own on/off choices. */
   access: sandboxHubProcedure.input(accountScopeInput).query(async ({ ctx, input }) => {
@@ -208,6 +255,21 @@ export const sandboxHubRouter = router({
       );
     }),
 
+  /** Removes one of this user's own files for a profile. */
+  deleteMyFile: sandboxHubProcedure
+    .input(accountScopeInput.extend({ path: filePathInput, profileId: profileIdInput }))
+    .mutation(async ({ ctx, input }) => {
+      assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
+      return fileChange(ctx, input.profileId, () =>
+        deleteSandboxFile({
+          db: ctx.serverDB,
+          owner: { userId: ctx.userId },
+          path: input.path,
+          profileId: input.profileId,
+        }),
+      );
+    }),
+
   /** Admin only: removes a profile, its instruction edit and every user's choice for it. */
   deleteProfile: sandboxHubProcedure
     .input(accountScopeInput.extend({ id: profileIdInput }))
@@ -233,10 +295,32 @@ export const sandboxHubRouter = router({
       );
     }),
 
+  /** Admin only: removes a file shared with every user of a profile. */
+  deleteSharedFile: sandboxHubProcedure
+    .input(accountScopeInput.extend({ path: filePathInput, profileId: profileIdInput }))
+    .mutation(async ({ ctx, input }) => {
+      assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
+      await assertSandboxHubAdmin(ctx);
+      return fileChange(ctx, input.profileId, () =>
+        deleteSandboxFile({
+          db: ctx.serverDB,
+          owner: { shared: true },
+          path: input.path,
+          profileId: input.profileId,
+        }),
+      );
+    }),
+
   /** Shared variables and this user's own. A value is included only when it is not sensitive. */
   listEnvs: sandboxHubProcedure.input(accountScopeInput).query(async ({ ctx, input }) => {
     assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
     return listSandboxEnvs(ctx.serverDB, ctx.userId);
+  }),
+
+  /** Shared files and this user's own, per profile. Content only for files that are not sensitive. */
+  listFiles: sandboxHubProcedure.input(accountScopeInput).query(async ({ ctx, input }) => {
+    assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
+    return listSandboxFiles(ctx.serverDB, ctx.userId);
   }),
 
   /** Hub list: running jobs, plus one page of finished jobs. */
@@ -351,6 +435,26 @@ export const sandboxHubRouter = router({
     }),
 
   /**
+   * Adds or replaces one of this user's own files; it replaces a shared file
+   * at the same path. Without content, only the mode and Sensitive change.
+   */
+  setMyFile: sandboxHubProcedure.input(setFileInput).mutation(async ({ ctx, input }) => {
+    assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
+    return fileChange(ctx, input.profileId, () =>
+      setSandboxFile({
+        content: input.content,
+        db: ctx.serverDB,
+        mode: input.mode,
+        owner: { userId: ctx.userId },
+        path: input.path,
+        profileId: input.profileId,
+        sensitive: input.sensitive,
+        updatedBy: ctx.userId,
+      }),
+    );
+  }),
+
+  /**
    * Turns a profile on or off for this user. Off removes its tool and its
    * instruction from every agent at once, without editing agent plugins.
    */
@@ -396,6 +500,24 @@ export const sandboxHubRouter = router({
         }),
       );
     }),
+
+  /** Admin only: adds or replaces a file for every user of a profile. */
+  setSharedFile: sandboxHubProcedure.input(setFileInput).mutation(async ({ ctx, input }) => {
+    assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
+    await assertSandboxHubAdmin(ctx);
+    return fileChange(ctx, input.profileId, () =>
+      setSandboxFile({
+        content: input.content,
+        db: ctx.serverDB,
+        mode: input.mode,
+        owner: { shared: true },
+        path: input.path,
+        profileId: input.profileId,
+        sensitive: input.sensitive,
+        updatedBy: ctx.userId,
+      }),
+    );
+  }),
 
   /** Admin only: replaces a profile's settings. */
   updateProfile: sandboxHubProcedure
