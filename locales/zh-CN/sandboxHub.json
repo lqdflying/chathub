@@ -48,7 +48,7 @@
         "jobMinutes": "请输入不小于 0 的分钟数，或留空使用默认值。",
         "maxLifetimeMinutes": "请输入不小于 0 的分钟数，或留空使用默认值。",
         "name": "请填写名称。",
-        "persistentFolder": "请使用绝对路径，例如 /persist；不能是工作区（/tmp/workspace）、系统目录，或 /root、/home 本身。",
+        "persistentFolder": "请使用绝对路径，例如 /persist；不能是工作区（/tmp/workspace）、系统目录，或 /root、/home、/mnt、/opt、/srv 本身。",
         "readySeconds": "请输入大于 0 的秒数，或留空使用默认值。",
         "serverId": "请选择服务器。"
       },

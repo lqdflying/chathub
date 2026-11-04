@@ -386,8 +386,8 @@ const SandboxHub = memo(() => {
   return (
     <Flexbox gap={24} style={{ minWidth: 0 }} width={'100%'}>
       <Flexbox gap={8}>
-        <Flexbox align={'flex-start'} gap={16} horizontal justify={'space-between'}>
-          <Flexbox gap={4} style={{ minWidth: 0 }}>
+        <Flexbox align={'flex-start'} gap={16} horizontal justify={'space-between'} wrap={'wrap'}>
+          <Flexbox gap={4} style={{ flex: '1 1 320px', minWidth: 0 }}>
             <h1 className={styles.title}>{t('title')}</h1>
             <p className={styles.desc}>{t('description')}</p>
           </Flexbox>

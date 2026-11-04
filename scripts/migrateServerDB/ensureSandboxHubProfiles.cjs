@@ -1,5 +1,5 @@
 /**
- * Idempotent repair for sandbox_hub_profiles (matches migration 0067).
+ * Idempotent repair for sandbox_hub_profiles (matches migrations 0067 and 0073).
  * Safe to run after every migration.
  */
 const SANDBOX_HUB_PROFILES_SQL = `CREATE TABLE IF NOT EXISTS "sandbox_hub_profiles" (

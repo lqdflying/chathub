@@ -48,7 +48,7 @@
         "jobMinutes": "Enter minutes (0 or more), or leave it blank for the default.",
         "maxLifetimeMinutes": "Enter minutes (0 or more), or leave it blank for the default.",
         "name": "Enter a name.",
-        "persistentFolder": "Use an absolute path such as /persist, outside the workspace (/tmp/workspace) and system folders, and not /root or /home itself.",
+        "persistentFolder": "Use an absolute path such as /persist, outside the workspace (/tmp/workspace) and system folders, and not /root, /home, /mnt, /opt or /srv itself.",
         "readySeconds": "Enter seconds (more than 0), or leave it blank for the default.",
         "serverId": "Choose a server."
       },

@@ -960,7 +960,10 @@ describe('OpenSandboxProvider', () => {
           }),
           { sessionKey: 'topic-a' },
         ),
-      ).rejects.toThrow(/persistent folder at \/persist/);
+      ).rejects.toMatchObject({
+        httpStatus: 400,
+        message: expect.stringMatching(/persistent folder at \/persist/),
+      });
     });
 
     it('replaces a reused sandbox whose persistent folder changed, only when it is given', async () => {

@@ -624,6 +624,7 @@ export class OpenSandboxProvider implements SandboxProvider {
       throw new SandboxError(
         'Unavailable',
         `${error.message} (this sandbox mounts a persistent folder at ${mountPath}; the OpenSandbox server must support Docker named volumes)`,
+        { httpStatus: error.status },
       );
     }
   }
