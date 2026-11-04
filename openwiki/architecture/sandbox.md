@@ -435,6 +435,64 @@ with execd's file upload, right after the sandbox starts.
   Hub dialog says so. The files are copies, not mounts: the model can change
   or delete them, and they come back only with the next new sandbox.
 
+### Persistent folders
+
+A sandbox is removed after it sits idle, so anything the assistant made by
+hand is lost unless it was exported. A profile can give each user a
+**persistent folder**: a directory whose files outlive the sandbox.
+
+- **Setting.** `persistentFolder` (mount path) on a profile: in the profiles
+  file, or the Hub form's **Persistent folder** group (`sandbox_hub_profiles.persistent_folder`,
+  migration `0073`, repaired by `ensureSandboxHubProfiles.cjs`). Unset means
+  off. The default in the form is `/persist`. The path must be absolute and
+  normalized, and outside `/tmp/workspace`, `/proc`, `/sys`, `/dev`, `/bin`,
+  `/boot`, `/etc`, `/lib*`, `/run`, `/sbin`, `/tmp`, `/usr` and `/var`; it
+  also may not be `/root`, `/home`, `/mnt`, `/opt` or `/srv` itself
+  (`sandboxMountPathProblem`, `tools/sandbox/const.ts`).
+- **One volume per user and profile.** `persistentVolumeName`
+  (`profiles/persistent.ts`) is `chathub-` plus 40 hex characters of a SHA-256
+  of the profile id and user id: stable, without raw ids, and a valid
+  OpenSandbox `claimName`. Every conversation of that user on that profile
+  mounts the same volume, including several at once. Changing the mount path
+  keeps the files; turning the setting off or deleting the profile leaves
+  the volume on the host.
+- **Mounting.** Tool calls pass `volume` to the provider, which adds
+  `volumes: [{ name: 'chathub-persist', mountPath, pvc: { claimName,
+  createIfNotExists: true }, readOnly: false }]` to the create request. On
+  the Docker runtime a `pvc` volume is a Docker named volume, created on first
+  use with the label `opensandbox.io/volume-managed-by=server` and kept when
+  the sandbox is deleted (`deleteOnSandboxTermination` defaults to false).
+  OpenSandbox does not change ownership; the default image runs as root.
+- **Applying a change.** Each new sandbox gets a `chathub-volume` label: the
+  first 16 hex characters of a SHA-256 of claim name and mount path, absent
+  without a folder. A tool call replaces a reused sandbox whose label
+  differs. Job checks and Prepare image pass no volume, mount nothing, and
+  never compare.
+- **Telling the model.** `composeSandboxInstruction` adds one line to the
+  profile's header when the setting is on ("`/persist` is your persistent
+  folder: ..."). It depends only on the profile, so prompt bytes stay
+  stable, and a profile without a folder composes exactly as before.
+- **Secret files.** A secret file inside the folder is refused when saved and
+  skipped (logged by path) when written, since the volume would keep it
+  unencrypted.
+- **Empty my folder.** The profile details show the path and an **Empty**
+  button (`emptyPersistentFolder`, the caller's own volume only). A
+  throwaway sandbox (`chathub-sandbox-maintenance`, no session, never
+  reused) mounts the volume, runs `find <mount> -mindepth 1 -delete`, and is
+  always deleted. OpenSandbox has no API to delete volumes, so the empty
+  volume stays.
+- **Limits.**
+  - Docker named volumes have no size quota: watch the host's disk.
+  - A volume lives on one OpenSandbox host; moving a profile to another
+    server starts empty folders there.
+  - The fast-sandbox runtime rejects volumes, so a profile with a folder fails
+    there with an error naming the folder.
+  - Needs an OpenSandbox server whose Docker runtime auto-creates named
+    volumes (server/v0.1.11 or later).
+- **Operator cleanup.** List them with `docker volume ls --filter
+  label=opensandbox.io/volume-managed-by=server --filter name=chathub-` and
+  remove one with `docker volume rm`.
+
 ### Profiles file
 
 ```yaml
@@ -462,6 +520,7 @@ profiles:                    # optional, 0..16: imported into the Hub once, then
     egress: [pypi.org, files.pythonhosted.org]   # or open | none
     sessionIdleTimeoutMs: 3600000
     jobMaxRuntimeMs: 21600000 # background jobs up to 6 h here; 0 turns startJob off
+    persistentFolder: /persist # each user's own folder, kept between sandboxes
     defaultEnabled: false    # general defaults to true, others to false
     instruction:
       file: instructions/data.md   # relative to the profiles file; or text:
@@ -750,10 +809,11 @@ sandbox again after a ChatHub restart.
   a policy is configured), or when its `chathub-runtime` label is not the
   hash of the current `OPENSANDBOX_IMAGE` plus `OPENSANDBOX_LAYOUT_VERSION`
   (a sandbox without it, e.g. a Code Interpreter one on `/tmp/chathub-ci`, is
-  replaced too). A tool call also replaces it when its `chathub-env` or
-  `chathub-files` label does not match the call's Sandbox Hub variables or
-  files (see *Secret environment variables* and *Secret files*). CPU and
-  memory changes still wait for the next sandbox.
+  replaced too). A tool call also replaces it when its `chathub-env`,
+  `chathub-files` or `chathub-volume` label does not match the call's
+  Sandbox Hub variables, files or persistent folder (see *Secret environment
+  variables*, *Secret files* and *Persistent folders*). CPU and memory
+  changes still wait for the next sandbox.
 - **After a call**, the sandbox is renewed to the idle deadline
   (`OPENSANDBOX_SESSION_IDLE_TIMEOUT`, default 30 min) and the server reaps
   it if no call comes. Every call restarts the timer. See *Keep or delete*

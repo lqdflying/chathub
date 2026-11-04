@@ -1,5 +1,5 @@
 ---
-description: Sandbox Hub — admin-managed sandbox profiles, per-user on/off, admin-edited instructions, environment variables, secret files, background jobs, one tool per profile, remote OpenSandbox servers
+description: Sandbox Hub — admin-managed sandbox profiles, per-user on/off, admin-edited instructions, environment variables, secret files, persistent folders, background jobs, one tool per profile, remote OpenSandbox servers
 globs: src/server/services/sandbox/**,src/tools/sandbox/**,src/store/tool/slices/sandbox/**,src/features/SandboxHub/**,src/app/[variants]/(main)/sandbox/**,src/server/routers/lambda/sandboxHub.ts
 alwaysApply: false
 ---
@@ -11,9 +11,10 @@ container. Servers stay in `SANDBOX_PROFILES_FILE`. Users only turn profiles on
 or off (`/sandbox`); agents opt in from the tool picker. Admins listed in
 `SANDBOX_HUB_ADMINS` add, edit, order, and delete profiles, prepare images, and
 edit the General instruction and each profile's extra instruction for every user. Admins set shared environment
-variables and files per profile and users add their own. Maintainer doc:
+variables and files per profile and users add their own. A profile can give
+each user a persistent folder (a Docker named volume). Maintainer doc:
 `openwiki/architecture/sandbox.md` (Sandbox Hub profiles, Editable
-instructions, Secret environment variables, Secret files).
+instructions, Secret environment variables, Secret files, Persistent folders).
 
 ## Invariants (keep)
 
@@ -90,6 +91,14 @@ instructions, Secret environment variables, Secret files).
   of those strings. `startJob` snapshots that mask; a job is masked with the
   snapshot plus the current sensitive files. A missing `KEY_VAULTS_SECRET`
   when file rows exist refuses the call and does not save job output.
+- **Persistent folders** (`profiles/persistent.ts`, `persistent_folder`): one
+  volume per user and profile, named from a hash of profile id and user id;
+  never mount another user's volume and never derive the name from anything
+  the user controls. Only tool calls mount it and compare `chathub-volume`;
+  job checks and Prepare image pass none. Empty runs in a throwaway sandbox
+  (no session, always deleted) for the caller's own volume. Mount paths go
+  through `sandboxMountPathProblem`; secret files never go inside the folder.
+  The instruction line depends only on the profile's mount path.
 - Hub tRPC lives in the `sandboxHub.` namespace, which is in the client's
   `VERIFIED_ACCOUNT_RPC_NAMESPACES`. A new scope-checked namespace must be
   added there too, or every call fails as a mismatched user.

@@ -49,6 +49,9 @@ profiles:
     # Background jobs (startJob) may run up to 6 hours here (default
     # SANDBOX_JOB_MAX_RUNTIME, 2 hours); 0 turns them off for this profile.
     jobMaxRuntimeMs: 21600000
+    # Each user's own folder, kept between sandboxes (a Docker named volume
+    # on this server). Omit for none.
+    persistentFolder: /persist
     instruction:
       file: instructions/data.md
 
