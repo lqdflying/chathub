@@ -421,7 +421,9 @@ with execd's file upload, right after the sandbox starts.
   16 or more characters, and 32-character slices of those strings stepped by
   16 are masked as `[secret:FILE]` in tool results, in saved job output and
   in a running job's live log. A truncated line still matches a slice that
-  fits in the kept text; fewer than 16 characters at the cut can remain.
+  fits in the kept text. Up to 31 characters of a cut line can remain
+  unmasked next to the cut, and up to 31 at the end of a line whose start
+  was cut.
   `startJob` stores a ciphertext of that mask on `sandbox_jobs.file_snapshot`.
   A job is masked with the snapshot plus the current files. A null snapshot
   (a job from before the column, or one that started with no sensitive text)

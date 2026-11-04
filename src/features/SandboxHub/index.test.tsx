@@ -808,6 +808,30 @@ describe('SandboxHub', () => {
       expect(screen.getByText('The file is empty.')).toBeTruthy();
       expect(screen.getByLabelText('files.content')).toBeTruthy();
     });
+
+    it('keeps a sensitive file when a typed character is deleted before save', async () => {
+      mocks.access.mockResolvedValue({ adminsConfigured: true, canEditInstructions: true });
+      mocks.profiles = [profile('data')];
+      mocks.files.list.mockResolvedValue(listed([], [file('/root/.oci/config')]));
+      mocks.files.setShared.mockResolvedValue(listed([], [file('/root/.oci/config')]));
+      await renderHub();
+      openFiles();
+
+      fireEvent.click(screen.getByText('files.replace'));
+      const content = screen.getByLabelText('files.content') as HTMLTextAreaElement;
+      expect(content.value).toBe('');
+      fireEvent.change(content, { target: { value: 'x' } });
+      fireEvent.change(screen.getByLabelText('files.content'), { target: { value: '' } });
+      await act(async () => {
+        fireEvent.click(screen.getByText('files.save'));
+      });
+      expect(mocks.files.setShared).toHaveBeenCalledWith('user:u1', 'data', {
+        mode: '600',
+        path: '/root/.oci/config',
+        sensitive: true,
+      });
+      expect(screen.queryByLabelText('files.content')).toBeNull();
+    });
   });
 
   describe('environment variables', () => {

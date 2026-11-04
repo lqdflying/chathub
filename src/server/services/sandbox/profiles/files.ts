@@ -258,7 +258,7 @@ const maskStrings = (bytes: Uint8Array): string[] => {
     const trimmed = line.trim();
     if (trimmed.length >= SANDBOX_FILE_MASK_LINE_MIN_CHARS) strings.add(trimmed);
   }
-  for (const value of [...strings]) addMaskSlices(strings, value);
+  for (const value of strings) addMaskSlices(strings, value);
   return [...strings].filter(Boolean);
 };
 

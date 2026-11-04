@@ -54,6 +54,10 @@ vi.mock('@/database/models/message', () => ({
     updatePluginState = messageStepMocks.updatePluginState;
   },
 }));
+vi.mock('@/server/services/sandbox/profiles/files', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/server/services/sandbox/profiles/files')>()),
+  resolveSandboxFiles: async () => ({ items: [], mask: [] }),
+}));
 vi.mock('@/server/services/sandbox/conversationFiles', () => ({
   listConversationSandboxInputs: async () => [],
   persistSandboxOutputFiles: async ({ files }: { files: Array<{ filename: string }> }) =>

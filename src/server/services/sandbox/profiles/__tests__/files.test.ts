@@ -287,9 +287,9 @@ describe('sandbox file storage', () => {
   });
 
   it('masks a numbered line cut from a longer sensitive file', async () => {
-    const line = Array.from({ length: 1250 }, (_, index) => index.toString(36).padStart(4, '0')).join(
-      '',
-    );
+    const line = Array.from({ length: 1250 }, (_, index) =>
+      index.toString(36).padStart(4, '0'),
+    ).join('');
     await set('/root/secret', line, { shared: true });
     const { mask } = await resolveSandboxFiles(db, 'u1', 'data');
     const shown = formatNumberedLines(line, {}).content;

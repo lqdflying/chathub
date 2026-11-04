@@ -71,8 +71,8 @@ const useStyles = createStyles(({ css, token }) => ({
 interface Draft {
   /** A chosen local file, already read. */
   chosen?: { bytes: Uint8Array; name: string };
-  /** The textarea or a chosen file changed. An emptied replace then sends that content. */
-  contentTouched?: boolean;
+  /** Textarea value when Replace opened. Matching it again keeps the stored bytes. */
+  initialText: string;
   mode: string;
   path: string;
   /** A local file is still being read. Save stays off until it finishes. */
@@ -169,7 +169,7 @@ const FilesModal = memo<FilesModalProps>(
       !busy &&
       !draft.reading &&
       !!draft.path &&
-      (draft.replacing || hasContent || !!draft.contentTouched) &&
+      (draft.replacing || hasContent) &&
       !pathProblem &&
       !modeProblem &&
       !tooLarge;
@@ -178,7 +178,8 @@ const FilesModal = memo<FilesModalProps>(
 
     const save = (section: EnvSection, current: Draft) => {
       const bytes = current.chosen?.bytes ?? new TextEncoder().encode(current.text);
-      const includeContent = !current.replacing || !!current.chosen || !!current.contentTouched;
+      const includeContent =
+        !current.replacing || !!current.chosen || current.text !== current.initialText;
       return run(
         () =>
           onSave(section, {
@@ -201,14 +202,7 @@ const FilesModal = memo<FilesModalProps>(
       try {
         const bytes = new Uint8Array(await file.arrayBuffer());
         setDraft((current) =>
-          current
-            ? {
-                ...current,
-                chosen: { bytes, name: file.name },
-                contentTouched: true,
-                reading: false,
-              }
-            : current,
+          current ? { ...current, chosen: { bytes, name: file.name }, reading: false } : current,
         );
       } catch (failure) {
         setDraft((current) => (current ? { ...current, reading: false } : current));
@@ -271,9 +265,7 @@ const FilesModal = memo<FilesModalProps>(
                 aria-label={t('files.content')}
                 autoSize={{ maxRows: 12, minRows: 4 }}
                 className={styles.text}
-                onChange={(event) =>
-                  setDraft({ ...draft, contentTouched: true, text: event.target.value })
-                }
+                onChange={(event) => setDraft({ ...draft, text: event.target.value })}
                 placeholder={
                   draft.replacing && draft.sensitive
                     ? t('files.contentKeepPlaceholder')
@@ -349,6 +341,7 @@ const FilesModal = memo<FilesModalProps>(
                 icon={Plus}
                 onClick={() =>
                   setDraft({
+                    initialText: '',
                     mode: SANDBOX_FILE_DEFAULT_MODE,
                     path: '',
                     replacing: false,
@@ -392,6 +385,7 @@ const FilesModal = memo<FilesModalProps>(
                       disabled={!available || busy || !!draft}
                       onClick={() =>
                         setDraft({
+                          initialText: item.content ?? '',
                           mode: item.mode,
                           path: item.path,
                           replacing: true,

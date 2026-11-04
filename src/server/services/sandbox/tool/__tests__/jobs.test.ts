@@ -50,6 +50,10 @@ vi.mock('@/database/models/sandboxJob', () => ({
     create = mocks.create;
   },
 }));
+vi.mock('../../profiles/files', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../profiles/files')>()),
+  resolveSandboxFiles: async () => ({ items: [], mask: [] }),
+}));
 vi.mock('../../jobs/enqueue', () => ({ enqueueSandboxJobWatch: mocks.enqueue }));
 vi.mock('../../jobs/service', () => ({
   cancelSandboxJob: mocks.cancel,
