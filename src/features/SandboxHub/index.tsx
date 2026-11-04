@@ -461,6 +461,11 @@ const SandboxHub = memo(() => {
             files={filesSummary(profile.id)}
             health={health[profile.serverId]}
             key={profile.id}
+            onEmptyPersistent={
+              scope && profile.persistentFolder
+                ? () => sandboxHubService.emptyPersistentFolder(scope, profile.id)
+                : undefined
+            }
             onOpenEnv={() => setEnvDialog({ id: profile.id, open: true })}
             onOpenFiles={() => setFilesDialog({ id: profile.id, open: true })}
             onOpenInstruction={() => setInstructionDialog({ id: profile.id, open: true })}

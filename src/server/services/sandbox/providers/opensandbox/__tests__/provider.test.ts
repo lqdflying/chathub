@@ -908,6 +908,36 @@ describe('OpenSandboxProvider', () => {
       expect(without.createBody?.metadata).not.toHaveProperty('chathub-volume');
     });
 
+    it('empties a persistent folder in a throwaway sandbox and always deletes it', async () => {
+      const calls = install();
+      const mount = { claimName: 'chathub-abc', mountPath: '/persist' };
+
+      await profileProvider().emptyPersistentFolder(mount, AbortSignal.timeout(10_000));
+
+      expect(calls.createBody).toMatchObject({
+        metadata: { 'chathub-profile': 'data', 'name': 'chathub-sandbox-maintenance' },
+        volumes: [
+          {
+            mountPath: '/persist',
+            name: 'chathub-persist',
+            pvc: { claimName: 'chathub-abc', createIfNotExists: true },
+            readOnly: false,
+          },
+        ],
+      });
+      expect(calls.createBody?.metadata).not.toHaveProperty('chathub-session');
+      expect(calls.commandBody).toMatchObject({ command: "find '/persist' -mindepth 1 -delete" });
+      expect(calls.deletedIds).toEqual(['sbx-1']);
+
+      const failed = install({
+        command: () => stream([exitWith('1', ['find: cannot delete'])]),
+      });
+      await expect(
+        profileProvider().emptyPersistentFolder(mount, AbortSignal.timeout(10_000)),
+      ).rejects.toThrow(/Could not empty \/persist/);
+      expect(failed.deletedIds).toEqual(['sbx-1']);
+    });
+
     it('says a volume error comes from the persistent folder', async () => {
       install({
         create: () =>

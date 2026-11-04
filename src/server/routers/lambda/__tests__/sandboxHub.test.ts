@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   cancelJob: vi.fn(),
   deleteInstruction: vi.fn(),
   env: { delete: vi.fn(), list: vi.fn(), set: vi.fn() },
+  emptyPersistent: vi.fn(),
   files: { delete: vi.fn(), list: vi.fn(), set: vi.fn() },
   findProfile: vi.fn(),
   health: vi.fn(),
@@ -79,6 +80,9 @@ vi.mock('@/server/services/sandbox/profiles/env', async (importOriginal) => {
     setSandboxEnv: mocks.env.set,
   };
 });
+vi.mock('@/server/services/sandbox/profiles/persistentEmpty', () => ({
+  emptySandboxPersistentFolder: mocks.emptyPersistent,
+}));
 vi.mock('@/server/services/sandbox/profiles/files', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/server/services/sandbox/profiles/files')>();
   return {
@@ -467,6 +471,32 @@ describe('sandboxHubRouter', () => {
       await expect(
         api.setMyEnv({ ...scope, name: 'PATH', profileId: 'data', value: 'x' }),
       ).rejects.toMatchObject({ code: 'BAD_REQUEST', message: 'PATH is reserved.' });
+    });
+  });
+
+  describe('persistent folder', () => {
+    const scope = { accountScope: 'user:account-a' };
+
+    it("empties the caller's own folder and returns a refusal with its code", async () => {
+      mocks.emptyPersistent.mockResolvedValue({ ok: true });
+      await caller('user:account-a').emptyPersistentFolder({ ...scope, profileId: 'data' });
+      expect(mocks.emptyPersistent).toHaveBeenCalledWith({}, 'account-a', 'data');
+
+      mocks.emptyPersistent.mockResolvedValue({
+        code: 'PRECONDITION_FAILED',
+        message: 'This sandbox has no persistent folder.',
+        ok: false,
+      });
+      await expect(
+        caller('user:account-a').emptyPersistentFolder({ ...scope, profileId: 'data' }),
+      ).rejects.toMatchObject({
+        code: 'PRECONDITION_FAILED',
+        message: 'This sandbox has no persistent folder.',
+      });
+
+      await expect(
+        caller('user:account-b').emptyPersistentFolder({ ...scope, profileId: 'data' }),
+      ).rejects.toMatchObject({ code: 'FORBIDDEN' });
     });
   });
 

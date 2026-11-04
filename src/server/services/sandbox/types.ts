@@ -161,6 +161,11 @@ export class SandboxRequestError extends SandboxError {
 }
 
 export interface SandboxProvider {
+  /** Deletes everything in one user's persistent folder volume, where supported. */
+  emptyPersistentFolder?(
+    mount: { claimName: string; mountPath: string },
+    signal: AbortSignal,
+  ): Promise<void>;
   readonly id: string;
   isConfigured(): boolean;
   /** False when every call gets a fresh sandbox, so nothing carries over. */

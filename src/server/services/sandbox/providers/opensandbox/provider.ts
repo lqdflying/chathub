@@ -70,6 +70,9 @@ export const SANDBOX_METADATA_NAME = 'chathub-sandbox';
 export const SANDBOX_PREPARE_METADATA_NAME = 'chathub-sandbox-prepare';
 // The prepare sandbox's create TTL: a long pull plus margin. Deleted right after.
 const PREPARE_TTL_SECONDS = 20 * 60;
+// The throwaway sandbox that empties a persistent folder: create TTL and command limit.
+const MAINTENANCE_TTL_SECONDS = 10 * 60;
+const EMPTY_FOLDER_TIMEOUT_MS = 120_000;
 // A reused sandbox that does not answer quickly is treated as gone.
 const REUSE_PING_TIMEOUT_MS = 5000;
 
@@ -478,6 +481,78 @@ export class OpenSandboxProvider implements SandboxProvider {
       await this.deleteQuietly(client, created.id);
     }
     return { durationMs: Date.now() - startedAt };
+  }
+
+  /**
+   * Deletes everything in one user's persistent folder volume: a throwaway
+   * sandbox (no session, never reused) mounts the volume, removes its
+   * contents, and is always deleted. The volume itself stays on the host:
+   * OpenSandbox has no API to delete volumes. A volume that does not exist
+   * yet is created empty.
+   */
+  async emptyPersistentFolder(
+    mount: { claimName: string; mountPath: string },
+    signal: AbortSignal,
+  ): Promise<void> {
+    if (!this.baseUrl || !this.image) {
+      throw new SandboxError('NotConfigured', 'This sandbox has no server or image.');
+    }
+    const client = new OpenSandboxClient({
+      apiKey: this.apiKey,
+      baseUrl: this.baseUrl,
+      rebaseExecdEndpoint: this.rebaseExecdEndpoint,
+    });
+    // The profile's own policy, as its sandboxes get; the command needs no network.
+    const networkPolicy = buildNetworkPolicy(
+      this.networkDisabled ? false : undefined,
+      this.egressAllow,
+    );
+    const created = await this.createWithVolumeHint(mount.mountPath, () =>
+      client.createSandbox(
+        {
+          entrypoint: SANDBOX_ENTRYPOINT,
+          image: this.imageSpec(),
+          metadata: {
+            ...(this.profileId ? { [PROFILE_METADATA_KEY]: this.profileId } : {}),
+            name: SANDBOX_MAINTENANCE_METADATA_NAME,
+          },
+          ...(networkPolicy ? { networkPolicy } : {}),
+          resourceLimits: { cpu: this.cpu, memory: this.memory },
+          timeout: MAINTENANCE_TTL_SECONDS,
+          volumes: [persistentVolume(mount, true)],
+        },
+        signal,
+      ),
+    );
+    try {
+      await this.waitUntilRunning(client, created.id, created.state, signal);
+      const execd = await client.getExecdEndpoint(created.id, signal);
+      await this.waitForExecd(client, execd, signal);
+      const workspace = new OpenSandboxWorkspace(
+        client,
+        execd,
+        true,
+        {
+          maxFileBytes: this.maxFileBytes,
+          maxFileCount: this.maxFileCount,
+          maxOutputChars: this.maxOutputChars,
+        },
+        signal,
+      );
+      const result = await workspace.exec({
+        command: `find '${mount.mountPath.replaceAll("'", `'\\''`)}' -mindepth 1 -delete`,
+        cwd: '/',
+        timeoutMs: EMPTY_FOLDER_TIMEOUT_MS,
+      });
+      if (result.exitCode !== 0) {
+        throw new SandboxError(
+          'ExecutionFailed',
+          `Could not empty ${mount.mountPath}: ${(result.stderr || result.stdout).trim() || `exit code ${result.exitCode ?? 'unknown'}`}`,
+        );
+      }
+    } finally {
+      await this.deleteQuietly(client, created.id);
+    }
   }
 
   private async createSandbox(

@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   },
   cancelJob: vi.fn(),
   confirm: vi.fn(),
+  emptyPersistent: vi.fn(),
   fetchPreset: vi.fn(),
   files: {
     deleteMine: vi.fn(),
@@ -270,6 +271,7 @@ vi.mock('@/services/sandboxHub', () => ({
     deleteProfile: mocks.admin.delete,
     deleteSharedEnv: mocks.env.deleteShared,
     deleteSharedFile: mocks.files.deleteShared,
+    emptyPersistentFolder: mocks.emptyPersistent,
     listEnvs: mocks.env.list,
     listFiles: mocks.files.list,
     listHubJobs: mocks.listHubJobs,
@@ -606,6 +608,35 @@ describe('SandboxHub', () => {
         expect.objectContaining({ instructionText: null }),
       );
       expect(mocks.resetInstruction).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('persistent folder', () => {
+    it('shows the folder and empties it after a confirmation', async () => {
+      mocks.profiles = [profile('data', { persistentFolder: '/persist' }), profile('plain')];
+      mocks.emptyPersistent.mockResolvedValueOnce(undefined);
+      await act(async () => {
+        render(<SandboxHub />);
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: /profile\.details.*plain name/ }));
+      expect(screen.queryByText('persistent.row')).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: /profile\.details.*data name/ }));
+      expect(screen.getByText('persistent.row')).toBeTruthy();
+      expect(screen.getByText('/persist')).toBeTruthy();
+      expect(screen.getByText('persistent.hint')).toBeTruthy();
+
+      await act(async () => {
+        fireEvent.click(screen.getByText('confirm:persistent.empty'));
+      });
+      expect(mocks.emptyPersistent).toHaveBeenCalledWith('user:u1', 'data');
+      expect(screen.getByText('persistent.emptied')).toBeTruthy();
+
+      mocks.emptyPersistent.mockRejectedValueOnce(new Error('server down'));
+      await act(async () => {
+        fireEvent.click(screen.getByText('confirm:persistent.empty'));
+      });
+      expect(screen.getByText('persistent.emptyFailed:{"message":"server down"}')).toBeTruthy();
     });
   });
 

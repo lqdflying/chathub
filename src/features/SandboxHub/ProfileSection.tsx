@@ -7,7 +7,7 @@ import type {
   SandboxServerHealth,
 } from '@lobechat/types';
 import { ActionIcon, Avatar, Button, Dropdown, Icon, Modal, Tag } from '@lobehub/ui';
-import { App, Switch } from 'antd';
+import { App, Popconfirm, Switch } from 'antd';
 import { createStyles } from 'antd-style';
 import dayjs from 'dayjs';
 import {
@@ -47,6 +47,10 @@ const useStyles = createStyles(({ css, token }) => ({
       outline: 2px solid ${token.colorPrimary};
       outline-offset: 2px;
     }
+  `,
+  code: css`
+    font-family: ${token.fontFamilyCode};
+    overflow-wrap: anywhere;
   `,
   fact: css`
     display: flex;
@@ -150,6 +154,8 @@ interface ProfileSectionProps {
   /** Counts for the Files row, in the same shape as the Environment row. */
   files?: ProfileEnvSummary;
   health?: SandboxServerHealth;
+  /** Empties this user's persistent folder; the row reports a failure itself. */
+  onEmptyPersistent?: () => Promise<void>;
   /** Opens the environment variables dialog. */
   onOpenEnv?: () => void;
   /** Opens the secret files dialog. */
@@ -242,6 +248,7 @@ const ProfileSection = memo<ProfileSectionProps>(
     env,
     files,
     health,
+    onEmptyPersistent,
     onOpenEnv,
     onOpenFiles,
     onOpenInstruction,
@@ -253,6 +260,25 @@ const ProfileSection = memo<ProfileSectionProps>(
     const [pending, setPending] = useState(false);
     const [failed, setFailed] = useState(false);
     const [detailsOpen, setDetailsOpen] = useState(false);
+    const [emptying, setEmptying] = useState(false);
+    const [emptyResult, setEmptyResult] = useState<{ error?: string; ok: boolean }>();
+
+    const emptyPersistent = async () => {
+      if (!onEmptyPersistent) return;
+      setEmptying(true);
+      setEmptyResult(undefined);
+      try {
+        await onEmptyPersistent();
+        setEmptyResult({ ok: true });
+      } catch (error) {
+        setEmptyResult({
+          error: error instanceof Error ? error.message : String(error),
+          ok: false,
+        });
+      } finally {
+        setEmptying(false);
+      }
+    };
 
     const name = profile?.name ?? admin?.item.name ?? '';
     const description = profile?.description ?? admin?.item.description;
@@ -494,6 +520,37 @@ const ProfileSection = memo<ProfileSectionProps>(
                       <Button onClick={() => closeAnd(onOpenFiles)} size={'small'}>
                         {t('files.manage')}
                       </Button>
+                    </Flexbox>,
+                  )}
+                {profile.persistentFolder &&
+                  fact(
+                    t('persistent.row'),
+                    <Flexbox align={'flex-end'} gap={4}>
+                      <Flexbox align={'center'} gap={8} horizontal justify={'flex-end'}>
+                        <span className={styles.code}>{profile.persistentFolder}</span>
+                        {onEmptyPersistent && (
+                          <Popconfirm
+                            cancelText={t('persistent.cancel')}
+                            okButtonProps={{ danger: true }}
+                            okText={t('persistent.empty')}
+                            onConfirm={() => emptyPersistent()}
+                            title={t('persistent.emptyConfirm', {
+                              path: profile.persistentFolder,
+                            })}
+                          >
+                            <Button danger loading={emptying} size={'small'}>
+                              {t('persistent.empty')}
+                            </Button>
+                          </Popconfirm>
+                        )}
+                      </Flexbox>
+                      <span className={styles.groupDesc}>
+                        {emptyResult?.ok
+                          ? t('persistent.emptied')
+                          : emptyResult?.error
+                            ? t('persistent.emptyFailed', { message: emptyResult.error })
+                            : t('persistent.hint')}
+                      </span>
                     </Flexbox>,
                   )}
               </>

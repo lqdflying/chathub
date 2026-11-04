@@ -224,6 +224,15 @@ export default {
   },
   loadFailed: '无法读取沙盒列表，请稍后重试。',
   loading: '正在读取沙盒…',
+  persistent: {
+    cancel: '取消',
+    emptied: '已清空。',
+    empty: '清空',
+    emptyConfirm: '清空 {{path}} 中你的所有文件？此沙盒正在运行的容器中，这些文件也会消失。',
+    emptyFailed: '无法清空：{{message}}',
+    hint: '保存在这里的文件只属于你，沙盒回收后仍会保留。',
+    row: '持久文件夹',
+  },
   profile: {
     details: '{{name}} 详情',
     duration: {

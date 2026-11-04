@@ -211,6 +211,15 @@
   },
   "loadFailed": "Could not load the sandboxes. Try again later.",
   "loading": "Loading sandboxes…",
+  "persistent": {
+    "cancel": "Cancel",
+    "emptied": "Emptied.",
+    "empty": "Empty",
+    "emptyConfirm": "Delete all your files in {{path}}? They also disappear from this sandbox's running containers.",
+    "emptyFailed": "Could not empty it: {{message}}",
+    "hint": "Files saved here are yours alone and stay after the sandbox is removed.",
+    "row": "Persistent folder"
+  },
   "profile": {
     "duration": {
       "hours": "{{count}} h",

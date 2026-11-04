@@ -34,6 +34,7 @@ import {
   prepareSandboxHubProfileImage,
   updateSandboxHubProfile,
 } from '@/server/services/sandbox/profiles/hubAdmin';
+import { emptySandboxPersistentFolder } from '@/server/services/sandbox/profiles/persistentEmpty';
 import { getSandboxServerHealth } from '@/server/services/sandbox/profiles/status';
 import {
   SANDBOX_ENV_VALUE_MAX_BYTES,
@@ -309,6 +310,19 @@ export const sandboxHubRouter = router({
           profileId: input.profileId,
         }),
       );
+    }),
+
+  /**
+   * Deletes everything in this user's own persistent folder for a profile.
+   * Other users' folders cannot be reached: the volume name comes from this
+   * user's id.
+   */
+  emptyPersistentFolder: sandboxHubProcedure
+    .input(accountScopeInput.extend({ profileId: profileIdInput }))
+    .mutation(async ({ ctx, input }) => {
+      assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
+      const result = await emptySandboxPersistentFolder(ctx.serverDB, ctx.userId, input.profileId);
+      if (!result.ok) throw new TRPCError({ code: result.code, message: result.message });
     }),
 
   /** Shared variables and this user's own. A value is included only when it is not sensitive. */

@@ -61,6 +61,9 @@ class SandboxHubService {
   ): Promise<SandboxFileList> =>
     lambdaClient.sandboxHub.deleteSharedFile.mutate({ accountScope, path, profileId });
 
+  emptyPersistentFolder = (accountScope: string, profileId: string): Promise<void> =>
+    lambdaClient.sandboxHub.emptyPersistentFolder.mutate({ accountScope, profileId });
+
   listEnvs = (accountScope: string): Promise<SandboxEnvList> =>
     lambdaClient.sandboxHub.listEnvs.query({ accountScope });
 
