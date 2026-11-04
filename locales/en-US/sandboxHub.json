@@ -39,7 +39,7 @@
         "none": "Only the text below"
       },
       "instructionText": "Extra instruction",
-      "instructionTextHint": "What is special about this sandbox, such as the tools installed. Every sandbox builds on the General instruction; on Sandbox, this text becomes part of it. To replace another sandbox's full instruction, open its card and choose Edit.",
+      "instructionTextHint": "What is special about this sandbox, such as the tools installed. Added after the General instruction puts this text after that shared instruction. Only the text below does not use the General instruction. To replace the full instruction, open the card and choose Edit.",
       "invalid": {
         "allowlist": "Add at least one address.",
         "description": "Enter a description.",

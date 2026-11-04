@@ -43,8 +43,10 @@ import {
   SANDBOX_FILE_MAX_BYTES,
   SANDBOX_FILE_PATH_MAX_LENGTH,
   SANDBOX_INSTRUCTION_MAX_BYTES,
+  SANDBOX_SHARED_INSTRUCTION_ID,
   isValidSandboxProfileId,
 } from '@/tools/sandbox/const';
+import { SANDBOX_SHARED_INSTRUCTION } from '@/tools/sandbox/systemRole';
 
 const sandboxHubProcedure = authedProcedure
   .use(verifiedAccountScope)
@@ -374,11 +376,17 @@ export const sandboxHubRouter = router({
 
   /** Admin only: drops the edited instruction so the starting text applies again. */
   resetInstruction: sandboxHubProcedure
-    .input(accountScopeInput.extend({ profileId: profileIdInput }))
+    .input(
+      accountScopeInput.extend({
+        profileId: z.union([profileIdInput, z.literal(SANDBOX_SHARED_INSTRUCTION_ID)]),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
       await assertSandboxHubAdmin(ctx);
-      await findProfileOrThrow(ctx.serverDB, input.profileId);
+      if (input.profileId !== SANDBOX_SHARED_INSTRUCTION_ID) {
+        await findProfileOrThrow(ctx.serverDB, input.profileId);
+      }
       await new SandboxProfileInstructionModel(ctx.serverDB).delete(input.profileId);
       return getUserSandboxProfiles(ctx.serverDB, ctx.userId);
     }),
@@ -394,12 +402,22 @@ export const sandboxHubRouter = router({
    * starting text again is the same as a reset, so it does not show as edited.
    */
   setInstruction: sandboxHubProcedure
-    .input(accountScopeInput.extend({ instruction: instructionInput, profileId: profileIdInput }))
+    .input(
+      accountScopeInput.extend({
+        instruction: instructionInput,
+        profileId: z.union([profileIdInput, z.literal(SANDBOX_SHARED_INSTRUCTION_ID)]),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       assertRequestedAccountScope(input.accountScope, ctx.verifiedAccountScope);
       await assertSandboxHubAdmin(ctx);
-      await findProfileOrThrow(ctx.serverDB, input.profileId);
-      const starting = await getSandboxStartingInstruction(ctx.serverDB, input.profileId);
+      const starting =
+        input.profileId === SANDBOX_SHARED_INSTRUCTION_ID
+          ? SANDBOX_SHARED_INSTRUCTION
+          : await getSandboxStartingInstruction(ctx.serverDB, input.profileId);
+      if (input.profileId !== SANDBOX_SHARED_INSTRUCTION_ID) {
+        await findProfileOrThrow(ctx.serverDB, input.profileId);
+      }
       const model = new SandboxProfileInstructionModel(ctx.serverDB);
       if (starting !== undefined && input.instruction === starting) {
         await model.delete(input.profileId);

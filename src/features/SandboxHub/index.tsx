@@ -6,6 +6,7 @@ import type {
   SandboxHubProfileSettingsInput,
   SandboxHubProfileSettingsItem,
   SandboxHubSettings,
+  SandboxProfileItem,
   SandboxServerHealth,
 } from '@lobechat/types';
 import { Alert, Button, Icon, Tag } from '@lobehub/ui';
@@ -18,7 +19,7 @@ import { Flexbox } from 'react-layout-kit';
 import { type SandboxFileWriteInput, sandboxHubService } from '@/services/sandboxHub';
 import { useToolStore } from '@/store/tool';
 import { useUserStore } from '@/store/user';
-import { DEFAULT_SANDBOX_PROFILE_ID } from '@/tools/sandbox/const';
+import { SANDBOX_SHARED_INSTRUCTION_ID } from '@/tools/sandbox/const';
 
 import EnvModal, { type EnvSection } from './EnvModal';
 import FilesModal from './FilesModal';
@@ -292,7 +293,20 @@ const SandboxHub = memo(() => {
   const settingsOrder = hubSettings?.profiles ?? [];
   const offered = new Set(profiles.map((profile) => profile.id));
   const notOffered = settingsOrder.filter((item) => !offered.has(item.id));
-  const instructionProfile = profiles.find((profile) => profile.id === instructionDialog.id);
+  const instructionProfile: SandboxProfileItem | undefined =
+    instructionDialog.id === SANDBOX_SHARED_INSTRUCTION_ID && hubSettings
+      ? ({
+          instruction: hubSettings.generalInstruction,
+          instructionCustomized: hubSettings.generalInstructionCustomized,
+          instructionUpdatedAt: hubSettings.generalInstructionUpdatedAt,
+          name: t('admin.form.generalInstruction'),
+        } as SandboxProfileItem)
+      : profiles.find((profile) => profile.id === instructionDialog.id);
+  const refreshAfterSharedInstruction = async (change: () => Promise<unknown>) => {
+    await change();
+    if (!scope || instructionDialog.id !== SANDBOX_SHARED_INSTRUCTION_ID) return;
+    setHubSettings(await sandboxHubService.profileSettings(scope));
+  };
   const envProfile = profiles.find((profile) => profile.id === envDialog.id);
   const filesProfile = profiles.find((profile) => profile.id === filesDialog.id);
   // Admins see every configured server; other users see the ones their sandboxes use.
@@ -348,15 +362,13 @@ const SandboxHub = memo(() => {
           </Flexbox>
           {hubSettings && (
             <Flexbox gap={8} horizontal style={{ flex: 'none' }}>
-              {profiles.some((profile) => profile.id === DEFAULT_SANDBOX_PROFILE_ID) && (
-                <Button
-                  onClick={() =>
-                    setInstructionDialog({ id: DEFAULT_SANDBOX_PROFILE_ID, open: true })
-                  }
-                >
-                  {t('admin.form.generalInstruction')}
-                </Button>
-              )}
+              <Button
+                onClick={() =>
+                  setInstructionDialog({ id: SANDBOX_SHARED_INSTRUCTION_ID, open: true })
+                }
+              >
+                {t('admin.form.generalInstruction')}
+              </Button>
               <Button
                 disabled={
                   busy ||
@@ -444,8 +456,14 @@ const SandboxHub = memo(() => {
       <InstructionModal
         access={access}
         onClose={() => setInstructionDialog((current) => ({ ...current, open: false }))}
-        onReset={() => resetSandboxProfileInstruction(instructionDialog.id!)}
-        onSave={(instruction) => setSandboxProfileInstruction(instructionDialog.id!, instruction)}
+        onReset={() =>
+          refreshAfterSharedInstruction(() => resetSandboxProfileInstruction(instructionDialog.id!))
+        }
+        onSave={(instruction) =>
+          refreshAfterSharedInstruction(() =>
+            setSandboxProfileInstruction(instructionDialog.id!, instruction),
+          )
+        }
         open={instructionDialog.open && !!instructionProfile}
         profile={instructionProfile}
       />

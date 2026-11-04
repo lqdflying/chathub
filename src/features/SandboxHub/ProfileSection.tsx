@@ -23,8 +23,6 @@ import { Fragment, type ReactNode, memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
-import { DEFAULT_SANDBOX_PROFILE_ID } from '@/tools/sandbox/const';
-
 import { egressSummaryKey, formatDuration } from './format';
 
 const useStyles = createStyles(({ css, token }) => ({
@@ -444,8 +442,7 @@ const ProfileSection = memo<ProfileSectionProps>(
                     )}
                   </>,
                 )}
-                {!(profile.id === DEFAULT_SANDBOX_PROFILE_ID && admin) &&
-                  fact(
+                {fact(
                     t('profile.rows.instruction'),
                     <Flexbox align={'center'} gap={8} horizontal justify={'flex-end'} wrap={'wrap'}>
                       {profile.instructionCustomized && (

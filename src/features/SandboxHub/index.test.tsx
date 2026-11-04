@@ -339,6 +339,8 @@ const hubSettings = (profiles = [settingsItem('data')]) => ({
     sessionIdleTimeoutMs: 1_800_000,
     sessionMaxLifetimeMs: 0,
   },
+  generalInstruction: 'Shared contract.',
+  generalInstructionCustomized: false,
   maxProfiles: 16,
   profiles,
   servers: [
@@ -1192,13 +1194,13 @@ describe('SandboxHub', () => {
       await renderAsAdmin();
 
       fireEvent.click(screen.getByRole('button', { name: /profile\.details.*Sandbox/ }));
-      expect(screen.queryByText('profile.instruction.edit')).toBeNull();
+      expect(screen.getAllByText('profile.instruction.edit').length).toBeGreaterThan(0);
 
       fireEvent.click(screen.getByText('admin.form.generalInstruction'));
       expect(
         screen
           .getAllByRole('dialog')
-          .some((dialog) => dialog.textContent?.includes('general contract')),
+          .some((dialog) => dialog.textContent?.includes('Shared contract.')),
       ).toBe(true);
       fireEvent.click(screen.getByText('profile.instruction.cancel'));
 

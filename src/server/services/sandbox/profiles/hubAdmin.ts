@@ -6,8 +6,10 @@ import type {
 } from '@lobechat/types';
 
 import { SandboxHubProfileModel } from '@/database/models/sandboxHubProfile';
+import { SandboxProfileInstructionModel } from '@/database/models/sandboxProfileInstruction';
 import type { SandboxHubProfileRow } from '@/database/schemas';
-import { DEFAULT_SANDBOX_PROFILE_ID } from '@/tools/sandbox/const';
+import { DEFAULT_SANDBOX_PROFILE_ID, SANDBOX_SHARED_INSTRUCTION_ID } from '@/tools/sandbox/const';
+import { SANDBOX_SHARED_INSTRUCTION } from '@/tools/sandbox/systemRole';
 
 import {
   type SandboxHubProfileFields,
@@ -145,8 +147,13 @@ const canDelete = (row: { id: string }, total: number) =>
 export const getSandboxHubSettings = async (db: LobeChatDatabase): Promise<SandboxHubSettings> => {
   await getSandboxProfileCatalog(db);
   const rows = await new SandboxHubProfileModel(db).list();
+  const saved = await new SandboxProfileInstructionModel(db).list();
+  const shared = saved.get(SANDBOX_SHARED_INSTRUCTION_ID);
   const env = readSandboxProfilesEnv();
   return {
+    generalInstruction: shared?.instruction ?? SANDBOX_SHARED_INSTRUCTION,
+    generalInstructionCustomized: !!shared,
+    ...(shared ? { generalInstructionUpdatedAt: shared.updatedAt.toISOString() } : {}),
     defaults: {
       cpu: env.OPENSANDBOX_CPU,
       egress: envEgress(env),

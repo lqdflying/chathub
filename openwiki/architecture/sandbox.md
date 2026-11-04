@@ -246,14 +246,14 @@ on `main`; confirm on the release you run.)
 Each profile's instruction can be changed at runtime from the Hub, without a
 release or a restart, so it can follow sandbox image updates.
 
-- **Starting text.** The `general` profile's starting text is the built-in
-  `DEFAULT_SANDBOX_INSTRUCTION`, plus its extra instruction when one is set.
-  Other profiles are composed when they are read (`catalog.ts`), on the
-  General instruction: the saved `general` edit when one exists, otherwise
-  that starting text. A deployment with no saved edits and no extra
-  instruction on Sandbox sends the same prompt bytes as before. When
-  Sandbox has an extra instruction, every `base: general` profile now also
-  gets that text.
+- **Starting text.** Every profile uses the same rule (`compose.ts`).
+  `base: general` is the General instruction (`SANDBOX_SHARED_INSTRUCTION`,
+  or the saved `_shared` row) plus that profile's own extra text. `base: none`
+  is only that profile's own text. The default Sandbox is not a separate
+  case. With no extra text of its own, its starting extra text is the
+  default image's tool list, and other profiles do not receive that list.
+  A saved instruction on a profile replaces that profile's whole starting
+  text and does not change the General instruction.
 - **Where admins open it.** The shared text opens from **General instruction**
   on the Sandbox Hub header, next to **Add sandbox**. It is not inside a
   profile's settings. The Sandbox card does not offer that editor unless

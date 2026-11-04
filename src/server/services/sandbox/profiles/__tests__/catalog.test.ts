@@ -76,7 +76,9 @@ vi.mock('../hub', () => ({
 }));
 
 const { composeSandboxInstruction } = await import('../compose');
-const { DEFAULT_SANDBOX_INSTRUCTION } = await import('@/tools/sandbox/systemRole');
+const { DEFAULT_SANDBOX_INSTRUCTION, SANDBOX_SHARED_INSTRUCTION } = await import(
+  '@/tools/sandbox/systemRole'
+);
 const { createSandboxProfileManifest } = await import('@/tools/sandbox');
 
 const {
@@ -99,53 +101,49 @@ describe('Sandbox Hub catalog', () => {
 
   it('builds every general-base profile on the saved General instruction', async () => {
     const unchanged = await getUserSandboxProfiles(db, 'user-1');
-    const generalStart = composeSandboxInstruction({
-      base: 'general',
-      description: 'general profile',
-      id: 'general',
-      name: 'general',
-    });
-    expect(unchanged[0]).toMatchObject({
-      instruction: generalStart,
-      instructionCustomized: false,
-    });
-    expect(unchanged[0]).not.toHaveProperty('instructionUpdatedAt');
+    expect(unchanged[0].instruction).toContain(SANDBOX_SHARED_INSTRUCTION);
+    expect(unchanged[0].instruction).toContain('LibreOffice');
+    expect(unchanged[0].instructionCustomized).toBe(false);
     expect(
       unchanged[1].instruction.startsWith('This tool is the "data" sandbox: data profile\n'),
     ).toBe(true);
-    expect(unchanged[1].instruction).toContain(DEFAULT_SANDBOX_INSTRUCTION);
-    expect(generalStart).toBe(DEFAULT_SANDBOX_INSTRUCTION);
-    expect(DEFAULT_SANDBOX_INSTRUCTION).not.toContain('.oci');
-    expect(DEFAULT_SANDBOX_INSTRUCTION).not.toContain('~/');
+    expect(unchanged[1].instruction).toContain(SANDBOX_SHARED_INSTRUCTION);
+    expect(unchanged[1].instruction).not.toContain('LibreOffice');
+    expect(SANDBOX_SHARED_INSTRUCTION).not.toContain('.oci');
+    expect(DEFAULT_SANDBOX_INSTRUCTION).toContain('LibreOffice');
 
     mocks.profiles = [
       profile('general', { instructionText: 'Node is installed.' }),
       profile('data'),
     ];
     const withSandboxExtra = await getUserSandboxProfiles(db, 'user-1');
-    expect(withSandboxExtra.find((item) => item.id === 'data')?.instruction).toContain(
-      `${DEFAULT_SANDBOX_INSTRUCTION}\nNode is installed.\n`,
+    expect(withSandboxExtra.find((item) => item.id === 'general')?.instruction).toContain(
+      'Node is installed.',
+    );
+    expect(withSandboxExtra.find((item) => item.id === 'general')?.instruction).not.toContain(
+      'LibreOffice',
+    );
+    expect(withSandboxExtra.find((item) => item.id === 'data')?.instruction).not.toContain(
+      'Node is installed.',
     );
     mocks.profiles = undefined;
 
     const updatedAt = new Date('2026-11-01T08:00:00.000Z');
-    mocks.instructions = new Map([['general', { instruction: 'Edited.', updatedAt }]]);
+    mocks.instructions = new Map([['_shared', { instruction: 'Shared rule.', updatedAt }]]);
     const edited = await getUserSandboxProfiles(db, 'user-1');
     const sandbox = edited[0];
     const data = edited[1];
-    expect(sandbox).toMatchObject({
-      instruction: 'Edited.',
-      instructionCustomized: true,
-      instructionUpdatedAt: '2026-11-01T08:00:00.000Z',
-    });
-    expect(data.instruction).toContain('Edited.');
-    expect(data.instruction).not.toContain(DEFAULT_SANDBOX_INSTRUCTION);
+    expect(sandbox.instruction).toContain('Shared rule.');
+    expect(sandbox.instruction).toContain('LibreOffice');
+    expect(sandbox.instructionCustomized).toBe(false);
+    expect(data.instruction).toContain('Shared rule.');
+    expect(data.instruction).not.toContain('LibreOffice');
     expect(data.instructionCustomized).toBe(false);
     expect(createSandboxProfileManifest(data).systemRole).toBe(data.instruction);
 
     const [manifest] = await getUserSandboxManifests(db, 'user-1');
     expect(manifest.identifier).toBe('lobe-sandbox');
-    expect(manifest.systemRole).toBe('Edited.');
+    expect(manifest.systemRole).toContain('Shared rule.');
   });
 
   it('leaves base none and a saved profile edit off the General instruction', async () => {
@@ -171,10 +169,8 @@ describe('Sandbox Hub catalog', () => {
   it('keeps the starting instructions when the instructions table is missing', async () => {
     mocks.instructionError = { cause: { code: '42P01' } };
     const [general] = await getUserSandboxProfiles(db, 'user-1');
-    expect(general).toMatchObject({
-      instruction: DEFAULT_SANDBOX_INSTRUCTION,
-      instructionCustomized: false,
-    });
+    expect(general.instruction).toContain(SANDBOX_SHARED_INSTRUCTION);
+    expect(general.instructionCustomized).toBe(false);
 
     mocks.instructionError = new Error('relation "sandbox_profile_instructions" does not exist');
     await expect(getUserSandboxProfiles(db, 'user-1')).resolves.toHaveLength(4);

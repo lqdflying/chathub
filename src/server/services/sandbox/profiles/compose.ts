@@ -1,18 +1,13 @@
-import { DEFAULT_SANDBOX_INSTRUCTION } from '@/tools/sandbox/systemRole';
-
-import { isDefaultSandboxProfile } from './schema';
+import { SANDBOX_SHARED_INSTRUCTION } from '@/tools/sandbox/systemRole';
 
 interface ComposeInput {
   base: 'general' | 'none';
   description: string;
-  /**
-   * The General instruction other profiles build on. The `general` profile's
-   * own starting text does not use this: it cannot depend on itself.
-   */
+  /** The General instruction. Omitted when this profile uses only its own text. */
   general?: string;
   id: string;
   name: string;
-  /** Operator text for this profile, already read from file or inline. */
+  /** This profile's own extra text. */
   text?: string;
 }
 
@@ -22,28 +17,18 @@ interface ComposeInput {
  * cache-stable (`.cursor/rules/sandbox-prompt.mdc`). A Hub read composes
  * them again, so an admin edit applies on the next call.
  *
- * - `general` with no operator text is exactly the built-in Sandbox
- *   instruction, so existing agents send the same bytes as before.
- * - Other profiles start with a short fixed header so the model can tell
- *   several sandboxes apart, then the General instruction (the `general`
- *   profile's saved edit, else this built-in contract) unless `base: none`,
- *   then the operator text.
+ * Every profile uses the same rule. `base: general` starts with the General
+ * instruction, then this profile's own text. `base: none` uses only its own
+ * text. The default Sandbox is not a separate case.
  */
 export const composeSandboxInstruction = ({
   base,
   description,
-  general = DEFAULT_SANDBOX_INSTRUCTION,
-  id,
+  general = SANDBOX_SHARED_INSTRUCTION,
   name,
   text,
 }: ComposeInput) => {
   const operatorText = text?.trim();
-
-  if (isDefaultSandboxProfile({ id })) {
-    if (!operatorText) return DEFAULT_SANDBOX_INSTRUCTION;
-    return base === 'none' ? operatorText : `${DEFAULT_SANDBOX_INSTRUCTION}\n${operatorText}\n`;
-  }
-
   const header = `This tool is the "${name}" sandbox: ${description.trim()}
 It is a separate container from any other sandbox tool in this conversation. Files move between sandboxes only through exportFile and conversation files.
 `;

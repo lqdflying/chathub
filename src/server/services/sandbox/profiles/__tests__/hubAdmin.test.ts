@@ -11,6 +11,11 @@ const state = vi.hoisted(() => ({
 
 vi.mock('@/database/core/db-adaptor', () => ({ getServerDB: async () => ({}) }));
 vi.mock('../../registry', () => ({ getSandboxProvider: () => ({}) }));
+vi.mock('@/database/models/sandboxProfileInstruction', () => ({
+  SandboxProfileInstructionModel: class {
+    list = async () => new Map();
+  },
+}));
 vi.mock('@/database/models/sandboxHubProfile', () => ({
   SandboxHubProfileModel: class {
     count = async () => state.rows.length;

@@ -201,6 +201,10 @@ export interface SandboxHubSettings {
     sessionIdleTimeoutMs: number;
     sessionMaxLifetimeMs: number;
   };
+  /** The shared General instruction, saved or the built-in contract. */
+  generalInstruction: string;
+  generalInstructionCustomized: boolean;
+  generalInstructionUpdatedAt?: string;
   maxProfiles: number;
   profiles: SandboxHubProfileSettingsItem[];
   servers: SandboxHubServerItem[];

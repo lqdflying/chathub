@@ -65,6 +65,8 @@ export const normalizeBuiltinToolIds = (ids: readonly string[]): string[] => {
  * sandboxes stay valid; every other profile is `lobe-sandbox--<profileId>`.
  */
 export const DEFAULT_SANDBOX_PROFILE_ID = 'general';
+/** Instruction-table key for the shared General instruction. Not a profile id. */
+export const SANDBOX_SHARED_INSTRUCTION_ID = '_shared';
 
 /**
  * Keeps `lobe-sandbox--<id>____<api>____builtin` under 64 characters, the
