@@ -14,6 +14,13 @@ import { isModelNativeSearchDisabledProvider } from '@/helpers/modelNativeSearch
 
 const VALID_REASONING_EFFORTS = new Set(['low', 'medium', 'high']);
 
+/**
+ * A saved `-1` selects Claude adaptive thinking. It stays in the agent config after
+ * a switch to another model, and a manual budget must be a positive token count.
+ */
+const resolveReasoningBudgetTokens = (budget?: number) =>
+  budget && budget !== REASONING_BUDGET_TOKEN_ADAPTIVE ? budget : 1024;
+
 const isZhipuGlm53 = (model: string) => model.toLowerCase().startsWith('glm-5.3');
 
 /** GLM-5.2 skip → API none; GLM-5.3 leftover skip/none/minimal → low. */
@@ -111,7 +118,7 @@ export const buildModelExtendParams = ({
         extendParams.thinking = anthropicAdaptiveThinking;
       } else {
         extendParams.thinking = {
-          budget_tokens: chatConfig.reasoningBudgetToken || 1024,
+          budget_tokens: resolveReasoningBudgetTokens(chatConfig.reasoningBudgetToken),
           type: 'enabled',
           ...(model === 'kimi-k2.6' && chatConfig.moonshotPreservedReasoning
             ? { keep: 'all' as const }
@@ -142,7 +149,7 @@ export const buildModelExtendParams = ({
       extendParams.thinking = anthropicAdaptiveThinking;
     } else {
       extendParams.thinking = {
-        budget_tokens: chatConfig.reasoningBudgetToken || 1024,
+        budget_tokens: resolveReasoningBudgetTokens(chatConfig.reasoningBudgetToken),
         type: 'enabled',
       };
     }

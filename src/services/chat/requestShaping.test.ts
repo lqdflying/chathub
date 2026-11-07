@@ -309,6 +309,29 @@ describe('buildModelExtendParams', () => {
     });
   });
 
+  it('replaces a saved Claude adaptive budget for models without adaptive thinking', () => {
+    expect(
+      buildModelExtendParams({
+        chatConfig: {
+          enableReasoning: true,
+          reasoningBudgetToken: REASONING_BUDGET_TOKEN_ADAPTIVE,
+        },
+        model: 'deepseek-flash',
+        modelExtendParams: ['enableReasoning', 'reasoningEffort'],
+        provider: ModelProvider.DeepSeek,
+      }),
+    ).toEqual({ thinking: { budget_tokens: 1024, type: 'enabled' } });
+
+    expect(
+      buildModelExtendParams({
+        chatConfig: { reasoningBudgetToken: REASONING_BUDGET_TOKEN_ADAPTIVE },
+        model: 'claude-sonnet-4-20250514',
+        modelExtendParams: ['reasoningBudgetToken'],
+        provider: ModelProvider.Anthropic,
+      }),
+    ).toEqual({ thinking: { budget_tokens: 1024, type: 'enabled' } });
+  });
+
   it('applies provider-specific reasoning mappings', () => {
     expect(
       buildModelExtendParams({
