@@ -234,6 +234,17 @@ The full mobile Connectivity Check investigation, diagnostic decision tree,
 and physical-device acceptance record are in
 [MiniMax mobile Connectivity Check — end-to-end lesson](minimax-mobile-connectivity.md).
 
+### DeepSeek
+
+`deepseek` (`packages/model-runtime/src/providers/deepseek/index.ts`) uses two upstream routes. `LobeDeepSeekAI` sends ordinary turns through the OpenAI-compatible factory to Chat Completions (`buildDeepSeekPayload`). When `enabledSearch` is set, it sends the turn to DeepSeek's Anthropic Messages endpoint instead. That endpoint is `toDeepSeekAnthropicBaseURL(baseURL)`: the configured base URL with a trailing `/v1` removed and `/anthropic` appended. The turn runs on `DeepSeekAnthropicSearchAI`, a `LobeAnthropicAI` subclass with `id: deepseek`.
+
+- **Why** — DeepSeek's built-in search is a server tool. Chat Completions rejects `tools[].type: web_search` with 400. The Responses API ignores it on `deepseek-flash`. Anthropic Messages with `web_search_20250305` runs it on both `deepseek-flash` and `deepseek-v4-pro` (live-probed 2026-11-07). DeepSeek runs the search and streams `server_tool_use` plus `web_search_tool_result` blocks. `AnthropicStream` passes those through as data, so the conversation loop never executes them.
+- **Payload** — the shared Anthropic builder adds `web_search_20250305`. `shapeDeepSeekAnthropicParams` then adjusts the Claude-oriented output: it maps `reasoning_effort` to `output_config.effort` when thinking is on, and keeps the raw 0–2 `temperature` when thinking is off, because the builder halves it. It drops `max_tokens` when the caller sent none, so DeepSeek applies its default as it does on Chat Completions.
+- **Not migrated** — model fetch, `generateObject`, and non-search chat stay on Chat Completions. `/anthropic/v1/models` returns 404. A forced `tool_choice`, which is how Anthropic `generateObject` gets structured output, returns 400 "Thinking mode does not support this tool_choice", because DeepSeek turns thinking on by default.
+- **Citations** — DeepSeek ignores text-block `citations`, and `AnthropicStream` does not turn `web_search_tool_result` into grounding. A search answer therefore carries URLs only inline in its text.
+- **Usage** — DeepSeek reports the search-result input tokens only in `message_delta.usage.input_tokens` (7,996 versus 300 at `message_start` in a probe). `mergeDeltaUsage` (`core/usageConverters/anthropic.ts`) ignores delta input tokens, so ChatHub's usage and cost for a search turn leave them out.
+- **Debug** — search turns log under `DEBUG_ANTHROPIC_CHAT_COMPLETION=1`, not `DEBUG_DEEPSEEK_CHAT_COMPLETION`. `ANTHROPIC_MAX_USES` also caps searches per DeepSeek search turn.
+
 ### Provider brand icons (all providers)
 
 Standing policy: **always vendor brand marks into the repo** for first-class providers. Do not ship a letter fallback waiting on a CDN or an `@lobehub/icons` major bump. Preferred layout: `public/icons/providers/<id>.*` plus optional inline mono SVG for `currentColor` / dark mode; wire through `ProviderBrandIcon` / `ModelBrandIcon`. Agent rule: **`.cursor/rules/provider-icons.mdc`**.

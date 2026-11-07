@@ -1,9 +1,11 @@
+import type Anthropic from '@anthropic-ai/sdk';
 import { ModelProvider } from 'model-bank';
 import type OpenAI from 'openai';
 
 import { createOpenAICompatibleRuntime } from '../../core/openaiCompatibleFactory';
-import type { ChatStreamPayload, OpenAIChatMessage } from '../../types';
+import type { ChatMethodOptions, ChatStreamPayload, OpenAIChatMessage } from '../../types';
 import { MODEL_LIST_CONFIGS, processModelList } from '../../utils/modelParse';
+import { LobeAnthropicAI, normalizeAnthropicBaseURL } from '../anthropic';
 
 /**
  * DeepSeek V4 thinking mode defaults to **enabled**.
@@ -118,8 +120,43 @@ const fetchDeepSeekModels = async ({ client }: { client: OpenAI }): Promise<any[
   }
 };
 
-export const LobeDeepSeekAI = createOpenAICompatibleRuntime({
-  baseURL: 'https://api.deepseek.com',
+const DEEPSEEK_BASE_URL = 'https://api.deepseek.com';
+
+/** DeepSeek serves the Anthropic Messages API under `/anthropic` on the same host. */
+export const toDeepSeekAnthropicBaseURL = (baseURL: string = DEEPSEEK_BASE_URL): string =>
+  `${normalizeAnthropicBaseURL(baseURL)}/anthropic`;
+
+/**
+ * The shared Anthropic builder targets Claude; DeepSeek's Anthropic endpoint takes
+ * effort via `output_config`, a 0–2 temperature, and an optional `max_tokens`.
+ *
+ * @see https://api-docs.deepseek.com/guides/anthropic_api
+ */
+const shapeDeepSeekAnthropicParams = (
+  params: Anthropic.MessageCreateParams,
+  payload: ChatStreamPayload,
+): Anthropic.MessageCreateParams => {
+  const shaped: Record<string, unknown> = { ...params };
+
+  if (isThinkingEnabled(payload)) {
+    if (payload.reasoning_effort) shaped.output_config = { effort: payload.reasoning_effort };
+  } else if (payload.temperature !== undefined) {
+    shaped.temperature = payload.temperature;
+  }
+
+  if (payload.max_tokens === undefined) delete shaped.max_tokens;
+
+  return shaped as unknown as Anthropic.MessageCreateParams;
+};
+
+class DeepSeekAnthropicSearchAI extends LobeAnthropicAI {
+  protected override async buildAnthropicPayload(payload: ChatStreamPayload) {
+    return shapeDeepSeekAnthropicParams(await super.buildAnthropicPayload(payload), payload);
+  }
+}
+
+const LobeDeepSeekPlatform = createOpenAICompatibleRuntime({
+  baseURL: DEEPSEEK_BASE_URL,
   cacheSupport: 'supported',
   chatCompletion: {
     handlePayload: buildDeepSeekPayload,
@@ -130,3 +167,27 @@ export const LobeDeepSeekAI = createOpenAICompatibleRuntime({
   models: fetchDeepSeekModels,
   provider: ModelProvider.DeepSeek,
 });
+
+/**
+ * Chat Completions rejects DeepSeek's built-in `web_search` tool, and the Responses
+ * API ignores it on `deepseek-flash`. The Anthropic endpoint runs it server-side for
+ * both models, so only search turns use it.
+ */
+export class LobeDeepSeekAI extends LobeDeepSeekPlatform {
+  private anthropicSearchRuntime?: DeepSeekAnthropicSearchAI;
+
+  private getAnthropicSearchRuntime() {
+    this.anthropicSearchRuntime ??= new DeepSeekAnthropicSearchAI({
+      apiKey: this._options.apiKey,
+      baseURL: toDeepSeekAnthropicBaseURL(this.baseURL),
+      id: ModelProvider.DeepSeek,
+    });
+    return this.anthropicSearchRuntime;
+  }
+
+  override async chat(payload: ChatStreamPayload, options?: ChatMethodOptions) {
+    if (!payload.enabledSearch) return super.chat(payload, options);
+
+    return this.getAnthropicSearchRuntime().chat(payload, options);
+  }
+}

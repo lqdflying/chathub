@@ -6,6 +6,7 @@ const deepseekChatModels: AIChatModelCard[] = [
     abilities: {
       functionCall: true,
       reasoning: true,
+      search: true,
       structuredOutput: true,
       vision: true,
     },
@@ -22,6 +23,7 @@ const deepseekChatModels: AIChatModelCard[] = [
     releasedAt: '2026-09-10',
     settings: {
       extendParams: ['enableReasoning', 'reasoningEffort'],
+      searchImpl: 'params',
     },
     type: 'chat',
   },
@@ -29,6 +31,7 @@ const deepseekChatModels: AIChatModelCard[] = [
     abilities: {
       functionCall: true,
       reasoning: true,
+      search: true,
       structuredOutput: true,
     },
     contextWindowTokens: 1_048_576,
@@ -49,6 +52,7 @@ const deepseekChatModels: AIChatModelCard[] = [
     releasedAt: '2026-04-01',
     settings: {
       extendParams: ['enableReasoning', 'reasoningEffort'],
+      searchImpl: 'params',
     },
     type: 'chat',
   },

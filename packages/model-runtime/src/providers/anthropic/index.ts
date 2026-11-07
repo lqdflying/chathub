@@ -324,7 +324,7 @@ export class LobeAnthropicAI implements LobeRuntimeAI {
     }
   }
 
-  private async buildAnthropicPayload(payload: ChatStreamPayload) {
+  protected async buildAnthropicPayload(payload: ChatStreamPayload) {
     return this.applyThinkingBlockBinding(await this.buildAnthropicPayloadBase(payload));
   }
 
