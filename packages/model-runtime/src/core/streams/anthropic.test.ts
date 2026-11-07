@@ -941,4 +941,94 @@ describe('AnthropicStream', () => {
       ].map((item) => `${item}\n`),
     );
   });
+
+  it('should not emit server tool use (built-in web_search) as client tool calls', async () => {
+    const streams = [
+      {
+        type: 'message_start',
+        message: {
+          id: 'msg_server_tool',
+          type: 'message',
+          role: 'assistant',
+          model: 'claude-sonnet-5-5',
+          content: [],
+          stop_reason: null,
+          stop_sequence: null,
+          usage: { input_tokens: 10, output_tokens: 1 },
+        },
+      },
+      {
+        type: 'content_block_start',
+        index: 0,
+        content_block: {
+          type: 'server_tool_use',
+          id: 'srvtoolu_01',
+          name: 'web_search',
+          input: {},
+        },
+      },
+      {
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'input_json_delta', partial_json: '{"query": "top news today"}' },
+      },
+      { type: 'content_block_stop', index: 0 },
+      {
+        type: 'content_block_start',
+        index: 1,
+        content_block: {
+          type: 'web_search_tool_result',
+          tool_use_id: 'srvtoolu_01',
+          content: [{ type: 'web_search_result', title: 'News', url: 'https://example.com' }],
+        },
+      },
+      { type: 'content_block_stop', index: 1 },
+      {
+        type: 'content_block_start',
+        index: 2,
+        content_block: { type: 'tool_use', id: 'toolu_01', name: 'weather____fetch', input: {} },
+      },
+      {
+        type: 'content_block_delta',
+        index: 2,
+        delta: { type: 'input_json_delta', partial_json: '{"city": "Hangzhou"}' },
+      },
+      { type: 'content_block_stop', index: 2 },
+      {
+        type: 'message_delta',
+        delta: { stop_reason: 'tool_use', stop_sequence: null },
+        usage: { output_tokens: 20 },
+      },
+    ];
+
+    const mockReadableStream = new ReadableStream({
+      start(controller) {
+        streams.forEach((chunk) => controller.enqueue(chunk));
+        controller.close();
+      },
+    });
+
+    const onToolCallMock = vi.fn();
+    const protocolStream = AnthropicStream(mockReadableStream, {
+      callbacks: { onToolsCalling: onToolCallMock },
+    });
+
+    const decoder = new TextDecoder();
+    const events: string[] = [];
+
+    // @ts-ignore
+    for await (const chunk of protocolStream) {
+      events.push(decoder.decode(chunk, { stream: true }));
+    }
+
+    const toolCallData = events
+      .map((event, i) => (event === 'event: tool_calls\n' ? events[i + 1] : undefined))
+      .filter(Boolean);
+
+    expect(toolCallData).toEqual([
+      'data: [{"function":{"arguments":"","name":"weather____fetch"},"id":"toolu_01","index":0,"type":"function"}]\n\n',
+      'data: [{"function":{"arguments":"{\\"city\\": \\"Hangzhou\\"}"},"index":0,"type":"function"}]\n\n',
+    ]);
+    expect(onToolCallMock).toHaveBeenCalledTimes(2);
+  });
 });

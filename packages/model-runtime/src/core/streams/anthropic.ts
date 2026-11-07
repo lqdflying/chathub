@@ -73,7 +73,13 @@ export const transformAnthropicStream = (
           return { data: chunk.content_block.text, id: context.id, type: 'data' };
         }
 
-        case 'server_tool_use':
+        // Anthropic executes server tools and streams their results in the same
+        // response; emitting them as tool_calls makes the client run them again.
+        case 'server_tool_use': {
+          context.serverToolBlockIndex = chunk.index;
+          return { data: chunk, id: context.id, type: 'data' };
+        }
+
         case 'tool_use': {
           const toolChunk = chunk.content_block;
 
@@ -155,6 +161,10 @@ export const transformAnthropicStream = (
         }
 
         case 'input_json_delta': {
+          if (chunk.index === context.serverToolBlockIndex) {
+            return { data: chunk, id: context.id, type: 'data' };
+          }
+
           const delta = chunk.delta.partial_json;
 
           const toolCall: StreamToolCallChunkData = {

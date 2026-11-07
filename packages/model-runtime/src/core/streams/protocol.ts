@@ -60,6 +60,12 @@ export interface StreamContext {
    */
   returnedCitationArray?: ChatCitationItem[];
   /**
+   * Content block index of the latest Anthropic `server_tool_use` block (e.g. the
+   * built-in `web_search`). Anthropic runs these tools itself, so their input
+   * deltas must not be merged into client tool calls.
+   */
+  serverToolBlockIndex?: number;
+  /**
    * O series models need a condition to separate part
    */
   startReasoning?: boolean;
