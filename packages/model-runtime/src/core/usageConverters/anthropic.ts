@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { ModelUsage } from '@lobechat/types';
+import { ModelProvider } from 'model-bank';
 
 import { ChatPayloadForTransformStream } from '../streams/protocol';
 import { withUsageCost } from './utils/withUsageCost';
@@ -55,6 +56,25 @@ const mergeDeltaUsage = (
   return base;
 };
 
+/**
+ * DeepSeek's final `message_delta.usage` is the request total. It includes the
+ * built-in search results, which `message_start` does not count.
+ *
+ * @see https://api-docs.deepseek.com/guides/anthropic_api
+ */
+const buildDeepSeekDeltaUsage = (
+  previousUsage: ModelUsage | undefined,
+  usage: Anthropic.MessageDeltaUsage,
+): ModelUsage => {
+  const totals = buildInitialUsage(usage as Anthropic.Messages.Usage);
+
+  return {
+    ...previousUsage,
+    ...totals,
+    totalTokens: (totals?.totalInputTokens ?? 0) + (totals?.totalOutputTokens ?? 0),
+  };
+};
+
 export const convertAnthropicUsage = (
   messageEvent: Anthropic.MessageStreamEvent,
   streamContextUsage?: ModelUsage,
@@ -65,7 +85,10 @@ export const convertAnthropicUsage = (
       return buildInitialUsage(messageEvent.message.usage);
     }
     case 'message_delta': {
-      const usage = mergeDeltaUsage(streamContextUsage, messageEvent.usage);
+      const usage =
+        payload?.provider === ModelProvider.DeepSeek && messageEvent.usage
+          ? buildDeepSeekDeltaUsage(streamContextUsage, messageEvent.usage)
+          : mergeDeltaUsage(streamContextUsage, messageEvent.usage);
       return usage && withUsageCost(usage, payload?.pricing, payload?.pricingOptions);
     }
     default: {
