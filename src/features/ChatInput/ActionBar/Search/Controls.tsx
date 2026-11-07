@@ -7,7 +7,10 @@ import { memo, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Center, Flexbox } from 'react-layout-kit';
 
-import { isModelNativeSearchDisabledProvider } from '@/helpers/modelNativeSearch';
+import {
+  isModelNativeSearchDisabledProvider,
+  resolveUseModelBuiltinSearch,
+} from '@/helpers/modelNativeSearch';
 import { useAgentStore } from '@/store/agent';
 import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/slices/chat';
 import { aiModelSelectors, aiProviderSelectors, useAiInfraStore } from '@/store/aiInfra';
@@ -166,7 +169,8 @@ const Controls = memo(() => {
     !supportFC &&
     (nativeSearchDisabled ||
       !modelBuiltinSearchImpl ||
-      (!isModelBuiltinSearchInternal && !useModelBuiltinSearch));
+      (!isModelBuiltinSearchInternal &&
+        !resolveUseModelBuiltinSearch(provider, useModelBuiltinSearch)));
 
   const showDivider = showModelBuiltinSearch || showFCSearchModel;
 

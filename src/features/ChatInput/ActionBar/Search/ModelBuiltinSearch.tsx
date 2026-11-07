@@ -6,6 +6,7 @@ import { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
+import { resolveUseModelBuiltinSearch } from '@/helpers/modelNativeSearch';
 import { useAgentStore } from '@/store/agent';
 import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selectors';
 import { aiModelSelectors, useAiInfraStore } from '@/store/aiInfra';
@@ -32,12 +33,13 @@ const SearchEngineIcon = ({ icon }: SearchEngineIconProps) => {
 
 const ModelBuiltinSearch = memo(() => {
   const { t } = useTranslation('chat');
-  const [model, provider, checked, updateAgentChatConfig] = useAgentStore((s) => [
+  const [model, provider, savedChecked, updateAgentChatConfig] = useAgentStore((s) => [
     agentSelectors.currentAgentModel(s),
     agentSelectors.currentAgentModelProvider(s),
     agentChatConfigSelectors.useModelBuiltinSearch(s),
     s.updateAgentChatConfig,
   ]);
+  const checked = resolveUseModelBuiltinSearch(provider, savedChecked);
 
   const [isLoading, setLoading] = useState(false);
   const modelCard = useAiInfraStore(aiModelSelectors.getEnabledModelById(model, provider));

@@ -46,6 +46,67 @@ describe('resolveModelSearchConfig', () => {
       },
       input: {
         modelSearchImpl: 'params' as const,
+        provider: ModelProvider.DeepSeek,
+        searchMode: 'auto' as const,
+      },
+      name: 'DeepSeek built-in search on by default',
+    },
+    {
+      expected: {
+        enabledSearch: true,
+        isModelHasBuiltinSearch: true,
+        isProviderHasBuiltinSearch: false,
+        useApplicationBuiltinSearchTool: true,
+        useModelSearch: false,
+      },
+      input: {
+        modelSearchImpl: 'params' as const,
+        provider: ModelProvider.DeepSeek,
+        searchMode: 'auto' as const,
+        useModelBuiltinSearch: false,
+      },
+      name: 'DeepSeek built-in search turned off',
+    },
+    {
+      expected: {
+        enabledSearch: true,
+        isModelHasBuiltinSearch: true,
+        isProviderHasBuiltinSearch: false,
+        useApplicationBuiltinSearchTool: false,
+        useModelSearch: true,
+      },
+      input: {
+        modelSearchImpl: 'params' as const,
+        provider: ModelProvider.Anthropic,
+        searchMode: 'auto' as const,
+      },
+      name: 'Claude built-in search on by default',
+    },
+    {
+      expected: {
+        enabledSearch: true,
+        isModelHasBuiltinSearch: true,
+        isProviderHasBuiltinSearch: false,
+        useApplicationBuiltinSearchTool: true,
+        useModelSearch: false,
+      },
+      input: {
+        modelSearchImpl: 'params' as const,
+        provider: ModelProvider.Zhipu,
+        searchMode: 'auto' as const,
+      },
+      name: 'other providers keep built-in search off by default',
+    },
+    {
+      expected: {
+        enabledSearch: true,
+        isModelHasBuiltinSearch: true,
+        isProviderHasBuiltinSearch: false,
+        useApplicationBuiltinSearchTool: false,
+        useModelSearch: true,
+      },
+      input: {
+        modelSearchImpl: 'params' as const,
         provider: ModelProvider.Zhipu,
         searchMode: 'on' as const,
         useModelBuiltinSearch: true,

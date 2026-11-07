@@ -41,6 +41,7 @@ import { buildHistorySummaryForRequest } from '@/helpers/memoryArchivePrompt';
 import {
   getMimoTokenPlanEnvHint,
   isModelNativeSearchDisabledProvider,
+  resolveUseModelBuiltinSearch,
 } from '@/helpers/modelNativeSearch';
 import {
   createGenerationDebugSpanId,
@@ -912,7 +913,10 @@ export const generateAIChat: StateCreator<
       model,
       provider!,
     )(aiInfraStoreState);
-    const useModelBuiltinSearch = !!chatConfig.useModelBuiltinSearch;
+    const useModelBuiltinSearch = resolveUseModelBuiltinSearch(
+      provider,
+      chatConfig.useModelBuiltinSearch,
+    );
     const providerBaseURL = aiProviderSelectors.providerKeyVaults(provider!)(
       aiInfraStoreState,
     )?.baseURL;

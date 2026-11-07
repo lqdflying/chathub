@@ -16,6 +16,17 @@ export const getMimoTokenPlanEnvHint = (): boolean => {
 };
 
 /**
+ * The "Use the model's built-in search engine" toggle starts on for these providers,
+ * whose built-in search runs server-side. `anthropiccompatible` is left out: a
+ * third-party gateway may not run Anthropic's `web_search` server tool.
+ */
+const MODEL_BUILTIN_SEARCH_DEFAULT_ON_PROVIDERS = new Set(['anthropic', 'deepseek']);
+
+/** A saved choice wins over the provider default. */
+export const resolveUseModelBuiltinSearch = (provider?: string, saved?: boolean): boolean =>
+  saved ?? (!!provider && MODEL_BUILTIN_SEARCH_DEFAULT_ON_PROVIDERS.has(provider));
+
+/**
  * Providers whose model-native search ChatHub must not select.
  * Moonshot: `$web_search` is not offered. MiMo Token Plan: native
  * `{ type: web_search }` is omitted by the adapter (plugin gate), so native

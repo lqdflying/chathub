@@ -10,7 +10,10 @@ import { resolveGPT5ReasoningEffort, resolveXaiReasoningEffort } from '@lobechat
 import type { ExtendParamsType, ModelSearchImplementType } from 'model-bank';
 import { ModelProvider } from 'model-bank';
 
-import { isModelNativeSearchDisabledProvider } from '@/helpers/modelNativeSearch';
+import {
+  isModelNativeSearchDisabledProvider,
+  resolveUseModelBuiltinSearch,
+} from '@/helpers/modelNativeSearch';
 
 const VALID_REASONING_EFFORTS = new Set(['low', 'medium', 'high']);
 
@@ -70,7 +73,8 @@ export const resolveModelSearchConfig = ({
   });
   const useModelSearch = modelNativeSearchDisabled
     ? false
-    : ((providerHasBuiltinSearch || isModelHasBuiltinSearch) && useModelBuiltinSearch) ||
+    : ((providerHasBuiltinSearch || isModelHasBuiltinSearch) &&
+        resolveUseModelBuiltinSearch(provider, useModelBuiltinSearch)) ||
       modelSearchImpl === 'internal' ||
       false;
 

@@ -40,6 +40,7 @@ import { getModelContextWindowTokens } from '@/helpers/modelContextWindowTokens'
 import {
   getMimoTokenPlanEnvHint,
   isModelNativeSearchDisabledProvider,
+  resolveUseModelBuiltinSearch,
 } from '@/helpers/modelNativeSearch';
 import {
   compactionEstimateForSendGate,
@@ -1923,7 +1924,10 @@ export const generateAIChatV2: StateCreator<
         model,
         provider!,
       )(aiInfraStoreState);
-      const useModelBuiltinSearch = !!agentRuntime.chatConfig.useModelBuiltinSearch;
+      const useModelBuiltinSearch = resolveUseModelBuiltinSearch(
+        provider,
+        agentRuntime.chatConfig.useModelBuiltinSearch,
+      );
       const providerBaseURL = aiProviderSelectors.providerKeyVaults(provider!)(
         aiInfraStoreState,
       )?.baseURL;

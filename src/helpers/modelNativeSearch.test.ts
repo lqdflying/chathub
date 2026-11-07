@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { isModelNativeSearchDisabledProvider } from './modelNativeSearch';
+import {
+  isModelNativeSearchDisabledProvider,
+  resolveUseModelBuiltinSearch,
+} from './modelNativeSearch';
 
 describe('isModelNativeSearchDisabledProvider', () => {
   it.each(['moonshot'])('returns true for %s', (provider) => {
@@ -53,5 +56,20 @@ describe('isModelNativeSearchDisabledProvider', () => {
         mimoTokenPlanEnv: true,
       }),
     ).toBe(false);
+  });
+});
+
+describe('resolveUseModelBuiltinSearch', () => {
+  it.each([
+    { expected: true, provider: 'deepseek', saved: undefined },
+    { expected: false, provider: 'deepseek', saved: false },
+    { expected: true, provider: 'anthropic', saved: undefined },
+    { expected: false, provider: 'anthropic', saved: false },
+    { expected: false, provider: 'anthropiccompatible', saved: undefined },
+    { expected: false, provider: undefined, saved: undefined },
+    { expected: false, provider: 'zhipu', saved: undefined },
+    { expected: true, provider: 'zhipu', saved: true },
+  ])('returns $expected for $provider with saved $saved', ({ expected, provider, saved }) => {
+    expect(resolveUseModelBuiltinSearch(provider, saved)).toBe(expected);
   });
 });
