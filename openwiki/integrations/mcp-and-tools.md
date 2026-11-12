@@ -299,6 +299,50 @@ For built-in Tools Hub features, also check:
 3. tests beside the feature and server service
 4. all three `tools` locale sources
 
+## Web search providers and page crawlers
+
+The built-in web browsing tool reaches the server through
+`src/server/routers/tools/search.ts`, which calls `SearchService`
+(`src/server/services/search/index.ts`). Two registries decide what runs:
+
+- **Search**: `createSearchServiceImpl` in `src/server/services/search/impls/index.ts`
+  maps a `SearchImplType` to an adapter. `SEARCH_PROVIDERS` is a comma-separated
+  list, and only its first entry is used. Unset selects `searxng`.
+- **Crawl**: `crawlImpls` in `packages/web-crawler/src/crawImpl/index.ts`.
+  `CRAWLER_IMPLS` is an ordered list; `Crawler.crawl` tries each entry until one
+  returns more than 100 characters. Unset uses `jina`, `naive`, `search1api`,
+  `browserless`.
+
+### DeepSeek Search and Fetch
+
+`deepseek` is registered in both registries
+([guide](https://api-docs.deepseek.com/guides/search)). This is separate from the
+model built-in search described in `openwiki/architecture/model-runtime.md`,
+which runs inside a chat request.
+
+- **Search**: `DeepSeekImpl` (`src/server/services/search/impls/deepseek/index.ts`)
+  posts `{ query, count: 15 }` to `https://api.deepseek.com/v1/tools/search`.
+  Result `summary` (the field DeepSeek writes for a model) becomes `content`,
+  with `snippet` as the fallback; `rerank_score` becomes `score`.
+- **Time range**: the API has no time-range field. `day`, `week`, `month`, and
+  `year` become an `after:YYYY-MM-DD` query operator. Any other value sends no
+  operator.
+- **Query length**: the API rejects more than 128 characters, so the query is
+  cut to fit, leaving room for the `after:` operator.
+- **Fetch**: `deepseek` (`packages/web-crawler/src/crawImpl/deepseek.ts`) posts
+  `{ url }` to `https://api.deepseek.com/v1/tools/fetch` and returns the Markdown
+  `content`. A 404 becomes `PageNotFoundError`. It is not in the default crawler
+  list, so the paid API runs only when `CRAWLER_IMPLS` names it.
+- **Key**: both read the server `DEEPSEEK_API_KEY`. The value may be a
+  comma-separated pool: Search picks a key through `apiKeyManager.pick`
+  (`API_KEY_SELECT_MODE`); the crawler package cannot import the app alias and
+  uses the first key. A key a user saved in Settings is not used.
+- **Endpoint**: fixed at `https://api.deepseek.com`. `DEEPSEEK_PROXY_URL` does
+  not apply.
+- **Per-request crawler override**: the `crawlPages` input enum in
+  `src/server/routers/tools/search.ts` allows `jina`, `naive`, and `browserless`
+  only, so a caller cannot name `deepseek` for one request.
+
 ## Key source references
 
 - `src/services/mcp.ts`

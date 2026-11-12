@@ -13,7 +13,10 @@ interface DeepSeekFetchResponse {
  * @see https://api-docs.deepseek.com/guides/search
  */
 export const deepseek: CrawlImpl = async (url) => {
-  const apiKey = process.env.DEEPSEEK_API_KEY;
+  // DEEPSEEK_API_KEY may hold a comma-separated key pool; a bearer token takes one key
+  const apiKey = process.env.DEEPSEEK_API_KEY?.split(',')
+    .map((key) => key.trim())
+    .find(Boolean);
 
   let res: Response;
 

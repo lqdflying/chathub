@@ -85,6 +85,23 @@ describe('DeepSeekImpl', () => {
     expect(query).toMatch(/ after:\d{4}-\d{2}-\d{2}$/);
   });
 
+  it('ignores a time range that is not a supported value', async () => {
+    const fetchMock = mockFetch({ json: async () => ({ results: [] }), ok: true });
+
+    await new DeepSeekImpl().query('x', { searchTimeRange: 'toString' });
+
+    expect(sentBody(fetchMock).query).toBe('x');
+  });
+
+  it('sends one key from a comma-separated key pool', async () => {
+    process.env.DEEPSEEK_API_KEY = 'key-one,key-two';
+    const fetchMock = mockFetch({ json: async () => ({ results: [] }), ok: true });
+
+    await new DeepSeekImpl().query('DeepSeek');
+
+    expect(fetchMock.mock.calls[0][1].headers.Authorization).toMatch(/^Bearer key-(one|two)$/);
+  });
+
   it('throws SERVICE_UNAVAILABLE on a non-200 response', async () => {
     mockFetch({ ok: false, status: 429, statusText: 'Too Many Requests', text: async () => '{}' });
 

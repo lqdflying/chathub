@@ -3,6 +3,8 @@ import { TRPCError } from '@trpc/server';
 import debug from 'debug';
 import urlJoin from 'url-join';
 
+import apiKeyManager from '@/server/modules/ModelRuntime/apiKeyManager';
+
 import { SearchServiceImpl } from '../type';
 import { DeepSeekResponse, DeepSeekSearchParameters } from './type';
 
@@ -22,7 +24,11 @@ const timeRangeDays = {
  * The API has no time-range field; it reads an `after:YYYY-MM-DD` operator in the query.
  */
 const buildQuery = (query: string, searchTimeRange?: string): string => {
-  const days = timeRangeDays[searchTimeRange as keyof typeof timeRangeDays];
+  // `searchTimeRange` is an unvalidated string, so read own keys only
+  const days =
+    searchTimeRange && Object.hasOwn(timeRangeDays, searchTimeRange)
+      ? timeRangeDays[searchTimeRange as keyof typeof timeRangeDays]
+      : undefined;
   const operator = days
     ? ` after:${new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10)}`
     : '';
@@ -36,8 +42,9 @@ const buildQuery = (query: string, searchTimeRange?: string): string => {
  * @see https://api-docs.deepseek.com/guides/search
  */
 export class DeepSeekImpl implements SearchServiceImpl {
-  private get apiKey(): string | undefined {
-    return process.env.DEEPSEEK_API_KEY;
+  // DEEPSEEK_API_KEY may hold a comma-separated key pool, as it does for chat
+  private get apiKey(): string {
+    return apiKeyManager.pick(process.env.DEEPSEEK_API_KEY);
   }
 
   private get baseUrl(): string {

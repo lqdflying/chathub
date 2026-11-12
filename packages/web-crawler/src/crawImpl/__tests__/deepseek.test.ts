@@ -45,6 +45,15 @@ describe('deepseek crawler', () => {
     });
   });
 
+  it('sends one key from a comma-separated key pool', async () => {
+    process.env.DEEPSEEK_API_KEY = 'key-one,key-two';
+    const fetchMock = mockFetch({ json: async () => ({ content, title: '' }), ok: true });
+
+    await deepseek('https://example.com/article', { filterOptions: {} });
+
+    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe('Bearer key-one');
+  });
+
   it('returns undefined for short content', async () => {
     mockFetch({ json: async () => ({ content: 'short', title: '' }), ok: true });
 
