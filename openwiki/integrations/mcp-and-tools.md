@@ -309,9 +309,13 @@ The built-in web browsing tool reaches the server through
   maps a `SearchImplType` to an adapter. `SEARCH_PROVIDERS` is a comma-separated
   list, and only its first entry is used. Unset selects `searxng`.
 - **Crawl**: `crawlImpls` in `packages/web-crawler/src/crawImpl/index.ts`.
-  `CRAWLER_IMPLS` is an ordered list; `Crawler.crawl` tries each entry until one
-  returns more than 100 characters. Unset uses `jina`, `naive`, `search1api`,
-  `browserless`.
+  `Crawler.crawl` tries an ordered list until one entry returns more than 100
+  characters. The list is the first of these that exists: the per-request
+  `impls` input, the `impls` of a matching rule in
+  `packages/web-crawler/src/urlRules.ts`, then `CRAWLER_IMPLS`. Unset
+  `CRAWLER_IMPLS` uses `jina`, `naive`, `search1api`, `browserless`. A URL rule
+  therefore replaces `CRAWLER_IMPLS` for its URLs: a PDF link goes to `jina` and
+  a GitHub file link to `naive` then `jina`, whatever `CRAWLER_IMPLS` holds.
 
 ### DeepSeek Search and Fetch
 
@@ -332,7 +336,8 @@ which runs inside a chat request.
 - **Fetch**: `deepseek` (`packages/web-crawler/src/crawImpl/deepseek.ts`) posts
   `{ url }` to `https://api.deepseek.com/v1/tools/fetch` and returns the Markdown
   `content`. A 404 becomes `PageNotFoundError`. It is not in the default crawler
-  list, so the paid API runs only when `CRAWLER_IMPLS` names it.
+  list or in any URL rule, so the paid API runs only when `CRAWLER_IMPLS` names
+  it and no URL rule matches.
 - **Key**: both read the server `DEEPSEEK_API_KEY`. The value may be a
   comma-separated pool: Search picks a key through `apiKeyManager.pick`
   (`API_KEY_SELECT_MODE`); the crawler package cannot import the app alias and

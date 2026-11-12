@@ -42,11 +42,6 @@ const buildQuery = (query: string, searchTimeRange?: string): string => {
  * @see https://api-docs.deepseek.com/guides/search
  */
 export class DeepSeekImpl implements SearchServiceImpl {
-  // DEEPSEEK_API_KEY may hold a comma-separated key pool, as it does for chat
-  private get apiKey(): string {
-    return apiKeyManager.pick(process.env.DEEPSEEK_API_KEY);
-  }
-
   private get baseUrl(): string {
     return 'https://api.deepseek.com';
   }
@@ -60,6 +55,10 @@ export class DeepSeekImpl implements SearchServiceImpl {
       query: buildQuery(query, params.searchTimeRange),
     };
 
+    // DEEPSEEK_API_KEY may hold a comma-separated key pool, as it does for chat.
+    // Pick once per request: each pick advances the pool in `turn` mode.
+    const apiKey = apiKeyManager.pick(process.env.DEEPSEEK_API_KEY);
+
     log('Constructed request body: %o', body);
 
     let response: Response;
@@ -70,7 +69,7 @@ export class DeepSeekImpl implements SearchServiceImpl {
       response = await fetch(endpoint, {
         body: JSON.stringify(body),
         headers: {
-          'Authorization': this.apiKey ? `Bearer ${this.apiKey}` : '',
+          'Authorization': apiKey ? `Bearer ${apiKey}` : '',
           'Content-Type': 'application/json',
         },
         method: 'POST',

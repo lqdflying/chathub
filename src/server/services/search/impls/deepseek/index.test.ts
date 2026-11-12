@@ -1,6 +1,8 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import apiKeyManager from '@/server/modules/ModelRuntime/apiKeyManager';
+
 import { DeepSeekImpl } from './index';
 
 const mockFetch = (response: Partial<Response>) => {
@@ -19,6 +21,7 @@ describe('DeepSeekImpl', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
     vi.useRealTimers();
     delete process.env.DEEPSEEK_API_KEY;
   });
@@ -100,6 +103,21 @@ describe('DeepSeekImpl', () => {
     await new DeepSeekImpl().query('DeepSeek');
 
     expect(fetchMock.mock.calls[0][1].headers.Authorization).toMatch(/^Bearer key-(one|two)$/);
+  });
+
+  it('picks one key per request so a turn-mode pool advances by one', async () => {
+    const pick = vi
+      .spyOn(apiKeyManager, 'pick')
+      .mockReturnValueOnce('key-one')
+      .mockReturnValueOnce('key-two');
+    const fetchMock = mockFetch({ json: async () => ({ results: [] }), ok: true });
+
+    await new DeepSeekImpl().query('DeepSeek');
+    await new DeepSeekImpl().query('DeepSeek');
+
+    expect(pick).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe('Bearer key-one');
+    expect(fetchMock.mock.calls[1][1].headers.Authorization).toBe('Bearer key-two');
   });
 
   it('throws SERVICE_UNAVAILABLE on a non-200 response', async () => {
