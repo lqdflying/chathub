@@ -30,10 +30,13 @@ export const store: CreateStore = (publicState) => (set, get) => ({
     return get().editor?.getDocument('json');
   },
   getMarkdownContent: () => {
-    const content = String(get().editor?.getDocument('markdown') || '').trimEnd();
+    const editor = get().editor;
 
-    // A box that holds only the thin-client IME primer is empty.
-    return content === IME_PRIMER ? '' : content;
+    // A box whose only text is the thin-client IME primer is empty. Markdown cannot
+    // tell: it wraps the primer in the caret's format and block markers.
+    if (String(editor?.getDocument('text') || '').trim() === IME_PRIMER) return '';
+
+    return String(editor?.getDocument('markdown') || '').trimEnd();
   },
   handleSendButton: () => {
     if (!get().editor) return;

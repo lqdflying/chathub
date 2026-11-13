@@ -149,7 +149,10 @@ text node holding one zero-width space (`IME_PRIMER`, U+200B, the character Lexi
 itself inserts on `compositionstart` in an empty block), with the caret after it
 (`ime-prime`). The thin client then maps the composition to that node like any existing
 text: this automates the field-proven workaround of typing one character first. The
-primer is not placed while the last key was `Process`, without focus, or mid-composition.
+primer is not placed while the last key was `Process`, without focus, or mid-composition:
+a `Process` keydown arrives after the local IME has opened its composition, which is too
+late to give that composition a text node, and every IME that runs in the browser itself
+reports the same key.
 
 The primer is real text in the model, so the two sides of the thin client stay equal.
 It is removed (`ime-strip`) from the start of the caret's text node before any key the
@@ -157,8 +160,10 @@ IME does not consume and on any `pointerdown`, which covers Enter and the send b
 and keeps it out of the way of a typed `/` or markdown shortcut. Both edits carry
 `HISTORY_MERGE_TAG`, so they add no undo step. A box that holds only the primer is
 empty for the app: `getMarkdownContent` (`src/features/ChatInput/store/action.ts`)
-returns `''` for it, and the unload warning in `InputEditor/index.tsx` checks that
-value. The placeholder is hidden while the primer is present, because
+returns `''` when the editor's plain text is the primer alone, and the unload warning in
+`InputEditor/index.tsx` checks that value. The check reads the plain text because the
+primer takes the caret's format and block, which Markdown serializes as `**​**` or
+`- ​`. The placeholder is hidden while the primer is present, because
 `@lobehub/editor` decides that from the untrimmed root text.
 
 A diagnostic probe logs every `beforeinput`/`input`/`textInput`/`keydown`/

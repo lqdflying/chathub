@@ -1053,6 +1053,19 @@ describe('ReplacementTextPlugin', () => {
 
       expect(getText(editor)).toBe('');
     });
+
+    it('primes the emptied box again after a click that follows an IME key', async () => {
+      // The key that commits a word is a `Process` key too. Sending by click then
+      // empties the box, and the next word needs a primer.
+      const { editor } = await createPrimedEditor();
+
+      pressKey(editor, 'Process');
+      document.dispatchEvent(new Event('pointerdown'));
+      initEmpty(editor);
+      await settle();
+
+      expect(getText(editor)).toBe(IME_PRIMER);
+    });
   });
 
   describe('preventDefault-ignored guard', () => {
