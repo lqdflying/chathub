@@ -1,5 +1,6 @@
 import { StateCreator } from 'zustand/vanilla';
 
+import { IME_PRIMER } from '../InputEditor/imePrimer';
 import { PublicState, State, initialState } from './initialState';
 
 export interface Action {
@@ -29,7 +30,10 @@ export const store: CreateStore = (publicState) => (set, get) => ({
     return get().editor?.getDocument('json');
   },
   getMarkdownContent: () => {
-    return String(get().editor?.getDocument('markdown') || '').trimEnd();
+    const content = String(get().editor?.getDocument('markdown') || '').trimEnd();
+
+    // A box that holds only the thin-client IME primer is empty.
+    return content === IME_PRIMER ? '' : content;
   },
   handleSendButton: () => {
     if (!get().editor) return;

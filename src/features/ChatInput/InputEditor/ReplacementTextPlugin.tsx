@@ -8,9 +8,12 @@ import {
   $isTextNode,
   COMMAND_PRIORITY_CRITICAL,
   CONTROLLED_TEXT_INSERTION_COMMAND,
+  HISTORY_MERGE_TAG,
   type LexicalEditor,
 } from 'lexical';
 import { memo } from 'react';
+
+import { IME_PRIMER } from './imePrimer';
 
 const DEBUG_FLAG = 'lobe_replacement_debug';
 const DEBUG_OVERLAY_ID = 'replacement-debug-overlay';
@@ -24,6 +27,9 @@ const PROBE_EVENTS = [
   'compositionend',
 ] as const;
 const MODIFIER_KEYS = new Set(['Alt', 'AltGraph', 'CapsLock', 'Control', 'Meta', 'Shift']);
+const THIN_CLIENT_IME_FLAG = 'lobe_thin_client_ime';
+// Long enough for the default action of the key or click that scheduled the primer.
+const PRIME_DELAY = 50;
 
 // Isolation thin clients can fill a synthetic event's dataTransfer with the UTF-8 bytes
 // of the text, one byte per UTF-16 unit ("啊" arrives as "å\u0095\u008A"). The intact
@@ -226,13 +232,9 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
   // An isolation thin client runs the IME locally: the editor sees no composition
   // events, only `Process` keydowns followed by synthetic replacement events.
   let imeKeyActive = false;
-  // Latest text of a composition the thin client could not map to an editor text node.
-  let imePending: string | null = null;
-  // That composition's text already in the document; its next state replaces it. `open`
-  // marks text a click inserted before the composition ended: its next state replaces
-  // it whole ("ni'hao" → "你好"), where committed text is only replaced by its extension.
-  let imeApplied: { open: boolean; text: string } | null = null;
-  let pendingImeInput: { timeStamp: number } | null = null;
+  // Such an IME has been seen in this browser profile; turns the primer on.
+  let thinClientIme = false;
+  let primeTimer: ReturnType<typeof setTimeout> | undefined;
   let debugEnabled = false;
 
   const getDocSnapshot = () => {
@@ -394,57 +396,78 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
     });
   };
 
-  const applyImeText = (text: string, open = false) => {
-    const applied = imeApplied;
+  // The thin client relays a composition only into a text node that already exists at
+  // the caret. Composing where there is none (an empty box) reaches the editor as one
+  // unmapped event and then nothing at all. So while the editor is focused and idle, a
+  // caret outside any text node gets a zero-width text node to compose in.
+  const prime = () => {
+    if (!thinClientIme || imeKeyActive || !rootElement || editor.isComposing()) return;
+    if (rootElement.ownerDocument.activeElement !== rootElement) return;
+
+    let primed = false;
 
     editor.update(
       () => {
         const selection = $getSelection();
 
-        if (!$isRangeSelection(selection)) return;
-
         if (
-          applied &&
-          (applied.open || text.startsWith(applied.text)) &&
-          selection.isCollapsed() &&
-          selection.anchor.type === 'text'
-        ) {
-          const anchorNode = selection.anchor.getNode();
-          const { offset } = selection.anchor;
+          !$isRangeSelection(selection) ||
+          !selection.isCollapsed() ||
+          selection.anchor.type !== 'element'
+        )
+          return;
 
-          if (
-            $isTextNode(anchorNode) &&
-            anchorNode.getTextContent().slice(0, offset).endsWith(applied.text)
-          )
-            selection.setTextNodeRange(
-              anchorNode,
-              offset - applied.text.length,
-              anchorNode,
-              offset,
-            );
+        selection.insertText(IME_PRIMER);
+        primed = true;
+      },
+      { discrete: true, tag: HISTORY_MERGE_TAG },
+    );
+
+    if (primed && debugEnabled) debugPrint(`decision: ime-prime doc="${getDocSnapshot()}"`, true);
+  };
+
+  const schedulePrime = () => {
+    if (!thinClientIme) return;
+
+    clearTimeout(primeTimer);
+    primeTimer = setTimeout(prime, PRIME_DELAY);
+  };
+
+  // The primer must not reach a sent message, and it would stand between the line start
+  // and a typed "/" or markdown shortcut. It leaves before any key the IME does not
+  // consume and before any click.
+  const stripPrimer = () => {
+    if (!thinClientIme) return;
+
+    let stripped = false;
+
+    editor.update(
+      () => {
+        const selection = $getSelection();
+
+        if (!$isRangeSelection(selection) || selection.anchor.type !== 'text') return;
+
+        const node = selection.anchor.getNode();
+
+        if (!$isTextNode(node) || !node.getTextContent().startsWith(IME_PRIMER)) return;
+
+        stripped = true;
+
+        if (node.getTextContentSize() === 1) {
+          node.remove();
+          return;
         }
 
-        selection.insertText(text);
+        node.spliceText(0, 1, '');
+        for (const point of [selection.anchor, selection.focus])
+          if (point.key === node.getKey() && point.offset > 0)
+            point.set(point.key, point.offset - 1, 'text');
       },
-      { discrete: true },
+      { discrete: true, tag: HISTORY_MERGE_TAG },
     );
-    imeApplied = { open, text };
+
+    if (stripped && debugEnabled) debugPrint(`decision: ime-strip doc="${getDocSnapshot()}"`, true);
   };
-
-  const flushImePending = (open = false) => {
-    if (imePending === null) return;
-
-    const text = imePending;
-
-    imePending = null;
-    if (debugEnabled)
-      debugPrint(`decision: ime-flush ${JSON.stringify(text)} doc="${getDocSnapshot()}"`, true);
-    applyImeText(text, open);
-  };
-
-  // A click (the send button, another caret position) reads or moves the document, so
-  // held text has to be in it first. The click does not end the composition.
-  const handlePointerDown = () => flushImePending(true);
 
   const handleKeyDown = (event: Event) => {
     const { key } = event as KeyboardEvent;
@@ -458,8 +481,18 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
 
     // A key the IME did not consume means no composition is open any more.
     imeKeyActive = false;
-    flushImePending();
-    imeApplied = null;
+    stripPrimer();
+  };
+
+  // A click ends a composition too, and the send button reads the document.
+  const handlePointerDown = () => {
+    imeKeyActive = false;
+    stripPrimer();
+  };
+
+  // Composition events mean the IME runs in this browser, not behind a thin client.
+  const handleCompositionStart = () => {
+    imeKeyActive = false;
   };
 
   const handleBeforeInput = (event: Event) => {
@@ -467,7 +500,6 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
 
     pendingTrusted = null;
     pendingSyntheticApply = null;
-    pendingImeInput = null;
 
     if (!isEditorTarget(inputEvent.target)) return;
 
@@ -500,40 +532,13 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
       return;
     }
 
-    if (imeTarget === 'unmapped' && replacementText) {
-      setLexicalHandled(inputEvent);
-      pendingImeInput = { timeStamp: inputEvent.timeStamp };
-
-      // Pinyin composes in Latin letters, so letters mean the word is still being
-      // composed. Inserting them would rebuild the paragraph under the thin client's
-      // local composition and end it, so they wait for the committed text or for the
-      // next key the IME does not consume. An IME that composes in another script
-      // (kana, Hangul, Zhuyin) has no such marker: its text is inserted as it arrives.
-      if (/[a-z]/i.test(replacementText)) {
-        imePending = replacementText;
-        if (debugEnabled)
-          debugPrint(
-            `decision: ime-hold ${JSON.stringify(replacementText)} doc="${getDocSnapshot()}"`,
-            true,
-          );
-      } else {
-        imePending = null;
-        if (debugEnabled)
-          debugPrint(
-            `decision: ime-commit ${JSON.stringify(replacementText)} doc="${getDocSnapshot()}"`,
-            true,
-          );
-        applyImeText(replacementText);
+    if (imeKeyActive && synthetic && isReplacement && replacementText && !thinClientIme) {
+      thinClientIme = true;
+      try {
+        globalThis.localStorage?.setItem(THIN_CLIENT_IME_FLAG, '1');
+      } catch {
+        // The primer still works for this page load.
       }
-
-      return;
-    }
-
-    // Any other event that carries text targets the document itself, so held text
-    // belongs in front of it.
-    if (replacementText) {
-      flushImePending();
-      imeApplied = null;
     }
 
     if (isReplacement) {
@@ -646,21 +651,13 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
   const handleInput = (event: Event) => {
     const armed = pendingTrusted;
     const armedSynthetic = pendingSyntheticApply;
-    const armedIme = pendingImeInput;
 
     pendingTrusted = null;
     pendingSyntheticApply = null;
-    pendingImeInput = null;
 
     const inputEvent = event as InputEvent;
 
     if (!isEditorTarget(inputEvent.target)) return;
-
-    // The beforeinput of this pair already held or applied the text.
-    if (armedIme && !inputEvent.isTrusted && inputEvent.timeStamp - armedIme.timeStamp <= 100) {
-      setLexicalHandled(inputEvent);
-      return;
-    }
 
     if (!armed) {
       // Payload-on-input shape: a payload-less synthetic replacement beforeinput was
@@ -776,15 +773,15 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
     (nextRootElement, previousRootElement) => {
       pendingTrusted = null;
       pendingSyntheticApply = null;
-      pendingImeInput = null;
       imeKeyActive = false;
-      imePending = null;
-      imeApplied = null;
+      clearTimeout(primeTimer);
 
       if (previousRootElement) {
         previousRootElement.removeEventListener('beforeinput', handleBeforeInput, true);
         previousRootElement.removeEventListener('input', handleInput, true);
         previousRootElement.removeEventListener('keydown', handleKeyDown, true);
+        previousRootElement.removeEventListener('compositionstart', handleCompositionStart, true);
+        previousRootElement.removeEventListener('focus', schedulePrime, true);
         previousRootElement.ownerDocument.removeEventListener(
           'pointerdown',
           handlePointerDown,
@@ -799,7 +796,14 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
         nextRootElement.addEventListener('beforeinput', handleBeforeInput, true);
         nextRootElement.addEventListener('input', handleInput, true);
         nextRootElement.addEventListener('keydown', handleKeyDown, true);
+        nextRootElement.addEventListener('compositionstart', handleCompositionStart, true);
+        nextRootElement.addEventListener('focus', schedulePrime, true);
         nextRootElement.ownerDocument.addEventListener('pointerdown', handlePointerDown, true);
+        try {
+          thinClientIme = globalThis.localStorage?.getItem(THIN_CLIENT_IME_FLAG) === '1';
+        } catch {
+          thinClientIme = false;
+        }
 
         if (debugEnabled)
           for (const type of PROBE_EVENTS) nextRootElement.addEventListener(type, handleProbe, true);
@@ -809,7 +813,11 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
     },
   );
 
+  // Sending or deleting can leave the caret without a text node again.
+  const unregisterUpdateListener = editor.registerUpdateListener(schedulePrime);
+
   return () => {
+    unregisterUpdateListener();
     unregisterRootListener();
     unregisterCommand();
   };

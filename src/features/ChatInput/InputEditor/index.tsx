@@ -58,7 +58,8 @@ const InputEditor = memo<{ defaultRows?: number }>(({ defaultRows = 2 }) => {
 
   useEffect(() => {
     const fn = (e: BeforeUnloadEvent) => {
-      if (!state.isEmpty) {
+      // The thin-client IME primer alone is text to the editor but not to the store.
+      if (!state.isEmpty && storeApi.getState().getMarkdownContent()) {
         // set returnValue to trigger alert modal
         // Note: No matter what value is set, the browser will display the standard text
         e.returnValue = 'You are typing something, are you sure you want to leave?';

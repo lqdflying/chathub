@@ -43,16 +43,14 @@ those assumptions in four ways:
 Fighting these events with `preventDefault`/`stopImmediatePropagation` plus a manual
 insertion is how duplication happens: Lexical's `onInput` handler still runs afterwards
 and re-inserts or re-imports the doubled DOM. The plugin therefore never swallows the
-event and never inserts on `beforeinput`, with one exception: the unmapped thin-client
-IME route (_Thin-client IME_ below) holds or inserts the text itself on `beforeinput`.
-It flags both events of the pair with `_lexicalHandled`, so Lexical processes neither
-and nothing is inserted twice.
+event and never inserts on `beforeinput`.
 
 ## What the plugin does
 
-`registerReplacementTextRangeHandler(editor)` registers four capture-phase listeners
-(`beforeinput`, `input` and `keydown` on the editor root, `pointerdown` on the root's
-document) plus one high-priority command handler:
+`registerReplacementTextRangeHandler(editor)` registers six capture-phase listeners
+(`beforeinput`, `input`, `keydown`, `compositionstart` and `focus` on the editor root,
+`pointerdown` on the root's document), one update listener and one high-priority
+command handler:
 
 - **`beforeinput` (capture, runs before Lexical's bubble handler)** — classifies
   `insertReplacementText` events into three routes:
@@ -98,10 +96,13 @@ false`) take this route too**: field capture from a remote-browser-isolation
   an ends-with dedupe so repeated deliveries of the same acceptance stay
   idempotent. Fully empty echo pairs (no payload anywhere) change nothing.
 - **`keydown` (capture)** — records whether the last key was consumed by an IME (key
-  `Process`). Any other non-modifier key ends that state and inserts held IME text
+  `Process`). Any other non-modifier key ends that state and removes the IME primer
   (_Thin-client IME_ below).
-- **`pointerdown` (capture, on the document)** — inserts held IME text before a click
-  reads or moves the document.
+- **`pointerdown` (capture, on the document)** — ends the IME-key state and removes the
+  primer before a click reads or moves the document.
+- **`compositionstart` (capture)** — ends the IME-key state: composition events mean
+  the IME runs in this browser, not behind a thin client.
+- **`focus` (capture) and the update listener** — schedule the primer.
 - **`CONTROLLED_TEXT_INSERTION_COMMAND` at `COMMAND_PRIORITY_CRITICAL`** — for
   `insertReplacementText` InputEvent payloads, inserts the `text/plain` payload only,
   stripping trailing newlines and mapping interior newlines to spaces. This bypasses
@@ -134,22 +135,31 @@ word inference:
   the previous word with that letter.
 - **Range outside the editor's text nodes** (unmapped: with no text node at the caret,
   as in an empty box, the thin client composes in a local node that has no counterpart
-  here): the plugin flags both events of the pair and handles the text itself. The rule
-  is the pinyin protocol, the one captured in the field (Microsoft Pinyin): a
-  composition is Latin letters and the committed word has none. Text that still
-  contains Latin letters is held (`ime-hold`), because inserting it rebuilds the
-  paragraph under the thin client's local composition. In field captures every such
-  insertion was followed by plain keystrokes instead of IME input. Text without Latin
-  letters is the committed word and is inserted at the caret (`ime-commit`). An IME
-  that composes in another script (Japanese kana, Korean Hangul, Zhuyin) is outside
-  this rule: its composition states carry no Latin letters, so they are inserted as
-  they arrive. Held text is inserted (`ime-flush`) by the next key the IME does not
-  consume, by a `pointerdown` anywhere in the document, or ahead of any other
-  text-carrying event. When the thin client then repeats or extends text the plugin
-  already inserted, that text is replaced, not duplicated. A click does not end the
-  composition, so text a click inserted is replaced by the next unmapped state
-  whatever it is ("ni'hao", click, "你好" leaves "你好"), provided the caret still
-  follows that text.
+  here): word inference is skipped and the event takes the native-fallback route, so
+  Lexical inserts the text from the paired `input` event. This composition cannot be
+  saved. Field captures show both outcomes: when the text is inserted, the next keys
+  arrive as plain keystrokes (raw `nihao`); when it is held back, the keys stay
+  `Process` but the thin client sends no further text at all.
+
+The primer keeps that unmapped case from occurring. The first synthetic replacement
+that follows a `Process` key marks the browser profile as a thin-client IME
+(`localStorage` `lobe_thin_client_ime`). From then on, 50 ms after focus or any editor
+update, a collapsed caret that sits on an element (an empty box, an empty line) gets a
+text node holding one zero-width space (`IME_PRIMER`, U+200B, the character Lexical
+itself inserts on `compositionstart` in an empty block), with the caret after it
+(`ime-prime`). The thin client then maps the composition to that node like any existing
+text: this automates the field-proven workaround of typing one character first. The
+primer is not placed while the last key was `Process`, without focus, or mid-composition.
+
+The primer is real text in the model, so the two sides of the thin client stay equal.
+It is removed (`ime-strip`) from the start of the caret's text node before any key the
+IME does not consume and on any `pointerdown`, which covers Enter and the send button,
+and keeps it out of the way of a typed `/` or markdown shortcut. Both edits carry
+`HISTORY_MERGE_TAG`, so they add no undo step. A box that holds only the primer is
+empty for the app: `getMarkdownContent` (`src/features/ChatInput/store/action.ts`)
+returns `''` for it, and the unload warning in `InputEditor/index.tsx` checks that
+value. The placeholder is hidden while the primer is present, because
+`@lobehub/editor` decides that from the untrimmed root text.
 
 A diagnostic probe logs every `beforeinput`/`input`/`textInput`/`keydown`/
 `composition*` event (`inputType`, `data`, `dataTransfer` types and text/plain,

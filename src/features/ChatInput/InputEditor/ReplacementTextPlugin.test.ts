@@ -3,6 +3,8 @@ import {
   $createParagraphNode,
   $createTextNode,
   $getRoot,
+  $getSelection,
+  $isRangeSelection,
   CONTROLLED_TEXT_INSERTION_COMMAND,
   type LexicalEditor,
   type NodeKey,
@@ -11,6 +13,7 @@ import {
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { registerReplacementTextRangeHandler } from './ReplacementTextPlugin';
+import { IME_PRIMER } from './imePrimer';
 
 // Lexical decides at module-evaluation time whether beforeinput is usable
 // (CAN_USE_BEFORE_INPUT checks `'getTargetRanges' in new InputEvent(...)`). happy-dom
@@ -81,6 +84,7 @@ afterEach(() => {
   while (testEditors.length > 0) testEditors.pop()?.unregister();
   document.getSelection()?.removeAllRanges();
   localStorage.removeItem('lobe_replacement_debug');
+  localStorage.removeItem('lobe_thin_client_ime');
   document.querySelector('#replacement-debug-overlay')?.remove();
 });
 
@@ -884,86 +888,170 @@ describe('ReplacementTextPlugin', () => {
       expect(getText(editor)).toBe('1你好d');
     });
 
-    it('holds the letters of an unmapped composition until the word is committed', async () => {
-      // Field capture: in an empty box the letters arrive with an unmapped range, and
-      // inserting them ended the IME session ("ni", then plain h, a, o keystrokes).
-      const { editor } = createTestEditor();
+    // The primer is scheduled 50 ms after the editor settles.
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 80));
+
+    const getCaret = (editor: LexicalEditor) =>
+      editor.getEditorState().read(() => {
+        const selection = $getSelection();
+
+        return $isRangeSelection(selection)
+          ? `${selection.anchor.type}:${selection.anchor.offset}`
+          : null;
+      });
+
+    const createPrimedEditor = async () => {
+      localStorage.setItem('lobe_thin_client_ime', '1');
+      const { editor, rootElement } = createTestEditor();
+      initEmpty(editor);
+      rootElement.focus();
+      await settle();
+
+      return { editor, rootElement };
+    };
+
+    it('leaves an unmapped composition to lexical and remembers the thin client', async () => {
+      // Field capture: in an empty box the thin client sends one event that points
+      // outside the editor's text nodes and then no text at all, so nothing can be held.
+      const { editor, rootElement } = createTestEditor();
       initEmpty(editor);
 
       pressKey(editor, 'Process');
       pressKey(editor, 'Process');
       dispatchUnmapped(editor, 'ni');
-      await flush();
-
-      expect(getText(editor)).toBe('');
-
-      pressKey(editor, 'Process');
-      dispatchUnmapped(editor, "ni'hao");
-      await flush();
-
-      expect(getText(editor)).toBe('');
-
-      pressKey(editor, 'Process');
-      dispatchUnmapped(editor, 'ä½ å¥½', '你好');
-      await flush();
-
-      expect(getText(editor)).toBe('你好');
-      expect(getParagraphCount(editor)).toBe(1);
-    });
-
-    it('inserts held letters when the next key is not consumed by the IME', async () => {
-      const { editor } = createTestEditor();
-      initEmpty(editor);
-
-      pressKey(editor, 'Process');
-      pressKey(editor, 'Process');
-      dispatchUnmapped(editor, 'ok');
-      await flush();
-
-      expect(getText(editor)).toBe('');
-
-      pressKey(editor, 'a');
-      await flush();
-
-      expect(getText(editor)).toBe('ok');
-    });
-
-    it('does not duplicate letters that a click inserted and the thin client then repeats', async () => {
-      const { editor } = createTestEditor();
-      initEmpty(editor);
-
-      pressKey(editor, 'Process');
-      pressKey(editor, 'Process');
-      dispatchUnmapped(editor, 'ni');
-      document.dispatchEvent(new Event('pointerdown'));
       await flush();
 
       expect(getText(editor)).toBe('ni');
+      expect(localStorage.getItem('lobe_thin_client_ime')).toBe('1');
 
-      dispatchUnmapped(editor, 'ni');
+      // From now on an empty box is primed, without a reload.
+      initEmpty(editor);
       pressKey(editor, 'a');
-      await flush();
+      rootElement.focus();
+      await settle();
 
-      expect(getText(editor)).toBe('ni');
+      expect(getText(editor)).toBe(IME_PRIMER);
     });
 
-    it('replaces letters that a click inserted with the word committed afterwards', async () => {
-      const { editor } = createTestEditor();
-      initEmpty(editor);
+    it('puts a zero-width text node at the caret of a focused empty box', async () => {
+      const { editor } = await createPrimedEditor();
+
+      expect(getText(editor)).toBe(IME_PRIMER);
+      expect(getCaret(editor)).toBe('text:1');
+    });
+
+    it('does not prime before a thin-client IME was seen, or without focus', async () => {
+      const plain = createTestEditor();
+      initEmpty(plain.editor);
+      plain.rootElement.focus();
+      await settle();
+
+      expect(getText(plain.editor)).toBe('');
+
+      localStorage.setItem('lobe_thin_client_ime', '1');
+      const unfocused = createTestEditor();
+      plain.rootElement.blur();
+      initEmpty(unfocused.editor);
+      await settle();
+
+      expect(getText(unfocused.editor)).toBe('');
+    });
+
+    it('keeps the primer for IME keys and removes it before any other key', async () => {
+      const { editor } = await createPrimedEditor();
 
       pressKey(editor, 'Process');
-      pressKey(editor, 'Process');
-      dispatchUnmapped(editor, "ni'hao");
+      pressKey(editor, 'Shift');
+      pressKey(editor, '');
+
+      expect(getText(editor)).toBe(IME_PRIMER);
+
+      pressKey(editor, 'a');
+
+      expect(getText(editor)).toBe('');
+      expect(getCaret(editor)).toBe('element:0');
+
+      // The key inserted nothing, so the box is primed again.
+      await settle();
+
+      expect(getText(editor)).toBe(IME_PRIMER);
+    });
+
+    it('removes the primer in front of composed text and keeps the caret', async () => {
+      const { editor } = await createPrimedEditor();
+
+      editor.update(
+        () => {
+          const selection = $getSelection();
+
+          if ($isRangeSelection(selection)) selection.insertText('你好');
+        },
+        { discrete: true },
+      );
+
+      expect(getText(editor)).toBe(`${IME_PRIMER}你好`);
+
       document.dispatchEvent(new Event('pointerdown'));
-      await flush();
-
-      expect(getText(editor)).toBe("ni'hao");
-
-      pressKey(editor, 'Process');
-      dispatchUnmapped(editor, '\u00E4\u00BD\u00A0\u00E5\u00A5\u00BD', '你好');
-      await flush();
 
       expect(getText(editor)).toBe('你好');
+      expect(getCaret(editor)).toBe('text:2');
+    });
+
+    it('composes a word into the primer as into existing text', async () => {
+      // With a text node at the caret the thin client maps the composition: first a
+      // collapsed range at the caret, then whole-node replacements as UTF-8 bytes.
+      const toBytes = (text: string) =>
+        Array.from(new TextEncoder().encode(text), (byte) => String.fromCodePoint(byte)).join('');
+      const { editor } = await createPrimedEditor();
+      const key = editor.getEditorState().read(() => {
+        const selection = $getSelection();
+
+        return $isRangeSelection(selection) ? selection.anchor.key : '';
+      });
+      const domText = getDOMTextNode(editor, key);
+      const sendState = (plain: string, text: string, start: number, end: number) => {
+        pressKey(editor, 'Process');
+        dispatchBeforeInput(getParagraphElement(editor), {
+          cancelable: false,
+          data: null,
+          inputType: 'insertReplacementText',
+          plain,
+          ranges: [createTargetRange(domText, start, domText, end)],
+          trusted: false,
+        });
+        applyNativeEdit(editor, key, text);
+        dispatchInput(getParagraphElement(editor), {
+          data: text,
+          inputType: 'insertReplacementText',
+          trusted: false,
+        });
+      };
+
+      sendState('n', `${IME_PRIMER}n`, 1, 1);
+      await flush();
+
+      expect(getText(editor)).toBe(`${IME_PRIMER}n`);
+
+      sendState(toBytes(`${IME_PRIMER}你好`), `${IME_PRIMER}你好`, 0, 2);
+      await flush();
+
+      expect(getText(editor)).toBe(`${IME_PRIMER}你好`);
+
+      pressKey(editor, 'a');
+
+      expect(getText(editor)).toBe('你好');
+      expect(getCaret(editor)).toBe('text:2');
+    });
+
+    it('does not prime while an IME key is the last key', async () => {
+      localStorage.setItem('lobe_thin_client_ime', '1');
+      const { editor, rootElement } = createTestEditor();
+      initEmpty(editor);
+      pressKey(editor, 'Process');
+      rootElement.focus();
+      await settle();
+
+      expect(getText(editor)).toBe('');
     });
   });
 
@@ -1153,7 +1241,7 @@ describe('ReplacementTextPlugin', () => {
 
       editor.setRootElement(nextRoot);
 
-      for (const type of ['beforeinput', 'input', 'keydown']) {
+      for (const type of ['beforeinput', 'input', 'keydown', 'compositionstart', 'focus']) {
         expect(removeSpy).toHaveBeenCalledWith(type, expect.any(Function), true);
         expect(addSpy).toHaveBeenCalledWith(type, expect.any(Function), true);
       }
