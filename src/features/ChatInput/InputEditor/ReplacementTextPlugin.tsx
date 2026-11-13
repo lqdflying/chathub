@@ -228,8 +228,10 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
   let imeKeyActive = false;
   // Latest text of a composition the thin client could not map to an editor text node.
   let imePending: string | null = null;
-  // That composition's text already in the document; its next state replaces it.
-  let imeApplied: string | null = null;
+  // That composition's text already in the document; its next state replaces it. `open`
+  // marks text a click inserted before the composition ended: its next state replaces
+  // it whole ("ni'hao" → "你好"), where committed text is only replaced by its extension.
+  let imeApplied: { open: boolean; text: string } | null = null;
   let pendingImeInput: { timeStamp: number } | null = null;
   let debugEnabled = false;
 
@@ -392,7 +394,7 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
     });
   };
 
-  const applyImeText = (text: string) => {
+  const applyImeText = (text: string, open = false) => {
     const applied = imeApplied;
 
     editor.update(
@@ -403,7 +405,7 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
 
         if (
           applied &&
-          text.startsWith(applied) &&
+          (applied.open || text.startsWith(applied.text)) &&
           selection.isCollapsed() &&
           selection.anchor.type === 'text'
         ) {
@@ -412,19 +414,24 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
 
           if (
             $isTextNode(anchorNode) &&
-            anchorNode.getTextContent().slice(0, offset).endsWith(applied)
+            anchorNode.getTextContent().slice(0, offset).endsWith(applied.text)
           )
-            selection.setTextNodeRange(anchorNode, offset - applied.length, anchorNode, offset);
+            selection.setTextNodeRange(
+              anchorNode,
+              offset - applied.text.length,
+              anchorNode,
+              offset,
+            );
         }
 
         selection.insertText(text);
       },
       { discrete: true },
     );
-    imeApplied = text;
+    imeApplied = { open, text };
   };
 
-  const flushImePending = () => {
+  const flushImePending = (open = false) => {
     if (imePending === null) return;
 
     const text = imePending;
@@ -432,8 +439,12 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
     imePending = null;
     if (debugEnabled)
       debugPrint(`decision: ime-flush ${JSON.stringify(text)} doc="${getDocSnapshot()}"`, true);
-    applyImeText(text);
+    applyImeText(text, open);
   };
+
+  // A click (the send button, another caret position) reads or moves the document, so
+  // held text has to be in it first. The click does not end the composition.
+  const handlePointerDown = () => flushImePending(true);
 
   const handleKeyDown = (event: Event) => {
     const { key } = event as KeyboardEvent;
@@ -493,9 +504,11 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
       setLexicalHandled(inputEvent);
       pendingImeInput = { timeStamp: inputEvent.timeStamp };
 
-      // Letters mean the word is still being composed. Inserting them would rebuild the
-      // paragraph under the thin client's local composition and end it, so they wait
-      // for the committed text or for the next key the IME does not consume.
+      // Pinyin composes in Latin letters, so letters mean the word is still being
+      // composed. Inserting them would rebuild the paragraph under the thin client's
+      // local composition and end it, so they wait for the committed text or for the
+      // next key the IME does not consume. An IME that composes in another script
+      // (kana, Hangul, Zhuyin) has no such marker: its text is inserted as it arrives.
       if (/[a-z]/i.test(replacementText)) {
         imePending = replacementText;
         if (debugEnabled)
@@ -772,7 +785,11 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
         previousRootElement.removeEventListener('beforeinput', handleBeforeInput, true);
         previousRootElement.removeEventListener('input', handleInput, true);
         previousRootElement.removeEventListener('keydown', handleKeyDown, true);
-        previousRootElement.ownerDocument.removeEventListener('pointerdown', flushImePending, true);
+        previousRootElement.ownerDocument.removeEventListener(
+          'pointerdown',
+          handlePointerDown,
+          true,
+        );
         for (const type of PROBE_EVENTS)
           previousRootElement.removeEventListener(type, handleProbe, true);
       }
@@ -782,9 +799,7 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
         nextRootElement.addEventListener('beforeinput', handleBeforeInput, true);
         nextRootElement.addEventListener('input', handleInput, true);
         nextRootElement.addEventListener('keydown', handleKeyDown, true);
-        // A click (the send button, another caret position) reads or moves the document,
-        // so held text has to be in it first.
-        nextRootElement.ownerDocument.addEventListener('pointerdown', flushImePending, true);
+        nextRootElement.ownerDocument.addEventListener('pointerdown', handlePointerDown, true);
 
         if (debugEnabled)
           for (const type of PROBE_EVENTS) nextRootElement.addEventListener(type, handleProbe, true);

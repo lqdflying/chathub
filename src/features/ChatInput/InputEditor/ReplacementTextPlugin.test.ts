@@ -946,6 +946,25 @@ describe('ReplacementTextPlugin', () => {
 
       expect(getText(editor)).toBe('ni');
     });
+
+    it('replaces letters that a click inserted with the word committed afterwards', async () => {
+      const { editor } = createTestEditor();
+      initEmpty(editor);
+
+      pressKey(editor, 'Process');
+      pressKey(editor, 'Process');
+      dispatchUnmapped(editor, "ni'hao");
+      document.dispatchEvent(new Event('pointerdown'));
+      await flush();
+
+      expect(getText(editor)).toBe("ni'hao");
+
+      pressKey(editor, 'Process');
+      dispatchUnmapped(editor, '\u00E4\u00BD\u00A0\u00E5\u00A5\u00BD', '你好');
+      await flush();
+
+      expect(getText(editor)).toBe('你好');
+    });
   });
 
   describe('preventDefault-ignored guard', () => {
@@ -1117,6 +1136,8 @@ describe('ReplacementTextPlugin', () => {
     });
 
     it('moves listeners when the root element changes', () => {
+      const documentAddSpy = vi.spyOn(document, 'addEventListener');
+      const documentRemoveSpy = vi.spyOn(document, 'removeEventListener');
       const { editor, rootElement } = createTestEditor();
       const nextRoot = document.createElement('div');
       nextRoot.contentEditable = 'true';
@@ -1124,14 +1145,27 @@ describe('ReplacementTextPlugin', () => {
 
       const removeSpy = vi.spyOn(rootElement, 'removeEventListener');
       const addSpy = vi.spyOn(nextRoot, 'addEventListener');
+      const pointerDownAdds = () =>
+        documentAddSpy.mock.calls.filter(
+          ([type, , capture]) => type === 'pointerdown' && capture === true,
+        );
+      const [, pointerDownHandler] = pointerDownAdds()[0] ?? [];
 
       editor.setRootElement(nextRoot);
 
-      expect(removeSpy).toHaveBeenCalledWith('beforeinput', expect.any(Function), true);
-      expect(removeSpy).toHaveBeenCalledWith('input', expect.any(Function), true);
-      expect(addSpy).toHaveBeenCalledWith('beforeinput', expect.any(Function), true);
-      expect(addSpy).toHaveBeenCalledWith('input', expect.any(Function), true);
+      for (const type of ['beforeinput', 'input', 'keydown']) {
+        expect(removeSpy).toHaveBeenCalledWith(type, expect.any(Function), true);
+        expect(addSpy).toHaveBeenCalledWith(type, expect.any(Function), true);
+      }
 
+      // The click listener sits on the document, so the handler removed has to be the
+      // one that was added.
+      expect(pointerDownHandler).toBeTypeOf('function');
+      expect(documentRemoveSpy).toHaveBeenCalledWith('pointerdown', pointerDownHandler, true);
+      expect(pointerDownAdds()).toHaveLength(2);
+
+      documentAddSpy.mockRestore();
+      documentRemoveSpy.mockRestore();
       nextRoot.remove();
     });
   });

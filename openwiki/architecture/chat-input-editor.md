@@ -43,12 +43,16 @@ those assumptions in four ways:
 Fighting these events with `preventDefault`/`stopImmediatePropagation` plus a manual
 insertion is how duplication happens: Lexical's `onInput` handler still runs afterwards
 and re-inserts or re-imports the doubled DOM. The plugin therefore never swallows the
-event and never inserts on `beforeinput`.
+event and never inserts on `beforeinput`, with one exception: the unmapped thin-client
+IME route (_Thin-client IME_ below) holds or inserts the text itself on `beforeinput`.
+It flags both events of the pair with `_lexicalHandled`, so Lexical processes neither
+and nothing is inserted twice.
 
 ## What the plugin does
 
-`registerReplacementTextRangeHandler(editor)` registers two capture-phase listeners on
-the editor root plus one high-priority command handler:
+`registerReplacementTextRangeHandler(editor)` registers four capture-phase listeners
+(`beforeinput`, `input` and `keydown` on the editor root, `pointerdown` on the root's
+document) plus one high-priority command handler:
 
 - **`beforeinput` (capture, runs before Lexical's bubble handler)** — classifies
   `insertReplacementText` events into three routes:
@@ -93,6 +97,11 @@ false`) take this route too**: field capture from a remote-browser-isolation
   replacement is applied directly (whole-word selection + plain-text insert), with
   an ends-with dedupe so repeated deliveries of the same acceptance stay
   idempotent. Fully empty echo pairs (no payload anywhere) change nothing.
+- **`keydown` (capture)** — records whether the last key was consumed by an IME (key
+  `Process`). Any other non-modifier key ends that state and inserts held IME text
+  (_Thin-client IME_ below).
+- **`pointerdown` (capture, on the document)** — inserts held IME text before a click
+  reads or moves the document.
 - **`CONTROLLED_TEXT_INSERTION_COMMAND` at `COMMAND_PRIORITY_CRITICAL`** — for
   `insertReplacementText` InputEvent payloads, inserts the `text/plain` payload only,
   stripping trailing newlines and mapping interior newlines to spaces. This bypasses
@@ -125,14 +134,22 @@ word inference:
   the previous word with that letter.
 - **Range outside the editor's text nodes** (unmapped: with no text node at the caret,
   as in an empty box, the thin client composes in a local node that has no counterpart
-  here): text that still contains Latin letters is held (`ime-hold`), because inserting
-  it rebuilds the paragraph under the thin client's local composition. In field
-  captures every such insertion was followed by plain keystrokes instead of IME input.
-  Text without Latin letters is the committed word and is inserted at the caret
-  (`ime-commit`). Held text is inserted (`ime-flush`) by the next key the IME does not
+  here): the plugin flags both events of the pair and handles the text itself. The rule
+  is the pinyin protocol, the one captured in the field (Microsoft Pinyin): a
+  composition is Latin letters and the committed word has none. Text that still
+  contains Latin letters is held (`ime-hold`), because inserting it rebuilds the
+  paragraph under the thin client's local composition. In field captures every such
+  insertion was followed by plain keystrokes instead of IME input. Text without Latin
+  letters is the committed word and is inserted at the caret (`ime-commit`). An IME
+  that composes in another script (Japanese kana, Korean Hangul, Zhuyin) is outside
+  this rule: its composition states carry no Latin letters, so they are inserted as
+  they arrive. Held text is inserted (`ime-flush`) by the next key the IME does not
   consume, by a `pointerdown` anywhere in the document, or ahead of any other
   text-carrying event. When the thin client then repeats or extends text the plugin
-  already inserted, that text is replaced, not duplicated.
+  already inserted, that text is replaced, not duplicated. A click does not end the
+  composition, so text a click inserted is replaced by the next unmapped state
+  whatever it is ("ni'hao", click, "你好" leaves "你好"), provided the caret still
+  follows that text.
 
 A diagnostic probe logs every `beforeinput`/`input`/`textInput`/`keydown`/
 `composition*` event (`inputType`, `data`, `dataTransfer` types and text/plain,
