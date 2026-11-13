@@ -160,10 +160,13 @@ IME does not consume and on any `pointerdown`, which covers Enter and the send b
 and keeps it out of the way of a typed `/` or markdown shortcut. Both edits carry
 `HISTORY_MERGE_TAG`, so they add no undo step. A box that holds only the primer is
 empty for the app: `getMarkdownContent` (`src/features/ChatInput/store/action.ts`)
-returns `''` when the editor's plain text is the primer alone, and the unload warning in
-`InputEditor/index.tsx` checks that value. The check reads the plain text because the
-primer takes the caret's format and block, which Markdown serializes as `**​**` or
-`- ​`. The placeholder is hidden while the primer is present, because
+returns `''` when `$isPrimerOnly` (`InputEditor/imePrimer.ts`) finds only paragraphs and
+no text but the primer, and the unload warning in `InputEditor/index.tsx` checks that
+value. The check reads the editor model because neither serialization can tell: Markdown
+wraps a primer under a bold caret in `**`, and plain text leaves out a horizontal rule,
+an empty table and an empty code block. Any block other than a paragraph counts as
+content with or without the primer, so an empty list item or quote is not empty, as in
+any other browser. The placeholder is hidden while the primer is present, because
 `@lobehub/editor` decides that from the untrimmed root text.
 
 A diagnostic probe logs every `beforeinput`/`input`/`textInput`/`keydown`/

@@ -1,6 +1,6 @@
 import { StateCreator } from 'zustand/vanilla';
 
-import { IME_PRIMER } from '../InputEditor/imePrimer';
+import { $isPrimerOnly } from '../InputEditor/imePrimer';
 import { PublicState, State, initialState } from './initialState';
 
 export interface Action {
@@ -32,9 +32,9 @@ export const store: CreateStore = (publicState) => (set, get) => ({
   getMarkdownContent: () => {
     const editor = get().editor;
 
-    // A box whose only text is the thin-client IME primer is empty. Markdown cannot
-    // tell: it wraps the primer in the caret's format and block markers.
-    if (String(editor?.getDocument('text') || '').trim() === IME_PRIMER) return '';
+    // A box that holds only the thin-client IME primer is empty. Markdown cannot tell:
+    // it wraps the primer in the caret's format.
+    if (editor?.getLexicalEditor()?.getEditorState().read($isPrimerOnly)) return '';
 
     return String(editor?.getDocument('markdown') || '').trimEnd();
   },
