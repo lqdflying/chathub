@@ -186,6 +186,27 @@ const initTwoParagraphs = (
   return keys;
 };
 
+const initEmpty = (editor: LexicalEditor) => {
+  editor.update(
+    () => {
+      const root = $getRoot();
+      root.clear();
+      const paragraph = $createParagraphNode();
+      root.append(paragraph);
+      paragraph.select();
+    },
+    { discrete: true },
+  );
+
+  const paragraphElement = editor.getRootElement()?.firstElementChild;
+
+  if (paragraphElement) setDOMSelection(paragraphElement, 0);
+};
+
+const pressKey = (editor: LexicalEditor, key: string) => {
+  editor.getRootElement()?.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key }));
+};
+
 const createTargetRange = (
   startContainer: Node,
   startOffset: number,
@@ -811,6 +832,119 @@ describe('ReplacementTextPlugin', () => {
       await flush();
 
       expect(getText(editor)).toBe('visit New York');
+    });
+  });
+
+  describe('thin-client IME', () => {
+    // The isolation thin client runs the IME locally. The editor receives a trusted
+    // `Process` keydown per key and synthetic replacement pairs, never composition
+    // events. A range the thin client cannot map points at a node outside the editor.
+    const dispatchUnmapped = (editor: LexicalEditor, plain: string, data = plain) => {
+      const outside = document.createTextNode('');
+
+      dispatchBeforeInput(getParagraphElement(editor), {
+        cancelable: false,
+        data: null,
+        inputType: 'insertReplacementText',
+        plain,
+        ranges: [createTargetRange(outside, 0, outside, 0)],
+        trusted: false,
+      });
+      dispatchInput(getParagraphElement(editor), {
+        data,
+        inputType: 'insertReplacementText',
+        trusted: false,
+      });
+    };
+
+    it('inserts the first letter of a new word at the caret instead of replacing the last word', async () => {
+      // Field capture: after "1你好" the next word starts with a collapsed range at the
+      // caret, the thin client writes the letter into the DOM, then sends the input.
+      const { editor } = createTestEditor();
+      const key = initText(editor, '1你好', 3);
+      const domText = getDOMTextNode(editor, key);
+
+      pressKey(editor, 'Process');
+      dispatchBeforeInput(getParagraphElement(editor), {
+        cancelable: false,
+        data: null,
+        inputType: 'insertReplacementText',
+        plain: 'd',
+        ranges: [createTargetRange(domText, 3, domText, 3)],
+        trusted: false,
+      });
+      applyNativeEdit(editor, key, '1你好d');
+      dispatchInput(getParagraphElement(editor), {
+        data: 'd',
+        inputType: 'insertReplacementText',
+        trusted: false,
+      });
+      await flush();
+
+      expect(getText(editor)).toBe('1你好d');
+    });
+
+    it('holds the letters of an unmapped composition until the word is committed', async () => {
+      // Field capture: in an empty box the letters arrive with an unmapped range, and
+      // inserting them ended the IME session ("ni", then plain h, a, o keystrokes).
+      const { editor } = createTestEditor();
+      initEmpty(editor);
+
+      pressKey(editor, 'Process');
+      pressKey(editor, 'Process');
+      dispatchUnmapped(editor, 'ni');
+      await flush();
+
+      expect(getText(editor)).toBe('');
+
+      pressKey(editor, 'Process');
+      dispatchUnmapped(editor, "ni'hao");
+      await flush();
+
+      expect(getText(editor)).toBe('');
+
+      pressKey(editor, 'Process');
+      dispatchUnmapped(editor, 'ä½ å¥½', '你好');
+      await flush();
+
+      expect(getText(editor)).toBe('你好');
+      expect(getParagraphCount(editor)).toBe(1);
+    });
+
+    it('inserts held letters when the next key is not consumed by the IME', async () => {
+      const { editor } = createTestEditor();
+      initEmpty(editor);
+
+      pressKey(editor, 'Process');
+      pressKey(editor, 'Process');
+      dispatchUnmapped(editor, 'ok');
+      await flush();
+
+      expect(getText(editor)).toBe('');
+
+      pressKey(editor, 'a');
+      await flush();
+
+      expect(getText(editor)).toBe('ok');
+    });
+
+    it('does not duplicate letters that a click inserted and the thin client then repeats', async () => {
+      const { editor } = createTestEditor();
+      initEmpty(editor);
+
+      pressKey(editor, 'Process');
+      pressKey(editor, 'Process');
+      dispatchUnmapped(editor, 'ni');
+      document.dispatchEvent(new Event('pointerdown'));
+      await flush();
+
+      expect(getText(editor)).toBe('ni');
+
+      dispatchUnmapped(editor, 'ni');
+      pressKey(editor, 'a');
+      await flush();
+
+      expect(getText(editor)).toBe('ni');
     });
   });
 

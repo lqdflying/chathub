@@ -23,6 +23,7 @@ const PROBE_EVENTS = [
   'compositionupdate',
   'compositionend',
 ] as const;
+const MODIFIER_KEYS = new Set(['Alt', 'AltGraph', 'CapsLock', 'Control', 'Meta', 'Shift']);
 
 // Isolation thin clients can fill a synthetic event's dataTransfer with the UTF-8 bytes
 // of the text, one byte per UTF-16 unit ("啊" arrives as "å\u0095\u008A"). The intact
@@ -222,6 +223,14 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
   // Armed by a payload-less synthetic insertReplacementText beforeinput: some
   // injectors deliver the replacement text only on the paired input event.
   let pendingSyntheticApply: { timeStamp: number } | null = null;
+  // An isolation thin client runs the IME locally: the editor sees no composition
+  // events, only `Process` keydowns followed by synthetic replacement events.
+  let imeKeyActive = false;
+  // Latest text of a composition the thin client could not map to an editor text node.
+  let imePending: string | null = null;
+  // That composition's text already in the document; its next state replaces it.
+  let imeApplied: string | null = null;
+  let pendingImeInput: { timeStamp: number } | null = null;
   let debugEnabled = false;
 
   const getDocSnapshot = () => {
@@ -350,11 +359,104 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
     );
   };
 
+  // Where a synthetic IME event points: 'caret' is the editor's own caret inside one of
+  // its text nodes; 'unmapped' is a node the editor does not own, because the thin
+  // client composes in a local node that has no counterpart here.
+  const resolveImeTarget = (event: InputEvent): 'caret' | 'unmapped' | null => {
+    let range: StaticRange | undefined;
+
+    try {
+      range = event.getTargetRanges?.()[0];
+    } catch {
+      return null;
+    }
+
+    if (!range) return null;
+
+    const { collapsed, startContainer, startOffset } = range;
+
+    return editor.read(() => {
+      const node = $getNearestNodeFromDOMNode(startContainer);
+
+      if (!$isTextNode(node)) return 'unmapped';
+
+      const selection = $getSelection();
+
+      return collapsed &&
+        $isRangeSelection(selection) &&
+        selection.isCollapsed() &&
+        selection.anchor.key === node.getKey() &&
+        selection.anchor.offset === startOffset
+        ? 'caret'
+        : null;
+    });
+  };
+
+  const applyImeText = (text: string) => {
+    const applied = imeApplied;
+
+    editor.update(
+      () => {
+        const selection = $getSelection();
+
+        if (!$isRangeSelection(selection)) return;
+
+        if (
+          applied &&
+          text.startsWith(applied) &&
+          selection.isCollapsed() &&
+          selection.anchor.type === 'text'
+        ) {
+          const anchorNode = selection.anchor.getNode();
+          const { offset } = selection.anchor;
+
+          if (
+            $isTextNode(anchorNode) &&
+            anchorNode.getTextContent().slice(0, offset).endsWith(applied)
+          )
+            selection.setTextNodeRange(anchorNode, offset - applied.length, anchorNode, offset);
+        }
+
+        selection.insertText(text);
+      },
+      { discrete: true },
+    );
+    imeApplied = text;
+  };
+
+  const flushImePending = () => {
+    if (imePending === null) return;
+
+    const text = imePending;
+
+    imePending = null;
+    if (debugEnabled)
+      debugPrint(`decision: ime-flush ${JSON.stringify(text)} doc="${getDocSnapshot()}"`, true);
+    applyImeText(text);
+  };
+
+  const handleKeyDown = (event: Event) => {
+    const { key } = event as KeyboardEvent;
+
+    if (!key || MODIFIER_KEYS.has(key)) return;
+
+    if (key === 'Process') {
+      imeKeyActive = true;
+      return;
+    }
+
+    // A key the IME did not consume means no composition is open any more.
+    imeKeyActive = false;
+    flushImePending();
+    imeApplied = null;
+  };
+
   const handleBeforeInput = (event: Event) => {
     const inputEvent = event as InputEvent;
 
     pendingTrusted = null;
     pendingSyntheticApply = null;
+    pendingImeInput = null;
 
     if (!isEditorTarget(inputEvent.target)) return;
 
@@ -370,8 +472,14 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
     const synthetic = !inputEvent.isTrusted;
     const replacementText = getReplacementText(inputEvent);
     const { blocked, range: targetRange } = resolveTargetRange(inputEvent);
+    const imeTarget =
+      imeKeyActive && synthetic && isReplacement && !composing && replacementText && !targetRange
+        ? resolveImeTarget(inputEvent)
+        : null;
+    // Word inference is for text suggestions. An IME event names its own target, and
+    // guessing would replace the previous word with the first letter of the next one.
     const replaceLength =
-      !targetRange && replacementText
+      !targetRange && replacementText && !imeTarget
         ? getInferredReplaceLength(replacementText, synthetic && isReplacement)
         : 0;
 
@@ -379,6 +487,40 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
       if (debugEnabled) debugPrint(`decision: native (getTargetRanges throws) doc="${getDocSnapshot()}"`, true);
       setLexicalHandled(inputEvent);
       return;
+    }
+
+    if (imeTarget === 'unmapped' && replacementText) {
+      setLexicalHandled(inputEvent);
+      pendingImeInput = { timeStamp: inputEvent.timeStamp };
+
+      // Letters mean the word is still being composed. Inserting them would rebuild the
+      // paragraph under the thin client's local composition and end it, so they wait
+      // for the committed text or for the next key the IME does not consume.
+      if (/[a-z]/i.test(replacementText)) {
+        imePending = replacementText;
+        if (debugEnabled)
+          debugPrint(
+            `decision: ime-hold ${JSON.stringify(replacementText)} doc="${getDocSnapshot()}"`,
+            true,
+          );
+      } else {
+        imePending = null;
+        if (debugEnabled)
+          debugPrint(
+            `decision: ime-commit ${JSON.stringify(replacementText)} doc="${getDocSnapshot()}"`,
+            true,
+          );
+        applyImeText(replacementText);
+      }
+
+      return;
+    }
+
+    // Any other event that carries text targets the document itself, so held text
+    // belongs in front of it.
+    if (replacementText) {
+      flushImePending();
+      imeApplied = null;
     }
 
     if (isReplacement) {
@@ -394,7 +536,7 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
         composing ||
         (!synthetic && !inputEvent.cancelable) ||
         !replacementText ||
-        (!targetRange && replaceLength === 0);
+        (!targetRange && replaceLength === 0 && imeTarget !== 'caret');
 
       if (nativeFallback) {
         if (debugEnabled)
@@ -433,6 +575,9 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
           true,
         );
       selectTypedPrefix(replaceLength);
+    } else if (imeTarget === 'caret') {
+      if (debugEnabled)
+        debugPrint(`decision: controlled (ime caret) doc="${getDocSnapshot()}"`, true);
     } else {
       return;
     }
@@ -488,13 +633,21 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
   const handleInput = (event: Event) => {
     const armed = pendingTrusted;
     const armedSynthetic = pendingSyntheticApply;
+    const armedIme = pendingImeInput;
 
     pendingTrusted = null;
     pendingSyntheticApply = null;
+    pendingImeInput = null;
 
     const inputEvent = event as InputEvent;
 
     if (!isEditorTarget(inputEvent.target)) return;
+
+    // The beforeinput of this pair already held or applied the text.
+    if (armedIme && !inputEvent.isTrusted && inputEvent.timeStamp - armedIme.timeStamp <= 100) {
+      setLexicalHandled(inputEvent);
+      return;
+    }
 
     if (!armed) {
       // Payload-on-input shape: a payload-less synthetic replacement beforeinput was
@@ -610,10 +763,16 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
     (nextRootElement, previousRootElement) => {
       pendingTrusted = null;
       pendingSyntheticApply = null;
+      pendingImeInput = null;
+      imeKeyActive = false;
+      imePending = null;
+      imeApplied = null;
 
       if (previousRootElement) {
         previousRootElement.removeEventListener('beforeinput', handleBeforeInput, true);
         previousRootElement.removeEventListener('input', handleInput, true);
+        previousRootElement.removeEventListener('keydown', handleKeyDown, true);
+        previousRootElement.ownerDocument.removeEventListener('pointerdown', flushImePending, true);
         for (const type of PROBE_EVENTS)
           previousRootElement.removeEventListener(type, handleProbe, true);
       }
@@ -622,6 +781,10 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
         debugEnabled = isDebugEnabled();
         nextRootElement.addEventListener('beforeinput', handleBeforeInput, true);
         nextRootElement.addEventListener('input', handleInput, true);
+        nextRootElement.addEventListener('keydown', handleKeyDown, true);
+        // A click (the send button, another caret position) reads or moves the document,
+        // so held text has to be in it first.
+        nextRootElement.ownerDocument.addEventListener('pointerdown', flushImePending, true);
 
         if (debugEnabled)
           for (const type of PROBE_EVENTS) nextRootElement.addEventListener(type, handleProbe, true);

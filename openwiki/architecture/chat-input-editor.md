@@ -111,6 +111,29 @@ every unit is ≤ U+00FF and the units form valid UTF-8 containing a multi-byte 
 any other payload ("café") is kept as is, and trusted events are never decoded. The
 overlay's `plain=` field shows the raw payload.
 
+Thin-client IME: the thin client runs the IME locally, so the editor gets no
+`composition*` events. Each IME key arrives as a trusted `keydown` with key `Process`,
+followed by a synthetic `insertReplacementText` pair, and the thin client writes its
+text into the DOM between the two events of the pair. While the last key was
+`Process`, the plugin routes a synthetic replacement by its target range, never by
+word inference:
+
+- **Range over an editor text node** (the running composition; the thin client sends
+  the whole node text with range `0..length`): the controlled route above.
+- **Collapsed range at the editor's caret** (first letter of a new word): controlled
+  insertion at the caret (`controlled (ime caret)`). Word inference here would replace
+  the previous word with that letter.
+- **Range outside the editor's text nodes** (unmapped: with no text node at the caret,
+  as in an empty box, the thin client composes in a local node that has no counterpart
+  here): text that still contains Latin letters is held (`ime-hold`), because inserting
+  it rebuilds the paragraph under the thin client's local composition. In field
+  captures every such insertion was followed by plain keystrokes instead of IME input.
+  Text without Latin letters is the committed word and is inserted at the caret
+  (`ime-commit`). Held text is inserted (`ime-flush`) by the next key the IME does not
+  consume, by a `pointerdown` anywhere in the document, or ahead of any other
+  text-carrying event. When the thin client then repeats or extends text the plugin
+  already inserted, that text is replaced, not duplicated.
+
 A diagnostic probe logs every `beforeinput`/`input`/`textInput`/`keydown`/
 `composition*` event (`inputType`, `data`, `dataTransfer` types and text/plain,
 `cancelable`, `isTrusted`, `isComposing`, target ranges) plus the plugin's routing
