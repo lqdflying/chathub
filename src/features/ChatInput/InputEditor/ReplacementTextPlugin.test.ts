@@ -528,6 +528,81 @@ describe('ReplacementTextPlugin', () => {
       expect(getParagraphCount(editor)).toBe(1);
     });
 
+    it('decodes a thin-client payload delivered as UTF-8 bytes', async () => {
+      // Field-captured IME commit (Microsoft Pinyin through the isolation thin client):
+      // the dataTransfer carries "啊" as its UTF-8 bytes E5 95 8A, one byte per UTF-16
+      // unit, while the paired input event's data is intact.
+      const { editor } = createTestEditor();
+      const key = initText(editor, 'a', 1);
+      const domText = getDOMTextNode(editor, key);
+
+      dispatchBeforeInput(getParagraphElement(editor), {
+        cancelable: false,
+        data: null,
+        inputType: 'insertReplacementText',
+        plain: 'å\u0095\u008A',
+        ranges: [createTargetRange(domText, 0, domText, 0)],
+        trusted: false,
+      });
+      dispatchInput(getParagraphElement(editor), {
+        data: '啊',
+        inputType: 'insertReplacementText',
+        trusted: false,
+      });
+      await flush();
+
+      expect(getText(editor)).toBe('啊');
+    });
+
+    it('decodes a thin-client IME commit that replaces its composition range', async () => {
+      // Field-captured word commit: the thin client mirrors the composition into the
+      // document as plain letters, then replaces that range with the byte-string copy
+      // of "不知道".
+      const { editor } = createTestEditor();
+      const key = initText(editor, "bu'zhi'dao", 10);
+      const domText = getDOMTextNode(editor, key);
+
+      dispatchBeforeInput(getParagraphElement(editor), {
+        cancelable: false,
+        data: null,
+        inputType: 'insertReplacementText',
+        plain: 'ä¸\u008Dç\u009F¥é\u0081\u0093',
+        ranges: [createTargetRange(domText, 0, domText, 10)],
+        trusted: false,
+      });
+      dispatchInput(getParagraphElement(editor), {
+        data: '不知道',
+        inputType: 'insertReplacementText',
+        trusted: false,
+      });
+      await flush();
+
+      expect(getText(editor)).toBe('不知道');
+    });
+
+    it('keeps a synthetic Latin-1 payload that is not UTF-8 bytes', async () => {
+      const { editor } = createTestEditor();
+      const key = initText(editor, 'caf', 3);
+      const domText = getDOMTextNode(editor, key);
+
+      dispatchBeforeInput(getParagraphElement(editor), {
+        cancelable: false,
+        data: null,
+        inputType: 'insertReplacementText',
+        plain: 'café',
+        ranges: [createTargetRange(domText, 0, domText, 0)],
+        trusted: false,
+      });
+      dispatchInput(getParagraphElement(editor), {
+        data: 'café',
+        inputType: 'insertReplacementText',
+        trusted: false,
+      });
+      await flush();
+
+      expect(getText(editor)).toBe('café');
+    });
+
     it('applies a synthetic replacement whose payload arrives only on the input event', async () => {
       // Second field-captured shape: the beforeinput carries no payload at all
       // (data=null, dataTransfer=null) and the acceptance text rides the paired

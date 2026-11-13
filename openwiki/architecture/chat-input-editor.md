@@ -101,6 +101,16 @@ false`) take this route too**: field capture from a remote-browser-isolation
   re-trigger send-on-enter. String payloads and other input types fall through to the
   stock handler.
 
+Payload decoding: the thin client relays IME commits (field capture: Microsoft Pinyin)
+as the same synthetic `insertReplacementText` pair, with no `composition*` events, and
+fills the `beforeinput` `dataTransfer` with the text's UTF-8 bytes, one byte per UTF-16
+unit ("啊" arrives as `"å\u0095\u008A"`). The paired `input` event's `data` is intact,
+but the controlled route consumes the `dataTransfer` copy before that event exists. So
+`getReplacementText` decodes the `text/plain` payload of **untrusted** events when
+every unit is ≤ U+00FF and the units form valid UTF-8 containing a multi-byte sequence;
+any other payload ("café") is kept as is, and trusted events are never decoded. The
+overlay's `plain=` field shows the raw payload.
+
 A diagnostic probe logs every `beforeinput`/`input`/`textInput`/`keydown`/
 `composition*` event (`inputType`, `data`, `dataTransfer` types and text/plain,
 `cancelable`, `isTrusted`, `isComposing`, target ranges) plus the plugin's routing

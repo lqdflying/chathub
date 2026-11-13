@@ -24,6 +24,22 @@ const PROBE_EVENTS = [
   'compositionend',
 ] as const;
 
+// Isolation thin clients can fill a synthetic event's dataTransfer with the UTF-8 bytes
+// of the text, one byte per UTF-16 unit ("啊" arrives as "å\u0095\u008A"). The intact
+// copy rides the paired input event's `data`, which arrives only after the controlled
+// insertion has consumed this payload.
+const decodeUtf8ByteString = (text: string) => {
+  const codes = Array.from(text, (char) => char.codePointAt(0) ?? 0);
+
+  if (codes.every((code) => code < 128) || codes.some((code) => code > 255)) return text;
+
+  try {
+    return new TextDecoder('utf8', { fatal: true }).decode(Uint8Array.from(codes));
+  } catch {
+    return text;
+  }
+};
+
 const getReplacementText = (event: InputEvent) => {
   let transferredText: string | null = null;
 
@@ -32,6 +48,8 @@ const getReplacementText = (event: InputEvent) => {
   } catch {
     transferredText = null;
   }
+
+  if (transferredText && !event.isTrusted) transferredText = decodeUtf8ByteString(transferredText);
 
   return transferredText || event.data || null;
 };
