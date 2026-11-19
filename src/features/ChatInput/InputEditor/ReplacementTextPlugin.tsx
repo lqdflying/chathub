@@ -13,8 +13,10 @@ import {
 } from 'lexical';
 import { memo } from 'react';
 
-import { IME_PRIMER } from './imePrimer';
+import { $isPrimerOnly, IME_PRIMER } from './imePrimer';
 
+// The desktop and mobile layouts mark the element that holds the editor and its buttons.
+const CHAT_INPUT_SELECTOR = '[data-chat-input]';
 const DEBUG_FLAG = 'lobe_replacement_debug';
 const DEBUG_OVERLAY_ID = 'replacement-debug-overlay';
 const PROBE_EVENTS = [
@@ -470,7 +472,7 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
   };
 
   const handleKeyDown = (event: Event) => {
-    const { key } = event as KeyboardEvent;
+    const { ctrlKey, key, metaKey } = event as KeyboardEvent;
 
     if (!key || MODIFIER_KEYS.has(key)) return;
 
@@ -481,12 +483,32 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
 
     // A key the IME did not consume means no composition is open any more.
     imeKeyActive = false;
+
+    // Copy reads the page selection, which can lie in the messages while the box keeps
+    // focus. Removing the primer would move that selection into the box first.
+    if ((ctrlKey || metaKey) && key.toLowerCase() === 'c') return;
+
     stripPrimer();
   };
 
-  // A click ends a composition too, and the send button reads the document.
-  const handlePointerDown = () => {
+  // Where no ancestor is marked, every click counts as a click on the chat input.
+  const isChatInputTarget = (target: EventTarget | null) => {
+    const chatInput = rootElement?.closest(CHAT_INPUT_SELECTOR);
+
+    return !chatInput || chatInput.contains(target as Node | null);
+  };
+
+  // A click ends a composition too. On the chat input it can read or move the document
+  // (the send button, a format button, a new caret), so the primer leaves first. A click
+  // elsewhere leaves a box that holds only the primer alone: removing the primer and
+  // placing it again 50 ms later writes the caret into the editor twice, which collapses
+  // a text selection being dragged in the messages. Once text follows the primer it
+  // still leaves, because the send menu opens outside the chat input.
+  const handlePointerDown = (event: Event) => {
     imeKeyActive = false;
+
+    if (!isChatInputTarget(event.target) && editor.getEditorState().read($isPrimerOnly)) return;
+
     stripPrimer();
   };
 

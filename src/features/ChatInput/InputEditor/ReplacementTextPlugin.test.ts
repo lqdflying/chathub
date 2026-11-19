@@ -10,7 +10,7 @@ import {
   type NodeKey,
   createEditor,
 } from 'lexical';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 
 import { registerReplacementTextRangeHandler } from './ReplacementTextPlugin';
 import { IME_PRIMER } from './imePrimer';
@@ -207,8 +207,10 @@ const initEmpty = (editor: LexicalEditor) => {
   if (paragraphElement) setDOMSelection(paragraphElement, 0);
 };
 
-const pressKey = (editor: LexicalEditor, key: string) => {
-  editor.getRootElement()?.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key }));
+const pressKey = (editor: LexicalEditor, key: string, init: KeyboardEventInit = {}) => {
+  editor
+    .getRootElement()
+    ?.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key, ...init }));
 };
 
 const createTargetRange = (
@@ -957,12 +959,13 @@ describe('ReplacementTextPlugin', () => {
       expect(getText(unfocused.editor)).toBe('');
     });
 
-    it('keeps the primer for IME keys and removes it before any other key', async () => {
+    it('keeps the primer for IME keys and the copy shortcut, and removes it before any other key', async () => {
       const { editor } = await createPrimedEditor();
 
       pressKey(editor, 'Process');
       pressKey(editor, 'Shift');
       pressKey(editor, '');
+      pressKey(editor, 'c', { ctrlKey: true });
 
       expect(getText(editor)).toBe(IME_PRIMER);
 
@@ -1065,6 +1068,73 @@ describe('ReplacementTextPlugin', () => {
       await settle();
 
       expect(getText(editor)).toBe(IME_PRIMER);
+    });
+
+    // The layouts mark the chat input. A message sits outside it.
+    const createPrimedChatInput = async () => {
+      localStorage.setItem('lobe_thin_client_ime', '1');
+      const { editor, rootElement } = createTestEditor();
+      const chatInput = document.createElement('div');
+      const sendButton = document.createElement('button');
+      const message = document.createElement('p');
+
+      chatInput.dataset.chatInput = '';
+      chatInput.append(rootElement, sendButton);
+      document.body.append(message, chatInput);
+      onTestFinished(() => {
+        chatInput.remove();
+        message.remove();
+      });
+      initEmpty(editor);
+      rootElement.focus();
+      await settle();
+
+      return { editor, message, sendButton };
+    };
+
+    const pointerDown = (target: EventTarget) => {
+      target.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    };
+
+    it('leaves a primed empty box untouched on a click outside the chat input', async () => {
+      // Field report: with an empty box, text in the messages could not be selected. Each
+      // click removed the primer and placed it again, and each of those updates writes
+      // the caret into the editor.
+      const { editor, message } = await createPrimedChatInput();
+      const onUpdate = vi.fn();
+      const unregister = editor.registerUpdateListener(onUpdate);
+
+      pointerDown(message);
+      await settle();
+      unregister();
+
+      expect(onUpdate).not.toHaveBeenCalled();
+      expect(getText(editor)).toBe(IME_PRIMER);
+    });
+
+    it('still removes the primer on the chat input, and anywhere once text follows it', async () => {
+      const { editor, message, sendButton } = await createPrimedChatInput();
+
+      pointerDown(sendButton);
+
+      expect(getText(editor)).toBe('');
+
+      await settle();
+      editor.update(
+        () => {
+          const selection = $getSelection();
+
+          if ($isRangeSelection(selection)) selection.insertText('你好');
+        },
+        { discrete: true },
+      );
+
+      expect(getText(editor)).toBe(`${IME_PRIMER}你好`);
+
+      // The send menu opens outside the chat input.
+      pointerDown(message);
+
+      expect(getText(editor)).toBe('你好');
     });
   });
 

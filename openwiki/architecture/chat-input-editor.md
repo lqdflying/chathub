@@ -96,10 +96,10 @@ false`) take this route too**: field capture from a remote-browser-isolation
   an ends-with dedupe so repeated deliveries of the same acceptance stay
   idempotent. Fully empty echo pairs (no payload anywhere) change nothing.
 - **`keydown` (capture)** — records whether the last key was consumed by an IME (key
-  `Process`). Any other non-modifier key ends that state and removes the IME primer
-  (_Thin-client IME_ below).
+  `Process`). Any other non-modifier key ends that state and, except for the copy
+  shortcut, removes the IME primer (_Thin-client IME_ below).
 - **`pointerdown` (capture, on the document)** — ends the IME-key state and removes the
-  primer before a click reads or moves the document.
+  primer before a click that can read or move the document.
 - **`compositionstart` (capture)** — ends the IME-key state: composition events mean
   the IME runs in this browser, not behind a thin client.
 - **`focus` (capture) and the update listener** — schedule the primer.
@@ -156,9 +156,27 @@ reports the same key.
 
 The primer is real text in the model, so the two sides of the thin client stay equal.
 It is removed (`ime-strip`) from the start of the caret's text node before any key the
-IME does not consume and on any `pointerdown`, which covers Enter and the send button,
+IME does not consume and on a `pointerdown`, which covers Enter and the send button,
 and keeps it out of the way of a typed `/` or markdown shortcut. Both edits carry
-`HISTORY_MERGE_TAG`, so they add no undo step. A box that holds only the primer is
+`HISTORY_MERGE_TAG`, so they add no undo step.
+
+Two events keep the primer. Every committed editor update writes the Lexical selection
+into the DOM (`updateDOMSelection`), and removing the primer schedules it again 50 ms
+later, so each removal moves the caret into the editor twice. With an empty box that
+collapsed a text selection dragged in the messages; a box that holds text has no primer
+to remove and never showed it.
+
+- **A `pointerdown` outside the chat input while the box holds only the primer.** The
+  layouts mark the chat input with `data-chat-input` on `ChatInput`
+  (`Desktop/index.tsx`, `Mobile/index.tsx`). It spans the editor, the format bar, the
+  action bar and the send button, whose clicks read or change the document, so a click
+  there still removes the primer. Without a marked ancestor every click counts as
+  inside. Once text follows the primer, any `pointerdown` removes it, because the send
+  menu opens in a portal outside the chat input.
+- **The copy shortcut (`Ctrl`/`Cmd`+`C`).** It reads the page selection, which can lie in
+  the messages while the box keeps focus.
+
+A box that holds only the primer is
 empty for the app: `getMarkdownContent` (`src/features/ChatInput/store/action.ts`)
 returns `''` when `$isPrimerOnly` (`InputEditor/imePrimer.ts`) finds only paragraphs and
 no text but the primer, and the unload warning in `InputEditor/index.tsx` checks that

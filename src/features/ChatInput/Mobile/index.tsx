@@ -55,6 +55,7 @@ const DesktopChatInput = memo(() => {
         paddingInline={12}
       >
         <ChatInput
+          data-chat-input=""
           footer={
             <ChatInputActionBar
               left={<div />}

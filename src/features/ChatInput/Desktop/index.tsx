@@ -114,6 +114,7 @@ const DesktopChatInput = memo<{ showFootnote?: boolean }>(({ showFootnote }) => 
       >
         <Flexbox className={styles.inputShell}>
           <ChatInput
+            data-chat-input=""
             defaultHeight={chatInputHeight || 32}
             footer={
               <ChatInputActionBar
