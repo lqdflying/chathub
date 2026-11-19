@@ -959,13 +959,14 @@ describe('ReplacementTextPlugin', () => {
       expect(getText(unfocused.editor)).toBe('');
     });
 
-    it('keeps the primer for IME keys and the copy shortcut, and removes it before any other key', async () => {
+    it('keeps the primer for IME keys and the copy shortcuts, and removes it before any other key', async () => {
       const { editor } = await createPrimedEditor();
 
       pressKey(editor, 'Process');
       pressKey(editor, 'Shift');
       pressKey(editor, '');
       pressKey(editor, 'c', { ctrlKey: true });
+      pressKey(editor, 'Insert', { ctrlKey: true });
 
       expect(getText(editor)).toBe(IME_PRIMER);
 
@@ -978,6 +979,11 @@ describe('ReplacementTextPlugin', () => {
       await settle();
 
       expect(getText(editor)).toBe(IME_PRIMER);
+
+      // Chromium does not copy on Ctrl+Alt+C, and some layouts report AltGr as Ctrl+Alt.
+      pressKey(editor, 'c', { altKey: true, ctrlKey: true });
+
+      expect(getText(editor)).toBe('');
     });
 
     it('removes the primer in front of composed text and keeps the caret', async () => {

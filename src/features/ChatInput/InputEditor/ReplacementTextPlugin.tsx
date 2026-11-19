@@ -10,6 +10,7 @@ import {
   CONTROLLED_TEXT_INSERTION_COMMAND,
   HISTORY_MERGE_TAG,
   type LexicalEditor,
+  isExactShortcutMatch,
 } from 'lexical';
 import { memo } from 'react';
 
@@ -112,6 +113,13 @@ const getWordReplaceLength = (
 const setLexicalHandled = (event: Event) => {
   (event as Event & { _lexicalHandled?: boolean })._lexicalHandled = true;
 };
+
+// The chords Chromium copies on, with no other modifier held. Some layouts report AltGr
+// as Ctrl+Alt, so Ctrl+Alt+C can be text input and is not one of them.
+const isCopyShortcut = (event: KeyboardEvent) =>
+  isExactShortcutMatch(event, 'c', { ctrlKey: true }) ||
+  isExactShortcutMatch(event, 'c', { metaKey: true }) ||
+  isExactShortcutMatch(event, 'Insert', { ctrlKey: true });
 
 const isDebugEnabled = () => {
   try {
@@ -472,7 +480,7 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
   };
 
   const handleKeyDown = (event: Event) => {
-    const { ctrlKey, key, metaKey } = event as KeyboardEvent;
+    const { key } = event as KeyboardEvent;
 
     if (!key || MODIFIER_KEYS.has(key)) return;
 
@@ -486,7 +494,7 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
 
     // Copy reads the page selection, which can lie in the messages while the box keeps
     // focus. Removing the primer would move that selection into the box first.
-    if ((ctrlKey || metaKey) && key.toLowerCase() === 'c') return;
+    if (isCopyShortcut(event as KeyboardEvent)) return;
 
     stripPrimer();
   };

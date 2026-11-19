@@ -96,7 +96,7 @@ false`) take this route too**: field capture from a remote-browser-isolation
   an ends-with dedupe so repeated deliveries of the same acceptance stay
   idempotent. Fully empty echo pairs (no payload anywhere) change nothing.
 - **`keydown` (capture)** — records whether the last key was consumed by an IME (key
-  `Process`). Any other non-modifier key ends that state and, except for the copy
+  `Process`). Any other non-modifier key ends that state and, except for a copy
   shortcut, removes the IME primer (_Thin-client IME_ below).
 - **`pointerdown` (capture, on the document)** — ends the IME-key state and removes the
   primer before a click that can read or move the document.
@@ -173,8 +173,10 @@ to remove and never showed it.
   there still removes the primer. Without a marked ancestor every click counts as
   inside. Once text follows the primer, any `pointerdown` removes it, because the send
   menu opens in a portal outside the chat input.
-- **The copy shortcut (`Ctrl`/`Cmd`+`C`).** It reads the page selection, which can lie in
-  the messages while the box keeps focus.
+- **A copy shortcut: `Ctrl+C`, `Cmd+C` or `Ctrl+Insert`, with no other modifier
+  (`isCopyShortcut`).** It reads the page selection, which can lie in the messages while
+  the box keeps focus. Chromium fires no `copy` event on `Ctrl+Alt+C`, and some layouts
+  report AltGr as `Ctrl+Alt`, so that chord removes the primer like any other key.
 
 A box that holds only the primer is
 empty for the app: `getMarkdownContent` (`src/features/ChatInput/store/action.ts`)
