@@ -12,7 +12,7 @@ import { default as mimo } from './mimo';
 import { default as minimax } from './minimax';
 import { default as moonshot } from './moonshot';
 import { default as openai } from './openai';
-import { default as openaicompatible } from './openaicompatible';
+import { default as openaicompatible, openaicompatibleRetiredChatModels } from './openaicompatible';
 import { default as xai } from './xai';
 import { default as zhipu } from './zhipu';
 
@@ -56,6 +56,7 @@ type RetiredModelCard = AIChatModelCard & { providerId: string };
 const RETIRED_MODEL_LIST: RetiredModelCard[] = Object.entries({
   anthropic: anthropicRetiredChatModels,
   anthropiccompatible: anthropicCompatibleRetiredChatModels,
+  openaicompatible: openaicompatibleRetiredChatModels,
 }).flatMap(([providerId, models]) => models.map((model) => ({ ...model, providerId })));
 
 /**
@@ -89,7 +90,7 @@ export { default as minimax } from './minimax';
 export { default as moonshot } from './moonshot';
 export { default as openai } from './openai';
 export { gptImage1ParamsSchema, openaiChatModels } from './openai';
-export { default as openaicompatible } from './openaicompatible';
+export { default as openaicompatible, openaicompatibleRetiredChatModels } from './openaicompatible';
 export { GPT_IMAGE_2_SIZE_PRESETS, gptImage2CompatibleParamsSchema } from './openaicompatible';
 export { default as xai } from './xai';
 export { default as zhipu } from './zhipu';

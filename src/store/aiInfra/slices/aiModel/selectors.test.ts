@@ -224,6 +224,23 @@ describe('aiModelSelectors', () => {
         aiModelSelectors.isModelSupportToolUse('claude-sonnet-5', 'provider1')(mockState),
       ).toBe(false);
     });
+
+    it.each(['gpt-6-astra', 'gpt-5.6-sol', 'gpt-5.5'])(
+      'falls back to the retired card for the saved former OpenAI Compatible id %s',
+      (id) => {
+        const provider = 'openaicompatible';
+
+        expect(aiModelSelectors.isModelSupportToolUse(id, provider)(mockState)).toBe(true);
+        expect(aiModelSelectors.isModelSupportVision(id, provider)(mockState)).toBe(true);
+        expect(aiModelSelectors.isModelSupportReasoning(id, provider)(mockState)).toBe(true);
+        expect(aiModelSelectors.modelExtendParams(id, provider)(mockState)).toEqual([
+          'gpt5ReasoningEffort',
+          'textVerbosity',
+        ]);
+        expect(aiModelSelectors.modelContextWindowTokens(id, provider)(mockState)).toBe(1_050_000);
+        expect(aiModelSelectors.isModelSupportToolUse(id, 'provider1')(mockState)).toBe(false);
+      },
+    );
   });
 
   describe('context window checks', () => {

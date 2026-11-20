@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { findRetiredModelCard } from './aiModels';
 import anthropicChatModels from './aiModels/anthropic';
 import anthropiccompatible from './aiModels/anthropiccompatible';
 import openaiChatModels, { gptImage1ParamsSchema } from './aiModels/openai';
@@ -9,6 +10,30 @@ import openaicompatible, {
 } from './aiModels/openaicompatible';
 
 describe('compatible provider fixed model lists', () => {
+  it.each(['gpt-6-astra', 'gpt-5.6-sol', 'gpt-5.5'])(
+    'keeps the former OpenAI Compatible card %s as a retired card outside the picker',
+    (modelId) => {
+      expect(findRetiredModelCard(modelId, 'openaicompatible')).toMatchObject({
+        abilities: { functionCall: true, reasoning: true, search: false, vision: true },
+        contextWindowTokens: 1_050_000,
+        id: modelId,
+        maxOutput: 128_000,
+        providerId: 'openaicompatible',
+        settings: {
+          extendParams: ['gpt5ReasoningEffort', 'textVerbosity'],
+          searchImpl: 'params',
+        },
+        type: 'chat',
+      });
+      expect(openaicompatible.some((model) => model.id === modelId)).toBe(false);
+    },
+  );
+
+  it('has no retired OpenAI Compatible card for an id that is still listed', () => {
+    expect(findRetiredModelCard('gpt-6.2-astra', 'openaicompatible')).toBeUndefined();
+    expect(findRetiredModelCard('gpt-6.1-sol', 'openaicompatible')).toBeUndefined();
+  });
+
   it('locks OpenAI Compatible to GPT-6.2 Astra, GPT-6.1 Sol, and GPT Image 2', () => {
     const sourceGpt62Astra = openaiChatModels.find((model) => model.id === 'gpt-6.2-astra');
     const sourceGpt61Sol = openaiChatModels.find((model) => model.id === 'gpt-6.1-sol');
