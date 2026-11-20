@@ -24,7 +24,7 @@ export PROBE_OPENAICOMPATIBLE_PROXY_URL='https://provider.example.com/v1'
 Optional model override:
 
 ```bash
-export PROBE_OPENAICOMPATIBLE_MODEL='gpt-5.5'
+export PROBE_OPENAICOMPATIBLE_MODEL='gpt-6.1-sol'
 ```
 
 These `PROBE_*` variables are dedicated to the diagnostic skill and are separate from ChatHub's normal provider configuration.

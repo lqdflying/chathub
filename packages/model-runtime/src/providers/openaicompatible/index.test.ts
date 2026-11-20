@@ -205,6 +205,51 @@ describe('LobeOpenAICompatibleAI', () => {
     });
   });
 
+  it.each([
+    ['gpt-6.2-astra', 'developer'],
+    ['gpt-6.1-sol', 'system'],
+  ])(
+    'sends the %s generateObject Chat Completions system prompt with role %s',
+    async (model, systemRole) => {
+      const completionsCreate = vi
+        .spyOn(instance['client'].chat.completions, 'create')
+        .mockResolvedValue({
+          choices: [
+            {
+              message: {
+                tool_calls: [
+                  {
+                    function: { arguments: '{}', name: 'wait_for_user_input' },
+                    id: 'pause',
+                    type: 'function',
+                  },
+                ],
+              },
+            },
+          ],
+        } as any);
+
+      await instance.generateObject({
+        messages: [
+          { content: 'You supervise the group.', role: 'system' },
+          { content: 'Choose the next speaker.', role: 'user' },
+        ],
+        model,
+        tools: [
+          {
+            function: { name: 'wait_for_user_input', parameters: { type: 'object', properties: {} } },
+            type: 'function',
+          },
+        ],
+      });
+
+      expect(completionsCreate.mock.calls[0][0].messages).toEqual([
+        { content: 'You supervise the group.', role: systemRole },
+        { content: 'Choose the next speaker.', role: 'user' },
+      ]);
+    },
+  );
+
   it('sends gpt-6-astra generateObject supervisor tools to Responses when responseApi is true', async () => {
     const responsesCreate = vi.spyOn(instance['client'].responses, 'create').mockResolvedValue({
       output: [
@@ -369,7 +414,7 @@ describe('LobeOpenAICompatibleAI', () => {
     expect(createCall).not.toHaveProperty('presence_penalty');
   });
 
-  it.each(['gpt-6.1-sol'])(
+  it.each(['gpt-6.1-sol', 'gpt-6.2-astra'])(
     'keeps %s function tools on Chat Completions by default',
     async (model) => {
       const completionsCreate = vi
@@ -421,7 +466,7 @@ describe('LobeOpenAICompatibleAI', () => {
     },
   );
 
-  it.each(['gpt-6-astra', 'gpt-6.1-sol'])(
+  it.each(['gpt-6-astra', 'gpt-6.1-sol', 'gpt-6.2-astra', 'gpt-6.2-astra-2026-11-17'])(
     'strips %s Chat Completions temperature and top_p',
     async (model) => {
       await consumeChat({
@@ -441,6 +486,26 @@ describe('LobeOpenAICompatibleAI', () => {
       expect(createCall).toMatchObject({ model });
     },
   );
+
+  it.each([
+    ['gpt-6.2-astra', 'developer'],
+    ['gpt-6.2-astra-2026-11-17', 'developer'],
+    ['gpt-6.1-sol', 'system'],
+  ])('sends the %s Chat Completions system prompt with role %s', async (model, systemRole) => {
+    await consumeChat({
+      messages: [
+        { content: 'Keep the response brief.', role: 'system' },
+        { content: 'Hello', role: 'user' },
+      ],
+      model,
+    });
+
+    const createCall = (instance['client'].chat.completions.create as Mock).mock.calls[0][0];
+    expect(createCall.messages).toEqual([
+      { content: 'Keep the response brief.', role: systemRole },
+      { content: 'Hello', role: 'user' },
+    ]);
+  });
 
   it('keeps Responses tool cache diagnostics available to the factory without sending them upstream', async () => {
     process.env.DEBUG_OPENAICOMPATIBLE_CACHE = '1';

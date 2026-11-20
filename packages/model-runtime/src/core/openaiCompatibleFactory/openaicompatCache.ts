@@ -58,22 +58,6 @@ export const shouldAutoInjectPromptCacheKeyForCompat = (model?: string) => {
   return CACHE_KEY_MODELS.some((keyword) => normalized.includes(keyword));
 };
 
-const firstUserContentFromInput = (input: unknown) => {
-  if (typeof input === 'string') return { label: 'input', value: input };
-  if (!Array.isArray(input)) return null;
-
-  for (const item of input) {
-    if (!item || typeof item !== 'object') continue;
-    const value = item as Record<string, any>;
-    if (value.role === 'user') return { label: 'first_user', value: value.content };
-    if (value.type === 'input_text') return { label: 'first_user', value: value.text || '' };
-    if (value.type === 'message' && value.role === 'user')
-      return { label: 'first_user', value: value.content };
-  }
-
-  return null;
-};
-
 const appendStableSeedParts = (parts: string[], parsedBody: Record<string, any>, model?: string) => {
   const normalizedModel = String(model || parsedBody.model || '').trim();
   if (normalizedModel) parts.push(`model=${normalizedModel}`);
@@ -93,28 +77,23 @@ const appendStableSeedParts = (parts: string[], parsedBody: Record<string, any>,
   if (typeof parsedBody.instructions === 'string' && parsedBody.instructions)
     parts.push(`instructions=${parsedBody.instructions}`);
 
-  let firstUserCaptured = false;
+  // The key partitions cache reuse, so it covers only the shared prefix. Seeding the first user
+  // message would give every new conversation its own key, and its first request could not reuse
+  // the cached tools and system prompt.
+  // https://developers.openai.com/api/docs/guides/prompt-caching
   if (Array.isArray(parsedBody.messages)) {
     for (const msg of parsedBody.messages) {
       const role = String(msg?.role || '').trim();
       if (role === 'system' || role === 'developer') {
         parts.push(`${role}=${normalizeCompatSeedJSON(msg.content)}`);
-      } else if (role === 'user' && !firstUserCaptured) {
-        parts.push(`first_user=${normalizeCompatSeedJSON(msg.content)}`);
-        firstUserCaptured = true;
       }
     }
-  } else {
-    if (Array.isArray(parsedBody.input)) {
-      for (const item of parsedBody.input) {
-        const role = String(item?.role || '').trim();
-        if (role === 'system' || role === 'developer')
-          parts.push(`${role}=${normalizeCompatSeedJSON(item.content)}`);
-      }
+  } else if (Array.isArray(parsedBody.input)) {
+    for (const item of parsedBody.input) {
+      const role = String(item?.role || '').trim();
+      if (role === 'system' || role === 'developer')
+        parts.push(`${role}=${normalizeCompatSeedJSON(item.content)}`);
     }
-
-    const firstInput = firstUserContentFromInput(parsedBody.input);
-    if (firstInput) parts.push(`${firstInput.label}=${normalizeCompatSeedJSON(firstInput.value)}`);
   }
 
   return parts;

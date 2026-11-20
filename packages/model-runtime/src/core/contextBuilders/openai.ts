@@ -80,7 +80,7 @@ export const convertOpenAIMessages = async (
       if (msg.reasoning_details !== undefined) result.reasoning_details = msg.reasoning_details;
 
       // `reasoning_content` is a DeepSeek/Moonshot-specific field. For the
-      // `openaicompatible` provider (gpt-5.5 etc.), skip it entirely so it does
+      // `openaicompatible` provider (gpt-6.1-sol etc.), skip it entirely so it does
       // not leak into the gateway request and pollute the prompt-cache key.
       if (!skipReasoningContent) {
         // it's compatible for DeepSeek

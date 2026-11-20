@@ -34,6 +34,38 @@ describe('openaicompatCache', () => {
     expect(secondKey).toBe(firstKey);
   });
 
+  it.each(['messages', 'input'] as const)(
+    'derives one %s key for conversations that differ only in the first user message',
+    async (field) => {
+      const request = (systemPrompt: string, firstUserMessage: string) => ({
+        [field]: [
+          { content: systemPrompt, role: 'system' },
+          { content: firstUserMessage, role: 'user' },
+        ],
+        model: 'gpt-6.2-astra',
+        reasoning_effort: 'xhigh',
+        tools: [{ function: { name: 'search' }, type: 'function' }],
+      });
+
+      const firstKey = await deriveCompatPromptCacheKey(
+        request('You are concise.', 'Explain cache hits'),
+        'gpt-6.2-astra',
+      );
+      const secondKey = await deriveCompatPromptCacheKey(
+        request('You are concise.', 'Summarize this file'),
+        'gpt-6.2-astra',
+      );
+      const otherSystemKey = await deriveCompatPromptCacheKey(
+        request('You are verbose.', 'Explain cache hits'),
+        'gpt-6.2-astra',
+      );
+
+      expect(firstKey).toMatch(/^compat_cc_[a-f0-9]{32}$/);
+      expect(secondKey).toBe(firstKey);
+      expect(otherSystemKey).not.toBe(firstKey);
+    },
+  );
+
   it('derives prompt_cache_key for GPT-6 Astra on the implicit allowlist', async () => {
     const key = await deriveCompatPromptCacheKey(
       {

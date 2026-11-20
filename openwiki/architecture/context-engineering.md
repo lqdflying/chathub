@@ -209,7 +209,7 @@ The configurable compact threshold is the high watermark. It is clamped to 50%-9
 The 80% gate lives only on `trigger=token_threshold`. It compares
 `estimateContextUsageAsync` (system role + tools + assistant memory + wrapped history summary +
 activated skill XML + `selectMessagesForContext` with per-user input templates + input) to `enabledAiModels[].contextWindowTokens` for the
-**active chat model** (including user overrides; OpenAI-compatible cards are forced to 258k).
+**active chat model** (including user overrides; OpenAI-compatible cards always use their built-in card's window).
 It does not compare full-topic size to the vendor's advertised window. `message_count`,
 `scheduled`, and `manual` ignore that gate. The token-badge watcher ratio can include
 in-flight Knowledge Base tokens that the planner estimate does not. Operators diagnose

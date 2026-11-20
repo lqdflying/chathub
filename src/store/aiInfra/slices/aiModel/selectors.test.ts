@@ -1,4 +1,4 @@
-import { AiModelSourceEnum, OPENAI_COMPATIBLE_CONTEXT_WINDOW_TOKENS } from 'model-bank';
+import { AiModelSourceEnum } from 'model-bank';
 import { describe, expect, it } from 'vitest';
 
 import { AIProviderStoreState } from '@/store/aiInfra/initialState';
@@ -252,25 +252,25 @@ describe('aiModelSelectors', () => {
           ...(mockState.enabledAiModels ?? []),
           {
             contextWindowTokens: 1_050_000,
-            id: 'gpt-5.5',
+            id: 'gpt-6.1-sol',
             providerId: 'openai',
             type: 'chat' as const,
           },
           {
-            contextWindowTokens: OPENAI_COMPATIBLE_CONTEXT_WINDOW_TOKENS,
-            id: 'gpt-5.5',
+            contextWindowTokens: 400_000,
+            id: 'gpt-6.1-sol',
             providerId: 'openaicompatible',
             type: 'chat' as const,
           },
         ],
       };
 
-      expect(aiModelSelectors.modelContextWindowTokens('gpt-5.5', 'openai')(state)).toBe(
+      expect(aiModelSelectors.modelContextWindowTokens('gpt-6.1-sol', 'openai')(state)).toBe(
         1_050_000,
       );
       expect(
-        aiModelSelectors.modelContextWindowTokens('gpt-5.5', 'openaicompatible')(state),
-      ).toBe(OPENAI_COMPATIBLE_CONTEXT_WINDOW_TOKENS);
+        aiModelSelectors.modelContextWindowTokens('gpt-6.1-sol', 'openaicompatible')(state),
+      ).toBe(400_000);
     });
   });
 });

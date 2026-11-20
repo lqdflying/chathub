@@ -36,16 +36,21 @@ export const GPT6_ASTRA_MODEL_PATTERN = /^gpt-6-astra(?:-|$)/;
 /** Official GPT-6.1 Sol plus dated snapshots (`gpt-6.1-sol-…`). */
 export const GPT61_SOL_MODEL_PATTERN = /^gpt-6\.1-sol(?:-|$)/;
 
+/** Official GPT-6.2 Astra plus dated snapshots (`gpt-6.2-astra-…`). */
+export const GPT62_ASTRA_MODEL_PATTERN = /^gpt-6\.2-astra(?:-|$)/;
+
 export const isGpt6AstraModel = (model: string): boolean => GPT6_ASTRA_MODEL_PATTERN.test(model);
 
-/** Tool calling requires Responses for Astra and GPT-6.1 Sol. */
+/** Tool calling requires Responses for GPT-6 Astra, GPT-6.1 Sol, and GPT-6.2 Astra. */
 export const requiresOpenAIResponsesForTools = (model: string): boolean =>
-  isGpt6AstraModel(model) || GPT61_SOL_MODEL_PATTERN.test(model);
+  isGpt6AstraModel(model) ||
+  GPT61_SOL_MODEL_PATTERN.test(model) ||
+  GPT62_ASTRA_MODEL_PATTERN.test(model);
 
 /**
  * Fresh function/MCP tools or a replay that already contains tool calls/results.
- * Official OpenAI: Astra and GPT-6.1 Sol support Chat Completions, but tool calling
- * requires Responses.
+ * Official OpenAI: GPT-6 Astra, GPT-6.1 Sol, and GPT-6.2 Astra support Chat Completions,
+ * but tool calling requires Responses.
  * https://developers.openai.com/api/docs/guides/latest-model
  */
 export const hasOpenAIToolCallingTurn = (payload: ChatStreamPayload): boolean => {
@@ -135,10 +140,14 @@ export const params = {
     responses: () => process.env.DEBUG_OPENAI_RESPONSES === '1',
   },
   // Structured tool selection (group supervisor, tRPC generateObject) bypasses
-  // chatCompletion.handlePayload. Official Astra and GPT-6.1 Sol tool calling
-  // require Responses.
+  // chatCompletion.handlePayload. Official GPT-6 Astra, GPT-6.1 Sol, and GPT-6.2 Astra
+  // tool calling requires Responses.
   generateObject: {
-    useResponseModels: [GPT6_ASTRA_MODEL_PATTERN, GPT61_SOL_MODEL_PATTERN],
+    useResponseModels: [
+      GPT6_ASTRA_MODEL_PATTERN,
+      GPT61_SOL_MODEL_PATTERN,
+      GPT62_ASTRA_MODEL_PATTERN,
+    ],
   },
   models: async ({ client }) => {
     const modelsPage = (await client.models.list()) as any;

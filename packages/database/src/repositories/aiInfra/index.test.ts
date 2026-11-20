@@ -1,9 +1,4 @@
-import {
-  AiProviderModelListItem,
-  EnabledAiModel,
-  ModelProvider,
-  OPENAI_COMPATIBLE_CONTEXT_WINDOW_TOKENS,
-} from 'model-bank';
+import { AiProviderModelListItem, EnabledAiModel, ModelProvider } from 'model-bank';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DEFAULT_MODEL_PROVIDER_LIST } from '@/config/modelProviders';
@@ -202,9 +197,9 @@ describe('AiInfraRepos', () => {
       const mockAllModels: EnabledAiModel[] = [
         {
           abilities: { reasoning: true },
-          contextWindowTokens: 1_050_000,
+          contextWindowTokens: 258_000,
           enabled: true,
-          id: 'gpt-5.5',
+          id: 'gpt-6.1-sol',
           providerId: ModelProvider.OpenAICompatible,
           type: 'chat',
         },
@@ -212,16 +207,16 @@ describe('AiInfraRepos', () => {
       const mockBuiltinModels: AiProviderModelListItem[] = [
         {
           abilities: { reasoning: true },
-          contextWindowTokens: OPENAI_COMPATIBLE_CONTEXT_WINDOW_TOKENS,
+          contextWindowTokens: 1_050_000,
           enabled: true,
-          id: 'gpt-5.6-sol',
+          id: 'gpt-6.2-astra',
           type: 'chat',
         },
         {
           abilities: { reasoning: true },
-          contextWindowTokens: OPENAI_COMPATIBLE_CONTEXT_WINDOW_TOKENS,
+          contextWindowTokens: 1_050_000,
           enabled: true,
-          id: 'gpt-5.5',
+          id: 'gpt-6.1-sol',
           type: 'chat',
         },
       ];
@@ -234,9 +229,9 @@ describe('AiInfraRepos', () => {
 
       expect(result).toEqual(
         expect.arrayContaining(
-          ['gpt-5.6-sol', 'gpt-5.5'].map((id) =>
+          ['gpt-6.2-astra', 'gpt-6.1-sol'].map((id) =>
             expect.objectContaining({
-              contextWindowTokens: OPENAI_COMPATIBLE_CONTEXT_WINDOW_TOKENS,
+              contextWindowTokens: 1_050_000,
               id,
               providerId: ModelProvider.OpenAICompatible,
             }),
@@ -850,23 +845,23 @@ describe('AiInfraRepos', () => {
     it('should ignore stale OpenAI-compatible context windows in the provider model list', async () => {
       const mockUserModels: AiProviderModelListItem[] = [
         {
-          contextWindowTokens: 1_050_000,
+          contextWindowTokens: 258_000,
           enabled: true,
-          id: 'gpt-5.5',
+          id: 'gpt-6.1-sol',
           type: 'chat',
         },
       ];
       const mockDefaultModels: AiProviderModelListItem[] = [
         {
-          contextWindowTokens: OPENAI_COMPATIBLE_CONTEXT_WINDOW_TOKENS,
+          contextWindowTokens: 1_050_000,
           enabled: true,
-          id: 'gpt-5.6-sol',
+          id: 'gpt-6.2-astra',
           type: 'chat',
         },
         {
-          contextWindowTokens: OPENAI_COMPATIBLE_CONTEXT_WINDOW_TOKENS,
+          contextWindowTokens: 1_050_000,
           enabled: true,
-          id: 'gpt-5.5',
+          id: 'gpt-6.1-sol',
           type: 'chat',
         },
       ];
@@ -878,9 +873,9 @@ describe('AiInfraRepos', () => {
 
       expect(result).toEqual(
         expect.arrayContaining(
-          ['gpt-5.6-sol', 'gpt-5.5'].map((id) =>
+          ['gpt-6.2-astra', 'gpt-6.1-sol'].map((id) =>
             expect.objectContaining({
-              contextWindowTokens: OPENAI_COMPATIBLE_CONTEXT_WINDOW_TOKENS,
+              contextWindowTokens: 1_050_000,
               id,
             }),
           ),

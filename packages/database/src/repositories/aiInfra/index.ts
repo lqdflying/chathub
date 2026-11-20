@@ -6,7 +6,7 @@ import {
   EnabledAiModel,
   type ExtendParamsType,
   ModelProvider,
-  OPENAI_COMPATIBLE_CONTEXT_WINDOW_TOKENS,
+  openaicompatible as openaiCompatibleModels,
 } from 'model-bank';
 import pMap from 'p-map';
 
@@ -103,7 +103,8 @@ const inferProviderExtendParams = (
       providerId === ModelProvider.AzureAI) &&
     (modelId.startsWith('gpt-5.') ||
       modelId.startsWith('gpt-6-astra') ||
-      modelId.startsWith('gpt-6.1-sol'))
+      modelId.startsWith('gpt-6.1-sol') ||
+      modelId.startsWith('gpt-6.2-astra'))
   ) {
     return ['gpt5ReasoningEffort', 'textVerbosity'];
   }
@@ -254,12 +255,19 @@ const injectSearchSettings = (providerId: string, item: any) => {
   return item;
 };
 
+// The compatible provider's model list is fixed, so its built-in card owns the context window.
+// A stored row keeps the value of the catalog it was saved from and must not override it.
 const enforceOpenAICompatibleContextWindow = (providerId: string, item: any) => {
   if (providerId !== ModelProvider.OpenAICompatible || item?.type !== 'chat') return item;
 
+  const builtinModel = openaiCompatibleModels.find(
+    (model) => model.type === 'chat' && model.id === item.id,
+  );
+  if (typeof builtinModel?.contextWindowTokens !== 'number') return item;
+
   return {
     ...item,
-    contextWindowTokens: OPENAI_COMPATIBLE_CONTEXT_WINDOW_TOKENS,
+    contextWindowTokens: builtinModel.contextWindowTokens,
   };
 };
 

@@ -90,10 +90,6 @@ export { default as moonshot } from './moonshot';
 export { default as openai } from './openai';
 export { gptImage1ParamsSchema, openaiChatModels } from './openai';
 export { default as openaicompatible } from './openaicompatible';
-export {
-  GPT_IMAGE_2_SIZE_PRESETS,
-  gptImage2CompatibleParamsSchema,
-  OPENAI_COMPATIBLE_CONTEXT_WINDOW_TOKENS,
-} from './openaicompatible';
+export { GPT_IMAGE_2_SIZE_PRESETS, gptImage2CompatibleParamsSchema } from './openaicompatible';
 export { default as xai } from './xai';
 export { default as zhipu } from './zhipu';

@@ -7,10 +7,7 @@ import {
 
 export { GPT_IMAGE_2_SIZE_PRESETS, gptImage2CompatibleParamsSchema } from './openai';
 
-const compatibleChatModelIds = ['gpt-6-astra', 'gpt-6.1-sol', 'gpt-5.6-sol', 'gpt-5.5'];
-
-// Compatible gateways use a smaller shared context budget than native OpenAI.
-export const OPENAI_COMPATIBLE_CONTEXT_WINDOW_TOKENS = 258_000;
+const compatibleChatModelIds = ['gpt-6.2-astra', 'gpt-6.1-sol'];
 
 const openaicompatibleModels: Array<AIChatModelCard | AIImageModelCard> = [
   ...compatibleChatModelIds.map((modelId) => {
@@ -24,7 +21,6 @@ const openaicompatibleModels: Array<AIChatModelCard | AIImageModelCard> = [
         ...sourceModel.abilities,
         search: false,
       },
-      contextWindowTokens: OPENAI_COMPATIBLE_CONTEXT_WINDOW_TOKENS,
       enabled: true,
       settings,
     };

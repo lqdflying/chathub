@@ -2,7 +2,7 @@
 
 import crypto from 'node:crypto';
 
-const DEFAULT_MODEL = 'gpt-5.5';
+const DEFAULT_MODEL = 'gpt-6.1-sol';
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_CACHE_RUNS = 6;
 const DEFAULT_RESPONSE_CACHE_STRATEGIES = [
@@ -1808,8 +1808,11 @@ function responseInputMessage(role, text, options = {}) {
 }
 
 function chatCacheMessages(round, options = {}) {
+  // ChatHub sends the gpt-6.2-astra system prompt with the developer role on Chat Completions.
+  const systemRole = /^gpt-6\.2-astra(?:-|$)/.test(model) ? 'developer' : 'system';
+
   return [
-    chatMessage('system', longStablePrefix(), options),
+    chatMessage(systemRole, longStablePrefix(), options),
     chatMessage('user', `Round ${round + 1}. Say exactly: ok`, options),
   ];
 }

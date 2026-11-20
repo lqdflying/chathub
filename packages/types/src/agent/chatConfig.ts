@@ -114,6 +114,16 @@ export const resolveGPT5ReasoningEffort = (
   model: string,
   requestedEffort: GPT5ReasoningEffort | undefined,
 ): GPT5ReasoningEffortResolution => {
+  if (model.startsWith('gpt-6.2-astra')) {
+    return {
+      effort: GPT6_ASTRA_REASONING_EFFORTS.includes(requestedEffort as GPT5ReasoningEffort)
+        ? (requestedEffort as GPT5ReasoningEffort)
+        : 'xhigh',
+      effortValues: GPT6_ASTRA_REASONING_EFFORTS,
+      sendWhenUnset: true,
+    };
+  }
+
   if (model.startsWith('gpt-6-astra')) {
     return {
       effort: GPT6_ASTRA_REASONING_EFFORTS.includes(requestedEffort as GPT5ReasoningEffort)

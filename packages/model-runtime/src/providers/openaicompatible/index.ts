@@ -9,6 +9,21 @@ const GPT6_ASTRA_MODEL_PATTERN = /^gpt-6-astra(?:-|$)/;
 /** Official GPT-6.1 Sol plus dated snapshots (`gpt-6.1-sol-…`). */
 const GPT61_SOL_MODEL_PATTERN = /^gpt-6\.1-sol(?:-|$)/;
 
+/** Official GPT-6.2 Astra plus dated snapshots (`gpt-6.2-astra-…`). */
+const GPT62_ASTRA_MODEL_PATTERN = /^gpt-6\.2-astra(?:-|$)/;
+
+// Gateways that translate Chat Completions to Responses map `system` messages to top-level
+// `instructions`. GPT-6.2 appends `instructions` after the input, outside every cache boundary,
+// so the system prompt would be billed uncached on every request. A `developer` message stays at
+// the start of the input and stays cacheable.
+// https://developers.openai.com/api/docs/guides/prompt-caching
+const withCacheableSystemRole = (model: string, messages: any[]) =>
+  GPT62_ASTRA_MODEL_PATTERN.test(model)
+    ? messages.map((message) =>
+        message.role === 'system' ? { ...message, role: 'developer' } : message,
+      )
+    : messages;
+
 const defaultBaseURL =
   process.env.OPENAICOMPATIBLE_PROXY_URL?.trim() || 'https://api.openai.com/v1';
 
@@ -56,7 +71,8 @@ export const LobeOpenAICompatibleAI = createOpenAICompatibleRuntime({
       const pruneSampling =
         isResponses ||
         GPT6_ASTRA_MODEL_PATTERN.test(model) ||
-        GPT61_SOL_MODEL_PATTERN.test(model);
+        GPT61_SOL_MODEL_PATTERN.test(model) ||
+        GPT62_ASTRA_MODEL_PATTERN.test(model);
 
       const result: Record<string, any> = {
         model,
@@ -68,7 +84,9 @@ export const LobeOpenAICompatibleAI = createOpenAICompatibleRuntime({
       if (apiMode !== undefined) result.apiMode = apiMode;
       if (debugToolCache !== undefined) result.debugToolCache = debugToolCache;
 
-      if (messages !== undefined) result.messages = messages;
+      // Responses conversion emits system prompts as `developer` input items on its own.
+      if (messages !== undefined)
+        result.messages = isResponses ? messages : withCacheableSystemRole(model, messages);
       if (!pruneSampling) {
         if (temperature !== undefined) result.temperature = temperature;
         if (top_p !== undefined) result.top_p = top_p;
@@ -97,6 +115,13 @@ export const LobeOpenAICompatibleAI = createOpenAICompatibleRuntime({
   debug: {
     chatCompletion: () => process.env.DEBUG_OPENAICOMPATIBLE_CHAT_COMPLETION === '1',
     responses: () => process.env.DEBUG_OPENAICOMPATIBLE_RESPONSES === '1',
+  },
+  // generateObject builds its Chat Completions request without `chatCompletion.handlePayload`.
+  generateObject: {
+    handlePayload: (payload) => ({
+      ...payload,
+      messages: withCacheableSystemRole(payload.model, payload.messages),
+    }),
   },
   models: async ({ client }) => {
     try {

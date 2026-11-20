@@ -1,25 +1,25 @@
-import { ModelProvider, OPENAI_COMPATIBLE_CONTEXT_WINDOW_TOKENS } from 'model-bank';
+import { ModelProvider } from 'model-bank';
 
 import { ModelProviderCard } from '@/types/llm';
 
 const OpenAICompatible: ModelProviderCard = {
   chatModels: [
     {
-      contextWindowTokens: OPENAI_COMPATIBLE_CONTEXT_WINDOW_TOKENS,
+      contextWindowTokens: 1_050_000,
       description:
-        'GPT-6 Astra through an OpenAI-compatible Chat Completions or Responses gateway.',
-      displayName: 'GPT-6 Astra',
+        'GPT-6.2 Astra through an OpenAI-compatible Chat Completions or Responses gateway.',
+      displayName: 'GPT-6.2 Astra',
       enabled: true,
       functionCall: true,
-      id: 'gpt-6-astra',
+      id: 'gpt-6.2-astra',
       maxOutput: 128_000,
       reasoning: true,
-      releasedAt: '2026-09-03',
+      releasedAt: '2026-11-17',
       search: false,
       vision: true,
     },
     {
-      contextWindowTokens: OPENAI_COMPATIBLE_CONTEXT_WINDOW_TOKENS,
+      contextWindowTokens: 1_050_000,
       description:
         'GPT-6.1 Sol through an OpenAI-compatible Chat Completions or Responses gateway.',
       displayName: 'GPT-6.1 Sol',
@@ -32,35 +32,8 @@ const OpenAICompatible: ModelProviderCard = {
       search: false,
       vision: true,
     },
-    {
-      contextWindowTokens: OPENAI_COMPATIBLE_CONTEXT_WINDOW_TOKENS,
-      description:
-        'GPT-5.6 Sol through an OpenAI-compatible Chat Completions or Responses gateway.',
-      displayName: 'GPT-5.6 Sol',
-      enabled: true,
-      functionCall: true,
-      id: 'gpt-5.6-sol',
-      maxOutput: 128_000,
-      reasoning: true,
-      releasedAt: '2026-07-09',
-      search: false,
-      vision: true,
-    },
-    {
-      contextWindowTokens: OPENAI_COMPATIBLE_CONTEXT_WINDOW_TOKENS,
-      description: 'GPT-5.5 through an OpenAI-compatible Chat Completions gateway.',
-      displayName: 'GPT-5.5',
-      enabled: true,
-      functionCall: true,
-      id: 'gpt-5.5',
-      maxOutput: 128_000,
-      reasoning: true,
-      releasedAt: '2026-04-23',
-      search: false,
-      vision: true,
-    },
   ],
-  checkModel: 'gpt-5.5',
+  checkModel: 'gpt-6.1-sol',
   description:
     'Connect to services that expose an OpenAI-compatible API. Uses a fixed GPT model list for chat and image generation.',
   disableBrowserRequest: true,

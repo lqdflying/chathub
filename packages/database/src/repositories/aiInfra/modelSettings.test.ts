@@ -1,36 +1,52 @@
-import { ModelProvider, OPENAI_COMPATIBLE_CONTEXT_WINDOW_TOKENS } from 'model-bank';
+import { ModelProvider } from 'model-bank';
 import { describe, expect, it } from 'vitest';
 
 import { injectModelSettings } from './index';
 
 describe('injectModelSettings', () => {
-  it.each(['gpt-6-astra', 'gpt-6.1-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.6-sol', 'gpt-5.5'])(
-    'injects GPT-5.x gear settings for fetched %s',
-    (modelId) => {
-      const model = injectModelSettings(ModelProvider.OpenAI, {
-        abilities: { functionCall: true, reasoning: true, vision: true },
-        id: modelId,
-        type: 'chat',
-      });
+  it.each([
+    'gpt-6.2-astra',
+    'gpt-6.2-astra-2026-11-17',
+    'gpt-6-astra',
+    'gpt-6.1-sol',
+    'gpt-5.6-terra',
+    'gpt-5.6-luna',
+    'gpt-5.6-sol',
+    'gpt-5.5',
+  ])('injects GPT-5.x gear settings for fetched %s', (modelId) => {
+    const model = injectModelSettings(ModelProvider.OpenAI, {
+      abilities: { functionCall: true, reasoning: true, vision: true },
+      id: modelId,
+      type: 'chat',
+    });
 
-      expect(model.settings).toEqual({
-        extendParams: ['gpt5ReasoningEffort', 'textVerbosity'],
-      });
-    },
-  );
+    expect(model.settings).toEqual({
+      extendParams: ['gpt5ReasoningEffort', 'textVerbosity'],
+    });
+  });
 
-  it.each(['gpt-6-astra', 'gpt-6.1-sol', 'gpt-5.6-sol', 'gpt-5.5'])(
-    'locks the OpenAI-compatible context window for %s',
+  it.each(['gpt-6.2-astra', 'gpt-6.1-sol'])(
+    'uses the built-in OpenAI-compatible context window over a stored value for %s',
     (modelId) => {
       const model = injectModelSettings(ModelProvider.OpenAICompatible, {
-        contextWindowTokens: 1_050_000,
+        contextWindowTokens: 258_000,
         id: modelId,
         type: 'chat',
       });
 
-      expect(model.contextWindowTokens).toBe(OPENAI_COMPATIBLE_CONTEXT_WINDOW_TOKENS);
+      expect(model.contextWindowTokens).toBe(1_050_000);
     },
   );
+
+  it('keeps the stored context window of an OpenAI-compatible chat id without a built-in card', () => {
+    expect(
+      injectModelSettings(ModelProvider.OpenAICompatible, {
+        contextWindowTokens: 258_000,
+        id: 'gpt-5.5',
+        type: 'chat',
+      }).contextWindowTokens,
+    ).toBe(258_000);
+  });
 
   it('does not change native OpenAI or OpenAI-compatible image context metadata', () => {
     expect(

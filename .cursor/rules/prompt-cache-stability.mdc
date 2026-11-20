@@ -37,6 +37,7 @@ For OpenAI-compatible request conversion, stream lifecycle, cancellation, tool c
 - `convertOpenAIResponseInputs`: Same provider gate for the Responses path — for `openaicompatible`, historical `reasoning` items are NOT prepended to `input` (they perturb the Responses cache prefix and strict gateways reject them). Other providers keep the reasoning item.
 - Provider feature flags such as `enabledSearch` may exist inside `ChatStreamPayload` until the relevant runtime consumes them for routing or tool injection; strip them from the final upstream request body unless that upstream API explicitly documents the field.
 - `openaicompatible/handlePayload`: Explicit allowlist of Chat Completions fields. `reasoning` (the Responses-shaped object) is Responses-only; Chat Completions gets `reasoning_effort` only. Responses always merges model-option effort into `reasoning.effort`; there is no provider-level effort-shape selector. Apply `openAICompatResponsesParams` only for `max_tokens`, `max_output_tokens`, `truncation`, and `verbosity` compatibility shapes.
+- `openaicompatible/handlePayload` sends Chat Completions `system` messages with role `developer` for `gpt-6.2-astra*` only. Gateways that translate Chat Completions to Responses map `system` to top-level `instructions`, and GPT-6.2 appends `instructions` after the input, outside every cache boundary, so the system prompt would be billed uncached on every request. A `developer` message stays at the start of the input and stays cacheable ([prompt caching](https://developers.openai.com/api/docs/guides/prompt-caching)). `gpt-6-astra` and `gpt-6.1-sol` cache with `system` and keep it. Responses conversion (`convertOpenAIResponseInputs`) already emits system prompts as a leading `developer` item and never sends `instructions`. The compatible `generateObject()` path bypasses `chatCompletion.handlePayload`, so the provider's `generateObject.handlePayload` applies the same role mapping to its Chat Completions requests.
 - OpenAI-compatible cache hints are controlled by provider config `openAICompatCache`, not ad hoc request mutations:
   - Chat Completions can send body `prompt_cache_key`, `Session_id` header, both, or neither.
   - Responses can send derived body `prompt_cache_key`, `Session_id` header, and `store` as `default` / `true` / `false`.
@@ -45,6 +46,7 @@ For OpenAI-compatible request conversion, stream lifecycle, cancellation, tool c
   - Responses `Session_id`-only mode must not force a body `prompt_cache_key`.
   - Strip `openAICompatCache`, `openAICompatResponsesParams`, `responseStateMode`, `apiMode`, and other runtime-only fields before upstream request bodies are sent.
   - Explicit matrix config derives `prompt_cache_key` for **any** model (`bypassModelAllowlist`); the gpt-5/codex `CACHE_KEY_MODELS` allowlist applies only to the legacy implicit `responseStateMode: "provider"` (no-matrix) path.
+  - `deriveCompatPromptCacheKey` seeds the model, reasoning, `tool_choice`, tools/functions, `instructions`, and system/developer messages. It never seeds the first user message: the key partitions cache reuse, so a per-conversation key would stop a new conversation's first request from reusing the cached tools and system prompt. Conversations that share those parts share one key.
 - `anthropic` context builder: Pass through `thinking` and `redacted_thinking` blocks unchanged; never add `cache_control` to thinking/redacted blocks. System message content may be a text-part array — flatten it to text blocks (`buildAnthropicSystemPrompts`) with `cache_control` on the **last** block only; never cast content `as string`.
 
 ### OpenAI-Compatible Cache Presets
@@ -103,6 +105,8 @@ When using or updating `skills/chathub-provider-probe`:
 - Assert Responses-API-only fields (`reasoning`, `text`, `verbosity`, `truncation`) are NOT present in Chat Completions mode
 - Assert OpenAI-compatible cache matrix fields produce the intended body/header shape for both Chat Completions and Responses
 - Assert explicit matrix config derives `prompt_cache_key` for non gpt-5/codex models, and the legacy no-matrix path still respects the allowlist
+- Assert two requests that differ only in the first user message derive the same `prompt_cache_key` for both `messages` and `input` shapes
+- Assert the `gpt-6.2-astra*` Chat Completions system prompt reaches the upstream `chat.completions.create` body with role `developer`
 - Assert Responses `Session_id`-only mode does NOT send body `prompt_cache_key`
 - Assert `openAICompatCache` and `openAICompatResponsesParams` do NOT leak into upstream request bodies
 - Assert thinking blocks round-trip unchanged (signature, redacted data)
